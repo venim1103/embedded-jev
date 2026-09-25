@@ -1,0 +1,31 @@
+{
+  "name": "Embedded Jev Research (CPU)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "init": true,
+  "runArgs": ["--shm-size=2g"],
+  "mounts": [
+    "source=embedded-jev-cache-${devcontainerId},target=/home/vscode/.cache,type=volume"
+  ],
+  "postCreateCommand": ["/opt/venv/bin/python", ".devcontainer/smoke.py"],
+  "waitFor": "postCreateCommand",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "cmake.configureOnOpen": false
+      }
+    }
+  }
+}
