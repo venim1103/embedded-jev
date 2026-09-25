@@ -1,0 +1,210 @@
+# Implementation Roadmap
+
+This is a research plan, not a claim that the listed pipeline already runs.
+Every model-quality and speed result must reference a frozen artifact, workload,
+runtime, and hardware configuration. No full-model job starts merely because a
+toy mathematical test passes.
+
+## Milestone 0: Research Environment
+
+Status: complete on Linux x86-64 using rootless Podman and Dev Containers CLI.
+
+- [x] Inspect the supplied conversation and primary upstream sources.
+- [x] Build the CPU-first Python 3.12 / Clang 18 development image.
+- [x] Install hash-locked numerical/test dependencies.
+- [x] Pass post-create numerical, C++17/OpenMP, and writable-path checks.
+- [x] Pass nine model-free mathematical/accounting tests.
+- [x] Document architecture, compatibility risks, and staged validation.
+- [ ] Validate the image natively on ARM64.
+- [ ] Configure an optional CUDA quantization environment against the actual host.
+
+Not installed automatically: PyTorch/CUDA, Transformers, datasets, gguf, SemIf,
+BitNet, Prism, or model weights. Avoid mixing their dependency and ABI requirements
+before their revisions and intended roles have been selected.
+
+## Milestone 1: Quantization Feasibility
+
+Status: next implementation slice.
+
+1. Obtain host and target resource budgets. Inspect metadata and safetensors
+   headers for the pinned MiMo checkpoint without downloading all weight shards.
+2. Write a tensor policy and whole-model byte estimate, including embeddings,
+   output, vision, MTP, transform metadata, and retained precision.
+3. Verify MiMo template rendering, true single-token labels, and processor inputs.
+4. Freeze a small domain-relevant decision fixture with labels, missing-evidence
+   cases, and perturbations, isolated from all tuning datasets.
+5. Load the dense reference in a separately pinned ML environment. Measure direct
+   decision accuracy and, if resources allow, a Q8/Q4 runtime control. Keep these
+   controls distinct from the ternary deliverable.
+
+Gate: complete tensor inventory, no missing/mismatched required weights, exact
+tokenization parity, finite reference logits, a defined quality target, and a
+credible host-memory budget. If dense MiMo itself fails the task in non-thinking
+mode, quantify that before attributing failure to quantization.
+
+## Milestone 2: Ternary Reference
+
+1. Implement matching weight/input rotations with per-tensor transform records.
+2. Verify dense equivalence on toy linears, then an actual full-attention block
+   and a linear-attention block before rounding weights.
+3. Adapt a reviewed GPTQ reference for fixed per-row/group ternary scales.
+4. Test all-zero groups, singular statistics, damping retries, FP16 scale rounding,
+   tails, nonfinite inputs, deterministic traversal, and export reconstruction.
+5. Quantize selected blocks using representative real activations, comparing
+   unrotated RTN, rotated RTN, and rotated compensated ternary reconstruction.
+6. Sweep a bounded set of group sizes, damping values, rotation placements, and
+   calibration lengths. Use validation data, not the final test set, for selection.
+
+Gate: exact code/scale reconstruction within declared scale precision, finite
+factors, dense-rotation parity, and a useful measured block-quality improvement.
+Do not start all layers while scales or activation transforms remain ambiguous.
+
+The first real-code tests belong beside the modules they test. The current
+[docs/test_research_math.py](test_research_math.py) is only an executable audit.
+
+## Milestone 3: BitNet Runtime Proof
+
+This milestone is mandatory, not an optional optimization after release. It can
+progress alongside the later part of Milestone 2 after the container is ready.
+
+1. Pin Microsoft BitNet and its submodules; build the documented native control
+   with Clang 18. Use a supported model only after confirming download budget.
+2. Expose prefill-only final logits through verified llama APIs and confirm no
+   answer tokens are sampled. Confirm real I2_S dispatch with profiling/counters.
+3. Freeze a small group-scaled ternary tensor fixture from Milestone 2.
+4. Test a group-scale-preserving BitNet-kernel adaptation in a Qwen3.5-capable
+   runtime. Compare every output with the portable reference for both one-token
+   and multi-token batches, including activation preparation and rescaling.
+5. Evaluate I2_S-style MAD and TL/T-MAC paths as distinct candidates. Include
+   shapes 4,096 and 12,288 and the actual discovered attention widths.
+6. Record format, architecture-specific packing, SIMD path, fallback counts,
+   wall time, and resident bytes. Test misalignment and remainder handling.
+
+Gate: demonstrable Microsoft BitNet-derived execution, no loss of group scales,
+correct rotation/A8 ordering, acceptable numeric error, and no silent FP16
+fallback. If a fork extension is required, name and version it honestly; do not
+call its artifact stock I2_S.
+
+## Milestone 4: Full Model and Export
+
+1. Run the bounded-memory sequential quantizer with resumable per-block artifacts.
+2. Separate weight-only quality loss from additional A8 loss using an ablation.
+3. Export through the selected runtime's architecture/tokenizer converter.
+4. Validate PQ2_0 and PTQ1_0 codecs against native reference decoding, including
+   their exact scale representation and logical tensor shapes.
+5. Check model-level hidden states and logits between the unpacked quantized
+   reference and native packed runtime on identical inputs.
+6. Evaluate held-out language loss and decisions. Use perplexity tools for
+   perplexity; a coherent generation prompt is not a perplexity measurement.
+
+Gate: parser, loader, numerical parity, and quality all pass. Report actual file
+bytes, effective whole-model bpw, preserved-precision fraction, RSS, and scratch.
+PTQ1_0 versus PQ2_0 is a storage/kernel tradeoff, not a new training recipe.
+
+If quality fails after correctness is established, stop rollout and compare
+selective higher precision, reconstruction fine-tuning, and QAT/distillation.
+Changing the target model or dropping BitNet requires an explicit decision.
+
+## Milestone 5: SemIf Integration
+
+1. Reuse SemIf's validation, fixed-label contract, and prompt hashing.
+2. Integrate the chosen native backend using a compatible binding or a small
+   versioned native executable. Keep fork-native libraries isolated.
+3. Implement direct scoring, then complete-state prefix snapshot/restore.
+4. Test repeated calls, reversed branch order, cache misses, altered options,
+   cancellation, max-context errors, and concurrent request isolation.
+5. Fit decision temperature on held-out labeled calibration rows only after
+   model/runtime parameters are frozen. Re-evaluate on untouched test rows.
+6. Add advisory abstention and deterministic policy enforcement.
+
+Gate: no generated tokens, verified answer-slot tokenization, equivalent fresh
+and cached behavior within declared tolerance, auditable scores, and calibrated
+metrics. No claim of reproducing TypeSafe's private Jev model.
+
+## Milestone 6: Edge and Vision
+
+1. Benchmark the integrated system natively on the first x86-64 target.
+2. Validate ARM64 packing and kernels on an actual board, not QEMU timings.
+3. Port the missing RISC-V paths only after specifying RVV version, vector length,
+   compiler, OS ABI, and instruction availability. Generic ggml RVV support is
+   not automatically support for this BitNet-derived format.
+4. Add the actual MiMo vision processor and supported native projector path.
+   Repeat quality and activation calibration with representative images.
+5. Evaluate selected-label output-head pruning after full-head parity. Retain
+   full-head artifacts for language evaluation and general generation.
+6. Run sustained thermal/power tests and a log-only sensor loop with watchdogs.
+
+Gate: target-specific latency/RAM/power/accuracy budgets met with raw evidence.
+Only then make board recommendations or investigate NPU-specific lowering.
+
+## Planned Code Inventory
+
+The following are proposed modules, **not files delivered in this phase**. Use a
+small Python package and subcommands rather than nine duplicated numbered scripts.
+Do not create empty implementations merely to match this table.
+
+| Proposed command/module | Responsibility | Key output |
+| --- | --- | --- |
+| `inspect-model` / `inventory` | Pinned metadata/header inventory and tensor policy | Inventory and byte budget |
+| `prepare-calibration` / `calibration` | Real records, split checks, exact template, bounded token packing | Safe token tensors and provenance |
+| `quantization.rotation` | Matching input/weight transforms and serialization | Transform specification |
+| `quantization.ternary_gptq` | Curvature, damping, row/group scale search, error propagation | Codes, scales, diagnostics |
+| `quantize` / `models.qwen35` | Actual hybrid block replay, device control, resumable processing | Sharded quantization artifact |
+| `export` / `formats` | Runtime-specific mapping and codec parity | Valid native packed model |
+| `export-vision` | Supported processor/projector conversion | Pinned vision artifact |
+| `native/bitnet-adapter` | Group-scale-preserving integration of genuine BitNet kernels | Native executable/library and dispatch report |
+| `score` / `decision` | SemIf contract, label checks, logits, safe state reuse | Auditable JSONL scores |
+| `calibrate-decisions` / `evaluation` | Temperature fitting and reliability metrics | Calibration artifact |
+| `benchmark` | Cold/warm/cached/vision timing, RSS, power | Raw samples and summary |
+
+Reused upstream functionality should stay upstream or in a small adapter. New
+code is justified only where existing tooling does not implement our contract.
+
+## Verification Matrix
+
+| Risk | Required check | Failure response |
+| --- | --- | --- |
+| Changed dense function | Dense vs rotated intermediate and final outputs | Fix transforms before PTQ |
+| Wrong scale or packing | Python/native codec golden vectors and round trips | Block export |
+| Changed graph semantics | Actual full and recurrent block replay | Fix architecture adapter |
+| A8/accumulator errors | Zero/extreme/random activation cases and overflow bounds | Fix policy/kernel |
+| Token mismatch | Exact rendered prompt and append-one-label token parity | Reject model/backend pair |
+| Wrong final logits | Flagged final-position API, varied prompt lengths/batches | Fix native adapter |
+| Cache contamination | Fresh/cached/reordered/repeated sequences | Disable reuse until corrected |
+| Quantization quality loss | Paired dense/quantized decisions, NLL, perplexity where supported | Tune or recover, not deploy |
+| Overconfidence | Held-out NLL/Brier, reliability, selective risk/coverage | Refit or abstain |
+| False speedup | Same artifact/workload, actual dispatch, preprocessing included | Reject performance claim |
+| Impossible memory target | Measured packed resident + runtime allocations | Change documented budget/design |
+
+Set numerical tolerances per dtype before evaluating candidates. Initial FP64
+toy equivalence can use tight tolerances; BF16 native inference must allow
+declared numerical differences and report margin-sensitive decision flips.
+
+## Benchmark Protocol
+
+- Measure 32, 128, 512, and 2,048 input tokens where representative, at 1/4/16
+  criteria per state. Record actual tokenizer counts and suffix lengths.
+- Separate process startup/model load, cold page faults, warm direct prefill,
+  state snapshot/restore, suffix compute, scoring, and complete wall time.
+- Compare the same source checkpoint and decision fixture across dense, Q8/Q4,
+  ternary floating-activation, and ternary A8 paths. Native BitNet is a separate
+  model control, not a model-quality ablation.
+- Start with at least 30 timed warm samples after declared warmups; retain all
+  raw timings and state the protocol, p50/p95, and variability. Extend sustained
+  runs to reveal thermal throttling rather than reporting only a burst.
+- Record ISA, physical/logical cores, affinity, threads, RAM configuration,
+  clock/power mode, compiler flags, runtime hashes, context settings, and cache mode.
+- Measure peak RSS and native allocations, not just Python heap or file size.
+  Report packed resident expansion, snapshot duplication, and swap/page faults.
+- Use an external meter or supported energy counters for joules/decision.
+  CPU TDP and nominal NPU TOPS are not measured energy or matching kernel throughput.
+- Preserve accuracy, balanced accuracy/macro F1 where applicable, NLL, Brier,
+  calibration error with binning stated, and risk/coverage for abstention.
+  Bootstrap by source state/session when decisions are correlated.
+
+## Decisions Needed Before Large Jobs
+
+We still need the quantization host's GPU/VRAM and RAM, the initial device,
+download/storage budget, deployment modality, and acceptable quality/latency
+tradeoffs. The next implementation should inspect and estimate first, then request
+approval for model downloads or compute that exceeds the agreed budget.
