@@ -58,13 +58,40 @@ Inside VS Code after reopening:
 ```bash
 python .devcontainer/smoke.py
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider docs/test_research_math.py
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_inventory.py
 ruff check --no-cache .devcontainer/smoke.py docs/test_research_math.py
+ruff check --no-cache embedded_jev tests/test_inventory.py
 ```
 
 The smoke check runs a Cholesky solve, compiles and executes a C++17/OpenMP
 program in temporary storage, verifies tool availability and writable paths,
 and runs `pip check`. It does not exercise a model, GPU, or SIMD ternary kernel.
 The current nine tests support the audit's deductions, not whole-model quality.
+
+## Pinned Metadata Inventory
+
+Run `PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory` from the
+workspace root for deterministic JSON including all tensor names, shapes,
+dtypes, shard locations, categories, counts, byte costs, and initial policy
+reasons. The report also records metadata-file hashes, header hashes, source
+revision, tool/Python versions, index reconciliation, and transferred body bytes.
+For a short summary, pipe the command to `jq '{totals, memory_estimates, accounting}'`.
+
+Only seven small metadata files and two HTTP byte ranges per indexed shard are
+requested. Metadata and each header are capped at 1 MiB; no more than 16 shards
+are accepted. HTTP `200` for a shard range is refused before reading its body.
+The command never opens a full weight payload, tokenizer vocabulary, or remote
+model code. Offline fixtures in [tests/test_inventory.py](../tests/test_inventory.py)
+cover valid, missing, inconsistent, unsupported, and range-ignoring responses.
+
+For the pinned revision, 760 tensors total 18,819,627,488 bytes (plus 93,360
+bytes of shard headers); a live inventory transferred 172,461 response-body
+bytes. An initial group-128 PTQ1_0 estimate with both vocabulary matrices in
+Q8_0 is 7,469,054,432 **weight payload bytes**. This is a format estimate, not
+a converted artifact, a BitNet I2_S layout, or measured resident RAM. Vision
+stays in BF16 in this estimate. FP16 KV and FP32 recurrent-state examples are
+reported separately; convolution state, scratch, transforms, and allocator
+overhead require later measurement. No hardware or GPU is needed for inventory.
 
 ## Dependencies and Reproducibility
 

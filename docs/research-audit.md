@@ -82,9 +82,13 @@ observed during this audit contains:
 
 This table is a configuration observation, not an inventory of actual tensor
 headers. The observed HF revision is `2367e865d009c13ac81713a2878291d33ab28177`;
-HF metadata reports 9,409,813,744 BF16 parameters. Inspect every tensor and account
-for optional MTP weights before relying on a complete parameter or file-size
-estimate. The [docs/sources.md](sources.md) register records the evidence boundary.
+HF metadata reports 9,409,813,744 BF16 parameters. The later bounded
+[inventory](../embedded_jev/inventory.py) independently counted the same
+9,409,813,744 parameters in 760 tensor entries across four shard headers,
+totaling 18,819,627,488 tensor bytes.
+The config declares one optional MTP layer, but the pinned index/headers contain
+no MTP tensors. This is a storage inventory, not a model-quality or runtime
+measurement. The [docs/sources.md](sources.md) register records the evidence boundary.
 
 ## Corrections to the Conversation
 
@@ -351,3 +355,5 @@ Source inspection establishes interfaces and formats, not model quality or speed
 The accompanying [docs/test_research_math.py](test_research_math.py) checks only
 small algebraic and accounting claims. It does not validate a quantizer, a packed
 runtime, multimodal processing, or safety of device-control decisions.
+The separate [offline inventory tests](../tests/test_inventory.py) verify metadata
+and header reconciliation; they do not validate model execution either.

@@ -15,6 +15,14 @@ nine model-free research tests pass on Linux x86-64. The quantizer, BitNet/MiMo
 integration, and decision service are **not implemented yet**. No model weights
 have been downloaded and no edge latency or quantization quality is claimed.
 
+Milestone 1's pinned metadata/header inventory is available via
+`PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory`. It emits
+deterministic JSON with every tensor's shape, dtype, shard, category, byte count,
+and initial eligibility, plus provenance and weight-only estimates. The pinned
+checkpoint reconciles to 760 tensors, 9,409,813,744 parameters, and
+18,819,627,488 tensor bytes. Only 172,461 metadata/header body bytes were
+transferred in the verification run; no weight payload was downloaded.
+
 This is an independent project. It does not reproduce TypeSafe Jev's undisclosed
 model/training or PrismML's proprietary quantization pipeline.
 
@@ -41,7 +49,9 @@ Inside the container:
 ```bash
 python .devcontainer/smoke.py
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider docs/test_research_math.py
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_inventory.py
 ruff check --no-cache .devcontainer/smoke.py docs/test_research_math.py
+ruff check --no-cache embedded_jev tests/test_inventory.py
 ```
 
 For Docker/Podman CLI instructions, see [docs/development.md](docs/development.md).
@@ -58,6 +68,6 @@ For Docker/Podman CLI instructions, see [docs/development.md](docs/development.m
 - SemIf already has a llama.cpp CPU backend. Direct logits remove answer
 	generation, not prompt computation, and are not automatically calibrated.
 
-Next: inventory the pinned model's tensor headers, establish the host memory
-budget and dense decision reference, then validate a small ternary quantization
-slice together with its BitNet execution contract.
+Next: establish the host memory/download budget, validate the pinned template
+and answer-token boundary, then measure the dense decision reference. A small
+ternary slice and genuine BitNet-derived kernel proof follow; neither runs yet.

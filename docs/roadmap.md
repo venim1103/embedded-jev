@@ -24,7 +24,10 @@ before their revisions and intended roles have been selected.
 
 ## Milestone 1: Quantization Feasibility
 
-Status: next implementation slice.
+Status: in progress. The pinned metadata/header inventory, initial projection
+policy, and weight-only byte estimates are implemented and independently
+reconciled. Host/download budgets, tokenization parity, a decision fixture, and
+a dense reference are not yet established.
 
 1. Obtain host and target resource budgets. Inspect metadata and safetensors
    headers for the pinned MiMo checkpoint without downloading all weight shards.

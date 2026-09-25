@@ -1,13 +1,14 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Phase: research and development-environment bootstrap.
+Prepared: 2026-09-25. Updated: 2026-09-25. Phase: Milestone 1 inventory delivered.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**The environment works. The model pipeline does not exist yet.** Do not confuse
-passing mathematical tests with a successfully quantized or deployed model.
+**The environment and pinned metadata inventory work. The model pipeline does not
+exist yet.** Do not confuse passing mathematical/header tests with a successfully
+quantized or deployed model.
 
 ## 1. User Intent
 
@@ -68,7 +69,9 @@ Delivered files:
 | [.devcontainer/requirements.lock](../.devcontainer/requirements.lock) | Generated transitive lock with package hashes |
 | [.devcontainer/smoke.py](../.devcontainer/smoke.py) | Numerical solve, C++17/OpenMP compile/run, tools and permissions check |
 | [docs/test_research_math.py](test_research_math.py) | Nine small executable checks of audit assumptions |
-| [.gitignore](../.gitignore) | Existing user rule excluding the supplied conversation PDF; preserved unchanged |
+| [embedded_jev/inventory.py](../embedded_jev/inventory.py) | Bounded pinned metadata/header retrieval, deterministic inventory and memory estimator |
+| [tests/test_inventory.py](../tests/test_inventory.py) | Offline fixtures for valid, incomplete, inconsistent, unsupported, and range-ignoring sources |
+| [.gitignore](../.gitignore) | Existing PDF exclusion preserved; generated Python bytecode caches ignored |
 
 The documentation above is also delivered. The existing [LICENSE](../LICENSE)
 was not modified. Third-party model, data, and code licenses remain separate.
@@ -112,7 +115,9 @@ pwd
 python --version
 python .devcontainer/smoke.py
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider docs/test_research_math.py
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_inventory.py
 ruff check --no-cache .devcontainer/smoke.py docs/test_research_math.py
+ruff check --no-cache embedded_jev tests/test_inventory.py
 git status --short
 ```
 
@@ -154,6 +159,8 @@ The following succeeded:
 - Writable workspace and Hugging Face cache paths.
 - `pip check`, with no broken package requirements.
 - Nine mathematical/accounting checks and Ruff on the two Python files.
+- Eight offline inventory tests, Ruff/editor diagnostics, and live pinned-header
+  reconciliation without downloading weight payloads.
 - Local Markdown link and code-fence checks during documentation preparation.
 
 The nine tests cover matching rotations, Hessian spectrum/condition-number
@@ -163,6 +170,7 @@ cache/Hessian/activation accounting, and selected-head conditional probabilities
 
 They do **not** cover a GPTQ implementation, full-model loading, tokenizer parity,
 native codecs, BitNet kernel dispatch, camera processing, or real decision quality.
+The inventory tests also do not test those behaviors.
 
 ## 6. What Is Not Installed or Built
 
@@ -171,8 +179,10 @@ It deliberately does not install Torch, Transformers, datasets, safetensors,
 gguf, SemIf, llama-cpp-python, BitNet, Prism, or CUDA. No inference server runs,
 no ports are forwarded, and no camera or actuator is exposed.
 
-No MiMo or BitNet weight payload was downloaded. No native inference runtime was
-cloned or compiled. No owned quality, perplexity, latency, energy, or RSS result
+No MiMo or BitNet weight payload was downloaded. The pinned inventory fetched
+172,461 metadata/header response-body bytes; it never fetched tensor values.
+No native inference runtime was cloned or compiled. No owned quality,
+perplexity, latency, energy, or RSS result
 exists for the model. The host's intended quantization GPU/VRAM/RAM is unknown.
 
 Do not run the full-model commands from the original PDF: their modules do not
@@ -207,8 +217,10 @@ should be installed into one environment.
 The pinned model is `Qwen3_5ForConditionalGeneration`, with 32 text layers,
 24 linear-attention and eight full-attention blocks, hidden width 4,096,
 intermediate width 12,288, and vocabulary size 248,320. Its embeddings are untied.
-HF reports 9,409,813,744 BF16 parameters; weight headers have not been independently
-counted. Account for vision and optional MTP separately during inventory.
+HF reports 9,409,813,744 BF16 parameters. The pinned header inventory independently
+counts 760 tensors, 9,409,813,744 parameters, and 18,819,627,488 tensor bytes.
+It attributes 912,020,960 bytes to vision; the config declares one optional MTP
+layer but no MTP tensors appear in the weight index or headers.
 
 Each 248,320-by-4,096 BF16 vocabulary matrix is 2,034,237,440 bytes. Input embedding
 plus output projection therefore requires about 4.068 GB before the transformer.
@@ -407,12 +419,28 @@ Physical safety constraints belong outside the model. Initial sensor integration
 is advisory/log-only, with freshness checks, watchdogs, bounded queues, abstention,
 and deterministic limits. Typed output does not prove safe actuator behavior.
 
-## 11. First Implementation Task
+## 11. Milestone 1: Inventory Delivered, Model Work Pending
 
-Resume at **Milestone 1**, not with a full-model ternary run. The recommended first
-concrete deliverable is a pinned-model inventory and memory estimator.
+Run `PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory` to reproduce
+the full sorted JSON inventory and estimates. A live run reconciles the pinned
+index to all four safetensors headers: 760 tensors, 9,409,813,744 BF16 parameters,
+18,819,627,488 tensor bytes, and 93,360 header-overhead bytes. Retrieved metadata
+and headers (not payloads) total 172,461 response-body bytes; metadata and header
+SHA-256 hashes, revision, Python/tool versions, and per-tensor policy reasons
+appear in the report. Eight offline tests cover incomplete/mismatched inputs,
+unsupported metadata, and refusal of full-body shard responses.
 
-Implement `inspect-model` with a small, testable surface:
+The policy initially allows only geometrically compatible FFN and full-attention
+projections: 5,301,600,256 candidate parameters. It retains embeddings/head,
+vision, sensitive/recurrent weights, and fused/linear-attention projections.
+Estimated on-disk weights (not BitNet I2_S or resident allocations) are
+9,376,152,032 bytes for PTQ1_0 group-128 with BF16 vocabulary, or
+7,469,054,432 bytes if both vocabulary matrices are **hypothetically** Q8_0.
+A selected-16 head estimate requires a custom loader; it is not implemented.
+The report keeps FP16 KV and FP32 recurrent-state examples separate from weight
+payload. It cannot detect identical payloads stored in different shards.
+
+The inventory command covers these metadata-only requirements:
 
 1. Read the model config, tokenizer/processor metadata, weight index, and bounded
    safetensors headers for the pinned revision. Use an established HF/safetensors
@@ -438,8 +466,9 @@ Acceptance: deterministic reconciled inventory, explicit unsupported cases, no
 bulk weight download, and a credible memory budget. The current HF API total is
 not a substitute for this implementation.
 
-After this, validate the exact template and answer-token boundary, freeze an owned
-decision fixture, and establish the dense reference. Then take one actual block
+Next, validate the exact template and answer-token boundary, freeze an owned
+decision fixture, and establish the dense reference. Ask about host memory and
+download budgets before fetching model payloads. Then take one actual block
 through rotated dense equivalence and ternary reconstruction, alongside a small
 BitNet group-scale kernel proof. Do not create the entire proposed module tree as
 empty scaffolding or copy the nine numbered scripts from the PDF.
@@ -511,17 +540,20 @@ git log -2 --oneline
 git diff --check
 ```
 
-The expected final tracked worktree is clean. The ignored conversation PDF stays
-local. Container images, running containers, and cache volumes are not stored by
-Git and must be recreated or reused through the documented environment workflow.
+The clean-worktree expectation described the earlier bootstrap commits. This
+Milestone 1 continuation leaves its code/documentation edits uncommitted; it
+did not push or change branches. The ignored conversation PDF stays local.
+Container images, running containers, and cache volumes are not stored by Git
+and must be recreated or reused through the documented environment workflow.
 
 ## 15. Restart Brief
 
 For a fresh coding session, the entire immediate objective is:
 
 > Read this handover and the linked research/design documents. Confirm the CPU
-> devcontainer smoke check and nine numerical tests. Continue with a bounded,
-> pinned MiMo metadata/header inventory and memory estimator before downloading
-> weights. Preserve the genuine BitNet execution requirement and SemIf fixed-label
+> smoke check, nine numerical tests, and eight offline inventory tests. Re-run
+> the bounded pinned inventory when network is available; then address the MiMo
+> template/answer-token boundary and host budgets before downloading weights.
+> Preserve the genuine BitNet execution requirement and SemIf fixed-label
 > contract. Treat unmeasured quality, hardware performance, and proprietary model
 > claims as unknown. Make the smallest testable implementation step.

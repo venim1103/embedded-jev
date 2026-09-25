@@ -1,7 +1,8 @@
 # Embedded Jev Design
 
-Status: proposed architecture, 2026-09-25. The development environment and
-model-free research checks exist; the quantizer and inference service do not.
+Status: proposed architecture, 2026-09-25. The development environment,
+model-free research checks, and pinned metadata/header inventory exist;
+the quantizer and inference service do not.
 See [docs/research-audit.md](research-audit.md) for evidence and corrections,
 [docs/roadmap.md](roadmap.md) for delivery gates, and
 [docs/sources.md](sources.md) for inspected upstream revisions.
