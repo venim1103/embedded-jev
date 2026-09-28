@@ -317,10 +317,12 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_bit
 The tests compile in temporary storage with Clang 18 and require an x86-64 CPU
 with AVX2. Packed weights use 32 bytes per group plus a separate FP32 scale;
 this is neither PTQ1_0 nor a loadable stock BitNet I2_S model. Inputs are
-already signed A8 with supplied activation scales. No FP32 rotation, runtime
-loader/graph, multi-token batch, ARM/RISC-V path, or performance measurement is
-implemented by this proof. The [upstream MIT notice](../native/BitNet-LICENSE.txt)
-is included with the derived source.
+already signed A8 with supplied activation scales. A serial multi-token wrapper
+reuses the same matvec path and has independent three-token golden cases;
+it is not fused GEMM. No FP32 rotation, A8 preparation, runtime loader/graph,
+ARM/RISC-V path, or performance measurement is implemented by this proof.
+The [upstream MIT notice](../native/BitNet-LICENSE.txt) is included with the
+derived source.
 
 Pin parent repositories and all submodules. BitNet's inspected top-level options
 are `BITNET_ARM_TL1` and `BITNET_X86_TL2`; the PDF's generic TL flags are not the

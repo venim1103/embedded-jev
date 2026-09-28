@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <immintrin.h>
+#include <limits>
 
 namespace {
 
@@ -60,6 +61,31 @@ extern "C" int bitnet_group_scale_matvec_avx2(
                      activation_scales[group];
         }
         output[row] = value;
+    }
+    return 0;
+}
+
+extern "C" int bitnet_group_scale_matmul_avx2(
+    const uint8_t* packed, const float* weight_scales, const int8_t* activations,
+    const float* activation_scales, std::size_t tokens, std::size_t rows,
+    std::size_t groups, float* output) {
+    const std::size_t limit = std::numeric_limits<std::size_t>::max();
+    if (!packed || !weight_scales || !activations || !activation_scales ||
+        !output || tokens == 0 || rows == 0 || groups == 0 ||
+        groups > limit / kGroupSize || rows > limit / groups ||
+        rows * groups > limit / kPackedBytes ||
+        tokens > limit / (groups * kGroupSize) || tokens > limit / groups ||
+        tokens > limit / rows) {
+        return 1;
+    }
+    for (std::size_t token = 0; token < tokens; ++token) {
+        const int status = bitnet_group_scale_matvec_avx2(
+            packed, weight_scales, activations + token * groups * kGroupSize,
+            activation_scales + token * groups, rows, groups,
+            output + token * rows);
+        if (status != 0) {
+            return status;
+        }
     }
     return 0;
 }

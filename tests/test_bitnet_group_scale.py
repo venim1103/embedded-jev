@@ -26,14 +26,23 @@ def native_dot(tmp_path_factory):
          "-o", str(library)],
         check=True, capture_output=True, text=True,
     )
-    function = ctypes.CDLL(str(library)).bitnet_group_scale_matvec_avx2
+    binary = ctypes.CDLL(str(library))
+    function = binary.bitnet_group_scale_matvec_avx2
     function.argtypes = [
         ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
         ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
         ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float),
     ]
     function.restype = ctypes.c_int
-    return function
+    batch = binary.bitnet_group_scale_matmul_avx2
+    batch.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
+        ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_float),
+    ]
+    batch.restype = ctypes.c_int
+    return function, batch
 
 
 def pack_codes(codes):
@@ -77,7 +86,7 @@ def test_bitnet_layout_zero_compensation_and_row_dependent_scales(native_dot):
     activations = np.tile(np.array([-128, 127, 7, -3], dtype=np.int8), 64).reshape(2, 128)
     weight_scales = np.array([[0.5, 1.0], [0.25, 3.0], [5.0, 0.125]], dtype=np.float32)
     activation_scales = np.array([0.25, 2.0], dtype=np.float32)
-    packed, actual = call_native(native_dot, codes, activations, weight_scales, activation_scales)
+    packed, actual = call_native(native_dot[0], codes, activations, weight_scales, activation_scales)
     assert packed[1, 0, 0] == 0x19
     assert actual[0] == 0.0
     np.testing.assert_allclose(actual, reference(codes, activations, weight_scales, activation_scales))
@@ -90,6 +99,49 @@ def test_bitnet_dot_real_projection_widths_and_multiple_rows(native_dot, groups)
     activations = generator.integers(-128, 128, size=(groups, 128), dtype=np.int8)
     weight_scales = generator.uniform(0.05, 1.5, size=(5, groups)).astype(np.float32)
     activation_scales = generator.uniform(0.01, 0.3, size=groups).astype(np.float32)
-    _, actual = call_native(native_dot, codes, activations, weight_scales, activation_scales)
+    _, actual = call_native(native_dot[0], codes, activations, weight_scales, activation_scales)
     expected = reference(codes, activations, weight_scales, activation_scales)
     np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.005)
+
+
+@pytest.mark.parametrize("groups", [2, 32, 96])
+def test_multi_token_rows_and_group_scales_match_reference(native_dot, groups):
+    generator = np.random.default_rng(221 + groups)
+    tokens, rows = 3, 5
+    codes = generator.integers(-1, 2, size=(rows, groups, 128), dtype=np.int8)
+    activations = generator.integers(-128, 128, size=(tokens, groups, 128), dtype=np.int8)
+    weight_scales = generator.uniform(0.05, 1.5, size=(rows, groups)).astype(np.float32)
+    activation_scales = generator.uniform(0.01, 0.3, size=(tokens, groups)).astype(np.float32)
+    activation_scales[1, 0] = 0.0
+    packed = pack_codes(codes)
+    output = np.empty((tokens, rows), dtype=np.float32)
+    status = native_dot[1](
+        packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
+        activation_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        tokens, rows, groups, output.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    )
+    assert status == 0
+    group_dots = np.einsum(
+        "rgi,tgi->trg", codes.astype(np.int32), activations.astype(np.int32)
+    )
+    expected = (group_dots * weight_scales[None, :, :] * activation_scales[:, None, :]).sum(axis=2)
+    np.testing.assert_allclose(output, expected, rtol=2e-5, atol=0.005)
+
+
+def test_multi_token_rejects_empty_and_overflowed_shapes(native_dot):
+    packed = np.zeros(32, dtype=np.uint8)
+    scale = np.ones(1, dtype=np.float32)
+    activations = np.zeros(128, dtype=np.int8)
+    output = np.full(1, 123.0, dtype=np.float32)
+    pointers = (
+        packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        scale.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
+        scale.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    )
+    output_pointer = output.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    assert native_dot[1](*pointers, 0, 1, 1, output_pointer) == 1
+    assert native_dot[1](*pointers, 1, 1, ctypes.c_size_t(-1).value, output_pointer) == 1
+    assert output[0] == 123.0

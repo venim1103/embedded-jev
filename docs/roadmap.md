@@ -78,8 +78,9 @@ This milestone is mandatory, not an optional optimization after release. It can
 progress alongside the later part of Milestone 2 after the container is ready.
 An isolated [AVX2 group-scale fixture](../native/bitnet_group_scale.cpp) now
 compiles and passes scalar-reference golden tests for group-128 ternary dots,
-including 4,096- and 12,288-wide projections. It does **not** satisfy the
-native runtime/dispatch, rotation/A8, batch, or model-quality gate below.
+including serial three-token batches at 256, 4,096, and 12,288 input widths.
+It does **not** satisfy the native runtime/dispatch, rotation/A8 preparation,
+optimized batch, or model-quality gate below.
 
 1. Pin Microsoft BitNet and its submodules; build the documented native control
    with Clang 18. Use a supported model only after confirming download budget.
