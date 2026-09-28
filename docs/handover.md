@@ -1,6 +1,6 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-09-25. Phase: Milestone 1 inventory delivered.
+Prepared: 2026-09-25. Updated: 2026-09-28. Phase: Milestone 1 feasibility checks in progress.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
@@ -71,6 +71,8 @@ Delivered files:
 | [docs/test_research_math.py](test_research_math.py) | Nine small executable checks of audit assumptions |
 | [embedded_jev/inventory.py](../embedded_jev/inventory.py) | Bounded pinned metadata/header retrieval, deterministic inventory and memory estimator |
 | [tests/test_inventory.py](../tests/test_inventory.py) | Offline fixtures for valid, incomplete, inconsistent, unsupported, and range-ignoring sources |
+| [embedded_jev/label_probe.py](../embedded_jev/label_probe.py) | Pinned text-only MiMo template and A-P token-boundary check without model weights |
+| [tests/test_label_probe.py](../tests/test_label_probe.py) | Offline positive and negative tokenizer-boundary cases |
 | [.gitignore](../.gitignore) | Existing PDF exclusion preserved; generated Python bytecode caches ignored |
 
 The documentation above is also delivered. The existing [LICENSE](../LICENSE)
@@ -116,8 +118,9 @@ python --version
 python .devcontainer/smoke.py
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider docs/test_research_math.py
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_inventory.py
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_label_probe.py
 ruff check --no-cache .devcontainer/smoke.py docs/test_research_math.py
-ruff check --no-cache embedded_jev tests/test_inventory.py
+ruff check --no-cache embedded_jev tests
 git status --short
 ```
 
@@ -466,7 +469,7 @@ Acceptance: deterministic reconciled inventory, explicit unsupported cases, no
 bulk weight download, and a credible memory budget. The current HF API total is
 not a substitute for this implementation.
 
-Next, validate the exact template and answer-token boundary, freeze an owned
+Next, verify real processor inputs and native tokenizer parity, freeze an owned
 decision fixture, and establish the dense reference. Ask about host memory and
 download budgets before fetching model payloads. Then take one actual block
 through rotated dense equivalence and ternary reconstruction, alongside a small
@@ -546,14 +549,30 @@ did not push or change branches. The ignored conversation PDF stays local.
 Container images, running containers, and cache volumes are not stored by Git
 and must be recreated or reused through the documented environment workflow.
 
-## 15. Restart Brief
+## 15. Pinned Text-Only Label Boundary
+
+The [label probe](../embedded_jev/label_probe.py) checks the actual MiMo template
+with `enable_thinking=False`, compares the rendered prompt IDs against official
+Transformers chat-template IDs, and requires A-P to add one distinct non-special
+token each. With pinned Transformers 5.12.1 and tokenizer files (roughly 20 MB,
+no weights), the reference sample has 46 prompt tokens and label IDs A-P =
+32-47. Both the opt-in bounded fetch and offline cached path were exercised.
+The report includes template/prompt hashes, file hashes, and library versions;
+[docs/development.md](development.md) has the isolated-environment commands.
+Three offline tests pass. This is one text-only prompt, not a frozen evaluation
+fixture, processor validation, GGUF/native tokenizer parity, inference result,
+or evidence of model quality. Continue testing exact prefixes for every prompt
+and native backend before scoring decisions.
+
+## 16. Restart Brief
 
 For a fresh coding session, the entire immediate objective is:
 
 > Read this handover and the linked research/design documents. Confirm the CPU
-> smoke check, nine numerical tests, and eight offline inventory tests. Re-run
-> the bounded pinned inventory when network is available; then address the MiMo
-> template/answer-token boundary and host budgets before downloading weights.
+> smoke check, nine numerical tests, eight offline inventory tests, and three
+> label-probe tests. Re-run the bounded pinned inventory when network is
+> available; then validate processor inputs and native tokenizer parity, freeze
+> a decision fixture, and clarify host budgets before downloading weights.
 > Preserve the genuine BitNet execution requirement and SemIf fixed-label
 > contract. Treat unmeasured quality, hardware performance, and proprietary model
 > claims as unknown. Make the smallest testable implementation step.

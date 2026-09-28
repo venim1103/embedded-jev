@@ -22,6 +22,11 @@ Observed HF revision: `2367e865d009c13ac81713a2878291d33ab28177`.
 Initial model/template reads used `main`; the full revision was then resolved
 and the configuration re-read at that revision. Future executions must use the
 immutable revision and file hashes, not this audit date or a moving branch.
+The 2026-09-28 tokenizer-only check fetched just the pinned `config.json`,
+`tokenizer_config.json`, `chat_template.jinja`, and 19,989,325-byte
+`tokenizer.json`. Their SHA-256 hashes and the exact Transformers/tokenizers
+versions appear in `python -m embedded_jev.label_probe` output. No model weights
+or processor payloads were fetched for that check.
 
 ## BitNet
 

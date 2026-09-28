@@ -357,3 +357,7 @@ small algebraic and accounting claims. It does not validate a quantizer, a packe
 runtime, multimodal processing, or safety of device-control decisions.
 The separate [offline inventory tests](../tests/test_inventory.py) verify metadata
 and header reconciliation; they do not validate model execution either.
+The pinned [label probe](../embedded_jev/label_probe.py) verifies single-token
+A-P continuations and matching rendered/tokenized template IDs for one text-only
+sample prompt using Transformers 5.12.1. It does not test native tokenization,
+the visual processor, generated reasoning, or decision quality.

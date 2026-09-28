@@ -59,8 +59,9 @@ Inside VS Code after reopening:
 python .devcontainer/smoke.py
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider docs/test_research_math.py
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_inventory.py
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_label_probe.py
 ruff check --no-cache .devcontainer/smoke.py docs/test_research_math.py
-ruff check --no-cache embedded_jev tests/test_inventory.py
+ruff check --no-cache embedded_jev tests
 ```
 
 The smoke check runs a Cholesky solve, compiles and executes a C++17/OpenMP
@@ -92,6 +93,36 @@ a converted artifact, a BitNet I2_S layout, or measured resident RAM. Vision
 stays in BF16 in this estimate. FP16 KV and FP32 recurrent-state examples are
 reported separately; convolution state, scratch, transforms, and allocator
 overhead require later measurement. No hardware or GPU is needed for inventory.
+
+## Tokenizer-Only Label Probe
+
+The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo
+template's non-thinking assistant prefix has the same token IDs when rendered
+or tokenized by Transformers, then checks that each A-P label extends that
+exact prompt by one distinct, non-special token. It does not load weights or
+generate an answer. Its offline tests run in the base container, but the live
+probe needs a separate tokenizer-only environment:
+
+```bash
+export UV_CACHE_DIR="$HOME/embedded-jev-cache/uv"
+uv venv "$HOME/embedded-jev-cache/tokenizer-probe" --python /opt/venv/bin/python
+uv pip install --python "$HOME/embedded-jev-cache/tokenizer-probe/bin/python" 'transformers==5.12.1' 'jinja2==3.1.6'
+export HF_HOME="$HOME/embedded-jev-cache/huggingface"
+"$HOME/embedded-jev-cache/tokenizer-probe/bin/python" -m embedded_jev.label_probe --fetch
+HF_HUB_OFFLINE=1 "$HOME/embedded-jev-cache/tokenizer-probe/bin/python" -m embedded_jev.label_probe
+```
+
+The opt-in `--fetch` mode checks file sizes before downloading only the pinned
+`tokenizer.json` (at most 25 MiB), `tokenizer_config.json`, `config.json`, and
+`chat_template.jinja` (each at most 1 MiB). The default mode requires those
+files to be cached and does not fetch anything. Both modes reject unsupported
+templates, label merges, duplicate/special label IDs, and missing provenance;
+the JSON report hashes the four files and records library versions. The isolated
+environment is a probe, not the hash-locked research environment or a validated
+ML/runtime dependency lock. The verified text-only example yields label IDs
+32-47 (A-P) under Transformers 5.12.1. Recheck every new prompt and native
+tokenizer independently; no processor/vision or native inference parity follows
+from this result.
 
 ## Dependencies and Reproducibility
 
