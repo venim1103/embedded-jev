@@ -8,6 +8,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from scipy.linalg import hadamard
+
+from embedded_jev.activation import quantize_a8_per_group, rotate_signed_hadamard
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
@@ -77,6 +80,22 @@ def reference(codes, activations, weight_scales, activation_scales):
     return (group_dots * weight_scales * activation_scales).sum(axis=1)
 
 
+def call_native_batch(function, codes, activations, weight_scales, activation_scales):
+    tokens, groups, _ = activations.shape
+    rows = codes.shape[0]
+    packed = pack_codes(codes)
+    output = np.empty((tokens, rows), dtype=np.float32)
+    status = function(
+        packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
+        activation_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        tokens, rows, groups, output.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    )
+    assert status == 0
+    return output
+
+
 def test_bitnet_layout_zero_compensation_and_row_dependent_scales(native_dot):
     codes = np.zeros((3, 2, 128), dtype=np.int8)
     codes[1, 0, [0, 32, 64, 96]] = [-1, 0, 1, 0]
@@ -113,21 +132,56 @@ def test_multi_token_rows_and_group_scales_match_reference(native_dot, groups):
     weight_scales = generator.uniform(0.05, 1.5, size=(rows, groups)).astype(np.float32)
     activation_scales = generator.uniform(0.01, 0.3, size=(tokens, groups)).astype(np.float32)
     activation_scales[1, 0] = 0.0
-    packed = pack_codes(codes)
-    output = np.empty((tokens, rows), dtype=np.float32)
-    status = native_dot[1](
-        packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
-        weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
-        activation_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        tokens, rows, groups, output.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-    )
-    assert status == 0
+    output = call_native_batch(native_dot[1], codes, activations, weight_scales, activation_scales)
     group_dots = np.einsum(
         "rgi,tgi->trg", codes.astype(np.int32), activations.astype(np.int32)
     )
     expected = (group_dots * weight_scales[None, :, :] * activation_scales[:, None, :]).sum(axis=2)
     np.testing.assert_allclose(output, expected, rtol=2e-5, atol=0.005)
+
+
+@pytest.mark.parametrize("block_size", [128, 1024])
+def test_matching_rotation_then_a8_then_native_batch(native_dot, block_size):
+    generator = np.random.default_rng(300 + block_size)
+    width = block_size * 2
+    groups = width // 128
+    signs = generator.choice([-1, 1], size=width)
+    inputs = generator.normal(size=(3, width)).astype(np.float32)
+    inputs[0, 0] = 12.0
+    codes = generator.integers(-1, 2, size=(4, groups, 128), dtype=np.int8)
+    weight_scales = generator.uniform(0.05, 0.4, size=(4, groups)).astype(np.float32)
+    rotated_weights = (codes * weight_scales[..., None]).reshape(4, width)
+    rotation = np.zeros((width, width))
+    for start in range(0, width, block_size):
+        rotation[start : start + block_size, start : start + block_size] = (
+            signs[start : start + block_size, None] * hadamard(block_size)
+            / np.sqrt(block_size)
+        )
+    original_weights = rotated_weights @ rotation.T
+    rotated_inputs = rotate_signed_hadamard(inputs, signs, block_size)
+    np.testing.assert_allclose(
+        inputs @ original_weights.T, rotated_inputs @ rotated_weights.T,
+        rtol=1e-5, atol=0.001,
+    )
+
+    activations, activation_scales = quantize_a8_per_group(rotated_inputs)
+    grouped_activations = activations.reshape(3, groups, 128)
+    native = call_native_batch(
+        native_dot[1], codes, grouped_activations,
+        weight_scales, activation_scales,
+    )
+    group_dots = np.einsum(
+        "rgi,tgi->trg", codes.astype(np.int32), grouped_activations.astype(np.int32)
+    )
+    quantized_reference = (
+        group_dots * weight_scales[None, :, :] * activation_scales[:, None, :]
+    ).sum(axis=-1)
+    np.testing.assert_allclose(native, quantized_reference, rtol=2e-5, atol=0.005)
+    error_bound = (
+        np.abs(codes).sum(axis=-1)[None, :, :] * weight_scales[None, :, :]
+        * activation_scales[:, None, :] / 2
+    ).sum(axis=-1)
+    assert np.all(np.abs(native - rotated_inputs @ rotated_weights.T) < error_bound + 0.005)
 
 
 def test_multi_token_rejects_empty_and_overflowed_shapes(native_dot):

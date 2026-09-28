@@ -307,9 +307,15 @@ Seven golden tests compare compiled outputs against an independent scalar
 reference for zero weights, negative/extreme activations, unequal scales, and
 serial three-token batches at 256/4,096/12,288 input widths. The
 [BitNet MIT notice](../native/BitNet-LICENSE.txt) is retained separately.
-This does **not** execute the Microsoft fork's GGML graph, prepare rotations/A8,
-run a fused batch kernel, or prove runtime dispatch, quality, ARM/RISC-V support,
-or a speedup. Those remain mandatory later gates.
+The test-only [activation preparation](../embedded_jev/activation.py) applies
+the same signed normalized Hadamard transform to activations and weight inputs,
+then rounds rotated activations to symmetric A8 with one FP32 scale per
+token/input group (all-zero groups use scale 1). Toy integrated tests at 128-
+and 1,024-point transforms compare the compiled multi-token output with an
+independent quantized reference and bound its difference from rotated dense.
+This does **not** execute the Microsoft fork's GGML graph, run transforms/A8
+inside the runtime, process an actual model block, run fused GEMM, or prove
+runtime dispatch, quality, ARM/RISC-V support, or a speedup. Those remain gates.
 
 Use a native BitNet checkpoint as a tooling control. The preferred proposed MiMo
 direction is to integrate a real BitNet-derived kernel into a Qwen3.5-capable

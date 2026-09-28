@@ -319,8 +319,12 @@ with AVX2. Packed weights use 32 bytes per group plus a separate FP32 scale;
 this is neither PTQ1_0 nor a loadable stock BitNet I2_S model. Inputs are
 already signed A8 with supplied activation scales. A serial multi-token wrapper
 reuses the same matvec path and has independent three-token golden cases;
-it is not fused GEMM. No FP32 rotation, A8 preparation, runtime loader/graph,
-ARM/RISC-V path, or performance measurement is implemented by this proof.
+it is not fused GEMM. The separate [activation helper](../embedded_jev/activation.py)
+applies explicit signed FP32 Hadamard blocks and symmetric per-token/group A8
+in Python; toy tests feed that result to the native batch kernel. Run those
+CPU checks with `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_activation.py`.
+No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,
+or performance measurement is implemented by this proof.
 The [upstream MIT notice](../native/BitNet-LICENSE.txt) is included with the
 derived source.
 

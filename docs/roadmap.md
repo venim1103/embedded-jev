@@ -54,6 +54,11 @@ mode, quantify that before attributing failure to quantization.
 
 ## Milestone 2: Ternary Reference
 
+Toy linears now pass matching explicit-sign FP32 Hadamard rotation at block
+sizes 128 and 1,024, followed by independent per-token/group-128 dynamic A8
+preparation. This has not been validated on a MiMo decoder block or calibration
+distribution; the remaining steps below are open.
+
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block
    and a linear-attention block before rounding weights.
@@ -79,8 +84,10 @@ progress alongside the later part of Milestone 2 after the container is ready.
 An isolated [AVX2 group-scale fixture](../native/bitnet_group_scale.cpp) now
 compiles and passes scalar-reference golden tests for group-128 ternary dots,
 including serial three-token batches at 256, 4,096, and 12,288 input widths.
-It does **not** satisfy the native runtime/dispatch, rotation/A8 preparation,
-optimized batch, or model-quality gate below.
+Toy Python FP32 rotation and dynamic A8 also feed the compiled batch path with
+scalar parity at 128- and 1,024-point transform sizes. This does **not** satisfy
+runtime transform/A8 execution, native dispatch, optimized batch, or the
+model-quality gate below.
 
 1. Pin Microsoft BitNet and its submodules; build the documented native control
    with Clang 18. Use a supported model only after confirming download budget.
