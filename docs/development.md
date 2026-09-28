@@ -173,6 +173,16 @@ the complete OS image is **not bit-reproducible**. Before publishing benchmarks,
 record the actual image digest and system package versions or freeze a tested
 image. Record native compiler flags and submodule commits separately.
 
+On 2026-09-28, WSL/Podman GPU builds encountered APT `Hash Sum mismatch`
+errors for both `noble-backports/multiverse` and `noble-security/restricted` over
+HTTP. Removing backports did not resolve the broader issue. The shared image
+now uses HTTPS for both official Ubuntu APT sources while retaining all suites,
+components, and APT signature/hash verification. HTTPS endpoint reachability was
+checked in the CPU container; both previously failing by-hash index URLs also
+returned content with the expected SHA-256 over HTTPS there. A subsequent
+WSL/Podman build succeeded with the HTTPS sources and all pockets enabled.
+Do not disable APT integrity checks to work around stale mirror data.
+
 Keep third-party runtimes and generated build outputs outside tracked source, for
 example under `$HOME/.cache/embedded-jev`. Do not add large models, private data,
 credentials, or generated checkpoints to Git. This initial phase leaves the
@@ -211,13 +221,15 @@ devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devconta
 ```
 
 The GPU profile runs the existing CPU smoke check and fails post-create if
-`/dev/dxg` or `nvidia-smi` is unavailable. Verify the actual GPU model,
-driver, VRAM, and CUDA availability on the host before choosing a separate
+`/dev/dxg` or `nvidia-smi` is unavailable. On 2026-09-28, the WSL/Podman host
+completed the image build and post-create smoke check, then reported an
+NVIDIA RTX A3000 12GB Laptop GPU, 12,288 MiB VRAM, and driver 595.95 via
+`nvidia-smi` inside the container. This verifies device visibility, not CUDA
+computation or Torch compatibility. Verify those before choosing a separate
 CUDA-enabled ML environment with matching Torch wheels. The shared CPU image
 does **not** install CUDA, GPU Torch, or `nvcc`; device visibility alone does
 not establish usable quantization, native BitNet execution, or GPU performance.
-No profile build/start or GPU check was possible inside the current CPU-only
-container. No weights, drivers, or GPU packages are downloaded by this profile.
+No weights, drivers, or GPU packages are downloaded by this profile.
 Compiling CUDA extensions additionally requires a matching CUDA toolkit and
 `nvcc`; `--gpus all` alone does not provide them.
 
@@ -257,3 +269,9 @@ On 2026-09-25, using Dev Containers CLI 0.87.0 and rootless Podman on Linux x86-
 | Research math suite | 9 passed |
 | Ruff on smoke/test code | Passed |
 | GPU, ARM64, RISC-V, actual model/runtime | Not tested |
+
+On 2026-09-28, the opt-in WSL/Podman GPU profile built successfully with HTTPS
+Ubuntu sources, started, and passed its post-create CPU smoke check. Inside the
+container, `nvidia-smi` reported an RTX A3000 Laptop GPU (12,288 MiB, driver
+595.95). This establishes device visibility only; CUDA computation, GPU Torch,
+model loading, ARM64, and RISC-V remain untested.

@@ -138,9 +138,10 @@ reuses the CPU image and adds `nvidia.com/gpu=all`, `/dev/dxg`, and the WSL
 driver-library mount from the user's working container. The default config
 remains CPU-only. Its post-create command checks `/dev/dxg` and `nvidia-smi`;
 see [docs/development.md](development.md) for host-side launch commands and
-prerequisites. Only JSON/path structure was verified in this CPU container;
-the profile has not been built, started, or GPU-tested here. CUDA, GPU Torch,
-model weights, and native BitNet remain opt-in later work.
+prerequisites. A WSL/Podman host build and post-create check succeeded on
+2026-09-28, reporting an RTX A3000 Laptop GPU (12,288 MiB, driver 595.95)
+inside the container. CUDA computation, GPU Torch, model weights, and native
+BitNet remain untested or opt-in later work.
 
 ## 5. What Was Actually Verified
 
@@ -174,6 +175,9 @@ The following succeeded:
 - Nine mathematical/accounting checks and Ruff on the two Python files.
 - Eight offline inventory tests, Ruff/editor diagnostics, and live pinned-header
   reconciliation without downloading weight payloads.
+- Opt-in WSL/Podman GPU profile image build and post-create CPU smoke; inside
+  the container `nvidia-smi` reported RTX A3000 Laptop GPU, 12,288 MiB VRAM,
+  driver 595.95. No CUDA kernels or model inference were exercised.
 - Local Markdown link and code-fence checks during documentation preparation.
 
 The nine tests cover matching rotations, Hessian spectrum/condition-number
@@ -195,8 +199,9 @@ no ports are forwarded, and no camera or actuator is exposed.
 No MiMo or BitNet weight payload was downloaded. The pinned inventory fetched
 172,461 metadata/header response-body bytes; it never fetched tensor values.
 No native inference runtime was cloned or compiled. No owned quality,
-perplexity, latency, energy, or RSS result
-exists for the model. The host's intended quantization GPU/VRAM/RAM is unknown.
+perplexity, latency, energy, or RSS result exists for the model. The host GPU
+is an RTX A3000 Laptop GPU with 12,288 MiB VRAM; host RAM/storage and full-model
+quantization feasibility still require a resource plan.
 
 Do not run the full-model commands from the original PDF: their modules do not
 exist here, and several use incompatible layouts or nonexistent APIs.
@@ -511,6 +516,14 @@ only after a workload/target is chosen.
 
 ## 13. Environment Pitfalls Already Encountered
 
+- Two WSL/Podman GPU `devcontainer up` attempts failed at `apt-get update`, first
+  with a `noble-backports/multiverse` Hash Sum mismatch and then with one in
+  `noble-security/restricted`. The backports-only workaround was disproven and
+  replaced by HTTPS for the existing Ubuntu sources, preserving all pockets
+  and APT integrity checks. Both failing by-hash URLs returned the expected
+  SHA-256 over HTTPS from the CPU container. A later WSL/Podman `devcontainer up`
+  built successfully and passed post-create `nvidia-smi` with driver 595.95.
+  Do not bypass TLS or checksum verification if a future mirror issue recurs.
 - Dev Containers CLI 0.87.0 accepts `info`, `debug`, and `trace` log levels,
   not `error`. The initial unsupported flag was corrected.
 - Direct rootless Podman bind mounts used for one-off tooling needed

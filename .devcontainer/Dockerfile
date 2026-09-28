@@ -2,7 +2,8 @@ FROM mcr.microsoft.com/devcontainers/base:1-ubuntu-24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
+RUN sed -i 's|^URIs: http://|URIs: https://|' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
