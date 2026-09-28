@@ -11,6 +11,7 @@ import pytest
 from scipy.linalg import hadamard
 
 from embedded_jev.activation import quantize_a8_per_group, rotate_signed_hadamard
+from embedded_jev.ternary import quantize_ternary_rtn, reconstruct_ternary
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
@@ -182,6 +183,28 @@ def test_matching_rotation_then_a8_then_native_batch(native_dot, block_size):
         * activation_scales[:, None, :] / 2
     ).sum(axis=-1)
     assert np.all(np.abs(native - rotated_inputs @ rotated_weights.T) < error_bound + 0.005)
+
+
+@pytest.mark.parametrize("groups", [2, 32])
+def test_saved_fp16_group_scales_feed_native_batch(native_dot, groups):
+    generator = np.random.default_rng(901 + groups)
+    weights = generator.normal(size=(4, groups * 128)).astype(np.float32)
+    weights[0, :128] = 0.0
+    weights[1, 0] = 1.0004
+    weights[1, 1] = 0.5001
+    codes, stored_scales = quantize_ternary_rtn(weights)
+    restored = reconstruct_ternary(codes, stored_scales)
+    activations = generator.integers(-128, 128, size=(3, groups, 128), dtype=np.int8)
+    activation_scales = generator.uniform(0.01, 0.3, size=(3, groups)).astype(np.float32)
+    actual = call_native_batch(
+        native_dot[1], codes.reshape(4, groups, 128), activations,
+        stored_scales.astype(np.float32), activation_scales,
+    )
+    scaled_activations = (
+        activations.astype(np.float32) * activation_scales[..., None]
+    ).reshape(3, groups * 128)
+    expected = np.einsum("ri,ti->tr", restored, scaled_activations)
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.01)
 
 
 def test_multi_token_rejects_empty_and_overflowed_shapes(native_dot):

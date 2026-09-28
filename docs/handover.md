@@ -365,6 +365,16 @@ dequantized tensors. Keep processing-block size separate from scale-group size.
 Act-order permutations require matching runtime/group mapping and are initially
 best left disabled.
 
+The toy [ternary RTN baseline](../embedded_jev/ternary.py) now saves one FP16
+max-abs scale and -1/0/+1 codes per output row and contiguous group. Code
+assignment uses the **stored representable scale**, handles zero groups, and
+rejects nonfinite, overflowing, underflowing, or tail groups. Reconstruction
+uses only those saved arrays. Toy golden tests also cast the saved scales to
+FP32 for the isolated BitNet-derived AVX2 kernel and compare its output with
+the saved-artifact reconstruction at 256 and 4,096 input values. This is not
+GPTQ, an exporter/codec, a model-weight quantization result, or native graph
+integration; quality and format gates remain open.
+
 ### Prism Has a Concrete Transform Schema
 
 The inspected `prism.hadamard.*` metadata specifies version, one block size,

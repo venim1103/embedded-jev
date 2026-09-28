@@ -323,6 +323,12 @@ it is not fused GEMM. The separate [activation helper](../embedded_jev/activatio
 applies explicit signed FP32 Hadamard blocks and symmetric per-token/group A8
 in Python; toy tests feed that result to the native batch kernel. Run those
 CPU checks with `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_activation.py`.
+The separate [ternary RTN baseline](../embedded_jev/ternary.py) saves codes
+and representable FP16 scales per output row/group, and its
+[offline tests](../tests/test_ternary.py) verify reconstruction and reject
+unsupported groups. Native golden tests check outputs using only the saved
+codes and FP16 scales cast to FP32. This is an in-memory toy artifact, not a
+serialized PTQ1_0/PQ2_0 codec or a GPTQ quality claim.
 No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,
 or performance measurement is implemented by this proof.
 The [upstream MIT notice](../native/BitNet-LICENSE.txt) is included with the

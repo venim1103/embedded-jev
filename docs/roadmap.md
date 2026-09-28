@@ -56,8 +56,11 @@ mode, quantify that before attributing failure to quantization.
 
 Toy linears now pass matching explicit-sign FP32 Hadamard rotation at block
 sizes 128 and 1,024, followed by independent per-token/group-128 dynamic A8
-preparation. This has not been validated on a MiMo decoder block or calibration
-distribution; the remaining steps below are open.
+preparation. A deterministic [ternary RTN baseline](../embedded_jev/ternary.py)
+retains codes and FP16 row/group scales; toy reconstruction and native-kernel
+outputs match those stored values. This has not been validated on a MiMo
+decoder block or calibration distribution. GPTQ, native artifact export, and
+model-quality steps below remain open.
 
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block
