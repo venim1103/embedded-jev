@@ -66,6 +66,9 @@ This has not been validated on a MiMo decoder block or calibration distribution.
 A deterministic, 1 MiB-capped toy archive round-trips saved codes, FP16 scales,
 and explicit signed-Hadamard metadata into the native CPU fixture. Full GPTQ
 scaling, native artifact export, and model-quality steps remain open.
+A metadata-only check against pinned Prism v1 transform rules rejects a toy
+weight with the wrong full-model logical width or conflicting sign/block data;
+it is not a native GGUF export or loader parity test.
 A bounded reader fetched only 2,048 BF16 bytes from four rows and two groups
 of an eligible pinned MiMo projection. On disjoint synthetic Gaussian inputs,
 an 11-candidate per-row/group FP16 scale grid lowered local MSE for both RTN
@@ -124,6 +127,11 @@ row/group scales outside the graph returned exact toy outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The
 same tiny graph also passed two token columns with different dynamic A8 scales
 (+1.0 and -2.0 inputs); position/recurrent state is not involved.
+The separately pinned Prism Qwen3.5-capable fork now builds on x86-64. Its
+native CPU FWHT graph matches dense signed Hadamard on two tokens, and a
+same-process toy bridges that graph through dynamic A8 to the standalone
+BitNet-derived group-scale kernel with scalar parity. The kernel is still
+called **outside** Prism's graph; this is not MiMo loader/dispatch parity.
 
 1. Pin Microsoft BitNet and its submodules; build the documented native control
    with Clang 18. Use a supported model only after confirming download budget.

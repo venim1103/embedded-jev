@@ -84,8 +84,15 @@ PTQ1_0 storage, or a BitNet/Qwen3.5 runtime integration.
 ## Bonsai and Runtime Formats
 
 The demo documentation was inspected on `main`. Format and Qwen3.5 source
-inspection used release tag `prism-b10735-842b188`; resolve its full commit and
-record the binary hash before adopting it as an execution dependency.
+inspection used release tag `prism-b10735-842b188`, now resolved to full commit
+`842b1880415d6f508f03b789e5ce70194def7bfd`. Its CPU `llama` library
+built with Clang 18 outside the repo. Built `libggml-cpu.so` SHA-256 is
+`52fe58a3333b2cf69ac82132c5db1518dd35c506546a280d42fd00187d01a4dd`;
+`libllama.so.0` SHA-256 is
+`3e585b7919a91662195ffccb85c2eb6eefdaee0deb383b5a182d309ecafcce06`.
+Native tests pass signed FWHT parity and a same-process toy FWHT-to-grouped
+BitNet-derived kernel bridge. No MiMo model, converter, or low-bit Prism graph
+operator was loaded or validated.
 
 | Source | What it establishes | Limit |
 | --- | --- | --- |

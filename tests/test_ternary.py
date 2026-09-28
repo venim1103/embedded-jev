@@ -9,7 +9,12 @@ import numpy as np
 import pytest
 
 from embedded_jev.activation import rotate_signed_hadamard
-from embedded_jev.ternary_artifact import TernaryArtifactError, load_toy_artifact, save_toy_artifact
+from embedded_jev.ternary_artifact import (
+    TernaryArtifactError,
+    load_toy_artifact,
+    prism_v1_transform_metadata,
+    save_toy_artifact,
+)
 from embedded_jev.ternary import (
     quantize_ternary_compensated,
     quantize_ternary_rtn,
@@ -260,6 +265,66 @@ def test_signed_transform_round_trip_and_strict_schema():
     manifest["schema_version"] = True
     with pytest.raises(TernaryArtifactError, match="unsupported toy artifact manifest"):
         load_toy_artifact(replace_entries({**entries, "manifest.json": json.dumps(manifest).encode()}))
+
+
+def test_prism_metadata_requires_one_block_and_sign_vector_per_width():
+    weights = np.ones((2, 256), dtype=np.float32)
+    codes, scales = quantize_ternary_rtn(weights)
+    signs = np.tile([1, -1], 128)
+    first = save_toy_artifact(
+        codes, scales, algorithm="rtn-maxabs-fp16-v1", signs=signs, block_size=128
+    )
+    second = save_toy_artifact(
+        codes, scales, algorithm="rtn-maxabs-fp16-v1", signs=signs, block_size=128
+    )
+    artifacts = {"blk.0.ffn_down.weight": first, "blk.1.ffn_gate.weight": second}
+    widths = {name: 256 for name in artifacts}
+    metadata = prism_v1_transform_metadata(artifacts, expected_widths=widths)
+    assert metadata["prism.hadamard.version"] == 1
+    assert metadata["prism.hadamard.tied_output"] is False
+    assert metadata["prism.hadamard.block_size"] == 128
+    assert metadata["prism.hadamard.weight_names"] == sorted(artifacts)
+    assert metadata["prism.hadamard.sign_widths"] == [256]
+    assert metadata["prism.hadamard.sign_values"] == signs.tolist()
+
+    changed_signs = signs.copy()
+    changed_signs[0] *= -1
+    conflicting = save_toy_artifact(
+        codes, scales, algorithm="rtn-maxabs-fp16-v1",
+        signs=changed_signs, block_size=128,
+    )
+    with pytest.raises(TernaryArtifactError, match="one sign vector"):
+        prism_v1_transform_metadata(
+            {**artifacts, "blk.1.ffn_gate.weight": conflicting}, expected_widths=widths
+        )
+    different_block = save_toy_artifact(
+        codes, scales, algorithm="rtn-maxabs-fp16-v1", signs=signs, block_size=256
+    )
+    with pytest.raises(TernaryArtifactError, match="one Hadamard block"):
+        prism_v1_transform_metadata(
+            {**artifacts, "blk.1.ffn_gate.weight": different_block}, expected_widths=widths
+        )
+    with pytest.raises(TernaryArtifactError, match="logical input width mismatch"):
+        prism_v1_transform_metadata(
+            artifacts, expected_widths={**widths, "blk.0.ffn_down.weight": 12288}
+        )
+
+
+@pytest.mark.parametrize("name", ["output.weight", "blk.0.ssm_out.weight", "blk.X.ffn_down.weight"])
+def test_prism_metadata_rejects_unverified_foldable_names(name):
+    codes, scales = quantize_ternary_rtn(np.ones((1, 128), dtype=np.float32))
+    payload = save_toy_artifact(
+        codes, scales, algorithm="rtn-maxabs-fp16-v1", signs=np.ones(128, dtype=np.int8),
+        block_size=128,
+    )
+    with pytest.raises(TernaryArtifactError, match="unsupported Prism"):
+        prism_v1_transform_metadata({name: payload}, expected_widths={name: 128})
+    with pytest.raises(TernaryArtifactError, match="no rotated Prism"):
+        prism_v1_transform_metadata({
+            "blk.0.ffn_down.weight": save_toy_artifact(
+                codes, scales, algorithm="rtn-maxabs-fp16-v1"
+            )
+        }, expected_widths={"blk.0.ffn_down.weight": 128})
 
 
 def test_scale_search_retains_fp16_codes_and_never_worsens_local_weight_mse():

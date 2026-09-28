@@ -446,6 +446,13 @@ Tests reject changed hashes, object arrays, malformed transform metadata, and
 oversized data; loaded artifacts feed the native AVX2 kernel in toy cases.
 The archive is capped at 1 MiB and marked as toy/no-model-weights, not PTQ1_0,
 PQ2_0, GGUF, or a complete source/calibration/runtime provenance artifact.
+A separate toy Prism v1 metadata check requires independently supplied logical
+input widths, rejects unsupported foldable names, and refuses conflicting
+block sizes or sign vectors for the same input width. It rejects assigning a
+256-wide slice to the pinned MiMo FFN's 12,288-wide logical input. The inspected
+Prism release tag is fully pinned at
+`842b1880415d6f508f03b789e5ce70194def7bfd`; no converter or Prism model
+loader was exercised by this check.
 An opt-in native test also processes the bounded 2,048-byte real MiMo projection
 slice through toy signed rotation, searched FP16 code/scale storage, reload,
 synthetic dynamic A8, and the standalone AVX2 BitNet-derived batch kernel.
@@ -466,9 +473,16 @@ Version 2 is tied-output mode; our MiMo checkpoint is untied. Begin with compati
 version-1 semantics and unrotated embeddings/head.
 
 A richer internal manifest must not silently export incompatible per-tensor
-block sizes or signs into this schema. Backend FWHT dispatch and codec ordering
-still require native inspection and golden tests. Do not infer them from a struct
-size or the runtime's ability to parse metadata.
+block sizes or signs into this schema. The pinned Prism fork at
+`842b1880415d6f508f03b789e5ce70194def7bfd` built CPU `llama`/GGML libraries.
+An opt-in [native FWHT test](../tests/test_prism_native_control.py) executed a
+two-token signed 128-point Hadamard graph with zero matrix data and agreed with
+independent dense math (max error about 7.2e-7). A separate same-process toy
+fed two 128-wide groups through Prism's FWHT graph, dynamic A8, and the
+standalone BitNet-derived AVX2 kernel (max transform/output errors about
+3.8e-7/9.5e-7). The kernel is still called **outside** Prism's GGML graph;
+this does not verify a Qwen3.5 model loader, native low-bit type, codec ordering,
+other CPU/ARM backends, or a speedup.
 
 ### Integer Arithmetic Needs Bounds
 

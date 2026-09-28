@@ -417,6 +417,26 @@ Its `--batch` mode also evaluates two tokens (+1.0 and -2.0 F32 inputs),
 confirming per-token dynamic A8 scale separation for this tiny graph. It
 does not test KV/recurrent cache state or real model activations.
 
+The pinned Prism release `prism-b10735-842b188` resolves to
+`842b1880415d6f508f03b789e5ce70194def7bfd`. A shallow external checkout
+under `$HOME/embedded-jev-cache/prism-source` and a Clang 18 CPU-only `llama`
+build under `$HOME/embedded-jev-cache/prism-build` succeeded without weights.
+Built `libggml-cpu.so` SHA-256 is
+`52fe58a3333b2cf69ac82132c5db1518dd35c506546a280d42fd00187d01a4dd`,
+and `libllama.so.0` SHA-256 is
+`3e585b7919a91662195ffccb85c2eb6eefdaee0deb383b5a182d309ecafcce06`.
+Run the optional [native Prism tests](../tests/test_prism_native_control.py):
+
+```bash
+PRISM_SOURCE_DIR="$HOME/embedded-jev-cache/prism-source" PRISM_GGML_CPU_LIBRARY="$HOME/embedded-jev-cache/prism-build/bin/libggml-cpu.so" BITNET_SOURCE_DIR="$HOME/embedded-jev-cache/bitnet-source" PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py
+```
+
+One test verifies signed F32 FWHT dispatch; another calls the standalone
+BitNet-derived AVX2 group-scale kernel after native FWHT and dynamic A8 in the
+same process. This is not a registered Prism GGML BitNet operator, a converted
+MiMo GGUF, or evidence of usable model quality. No source was vendored into
+the project and no MiMo shard was downloaded.
+
 The `llama` target was later built from the same pins (using the writable
 `CCACHE_DIR`). A supported MIT-licensed native BitNet GGUF at revision
 `a1f2f1c765812aa8af3f6eda4a313707064bba15` was downloaded outside the

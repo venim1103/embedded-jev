@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import re
 import zipfile
 
 import numpy as np
@@ -13,6 +14,10 @@ from embedded_jev.ternary import reconstruct_ternary
 
 MAX_ARTIFACT_BYTES = 1 << 20
 ALGORITHMS = {"rtn-maxabs-fp16-v1", "gptq-style-maxabs-fp16-v1"}
+PRISM_FOLDABLE = re.compile(
+    r"blk\.(0|[1-9][0-9]*)\."
+    r"(ffn_gate|ffn_up|ffn_down|attn_q|attn_k|attn_v|attn_output)\.weight\Z"
+)
 
 
 class TernaryArtifactError(ValueError):
@@ -152,3 +157,53 @@ def load_toy_artifact(payload: bytes) -> tuple[np.ndarray, np.ndarray, dict]:
         if isinstance(exc, TernaryArtifactError):
             raise
         raise TernaryArtifactError("invalid toy ternary artifact") from exc
+
+
+def prism_v1_transform_metadata(
+    artifacts: dict[str, bytes], *, expected_widths: dict[str, int]
+) -> dict:
+    """Check whether toy transforms fit the pinned Prism v1 metadata subset."""
+    if (
+        not isinstance(artifacts, dict) or not 1 <= len(artifacts) <= 16
+        or not isinstance(expected_widths, dict)
+        or set(expected_widths) != set(artifacts)
+    ):
+        raise TernaryArtifactError("invalid Prism transform artifact selection")
+
+    block_size = None
+    signs_by_width = {}
+    weight_names = []
+    for name, payload in sorted(artifacts.items()):
+        if not isinstance(name, str) or PRISM_FOLDABLE.fullmatch(name) is None:
+            raise TernaryArtifactError("unsupported Prism foldable weight name")
+        codes, _, manifest = load_toy_artifact(payload)
+        if type(expected_widths[name]) is not int or codes.shape[1] != expected_widths[name]:
+            raise TernaryArtifactError("Prism logical input width mismatch")
+        transform = manifest["transform"]
+        if transform == {"kind": "identity"}:
+            continue
+        if block_size is not None and block_size != transform["block_size"]:
+            raise TernaryArtifactError("Prism requires one Hadamard block size")
+        block_size = transform["block_size"]
+        width = codes.shape[1]
+        if width in signs_by_width and signs_by_width[width] != transform["signs"]:
+            raise TernaryArtifactError("Prism requires one sign vector per input width")
+        signs_by_width[width] = transform["signs"]
+        weight_names.append(name)
+    if not weight_names:
+        raise TernaryArtifactError("no rotated Prism weight names")
+
+    widths = sorted(signs_by_width)
+    return {
+        "prism.hadamard.version": 1,
+        "prism.hadamard.tied_output": False,
+        "prism.hadamard.block_size": block_size,
+        "prism.hadamard.transform": "normalized-sylvester-walsh-hadamard",
+        "prism.hadamard.axis": "input-last-dimension",
+        "prism.hadamard.sign_mode": "explicit",
+        "prism.hadamard.weight_names": weight_names,
+        "prism.hadamard.sign_widths": widths,
+        "prism.hadamard.sign_values": [
+            sign for width in widths for sign in signs_by_width[width]
+        ],
+    }
