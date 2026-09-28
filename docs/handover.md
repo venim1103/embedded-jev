@@ -219,10 +219,15 @@ It deliberately does not install Torch, Transformers, datasets, safetensors,
 gguf, SemIf, llama-cpp-python, BitNet, Prism, or CUDA. No inference server runs,
 no ports are forwarded, and no camera or actuator is exposed.
 
-No MiMo or BitNet weight payload was downloaded. The pinned inventory fetched
-172,461 metadata/header response-body bytes; it never fetched tensor values.
-No native inference runtime was cloned or compiled. No owned quality,
-perplexity, latency, energy, or RSS result exists for the model. The host GPU
+The header-only pinned inventory fetched 172,461 metadata/header response-body
+bytes. Later, a separate opt-in reader fetched 2,048 BF16 weight bytes from four
+rows and 256 columns of the pinned `layers.3.mlp.down_proj.weight`. No full
+MiMo tensor/shard was downloaded; its full shard payload hash is not verified.
+Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
+downloaded, SHA-256 verified, and loaded in the pinned native fork. See
+[docs/development.md](development.md) for both independent tracks. No MiMo
+inference runtime or whole model has been validated, and no owned MiMo quality,
+perplexity, latency, energy, or RSS result exists. The host GPU
 is an RTX A3000 Laptop GPU with 12,288 MiB VRAM. On 2026-09-28, WSL showed
 29 GiB RAM, 21 GiB available, and 8 GiB swap; the user reported 48.3 GB free
 on the Windows drive backing the virtual disk. These point-in-time readings do
@@ -317,6 +322,51 @@ This does **not** execute the Microsoft fork's GGML graph, run transforms/A8
 inside the runtime, process an actual model block, run fused GEMM, or prove
 runtime dispatch, quality, ARM/RISC-V support, or a speedup. Those remain gates.
 
+Separately, the pinned Microsoft BitNet parent and llama.cpp gitlink were
+checked out **outside the workspace** (about 208 MB source). Clang 18 built
+only the `ggml-cpu` library after setting `CCACHE_DIR` to a writable path.
+The build graph includes `ggml-cpu-i2s.c`, fork `quants.c`, and BitNet's LUT
+source, but not `ggml-bitnet-mad.cpp` under these flags. The compiled fork
+exports `ggml_vec_dot_i2_i8_s`; optional
+[native-control tests](../tests/test_bitnet_native_control.py) call this real
+symbol. On AVX2, an all-zero ternary group encoded as 1 returns the signed
+activation sum, so the adapter subtracts it **per group** before applying
+row/group and activation scales. Golden vectors pass. The pinned fork builds
+with warnings including enum-initializer overrides; these model-free tests
+alone did not establish GGUF loading or model inference. A separate
+[model-free GGML graph smoke](../native/bitnet_ggml_graph_smoke.cpp) did execute
+its I2_S path with four packed rows, yielding [0, 128, -128, 0] for an all-ones
+input. This verifies that **one tiny graph** dispatches, not that any Qwen3.5
+projection or group-scaled MiMo model does.
+A second mode reuses that GGML graph serially for two group-128 blocks, then
+combines their partial outputs with different per-row/group scales outside the
+graph. It returns [32, -320, -256, 64] on a fixed four-row fixture. This
+proves group scales can survive execution through genuine fork I2_S graphs in
+a toy serial bridge; it is not a native packed group-scale type, fused GEMM,
+MiMo model loader, or measured speedup.
+The same graph also passed two independent token columns with +1.0 and -2.0
+F32 inputs, verifying different per-token dynamic A8 scales in this fixture.
+No hybrid sequence state or real model activations were exercised.
+
+Later, the separately pinned official
+[BitNet control GGUF](https://huggingface.co/microsoft/BitNet-b1.58-2B-4T-gguf/tree/a1f2f1c765812aa8af3f6eda4a313707064bba15)
+(1,187,801,280 bytes; SHA-256
+`4221b252fdd5fd25e15847adfeb5ee88886506ba50b8a34548374492884c2162`)
+loaded via the pinned fork's `llama` API. Its 22-token CPU prompt returned
+128,256 finite final-position logits with **zero sampled/generated tokens**.
+A batch debugger stopped at `llamafile_sgemm_i2s` from
+`ggml_compute_forward_mul_mat`, establishing actual I2_S execution for that
+control model. One load and prefill took about 410/439 ms on this machine;
+these are not latency benchmarks. The loader also reported CPU_REPACK buffer
+fallback, which needs profiling before any optimized-path or speed claim.
+The control prompt's A-C labels each extend the exact prefix by one distinct,
+non-special token (IDs 32/33/34). Direct final-logit softmax selected A with
+conditional probability about 0.553, but the allowed labels carried only
+about 0.000070 of the full-vocabulary mass and calibration status is unknown.
+This is a structural **uncalibrated** SemIf-style readout on a different model,
+not MiMo tokenizer parity, MiMo graph dispatch, group-scale preservation in
+MiMo, SemIf backend integration, or decision correctness.
+
 Use a native BitNet checkpoint as a tooling control. The preferred proposed MiMo
 direction is to integrate a real BitNet-derived kernel into a Qwen3.5-capable
 runtime, preserving group scales, rotations, activations, and hybrid operations.
@@ -374,6 +424,28 @@ FP32 for the isolated BitNet-derived AVX2 kernel and compare its output with
 the saved-artifact reconstruction at 256 and 4,096 input values. This is not
 GPTQ, an exporter/codec, a model-weight quantization result, or native graph
 integration; quality and format gates remain open.
+
+The same module also has a separate **256-column-bounded GPTQ-style toy**:
+token-normalized curvature, positive bounded damping retries, inverse-Cholesky
+error updates, and FP16 row/group scales fixed at group entry. Processing blocks
+are separate from scale groups and must be group-aligned; tested smaller blocks
+reproduce the full-width toy's saved codes and scales. A correlated
+four-input toy improves its local reconstruction error relative to RTN, while
+diagonal-curvature, zero-group, factorization-failure, and native saved-artifact
+tests pass. It follows the algorithmic update in
+[pinned IST-DASLab GPTQ](https://github.com/IST-DASLab/gptq/blob/2d65066eeb06a5c9ff5184d8cebdf33662c67faf/gptq.py)
+under this repository's Apache-2.0 license. No pseudoinverse or act-order
+fallback is used. It is not reviewed full-model GPTQ, a proof of model quality,
+or ready for multi-thousand-width factors or the MiMo hybrid graph.
+
+The [toy artifact container](../embedded_jev/ternary_artifact.py) uses bounded
+uncompressed ZIP entries containing non-pickle NumPy codes/scales and a versioned
+JSON manifest with hashes. Identity and explicit signed-Hadamard transforms are
+validated, including sign width, block size, and sign-before-Hadamard order.
+Tests reject changed hashes, object arrays, malformed transform metadata, and
+oversized data; loaded artifacts feed the native AVX2 kernel in toy cases.
+The archive is capped at 1 MiB and marked as toy/no-model-weights, not PTQ1_0,
+PQ2_0, GGUF, or a complete source/calibration/runtime provenance artifact.
 
 ### Prism Has a Concrete Transform Schema
 

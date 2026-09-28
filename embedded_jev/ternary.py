@@ -1,9 +1,43 @@
-"""Deterministic row/group ternary baseline with retained FP16 scales."""
+"""Deterministic toy ternary quantizers with retained FP16 row/group scales.
+
+The compensated traversal adapts the update ordering from IST-DASLab/gptq
+commit 2d65066eeb06a5c9ff5184d8cebdf33662c67faf under the repo's
+Apache-2.0 license; it is not a drop-in implementation of upstream GPTQ.
+"""
 
 import numpy as np
 
 
-def quantize_ternary_rtn(weights, group_size: int = 128) -> tuple[np.ndarray, np.ndarray]:
+def _group_scales(groups: np.ndarray, scale_search: bool) -> np.ndarray:
+    maxima = np.max(np.abs(groups), axis=-1)
+    with np.errstate(over="ignore", under="ignore"):
+        baseline = maxima.astype(np.float16)
+    if not np.isfinite(baseline).all() or np.any((maxima > 0) & (baseline == 0)):
+        raise ValueError("ternary group scale is not representable in FP16")
+    if not scale_search:
+        return baseline
+
+    best = baseline.copy()
+    best_error = np.full(maxima.shape, np.inf)
+    for ratio in np.linspace(0.5, 1.0, 11):
+        with np.errstate(over="ignore", under="ignore"):
+            candidate = (maxima * ratio).astype(np.float16)
+        valid = (maxima == 0) | (candidate > 0)
+        divisor = np.where(candidate == 0, 1.0, candidate.astype(np.float64))
+        codes = np.clip(np.rint(groups / divisor[..., None]), -1, 1)
+        error = np.sum(
+            (groups - codes * candidate.astype(np.float64)[..., None]) ** 2,
+            axis=-1,
+        )
+        better = valid & (error < best_error)
+        best[better] = candidate[better]
+        best_error[better] = error[better]
+    return best
+
+
+def quantize_ternary_rtn(
+    weights, group_size: int = 128, *, scale_search: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
     """Assign -1/0/+1 codes using each group's representable max-abs scale."""
     matrix = np.asarray(weights, dtype=np.float32)
     if (
@@ -12,20 +46,94 @@ def quantize_ternary_rtn(weights, group_size: int = 128) -> tuple[np.ndarray, np
         or matrix.shape[1] == 0
         or group_size < 1
         or matrix.shape[1] % group_size
+        or type(scale_search) is not bool
         or not np.isfinite(matrix).all()
     ):
         raise ValueError("invalid ternary matrix or group width")
 
     groups = matrix.reshape(matrix.shape[0], -1, group_size)
-    maxima = np.max(np.abs(groups), axis=-1)
-    with np.errstate(over="ignore", under="ignore"):
-        scales = maxima.astype(np.float16)
-    if not np.isfinite(scales).all() or np.any((maxima > 0) & (scales == 0)):
-        raise ValueError("ternary group scale is not representable in FP16")
+    scales = _group_scales(groups, scale_search)
 
     divisors = np.where(scales == 0, np.float32(1), scales.astype(np.float32))
     codes = np.clip(np.rint(groups / divisors[..., None]), -1, 1).astype(np.int8)
     return codes.reshape(matrix.shape), scales
+
+
+def quantize_ternary_compensated(
+    weights, activations, group_size: int = 128, *, damping_ratio: float = 0.01,
+    max_damping_attempts: int = 3, processing_block_size: int | None = None,
+    scale_search: bool = False,
+) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Toy GPTQ-style traversal with fixed representable row/group scales."""
+    matrix = np.asarray(weights, dtype=np.float32)
+    samples = np.asarray(activations, dtype=np.float64)
+    if processing_block_size is None and matrix.ndim == 2:
+        processing_block_size = matrix.shape[1]
+    if (
+        matrix.ndim != 2 or 0 in matrix.shape or matrix.shape[1] > 256
+        or group_size < 1 or matrix.shape[1] % group_size
+        or type(processing_block_size) is not int
+        or processing_block_size < group_size
+        or processing_block_size > matrix.shape[1]
+        or processing_block_size % group_size
+        or type(scale_search) is not bool
+        or samples.ndim != 2 or samples.shape[0] == 0
+        or samples.shape[1] != matrix.shape[1]
+        or not np.isfinite(matrix).all() or not np.isfinite(samples).all()
+        or not np.isfinite(damping_ratio) or damping_ratio <= 0
+        or type(max_damping_attempts) is not int
+        or not 1 <= max_damping_attempts <= 4
+    ):
+        raise ValueError("invalid compensated ternary inputs or bounds")
+
+    width = matrix.shape[1]
+    curvature = 2 * samples.T @ samples / samples.shape[0]
+    baseline_damp = damping_ratio * np.mean(np.diag(curvature))
+    if not np.isfinite(curvature).all() or baseline_damp <= 0:
+        raise ValueError("nonfinite or zero activation curvature")
+
+    for attempt in range(max_damping_attempts):
+        damping = baseline_damp * 10**attempt
+        damped = curvature + np.eye(width) * damping
+        try:
+            np.linalg.cholesky(damped)
+            inverse = np.linalg.solve(damped, np.eye(width))
+            inverse = (inverse + inverse.T) / 2
+            upper = np.linalg.cholesky(inverse).T
+            break
+        except np.linalg.LinAlgError:
+            continue
+    else:
+        raise ValueError("curvature factorization failed after bounded damping")
+
+    working = matrix.astype(np.float64)
+    codes = np.zeros(matrix.shape, dtype=np.int8)
+    scales = np.empty((matrix.shape[0], width // group_size), dtype=np.float16)
+    for block_start in range(0, width, processing_block_size):
+        block_end = min(block_start + processing_block_size, width)
+        block_weights = working[:, block_start:block_end].copy()
+        block_errors = np.zeros_like(block_weights)
+        for local_column in range(block_end - block_start):
+            column = block_start + local_column
+            group = column // group_size
+            if column % group_size == 0:
+                group_weights = block_weights[:, local_column : local_column + group_size]
+                scales[:, group] = _group_scales(group_weights, scale_search)
+
+            group_scales = scales[:, group].astype(np.float64)
+            divisors = np.where(group_scales == 0, 1.0, group_scales)
+            current = block_weights[:, local_column]
+            codes[:, column] = np.clip(np.rint(current / divisors), -1, 1)
+            reconstructed = codes[:, column] * group_scales
+            error = (current - reconstructed) / upper[column, column]
+            block_weights[:, local_column:] -= (
+                error[:, None] * upper[column, column:block_end][None, :]
+            )
+            block_errors[:, local_column] = error
+        if block_end < width:
+            working[:, block_end:] -= block_errors @ upper[block_start:block_end, block_end:]
+
+    return codes, scales, {"damping": damping, "damping_attempts": attempt + 1}
 
 
 def reconstruct_ternary(codes, scales) -> np.ndarray:

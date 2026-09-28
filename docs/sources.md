@@ -38,12 +38,32 @@ and Pillow 12.1.1 were installed outside the repository, the pinned
 all-zero multimodal token types for five synthetic agent/tool cases. No image
 processing, native runtime, model weights, or model judgments were tested.
 
+The later opt-in [weight-slice reader](../embedded_jev/weight_slice.py) used the
+same immutable revision and header offsets to fetch 2,048 BF16 bytes from
+`model.language_model.layers.3.mlp.down_proj.weight` in shard 2. It recorded
+per-row SHA-256 values; it did not verify a complete weight shard hash. A
+synthetic-activation local MSE screen on this slice is documented in
+[docs/development.md](development.md) and is not a quality or accuracy result.
+
 ## BitNet
 
 Inspected parent commit: `0b341e582afbf9e1011f24744b554c96a3477eb5`.
 Its tree records llama.cpp submodule commit
 `390c307752ab78fd8189f359d6954c9ba1be74af`, from `isHuangXin/llama.cpp`.
-This is an observed source pin, not a successfully built integration here.
+The parent and gitlink were checked out and a model-free `ggml-cpu` library
+built with Clang 18 on x86-64. Its exported I2_S dot passed direct toy-vector
+tests after explicit group-sum compensation. Subsequently the pinned native
+BitNet control GGUF was SHA-256 verified and prefilled through a built `llama`
+library; a debugger confirmed `llamafile_sgemm_i2s` dispatch. No MiMo model was
+loaded or Qwen3.5 integration validated.
+
+Control model: [`microsoft/BitNet-b1.58-2B-4T-gguf`](https://huggingface.co/microsoft/BitNet-b1.58-2B-4T-gguf/tree/a1f2f1c765812aa8af3f6eda4a313707064bba15),
+revision `a1f2f1c765812aa8af3f6eda4a313707064bba15`, MIT. The sole
+`ggml-model-i2_s.gguf` is 1,187,801,280 bytes and has SHA-256
+`4221b252fdd5fd25e15847adfeb5ee88886506ba50b8a34548374492884c2162`.
+The pinned fork's structured GGUF parser found 210 I2_S (type ID 36) among
+332 tensors. This inventory, one finite-logit prefill, and a debugger breakpoint
+are dispatch evidence for a **different model**, not a MiMo performance forecast.
 
 | Source | What it establishes | Limit |
 | --- | --- | --- |
@@ -101,7 +121,7 @@ The repository retains the historical `SemIf-OpenJev` URL.
 
 | Work | Relevant contribution | What not to infer |
 | --- | --- | --- |
-| [GPTQ](https://arxiv.org/abs/2210.17323) | Approximate second-order one-shot weight quantization; [reference implementation](https://github.com/IST-DASLab/gptq) | A short modified loop automatically preserves arbitrary models at ternary precision. |
+| [GPTQ](https://arxiv.org/abs/2210.17323) | Approximate second-order one-shot weight quantization; [reference implementation](https://github.com/IST-DASLab/gptq/tree/2d65066eeb06a5c9ff5184d8cebdf33662c67faf) under Apache 2.0 | A short modified loop automatically preserves arbitrary models at ternary precision. |
 | [QuIP](https://arxiv.org/abs/2307.13304) | Incoherence processing and quadratic-proxy adaptive rounding for low-bit quantization | Orthogonal rotations improve the spectral condition number. |
 | [QuIP#](https://arxiv.org/abs/2402.04396) | Randomized Hadamard processing, lattice codebooks, and fidelity fine-tuning | Its vector-codebook representation is interchangeable with scalar ternary kernels. |
 | [QuaRot](https://arxiv.org/abs/2404.00456) | Function-preserving rotations for four-bit weight/activation/cache inference; [code](https://github.com/spcl/QuaRot) | Published four-bit retention guarantees equivalent three-level PTQ on MiMo. |

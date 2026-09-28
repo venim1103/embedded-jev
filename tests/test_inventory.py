@@ -3,9 +3,11 @@
 import io
 import json
 
+import numpy as np
 import pytest
 
 from embedded_jev import inventory
+from embedded_jev import weight_slice
 from embedded_jev.inventory import (
     InventoryError,
     TensorHeader,
@@ -303,3 +305,73 @@ def test_pinned_fetch_only_reads_metadata_and_exact_header_ranges(monkeypatch):
     assert report["source"]["transfer_body_bytes"] == (
         sum(map(len, metadata.values())) + len(next(iter(shards.values()))[0])
     )
+
+
+def test_bounded_bf16_slice_uses_exact_row_ranges_and_keeps_hashes(monkeypatch):
+    metadata, headers = _model_fixture()
+    shard, (prefix, file_bytes) = next(iter(headers.items()))
+    name = "model.language_model.layers.0.mlp.down_proj.weight"
+    tensor_start = json.loads(prefix[8:])[name]["data_offsets"][0]
+    requests = []
+
+    def fake_range(requested_shard, *, start, length):
+        assert requested_shard == shard and length == 256
+        requests.append((start, length))
+        relative = start - len(prefix) - tensor_start
+        row, column = divmod(relative // 2, 2048)
+        assert column == 128 and row in (0, 1)
+        value = np.float32(1.25 if row == 0 else -2.5)
+        bits = (np.array([value], dtype=np.float32).view(np.uint32) >> 16).astype("<u2")
+        return bits.tobytes() * 128, file_bytes
+
+    monkeypatch.setattr(weight_slice, "_open_bounded", fake_range)
+    values, source = weight_slice.fetch_bf16_projection_slice(
+        metadata, headers, name=name, start_column=128, rows=2, groups=1
+    )
+    np.testing.assert_array_equal(values, np.array([[1.25] * 128, [-2.5] * 128]))
+    assert requests == [
+        (len(prefix) + tensor_start + 128 * 2, 256),
+        (len(prefix) + tensor_start + (2048 + 128) * 2, 256),
+    ]
+    assert source["payload_bytes"] == 512 and len(source["row_sha256"]) == 2
+    assert source["full_weight_hash"] == "not_checked_bounded_slice_only"
+
+
+def test_bounded_bf16_slice_rejects_invalid_requests_before_fetch(monkeypatch):
+    metadata, headers = _model_fixture()
+    def no_fetch(*args, **kwargs):
+        raise AssertionError("unexpected shard range read")
+
+    monkeypatch.setattr(weight_slice, "_open_bounded", no_fetch)
+    for request in (
+        {"rows": 5}, {"groups": 3}, {"start_column": 1},
+        {"start_row": 1024}, {"start_column": 1920}, {"name": "lm_head.weight"},
+    ):
+        with pytest.raises(InventoryError):
+            weight_slice.fetch_bf16_projection_slice(metadata, headers, **request)
+
+
+def test_bounded_bf16_slice_refuses_full_body_response(monkeypatch):
+    metadata, headers = _model_fixture()
+    response = FakeResponse(b"not a range", status=200, headers={"Content-Length": "5000000000"})
+    monkeypatch.setattr(inventory, "urlopen", lambda request, *, timeout: response)
+    with pytest.raises(InventoryError, match="server ignored bounded range"):
+        weight_slice.fetch_bf16_projection_slice(
+            metadata, headers, name="model.language_model.layers.0.mlp.down_proj.weight",
+            rows=1, groups=1,
+        )
+    assert response.read_calls == 0
+
+
+def test_synthetic_slice_screen_is_bounded_and_deterministic():
+    weights = np.random.default_rng(51).normal(size=(2, 256)).astype(np.float32)
+    result = weight_slice.screen_synthetic_reconstruction(weights)
+    assert result == weight_slice.screen_synthetic_reconstruction(weights)
+    assert result["purpose"] == "synthetic_local_reconstruction_not_model_quality"
+    assert set(result["local_mse"]) == {
+        "rtn_maxabs", "rtn_grid", "compensated_maxabs", "compensated_grid",
+    }
+    assert all(np.isfinite(list(result["local_mse"].values())))
+    for invalid in (np.ones((5, 256)), np.ones((1, 257)), np.zeros((0, 256))):
+        with pytest.raises(ValueError, match="at most four rows"):
+            weight_slice.screen_synthetic_reconstruction(invalid)

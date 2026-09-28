@@ -11,7 +11,12 @@ import pytest
 from scipy.linalg import hadamard
 
 from embedded_jev.activation import quantize_a8_per_group, rotate_signed_hadamard
-from embedded_jev.ternary import quantize_ternary_rtn, reconstruct_ternary
+from embedded_jev.ternary import (
+    quantize_ternary_compensated,
+    quantize_ternary_rtn,
+    reconstruct_ternary,
+)
+from embedded_jev.ternary_artifact import load_toy_artifact, save_toy_artifact
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
@@ -204,6 +209,67 @@ def test_saved_fp16_group_scales_feed_native_batch(native_dot, groups):
         activations.astype(np.float32) * activation_scales[..., None]
     ).reshape(3, groups * 128)
     expected = np.einsum("ri,ti->tr", restored, scaled_activations)
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.01)
+
+
+def test_compensated_artifact_executes_with_saved_scales(native_dot):
+    generator = np.random.default_rng(119)
+    rows, groups, tokens = 3, 2, 4
+    width = groups * 128
+    weights = generator.normal(size=(rows, width)).astype(np.float32)
+    calibration = generator.normal(size=(24, width)).astype(np.float32)
+    calibration[:, 1] = calibration[:, 0] * 0.9 + calibration[:, 1] * 0.1
+    codes, saved_scales, details = quantize_ternary_compensated(weights, calibration)
+    assert details["damping"] > 0
+    artifact = save_toy_artifact(codes, saved_scales, algorithm="gptq-style-maxabs-fp16-v1")
+    codes, saved_scales, manifest = load_toy_artifact(artifact)
+    assert manifest["group_size"] == 128
+
+    activations = generator.integers(-128, 128, size=(tokens, groups, 128), dtype=np.int8)
+    activation_scales = generator.uniform(0.01, 0.3, size=(tokens, groups)).astype(np.float32)
+    actual = call_native_batch(
+        native_dot[1], codes.reshape(rows, groups, 128), activations,
+        saved_scales.astype(np.float32), activation_scales,
+    )
+    restored = reconstruct_ternary(codes, saved_scales)
+    scaled_activations = (
+        activations.astype(np.float32) * activation_scales[..., None]
+    ).reshape(tokens, width)
+    np.testing.assert_allclose(
+        actual, np.einsum("ri,ti->tr", restored, scaled_activations),
+        rtol=2e-5, atol=0.01,
+    )
+
+
+def test_loaded_signed_transform_and_scales_feed_native_batch(native_dot):
+    generator = np.random.default_rng(481)
+    rows, tokens, width, block_size = 4, 3, 256, 128
+    groups = width // 128
+    signs = generator.choice([-1, 1], size=width)
+    weights = generator.normal(size=(rows, width)).astype(np.float32)
+    rotated_weights = rotate_signed_hadamard(weights, signs, block_size)
+    codes, scales = quantize_ternary_rtn(rotated_weights)
+    payload = save_toy_artifact(
+        codes, scales, algorithm="rtn-maxabs-fp16-v1",
+        signs=signs, block_size=block_size,
+    )
+    codes, scales, manifest = load_toy_artifact(payload)
+    transform = manifest["transform"]
+    inputs = generator.normal(size=(tokens, width)).astype(np.float32)
+    rotated_inputs = rotate_signed_hadamard(
+        inputs, transform["signs"], transform["block_size"]
+    )
+    activations, activation_scales = quantize_a8_per_group(rotated_inputs)
+    actual = call_native_batch(
+        native_dot[1], codes.reshape(rows, groups, 128),
+        activations.reshape(tokens, groups, 128),
+        scales.astype(np.float32), activation_scales,
+    )
+    dequantized_inputs = (
+        activations.reshape(tokens, groups, 128).astype(np.float32)
+        * activation_scales[..., None]
+    ).reshape(tokens, width)
+    expected = np.einsum("ri,ti->tr", reconstruct_ternary(codes, scales), dequantized_inputs)
     np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.01)
 
 

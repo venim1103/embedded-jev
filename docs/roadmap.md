@@ -58,9 +58,19 @@ Toy linears now pass matching explicit-sign FP32 Hadamard rotation at block
 sizes 128 and 1,024, followed by independent per-token/group-128 dynamic A8
 preparation. A deterministic [ternary RTN baseline](../embedded_jev/ternary.py)
 retains codes and FP16 row/group scales; toy reconstruction and native-kernel
-outputs match those stored values. This has not been validated on a MiMo
-decoder block or calibration distribution. GPTQ, native artifact export, and
-model-quality steps below remain open.
+outputs match those stored values. A bounded 256-column GPTQ-style compensated
+traversal, informed by a pinned reviewed implementation, now improves one
+correlated toy reconstruction and passes saved-artifact native parity. Processing
+blocks aligned to scale groups preserve the full-width toy's stored codes/scales.
+This has not been validated on a MiMo decoder block or calibration distribution.
+A deterministic, 1 MiB-capped toy archive round-trips saved codes, FP16 scales,
+and explicit signed-Hadamard metadata into the native CPU fixture. Full GPTQ
+scaling, native artifact export, and model-quality steps remain open.
+A bounded reader fetched only 2,048 BF16 bytes from four rows and two groups
+of an eligible pinned MiMo projection. On disjoint synthetic Gaussian inputs,
+an 11-candidate per-row/group FP16 scale grid lowered local MSE for both RTN
+and compensation, but searched RTN still beat searched compensation on this
+slice. These are exploratory numeric checks, not real activation or task quality.
 
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block
@@ -89,8 +99,26 @@ compiles and passes scalar-reference golden tests for group-128 ternary dots,
 including serial three-token batches at 256, 4,096, and 12,288 input widths.
 Toy Python FP32 rotation and dynamic A8 also feed the compiled batch path with
 scalar parity at 128- and 1,024-point transform sizes. This does **not** satisfy
-runtime transform/A8 execution, native dispatch, optimized batch, or the
-model-quality gate below.
+runtime transform/A8 execution, native model dispatch, optimized batch, or the
+model-quality gate below. A model-free build of the pinned BitNet fork's
+`ggml-cpu` target now succeeds, and optional tests call its **actual** I2_S
+dot symbol with group-sum compensation. A separate four-row, 128-input GGML
+graph smoke returned exact zero/positive/negative ternary outputs. No supported
+BitNet checkpoint was downloaded or loaded at that stage, and MiMo dispatch
+remains untested. Subsequently a pinned MIT-licensed 1.19 GB native BitNet
+control GGUF loaded: 22 prompt tokens produced 128,256 finite final-position
+logits with zero generated tokens. A debugger stopped inside the fork's
+`llamafile_sgemm_i2s` during prefill. This proves control-model I2_S dispatch,
+not group-scaled MiMo runtime integration or a performance result.
+The control also verifies A-C as exact one-token continuations and reports
+conditional option scores without generation. Allowed-label mass on one sample
+was only about 0.000070, so its conditional maximum is not calibrated
+confidence; MiMo/SemIf backend integration remains open.
+Running that same graph serially for two 128-value groups and applying distinct
+row/group scales outside the graph returned exact toy outputs. This is a
+correctness bridge, not an integrated or optimized group-scale operator. The
+same tiny graph also passed two token columns with different dynamic A8 scales
+(+1.0 and -2.0 inputs); position/recurrent state is not involved.
 
 1. Pin Microsoft BitNet and its submodules; build the documented native control
    with Clang 18. Use a supported model only after confirming download budget.

@@ -94,6 +94,30 @@ stays in BF16 in this estimate. FP16 KV and FP32 recurrent-state examples are
 reported separately; convolution state, scratch, transforms, and allocator
 overhead require later measurement. No hardware or GPU is needed for inventory.
 
+## Bounded Real-Weight Slice
+
+An opt-in [slice reader](../embedded_jev/weight_slice.py) reuses the pinned
+index/header checks but can fetch at most four BF16 projection rows and two
+contiguous 128-column groups per row (2,048 payload bytes maximum). It refuses
+out-of-range requests and HTTP responses that ignore `Range`; unlike the
+inventory command, it reads actual tensor values. No full tensor or weight
+shard was fetched. Reproduce the selected layer-3 FFN sample and exploratory
+synthetic-activation comparison with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.weight_slice --screen-toy
+```
+
+The JSON includes the pinned revision, shard, four per-row SHA-256 digests,
+bytes transferred, and separately labeled local MSE. With 512 synthetic
+Gaussian calibration rows (seed 902) and 64 independent synthetic evaluation
+rows (seed 903), this 4x256 slice gave MSE: max-abs RTN 0.0181, searched-scale
+RTN 0.0070, max-abs compensated 0.0315, searched-scale compensated 0.0096.
+The deterministic 11-candidate FP16 grid optimizes each weight group's local
+squared error; it was not tuned on held-out model tasks. These comparisons
+cannot establish MiMo quality, genuine activation statistics, or a useful
+whole-model compression ratio. The full shard payload hash remains unverified.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo
@@ -329,10 +353,89 @@ and representable FP16 scales per output row/group, and its
 unsupported groups. Native golden tests check outputs using only the saved
 codes and FP16 scales cast to FP32. This is an in-memory toy artifact, not a
 serialized PTQ1_0/PQ2_0 codec or a GPTQ quality claim.
+The same module has an opt-in 256-column toy GPTQ-style compensated traversal
+based on the [pinned reviewed update](https://github.com/IST-DASLab/gptq/blob/2d65066eeb06a5c9ff5184d8cebdf33662c67faf/gptq.py).
+It uses token-normalized curvature and bounded damping without a pseudoinverse,
+then retains FP16 row/group scales before updating subsequent columns. Its
+optional processing block size must be a multiple of the scale-group size;
+smaller aligned blocks reproduce the full-width toy's codes and scales. Offline
+tests demonstrate one correlated reconstruction improvement and verify native
+output parity from only its saved artifact; they do not establish model quality.
+The [toy archive](../embedded_jev/ternary_artifact.py) stores those arrays with
+`allow_pickle=False` and checks a versioned hashed manifest before loading.
+It permits an explicit signed-Hadamard transform record or identity, refuses
+malformed/oversized payloads, and is limited to 1 MiB. The
+[offline artifact tests](../tests/test_ternary.py) and native fixture exercise a
+saved-and-reloaded path. This is not a model converter or native packed format.
 No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,
 or performance measurement is implemented by this proof.
 The [upstream MIT notice](../native/BitNet-LICENSE.txt) is included with the
 derived source.
+
+For a direct model-free control, a shallow checkout of BitNet parent
+`0b341e582afbf9e1011f24744b554c96a3477eb5` with llama.cpp gitlink
+`390c307752ab78fd8189f359d6954c9ba1be74af` was made outside this repo
+under `$HOME/embedded-jev-cache/bitnet-source` (about 208 MB). Clang 18
+configured it with `-DGGML_NATIVE=OFF -DGGML_AVX2=ON` and built only the
+`ggml-cpu` target. The initial build stopped because `/home/vscode/.cache/ccache`
+was root-owned; retrying with `CCACHE_DIR=$HOME/embedded-jev-cache/ccache`
+succeeded. No server or model weights were built/downloaded. To rerun the
+optional [real-fork kernel controls](../tests/test_bitnet_native_control.py)
+against that exact checkout:
+
+```bash
+BITNET_SOURCE_DIR="$HOME/embedded-jev-cache/bitnet-source" BITNET_GGML_CPU_LIBRARY="$HOME/embedded-jev-cache/bitnet-build/bin/libggml-cpu.so" LD_LIBRARY_PATH="$HOME/embedded-jev-cache/bitnet-build/bin" PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_bitnet_native_control.py
+```
+
+The test verifies both commit IDs, then calls the exported upstream
+`ggml_vec_dot_i2_i8_s` symbol and compensates the activation sum separately
+for each group; it skips in the ordinary offline suite without the source and
+library environment variables. This particular CMake graph compiles fork
+`quants.c` and BitNet's LUT source, **not** `ggml-bitnet-mad.cpp`. The build
+emits upstream warnings, including type-enum initializer overrides; parser,
+model inference, and runtime performance still need separate validation.
+The optional test also compiles the
+[tiny GGML graph fixture](../native/bitnet_ggml_graph_smoke.cpp) against the
+same pinned libraries: zero/+1/-1/zero I2_S rows output [0, 128, -128, 0].
+That proves this single model-free graph path works; it does not prove GGUF
+loading, per-row/group scales inside the graph, or MiMo runtime dispatch.
+Its opt-in `--groups` mode runs two separate group-128 graph evaluations and
+applies distinct row/group scales to their partial sums outside GGML, yielding
+[32, -320, -256, 64]. The optional native-control test verifies both modes.
+This deliberately serial bridge preserves scales but is not an optimized
+kernel or a Qwen3.5 graph integration.
+Its `--batch` mode also evaluates two tokens (+1.0 and -2.0 F32 inputs),
+confirming per-token dynamic A8 scale separation for this tiny graph. It
+does not test KV/recurrent cache state or real model activations.
+
+The `llama` target was later built from the same pins (using the writable
+`CCACHE_DIR`). A supported MIT-licensed native BitNet GGUF at revision
+`a1f2f1c765812aa8af3f6eda4a313707064bba15` was downloaded outside the
+repo, with 1,187,801,280 bytes and verified SHA-256
+`4221b252fdd5fd25e15847adfeb5ee88886506ba50b8a34548374492884c2162`.
+The optional [prefill control](../native/bitnet_prefill_control.cpp) calls the
+version-matched `llama` API, marks only the last prompt position for logits,
+and never samples an answer. One run produced 128,256 finite logits for 22
+prompt tokens; a debugger stopped inside `llamafile_sgemm_i2s` on prefill.
+To rerun the opt-in pinned model tests after setting the source/library variables
+shown above, also set `BITNET_CONTROL_GGUF` to the verified cached GGUF:
+
+```bash
+BITNET_SOURCE_DIR="$HOME/embedded-jev-cache/bitnet-source" BITNET_GGML_CPU_LIBRARY="$HOME/embedded-jev-cache/bitnet-build/bin/libggml-cpu.so" BITNET_CONTROL_GGUF="$HOME/embedded-jev-cache/bitnet-control-model/ggml-model-i2_s.gguf" LD_LIBRARY_PATH="$HOME/embedded-jev-cache/bitnet-build/bin" PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_bitnet_native_control.py
+```
+
+Five opt-in checks cover the direct dot, small GGML graphs, model logits, and
+debugger-confirmed I2_S dispatch. Load/prefill were about 410/439 ms in one
+run, **not a benchmark**. `CPU_REPACK` fallback was reported by the loader;
+verify projection dispatch/fallback counts and run paired workloads before
+any speed claims. No MiMo weight shards or BitNet alternative model weights
+were downloaded.
+The no-sampling control also checks A-C as exact distinct one-token labels
+(IDs 32/33/34) in its own prompt and returns conditional probabilities,
+selected label, `max_option_probability`, allowed-label mass, and an explicit
+`uncalibrated` status. A sample result selected A at about 0.553 conditional
+probability while allowed-label mass was only 0.000070; this is not a trusted
+decision, MiMo tokenizer parity, or TypeSafe Jev confidence.
 
 Pin parent repositories and all submodules. BitNet's inspected top-level options
 are `BITNET_ARM_TL1` and `BITNET_X86_TL2`; the PDF's generic TL flags are not the

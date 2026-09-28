@@ -183,6 +183,10 @@ products, not completion of the ternary objective.
 
 Use safe, non-pickle tensor storage for intermediate codes, scales, and transforms,
 plus a versioned JSON manifest. Native packed inference artifacts are separate.
+A [bounded toy container](../embedded_jev/ternary_artifact.py) now exercises this
+boundary for in-memory RTN/compensated fixtures only: non-pickle NumPy arrays,
+hashed payloads, and explicit identity or signed-Hadamard metadata. It is not
+a native model artifact or the full provenance manifest described below.
 
 | Manifest section | Required content |
 | --- | --- |

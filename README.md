@@ -12,8 +12,11 @@ targets follow only after native validation.
 tokenizer/processor checks work on the pinned model metadata. A small synthetic
 agent/tool fixture checks prompt and option-label mapping, not decision accuracy.
 Quantization, BitNet integration, model inference, and decision scoring are not
-yet implemented. No model weights have been downloaded, and there are no
-measured model-quality or device-performance results.
+yet implemented for MiMo. A bounded 2 KiB slice of one pinned MiMo tensor was
+read; no full MiMo shard was downloaded. Separately, a supported 1.19 GB native
+BitNet control checkpoint was loaded and prefilled without answer generation.
+Its A-C labels can be scored directly from final-position logits, but it is not
+a substitute for MiMo or evidence of decision quality or edge speed.
 
 ## Get Started
 
