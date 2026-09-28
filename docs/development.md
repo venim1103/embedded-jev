@@ -124,6 +124,31 @@ ML/runtime dependency lock. The verified text-only example yields label IDs
 tokenizer independently; no processor/vision or native inference parity follows
 from this result.
 
+The pinned [inventory](../embedded_jev/inventory.py) also compares the image
+processor settings with their standalone config and requires the standalone
+video settings to agree with their nested counterparts (which include additional
+defaults). To exercise the actual text-only processor under the agreed budget,
+add CPU-only dependencies to the isolated environment:
+
+```bash
+uv pip install --python "$HOME/embedded-jev-cache/tokenizer-probe/bin/python" 'pillow==12.1.1'
+uv pip install --python "$HOME/embedded-jev-cache/tokenizer-probe/bin/python" --index https://download.pytorch.org/whl/cpu 'torch==2.10.0+cpu' 'torchvision==0.25.0+cpu'
+"$HOME/embedded-jev-cache/tokenizer-probe/bin/python" -m embedded_jev.label_probe --fetch --processor
+HF_HUB_OFFLINE=1 "$HOME/embedded-jev-cache/tokenizer-probe/bin/python" -m embedded_jev.label_probe --processor --fixture tests/fixtures/agent_tool_smoke.json
+```
+
+Processor mode allows only three additional pinned JSON files, each capped at
+1 MiB. On the checked text-only prompts, `Qwen3VLProcessor` produces exactly
+the tokenizer's prompt IDs, a matching attention mask, and all-zero
+`mm_token_type_ids`; A-P each append one distinct token. The external environment
+and caches totaled about 979 MB after installation; no weights were fetched.
+The five labeled [fixture cases](../tests/fixtures/agent_tool_smoke.json) cover
+an irrelevant-context perturbation, option order, and missing upload permission.
+They are synthetic engineering checks, excluded from calibration and benchmark
+claims. The CLI hashes the bounded fixture and reports each case's prompt hash,
+expected option ID/label, and token IDs. Actual image inputs, native backend
+tokenization, model judgments, and decision calibration remain unverified.
+
 ## Dependencies and Reproducibility
 
 Direct research dependencies are in
@@ -169,10 +194,32 @@ Maintain separate environments for:
 3. Each native runtime's converter and matching gguf package/binding.
 
 For NVIDIA quantization, first establish GPU model/VRAM, driver and runtime
-compatibility on the host. A future opt-in profile should request GPU access and
-install matching Torch wheels. Compiling CUDA extensions additionally requires
-a matching CUDA toolkit and `nvcc`; `--gpus all` alone does not provide them.
-Docker and Podman GPU passthrough differ. GPU validation is not claimed here.
+compatibility on the host. The opt-in
+[Podman/WSL GPU profile](../.devcontainer/gpu/devcontainer.json) reuses the
+CPU image and requests the same `nvidia.com/gpu=all` CDI device, `/dev/dxg`,
+`/usr/lib/wsl`, and `label=disable` options as the user's working container.
+It does not mount WSLg, forward ports, clone llama.cpp, or replace the CPU
+default. Only choose it on a host with those WSL paths and Podman NVIDIA CDI
+configured; it is not a generic Docker or native-Linux GPU profile.
+
+On that host, from the workspace root, validate and launch explicitly:
+
+```bash
+devcontainer read-configuration --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman
+devcontainer up --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman
+devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman /usr/lib/wsl/lib/nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+```
+
+The GPU profile runs the existing CPU smoke check and fails post-create if
+`/dev/dxg` or `nvidia-smi` is unavailable. Verify the actual GPU model,
+driver, VRAM, and CUDA availability on the host before choosing a separate
+CUDA-enabled ML environment with matching Torch wheels. The shared CPU image
+does **not** install CUDA, GPU Torch, or `nvcc`; device visibility alone does
+not establish usable quantization, native BitNet execution, or GPU performance.
+No profile build/start or GPU check was possible inside the current CPU-only
+container. No weights, drivers, or GPU packages are downloaded by this profile.
+Compiling CUDA extensions additionally requires a matching CUDA toolkit and
+`nvcc`; `--gpus all` alone does not provide them.
 
 Quantize on the workstation and infer on the edge. Full-model BF16 weights,
 activation banks, factors, and temporary exports require more memory/storage than

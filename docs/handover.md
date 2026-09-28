@@ -72,7 +72,8 @@ Delivered files:
 | [embedded_jev/inventory.py](../embedded_jev/inventory.py) | Bounded pinned metadata/header retrieval, deterministic inventory and memory estimator |
 | [tests/test_inventory.py](../tests/test_inventory.py) | Offline fixtures for valid, incomplete, inconsistent, unsupported, and range-ignoring sources |
 | [embedded_jev/label_probe.py](../embedded_jev/label_probe.py) | Pinned text-only MiMo template and A-P token-boundary check without model weights |
-| [tests/test_label_probe.py](../tests/test_label_probe.py) | Offline positive and negative tokenizer-boundary cases |
+| [tests/test_label_probe.py](../tests/test_label_probe.py) | Offline tokenizer, processor, and fixture contract cases |
+| [tests/fixtures/agent_tool_smoke.json](../tests/fixtures/agent_tool_smoke.json) | Five synthetic option-mapping cases, never calibration or benchmark data |
 | [.gitignore](../.gitignore) | Existing PDF exclusion preserved; generated Python bytecode caches ignored |
 
 The documentation above is also delivered. The existing [LICENSE](../LICENSE)
@@ -131,6 +132,15 @@ downloads or credentials are needed for these checks.
 From outside, use `devcontainer exec --workspace-folder . --docker-path podman`
 before an inside-container command. Do not try to fix a missing host NumPy by
 installing the research dependencies globally; use the container.
+
+The opt-in [Podman/WSL NVIDIA profile](../.devcontainer/gpu/devcontainer.json)
+reuses the CPU image and adds `nvidia.com/gpu=all`, `/dev/dxg`, and the WSL
+driver-library mount from the user's working container. The default config
+remains CPU-only. Its post-create command checks `/dev/dxg` and `nvidia-smi`;
+see [docs/development.md](development.md) for host-side launch commands and
+prerequisites. Only JSON/path structure was verified in this CPU container;
+the profile has not been built, started, or GPU-tested here. CUDA, GPU Torch,
+model weights, and native BitNet remain opt-in later work.
 
 ## 5. What Was Actually Verified
 
@@ -552,27 +562,33 @@ and must be recreated or reused through the documented environment workflow.
 ## 15. Pinned Text-Only Label Boundary
 
 The [label probe](../embedded_jev/label_probe.py) checks the actual MiMo template
-with `enable_thinking=False`, compares the rendered prompt IDs against official
-Transformers chat-template IDs, and requires A-P to add one distinct non-special
-token each. With pinned Transformers 5.12.1 and tokenizer files (roughly 20 MB,
-no weights), the reference sample has 46 prompt tokens and label IDs A-P =
-32-47. Both the opt-in bounded fetch and offline cached path were exercised.
-The report includes template/prompt hashes, file hashes, and library versions;
-[docs/development.md](development.md) has the isolated-environment commands.
-Three offline tests pass. This is one text-only prompt, not a frozen evaluation
-fixture, processor validation, GGUF/native tokenizer parity, inference result,
-or evidence of model quality. Continue testing exact prefixes for every prompt
-and native backend before scoring decisions.
+with `enable_thinking=False`, matches rendered and tokenized prompt IDs, and
+requires each A-P label to add one distinct non-special token. The sample has
+46 prompt tokens and label IDs A-P = 32-47. The pinned inventory reconciles
+standalone and nested image/video processor metadata. With approved isolated
+CPU-only Torch 2.10.0, Torchvision 0.25.0, and Pillow 12.1.1, real
+`Qwen3VLProcessor` text inputs matched the tokenizer IDs and mask, with all-zero
+multimodal token types. The external cache totals about 979 MB; no model weights
+have been downloaded. [docs/development.md](development.md) has the commands.
+
+The [synthetic fixture](../tests/fixtures/agent_tool_smoke.json) has five
+agent/tool cases: inspect-first with an irrelevant-context perturbation,
+authorized README edits with reordered options, and missing upload permission.
+Their expected semantic IDs map to A/A/B/C/C; the pinned text-only processor
+passed all five prompt/label boundary checks. Six offline label/processor tests
+pass. The CLI records hashes and versions, not model predictions. This is **not**
+calibration data, a held-out quality benchmark, image processing, native backend
+tokenization parity, or a trained decision service.
 
 ## 16. Restart Brief
 
 For a fresh coding session, the entire immediate objective is:
 
 > Read this handover and the linked research/design documents. Confirm the CPU
-> smoke check, nine numerical tests, eight offline inventory tests, and three
-> label-probe tests. Re-run the bounded pinned inventory when network is
-> available; then validate processor inputs and native tokenizer parity, freeze
-> a decision fixture, and clarify host budgets before downloading weights.
+> smoke check, nine numerical tests, eight offline inventory tests, and six
+> label/processor tests. Re-run bounded inventory and synthetic fixture checks
+> when appropriate; then obtain a real held-out agent/tool decision fixture,
+> verify native tokenizer parity, and clarify host budgets before model weights.
 > Preserve the genuine BitNet execution requirement and SemIf fixed-label
 > contract. Treat unmeasured quality, hardware performance, and proprietary model
 > claims as unknown. Make the smallest testable implementation step.

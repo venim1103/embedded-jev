@@ -359,5 +359,7 @@ The separate [offline inventory tests](../tests/test_inventory.py) verify metada
 and header reconciliation; they do not validate model execution either.
 The pinned [label probe](../embedded_jev/label_probe.py) verifies single-token
 A-P continuations and matching rendered/tokenized template IDs for one text-only
-sample prompt using Transformers 5.12.1. It does not test native tokenization,
-the visual processor, generated reasoning, or decision quality.
+sample prompt using Transformers 5.12.1. With CPU-only processor dependencies,
+five synthetic agent/tool prompts also passed text-only Qwen3VLProcessor parity;
+their recorded labels are fixtures, not model predictions. Neither probe tests
+native tokenization, visual inputs, generated reasoning, or decision quality.

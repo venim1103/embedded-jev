@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from embedded_jev.inventory import MODEL_ID, MODEL_REVISION
+from embedded_jev.inventory import InventoryError, MODEL_ID, MODEL_REVISION, _json_object
 
 
 LABELS = tuple("ABCDEFGHIJKLMNOP")
@@ -15,6 +15,11 @@ ALLOWED_FILES = {
     "config.json": 1 << 20,
     "tokenizer.json": 25 << 20,
     "tokenizer_config.json": 1 << 20,
+}
+PROCESSOR_FILES = {
+    "preprocessor_config.json": 1 << 20,
+    "processor_config.json": 1 << 20,
+    "video_preprocessor_config.json": 1 << 20,
 }
 
 
@@ -65,8 +70,124 @@ def probe_label_boundary(tokenizer, messages: list[dict], labels: tuple[str, ...
     }
 
 
-def _bounded_size(name: str, size: int | None) -> int:
-    if name not in ALLOWED_FILES or type(size) is not int or not 0 < size <= ALLOWED_FILES[name]:
+def probe_text_processor(
+    processor, tokenizer, messages: list[dict], labels: tuple[str, ...] = LABELS
+) -> dict:
+    """Require processor text inputs to match the validated prompt tokenization."""
+    report = probe_label_boundary(tokenizer, messages, labels)
+    prompt = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+    )
+    encoded = processor(text=prompt, return_tensors=None)
+    expected_ids = tokenizer.encode(prompt, add_special_tokens=False)
+    if (
+        not hasattr(encoded, "keys")
+        or not {"input_ids", "attention_mask"} <= set(encoded)
+        or set(encoded) - {"input_ids", "attention_mask", "mm_token_type_ids"}
+        or encoded["input_ids"] != [expected_ids]
+        or encoded["attention_mask"] != [[1] * len(expected_ids)]
+        or (
+            "mm_token_type_ids" in encoded
+            and encoded["mm_token_type_ids"] != [[0] * len(expected_ids)]
+        )
+    ):
+        raise LabelProbeError("processor text inputs disagree with tokenizer or contain media")
+    report["processor_class"] = type(processor).__name__
+    report["processor_text_only"] = True
+    report["processor_mm_token_type_ids"] = (
+        "all_text" if "mm_token_type_ids" in encoded else "absent"
+    )
+    return report
+
+
+def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[dict]:
+    """Check a small labeled fixture's option mapping and prompt boundaries."""
+    if not isinstance(cases, list) or not 1 <= len(cases) <= 32:
+        raise LabelProbeError("decision fixture must contain 1-32 cases")
+    reports = []
+    seen_ids = set()
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != {
+            "id", "group", "state", "question", "options", "expected_option_id"
+        }:
+            raise LabelProbeError("unsupported decision fixture case")
+        case_id = case["id"]
+        if not isinstance(case_id, str) or not case_id or case_id in seen_ids:
+            raise LabelProbeError("duplicate or invalid decision fixture id")
+        seen_ids.add(case_id)
+        if any(
+            not isinstance(case[key], str) or not case[key] or len(case[key]) > 2000
+            for key in ("group", "state", "question")
+        ):
+            raise LabelProbeError(f"invalid decision fixture text: {case_id}")
+        options = case["options"]
+        if not isinstance(options, list) or not 2 <= len(options) <= len(LABELS):
+            raise LabelProbeError(f"invalid decision fixture options: {case_id}")
+        option_ids = []
+        for option in options:
+            if not isinstance(option, dict) or set(option) != {"id", "description"} or any(
+                not isinstance(option[key], str) or not option[key] or "\n" in option[key]
+                for key in ("id", "description")
+            ):
+                raise LabelProbeError(f"invalid decision fixture option: {case_id}")
+            option_ids.append(option["id"])
+        if len(set(option_ids)) != len(option_ids) or case["expected_option_id"] not in option_ids:
+            raise LabelProbeError(f"duplicate options or unknown expected choice: {case_id}")
+
+        labels = LABELS[: len(options)]
+        choices = "\n".join(
+            f"{label}. {option['description']}"
+            for label, option in zip(labels, options, strict=True)
+        )
+        messages = [{
+            "role": "user",
+            "content": (
+                f"State: {case['state']}\nQuestion: {case['question']}\n"
+                f"Options:\n{choices}\nAnswer:"
+            ),
+        }]
+        report = (
+            probe_text_processor(processor, tokenizer, messages, labels)
+            if processor is not None else probe_label_boundary(tokenizer, messages, labels)
+        )
+        case_report = {
+            "id": case_id,
+            "group": case["group"],
+            "expected_option_id": case["expected_option_id"],
+            "expected_label": labels[option_ids.index(case["expected_option_id"])],
+            "prompt_sha256": report["prompt_sha256"],
+            "prompt_token_count": report["prompt_token_count"],
+            "label_token_ids": report["label_token_ids"],
+        }
+        if processor is not None:
+            case_report["processor_mm_token_type_ids"] = report["processor_mm_token_type_ids"]
+        reports.append(case_report)
+    return reports
+
+
+def load_decision_fixture(path: Path) -> tuple[dict, str]:
+    """Read only the versioned, bounded synthetic engineering fixture schema."""
+    if path.stat().st_size > 64 << 10:
+        raise LabelProbeError("decision fixture exceeds 64 KiB")
+    data = path.read_bytes()
+    if len(data) > 64 << 10:
+        raise LabelProbeError("decision fixture exceeds 64 KiB")
+    try:
+        fixture = _json_object(data, str(path))
+    except InventoryError as exc:
+        raise LabelProbeError("invalid decision fixture JSON") from exc
+    if (
+        set(fixture) != {"schema_version", "purpose", "cases"}
+        or type(fixture["schema_version"]) is not int or fixture["schema_version"] != 1
+        or fixture["purpose"] != "synthetic_engineering_smoke_not_calibration_or_benchmark"
+    ):
+        raise LabelProbeError("unsupported decision fixture schema or purpose")
+    return fixture, hashlib.sha256(data).hexdigest()
+
+
+def _bounded_size(name: str, size: int | None, *, processor: bool = False) -> int:
+    allowed = ALLOWED_FILES | (PROCESSOR_FILES if processor else {})
+    if name not in allowed or type(size) is not int or not 0 < size <= allowed[name]:
         raise LabelProbeError(f"missing or oversized pinned tokenizer file: {name}")
     return size
 
@@ -74,6 +195,8 @@ def _bounded_size(name: str, size: int | None) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect pinned MiMo A-P label tokenization")
     parser.add_argument("--fetch", action="store_true", help="fetch bounded tokenizer-only files")
+    parser.add_argument("--processor", action="store_true", help="check text-only processor parity")
+    parser.add_argument("--fixture", type=Path, help="check a bounded synthetic decision fixture")
     args = parser.parse_args()
 
     import huggingface_hub
@@ -83,18 +206,18 @@ def main() -> None:
 
     paths = {}
     sources = {}
-    for name in sorted(ALLOWED_FILES):
+    for name in sorted(ALLOWED_FILES | (PROCESSOR_FILES if args.processor else {})):
         if args.fetch:
             metadata = huggingface_hub.get_hf_file_metadata(
                 huggingface_hub.hf_hub_url(MODEL_ID, name, revision=MODEL_REVISION)
             )
-            _bounded_size(name, metadata.size)
+            _bounded_size(name, metadata.size, processor=args.processor)
         path = Path(
             huggingface_hub.hf_hub_download(
                 MODEL_ID, name, revision=MODEL_REVISION, local_files_only=not args.fetch
             )
         )
-        size = _bounded_size(name, path.stat().st_size)
+        size = _bounded_size(name, path.stat().st_size, processor=args.processor)
         with path.open("rb") as file:
             digest = hashlib.file_digest(file, "sha256").hexdigest()
         paths[name] = path
@@ -114,7 +237,28 @@ def main() -> None:
             "Options:\nA. Yes\nB. No\nC. Insufficient evidence\nAnswer:"
         ),
     }]
-    report = probe_label_boundary(tokenizer, messages)
+    processor = (
+        transformers.AutoProcessor.from_pretrained(
+            MODEL_ID, revision=MODEL_REVISION, trust_remote_code=False, local_files_only=True
+        ) if args.processor else None
+    )
+    if args.fixture is not None:
+        fixture, digest = load_decision_fixture(args.fixture)
+        report = {
+            "model": MODEL_ID,
+            "revision": MODEL_REVISION,
+            "fixture_purpose": fixture["purpose"],
+            "fixture_sha256": digest,
+            "cases": probe_decision_cases(tokenizer, fixture["cases"], processor),
+            "generated_tokens": 0,
+        }
+        if processor is not None:
+            report["processor_class"] = type(processor).__name__
+            report["processor_text_only"] = True
+    elif processor is not None:
+        report = probe_text_processor(processor, tokenizer, messages)
+    else:
+        report = probe_label_boundary(tokenizer, messages)
     report["source_files"] = sources
     report["tool_versions"] = {
         "huggingface_hub": huggingface_hub.__version__,

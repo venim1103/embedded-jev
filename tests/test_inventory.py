@@ -139,10 +139,17 @@ def _model_fixture():
             {"metadata": {"total_size": offsets}, "weight_map": dict.fromkeys(specs, shard)}
         ).encode(),
         "tokenizer_config.json": b'{"tokenizer_class":"Qwen2Tokenizer"}',
-        "processor_config.json": b'{"processor_class":"Qwen3VLProcessor"}',
+        "processor_config.json": (
+            b'{"processor_class":"Qwen3VLProcessor",'
+            b'"image_processor":{"image_processor_type":"Qwen2VLImageProcessor"},'
+            b'"video_processor":{"video_processor_type":"Qwen3VLVideoProcessor","fps":2}}'
+        ),
         "preprocessor_config.json": b'{"image_processor_type":"Qwen2VLImageProcessor"}',
         "chat_template.jinja": b"{{ messages }}",
-        "video_preprocessor_config.json": b'{"video_processor_type":"Qwen3VLVideoProcessor"}',
+        "video_preprocessor_config.json": (
+            b'{"video_processor_type":"Qwen3VLVideoProcessor",'
+            b'"processor_class":"Qwen3VLProcessor"}'
+        ),
     }
     return metadata, {shard: (prefix, shard_bytes)}
 
@@ -187,6 +194,16 @@ def test_inventory_rejects_missing_inconsistent_or_unsupported_metadata():
         build_inventory({**metadata, "config.json": json.dumps(config).encode()}, shards)
     with pytest.raises(InventoryError, match="missing or unsupported tokenizer/processor"):
         build_inventory({**metadata, "processor_config.json": b"{}"}, shards)
+    with pytest.raises(InventoryError, match="inconsistent image processor metadata"):
+        build_inventory(
+            {**metadata, "preprocessor_config.json": b'{"image_processor_type":"Qwen2VLImageProcessor","size":1}'},
+            shards,
+        )
+    with pytest.raises(InventoryError, match="inconsistent video processor metadata"):
+        build_inventory(
+            {**metadata, "video_preprocessor_config.json": b'{"video_processor_type":"Qwen3VLVideoProcessor","processor_class":"Qwen3VLProcessor","fps":3}'},
+            shards,
+        )
     config = json.loads(metadata["config.json"])
     config["vision_config"]["depth"] = 2
     with pytest.raises(InventoryError, match="missing required model weights"):

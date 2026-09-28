@@ -432,6 +432,17 @@ def build_inventory(
         or not metadata_files["chat_template.jinja"].strip()
     ):
         raise InventoryError("missing or unsupported tokenizer/processor metadata")
+    if image_config != processor_config.get("image_processor"):
+        raise InventoryError("inconsistent image processor metadata")
+    if video_config is not None and (
+        video_config.get("processor_class") != processor_config["processor_class"]
+        or not isinstance(processor_config.get("video_processor"), dict)
+        or any(
+            processor_config["video_processor"].get(key) != value
+            for key, value in video_config.items() if key != "processor_class"
+        )
+    ):
+        raise InventoryError("inconsistent video processor metadata")
     index = parsed["model.safetensors.index.json"]
     if set(index) != {"metadata", "weight_map"}:
         raise InventoryError("unsupported safetensors index")

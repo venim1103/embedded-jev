@@ -8,8 +8,9 @@ running through **genuine BitNet-derived CPU kernels**, with a SemIf-style typed
 decision interface. Text comes first; vision and embedded x86, ARM, and RISC-V
 targets follow only after native validation.
 
-**Status:** The CPU research environment, bounded inventory, and a text-only
-check of the pinned chat template and A-P answer-token boundary are working.
+**Status:** The CPU research environment, bounded inventory, and text-only
+tokenizer/processor checks work on the pinned model metadata. A small synthetic
+agent/tool fixture checks prompt and option-label mapping, not decision accuracy.
 Quantization, BitNet integration, model inference, and decision scoring are not
 yet implemented. No model weights have been downloaded, and there are no
 measured model-quality or device-performance results.

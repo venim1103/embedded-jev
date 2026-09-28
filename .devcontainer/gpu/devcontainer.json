@@ -1,0 +1,43 @@
+{
+  "name": "Embedded Jev Research (GPU, Podman/WSL)",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "options": ["--format=docker"]
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "init": true,
+  "runArgs": [
+    "--shm-size=2g",
+    "--device", "nvidia.com/gpu=all",
+    "--device", "/dev/dxg",
+    "--security-opt", "label=disable",
+    "--mount", "type=bind,source=/usr/lib/wsl,target=/usr/lib/wsl,readonly"
+  ],
+  "containerEnv": {
+    "LD_LIBRARY_PATH": "/usr/lib/wsl/lib",
+    "NVIDIA_VISIBLE_DEVICES": "all",
+    "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"
+  },
+  "mounts": [
+    "source=embedded-jev-cache-${devcontainerId},target=/home/vscode/.cache,type=volume"
+  ],
+  "postCreateCommand": "/opt/venv/bin/python .devcontainer/smoke.py && test -c /dev/dxg && /usr/lib/wsl/lib/nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader",
+  "waitFor": "postCreateCommand",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "cmake.configureOnOpen": false
+      }
+    }
+  }
+}

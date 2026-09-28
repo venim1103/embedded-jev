@@ -25,9 +25,10 @@ before their revisions and intended roles have been selected.
 ## Milestone 1: Quantization Feasibility
 
 Status: in progress. The pinned header inventory and byte estimates reconcile;
-one text-only prompt renders with the pinned MiMo template and has single-token
-A-P continuations. Processor inputs, native tokenization parity, host/download
-budgets, a decision fixture, and a dense reference are not yet established.
+the pinned tokenizer and text-only processor agree on prompt IDs and A-P labels.
+A synthetic five-case agent/tool fixture verifies option mapping, not model
+quality. Vision inputs, native tokenization parity, a real held-out decision
+fixture, a dense reference, and host/target resource budgets remain open.
 
 1. Obtain host and target resource budgets. Inspect metadata and safetensors
    headers for the pinned MiMo checkpoint without downloading all weight shards.

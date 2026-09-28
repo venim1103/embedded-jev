@@ -27,6 +27,16 @@ The 2026-09-28 tokenizer-only check fetched just the pinned `config.json`,
 `tokenizer.json`. Their SHA-256 hashes and the exact Transformers/tokenizers
 versions appear in `python -m embedded_jev.label_probe` output. No model weights
 or processor payloads were fetched for that check.
+The later processor metadata check fetched only `processor_config.json`,
+`preprocessor_config.json`, and `video_preprocessor_config.json` (1,191, 443,
+and 385 bytes). Nested image settings match the standalone image config;
+standalone video settings are a matching subset of the nested video settings.
+The lightweight tokenizer-only environment initially could not construct the
+processor. After explicitly approved CPU-only Torch 2.10.0, Torchvision 0.25.0,
+and Pillow 12.1.1 were installed outside the repository, the pinned
+`Qwen3VLProcessor` produced the same text-only prompt IDs as the tokenizer and
+all-zero multimodal token types for five synthetic agent/tool cases. No image
+processing, native runtime, model weights, or model judgments were tested.
 
 ## BitNet
 
