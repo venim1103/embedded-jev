@@ -140,8 +140,31 @@ remains CPU-only. Its post-create command checks `/dev/dxg` and `nvidia-smi`;
 see [docs/development.md](development.md) for host-side launch commands and
 prerequisites. A WSL/Podman host build and post-create check succeeded on
 2026-09-28, reporting an RTX A3000 Laptop GPU (12,288 MiB, driver 595.95)
-inside the container. CUDA computation, GPU Torch, model weights, and native
-BitNet remain untested or opt-in later work.
+inside the container. The base image contains no GPU Torch; a separate isolated
+GPU venv passed a tiny CUDA matmul (below). Model weights and native BitNet
+remain future work.
+An optional [CUDA driver probe](../embedded_jev/gpu_probe.py) can now run from
+the already-started GPU container without a rebuild or Torch installation;
+it successfully enumerated one RTX A3000 Laptop GPU at compute capability 8.6
+and 12,884,377,600 driver-reported memory bytes. Its opt-in four-byte
+`--memory-round-trip` mode passed on the same WSL/Podman container, confirming
+context creation, allocation, host/device copies, and cleanup. No GPU kernel
+was executed by this driver-only probe.
+An optional [GPU Torch compute probe](../embedded_jev/torch_probe.py) has offline
+fail-closed tests and a 4x4 FP32 CUDA matmul. It passed on the RTX A3000 with
+isolated `torch==2.10.0+cu128` (CUDA 12.8); the base research venv remains
+unchanged. NumPy was not installed in the isolated GPU venv, producing a warning
+but not affecting this pure-Torch smoke. Model loading, quantization quality,
+and BitNet CPU execution remain untested.
+The compatible `torch==2.10.0+cu128` CPython 3.12 Linux wheel is 916,856,347
+bytes by HTTP header, plus dependencies. [docs/development.md](development.md)
+has the opt-in isolated install and run commands. The first GPU-container uv
+attempt failed before installation: top-level `.cache` is root-owned, so uv's
+default cache directory was not writable. Use the documented writable volume
+child and explicit `UV_CACHE_DIR`; do not change ownership or rebuild for this.
+WSL `df` does not establish physical free space on the Windows drive containing
+the virtual disk. No Torch package was added to the lightweight research base;
+the separate GPU venv and cache are not a locked full-model environment.
 
 ## 5. What Was Actually Verified
 
@@ -200,8 +223,12 @@ No MiMo or BitNet weight payload was downloaded. The pinned inventory fetched
 172,461 metadata/header response-body bytes; it never fetched tensor values.
 No native inference runtime was cloned or compiled. No owned quality,
 perplexity, latency, energy, or RSS result exists for the model. The host GPU
-is an RTX A3000 Laptop GPU with 12,288 MiB VRAM; host RAM/storage and full-model
-quantization feasibility still require a resource plan.
+is an RTX A3000 Laptop GPU with 12,288 MiB VRAM. On 2026-09-28, WSL showed
+29 GiB RAM, 21 GiB available, and 8 GiB swap; the user reported 48.3 GB free
+on the Windows drive backing the virtual disk. These point-in-time readings do
+not establish space or RAM for full-model conversion: 18,819,627,488 BF16
+weight bytes alone occupy about 17.53 GiB of memory before caches and scratch.
+Use bounded streaming/offloading and account for disk copies before downloading.
 
 Do not run the full-model commands from the original PDF: their modules do not
 exist here, and several use incompatible layouts or nonexistent APIs.
@@ -269,6 +296,19 @@ dependent packed ordering. It is not the PDF's per-group FP16 layout. A MiMo
 group-scaled artifact cannot pass through it unchanged without losing scales.
 Its MAD kernels use integer multiply-accumulate; LUT kernels are a separate path.
 BitNet does not mean that every transformer operation becomes addition-only.
+
+An isolated [group-scale AVX2 fixture](../native/bitnet_group_scale.cpp) now
+executes a pinned BitNet I2_S-style packed-code MAD block on x86-64. The 128
+codes occupy 32 bytes; one separate FP32 scale per output row/group adds four
+bytes (2.25 bpw for that weight representation, not PTQ1_0's 1.75 bpw).
+Because BitNet packs ternary codes as 0/1/2, the kernel subtracts each group's
+signed A8 activation sum before applying row/group and activation scales.
+Three golden tests compare compiled outputs against an independent scalar
+reference for zero weights, negative/extreme activations, unequal scales, and
+4,096/12,288-wide inputs. The [BitNet MIT notice](../native/BitNet-LICENSE.txt)
+is retained separately. This does **not** execute the Microsoft fork's GGML
+graph, prepare rotations/A8, handle batches, or prove runtime dispatch, quality,
+ARM/RISC-V support, or a speedup. Those remain mandatory later gates.
 
 Use a native BitNet checkpoint as a tooling control. The preferred proposed MiMo
 direction is to integrate a real BitNet-derived kernel into a Qwen3.5-capable

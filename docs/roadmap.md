@@ -29,8 +29,12 @@ the pinned tokenizer and text-only processor agree on prompt IDs and A-P labels.
 A synthetic five-case agent/tool fixture verifies option mapping, not model
 quality. Vision inputs, native tokenization parity, a real held-out decision
 fixture, and a dense reference remain open. The quantization host exposes an
-RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA computation, host RAM/storage,
-and target-device resource budgets still require validation.
+RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
+a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment
+also passed one 4x4 FP32 matmul. WSL reported 29 GiB RAM (21 GiB available),
+8 GiB swap, and the user reported 48.3 GB free on the Windows drive. These
+readings are time-sensitive; full-model fit, conversion scratch, and
+target-device resource budgets still require a plan.
 
 1. Obtain host and target resource budgets. Inspect metadata and safetensors
    headers for the pinned MiMo checkpoint without downloading all weight shards.
@@ -72,6 +76,10 @@ The first real-code tests belong beside the modules they test. The current
 
 This milestone is mandatory, not an optional optimization after release. It can
 progress alongside the later part of Milestone 2 after the container is ready.
+An isolated [AVX2 group-scale fixture](../native/bitnet_group_scale.cpp) now
+compiles and passes scalar-reference golden tests for group-128 ternary dots,
+including 4,096- and 12,288-wide projections. It does **not** satisfy the
+native runtime/dispatch, rotation/A8, batch, or model-quality gate below.
 
 1. Pin Microsoft BitNet and its submodules; build the documented native control
    with Clang 18. Use a supported model only after confirming download budget.

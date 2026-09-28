@@ -220,14 +220,70 @@ devcontainer up --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontain
 devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman /usr/lib/wsl/lib/nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 ```
 
+With that GPU container running, check the CUDA Driver API without rebuilding
+or installing Torch (the repository is bind-mounted into the container):
+
+```bash
+devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman env PYTHONDONTWRITEBYTECODE=1 /opt/venv/bin/python -m embedded_jev.gpu_probe
+```
+
+The [driver probe](../embedded_jev/gpu_probe.py) calls `cuInit`, enumerates
+devices, and reports each device's compute capability and total driver-reported
+memory. On the WSL/Podman GPU container it reported one RTX A3000 Laptop GPU,
+compute capability 8.6, and 12,884,377,600 bytes of driver-reported memory.
+For a separate, opt-in four-byte host/device memory round trip, append
+`--memory-round-trip` to that command. This mode creates and destroys a CUDA
+context and frees its allocation; it passed on the WSL/Podman GPU container,
+returning `"memory_round_trip_bytes": 4`. Offline fake-driver tests also cover
+cleanup on copy failure. Neither check runs CUDA kernels or proves a
+compatible GPU Torch wheel or usable full-model quantization.
+
+For an actual GPU compute gate, use a separate environment in the GPU profile's
+persistent cache. Check free disk space before installing; the official
+CPython 3.12 Linux `torch==2.10.0+cu128` wheel is 916,856,347 bytes by HTTP
+header, **excluding dependencies and cache duplication**. WSL/container `df`
+shows the virtual Linux filesystem's reported free space, not necessarily the
+physical free space on the Windows drive storing its VHDX and Podman data.
+Check that Windows drive too. From the WSL host workspace root, with the GPU
+container already running:
+
+```bash
+powershell.exe -NoProfile -Command 'Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free'
+CACHE=/home/vscode/.cache/huggingface/embedded-jev/gpu
+UV_CACHE_DIR="$CACHE/uv"
+devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman df -h /home/vscode/.cache
+devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman test -w /home/vscode/.cache/huggingface
+devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman env UV_CACHE_DIR="$UV_CACHE_DIR" /opt/venv/bin/uv venv "$CACHE/torch-cu128" --python /opt/venv/bin/python
+devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman env UV_CACHE_DIR="$UV_CACHE_DIR" /opt/venv/bin/uv pip install --python "$CACHE/torch-cu128/bin/python" --index https://download.pytorch.org/whl/cu128 'torch==2.10.0+cu128'
+devcontainer exec --workspace-folder . --config "$PWD/.devcontainer/gpu/devcontainer.json" --docker-path podman env XDG_CACHE_HOME="$CACHE" PYTHONDONTWRITEBYTECODE=1 "$CACHE/torch-cu128/bin/python" -m embedded_jev.torch_probe
+```
+
+The top-level `/home/vscode/.cache` mount can be root-owned even when
+`/home/vscode/.cache/huggingface` is writable by `vscode`. Explicit `UV_CACHE_DIR`
+keeps uv from failing before installation; keeping the venv beneath that
+writable child preserves it across container restarts without privilege changes.
+If the write test fails, stop and inspect the mount permissions rather than
+using `sudo` or changing ownership of unrelated caches.
+
+The [Torch probe](../embedded_jev/torch_probe.py) requires a CUDA-enabled wheel
+and performs one 4x4 FP32 matmul on `cuda:0`, synchronizes, and compares the
+result against the input. On 2026-09-28 the WSL/Podman GPU container passed this
+check with `torch==2.10.0+cu128`, CUDA 12.8, and compute capability 8.6. The
+isolated venv printed an optional NumPy-missing warning on import; this pure
+Torch operation still passed. Add a separately pinned NumPy dependency only
+when a later workload needs it. This smoke does not download any model or prove
+a full-model memory plan, ternary quality, or BitNet CPU execution. The research
+venv remains hash-locked and untouched; the larger quantization environment
+still needs a separate lock and validation.
+
 The GPU profile runs the existing CPU smoke check and fails post-create if
 `/dev/dxg` or `nvidia-smi` is unavailable. On 2026-09-28, the WSL/Podman host
 completed the image build and post-create smoke check, then reported an
 NVIDIA RTX A3000 12GB Laptop GPU, 12,288 MiB VRAM, and driver 595.95 via
-`nvidia-smi` inside the container. This verifies device visibility, not CUDA
-computation or Torch compatibility. Verify those before choosing a separate
-CUDA-enabled ML environment with matching Torch wheels. The shared CPU image
-does **not** install CUDA, GPU Torch, or `nvcc`; device visibility alone does
+`nvidia-smi` inside the container. Post-create verifies device visibility; the
+separate Torch smoke above verifies a small CUDA computation, not a model or
+quantizer. The shared CPU image does **not** install CUDA, GPU Torch, or `nvcc`;
+device visibility alone does
 not establish usable quantization, native BitNet execution, or GPU performance.
 No weights, drivers, or GPU packages are downloaded by this profile.
 Compiling CUDA extensions additionally requires a matching CUDA toolkit and
@@ -236,12 +292,35 @@ Compiling CUDA extensions additionally requires a matching CUDA toolkit and
 Quantize on the workstation and infer on the edge. Full-model BF16 weights,
 activation banks, factors, and temporary exports require more memory/storage than
 the final packed model. Use the inventory to size these before downloads.
+On 2026-09-28 the WSL host reported 29 GiB RAM, 21 GiB available, and 8 GiB
+swap; the user reported 48.3 GB free on the Windows drive storing the WSL
+virtual disk. These values can change, and WSL `df` is not a substitute for
+Windows free space. The checkpoint's 18.82 GB BF16 weights alone occupy about
+17.53 GiB in memory; loading them all at once leaves insufficient reliable
+headroom for activations, factors, and runtime scratch. Plan a streamed or
+offloaded reference and bound temporary disk copies before weight downloads.
 
 ## Native Build Discipline
 
 Clang 18 satisfies BitNet's documented compiler prerequisite. Do not assume a
 successful C++ smoke test implies BitNet itself has been built. Native inference
 and model-loading smoke tests are later roadmap gates.
+
+The [standalone AVX2 group-scale fixture](../native/bitnet_group_scale.cpp)
+adapts BitNet's pinned 128-value packed-code integer dot for one row/group scale
+at a time. Run its [golden tests](../tests/test_bitnet_group_scale.py) with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_bitnet_group_scale.py
+```
+
+The tests compile in temporary storage with Clang 18 and require an x86-64 CPU
+with AVX2. Packed weights use 32 bytes per group plus a separate FP32 scale;
+this is neither PTQ1_0 nor a loadable stock BitNet I2_S model. Inputs are
+already signed A8 with supplied activation scales. No FP32 rotation, runtime
+loader/graph, multi-token batch, ARM/RISC-V path, or performance measurement is
+implemented by this proof. The [upstream MIT notice](../native/BitNet-LICENSE.txt)
+is included with the derived source.
 
 Pin parent repositories and all submodules. BitNet's inspected top-level options
 are `BITNET_ARM_TL1` and `BITNET_X86_TL2`; the PDF's generic TL flags are not the

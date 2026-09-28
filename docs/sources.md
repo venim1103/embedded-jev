@@ -55,6 +55,12 @@ This is an observed source pin, not a successfully built integration here.
 | [CPU optimization notes](https://github.com/microsoft/BitNet/blob/0b341e582afbf9e1011f24744b554c96a3477eb5/src/README.md) | I2_S GEMM/GEMV and activation-parallel work, measured examples, x86/ARM support | Different models/hardware; not a forecast for MiMo on an N100 or SBC. |
 | [Submodule declaration](https://github.com/microsoft/BitNet/blob/0b341e582afbf9e1011f24744b554c96a3477eb5/.gitmodules) | Native dependency origin | Record both parent and gitlink commit; tracking branch names are not reproducible pins. |
 
+The isolated [AVX2 fixture](../native/bitnet_group_scale.cpp) adapts the pinned
+I2_S `1x1` packed-code integer dot, with a [separate upstream MIT notice](../native/BitNet-LICENSE.txt).
+Codes 0/1/2 require subtracting each 128-value activation sum to recover
+ternary -1/0/+1 before applying row/group scales. This is not stock I2_S,
+PTQ1_0 storage, or a BitNet/Qwen3.5 runtime integration.
+
 ## Bonsai and Runtime Formats
 
 The demo documentation was inspected on `main`. Format and Qwen3.5 source
