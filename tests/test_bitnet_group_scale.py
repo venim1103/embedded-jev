@@ -1,6 +1,7 @@
 """Golden checks for the isolated BitNet-derived AVX2 group-scaled dot."""
 
 import ctypes
+import os
 import platform
 import shutil
 import subprocess
@@ -11,12 +12,14 @@ import pytest
 from scipy.linalg import hadamard
 
 from embedded_jev.activation import quantize_a8_per_group, rotate_signed_hadamard
+from embedded_jev.inventory import MODEL_REVISION, fetch_pinned_headers
 from embedded_jev.ternary import (
     quantize_ternary_compensated,
     quantize_ternary_rtn,
     reconstruct_ternary,
 )
 from embedded_jev.ternary_artifact import load_toy_artifact, save_toy_artifact
+from embedded_jev.weight_slice import fetch_bf16_projection_slice
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
@@ -270,6 +273,48 @@ def test_loaded_signed_transform_and_scales_feed_native_batch(native_dot):
         * activation_scales[..., None]
     ).reshape(tokens, width)
     expected = np.einsum("ri,ti->tr", reconstruct_ternary(codes, scales), dequantized_inputs)
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.01)
+
+
+@pytest.mark.skipif(
+    os.environ.get("MIMO_BF16_SLICE_TEST") != "1",
+    reason="explicitly opt in to a pinned 2 KiB MiMo weight range read",
+)
+def test_bounded_mimo_slice_rotates_and_executes_saved_native_artifact(native_dot):
+    metadata, headers = fetch_pinned_headers()
+    weights, source = fetch_bf16_projection_slice(metadata, headers)
+    assert source["revision"] == MODEL_REVISION and source["payload_bytes"] == 2048
+    rows, width = weights.shape
+    groups = width // 128
+    generator = np.random.default_rng(773)
+    signs = generator.choice([-1, 1], size=width)
+    inputs = generator.normal(size=(3, width)).astype(np.float32)
+    rotated_weights = rotate_signed_hadamard(weights, signs, 128)
+    rotated_inputs = rotate_signed_hadamard(inputs, signs, 128)
+    np.testing.assert_allclose(
+        inputs @ weights.T, rotated_inputs @ rotated_weights.T, rtol=1e-5, atol=1e-4
+    )
+    codes, scales = quantize_ternary_rtn(rotated_weights, scale_search=True)
+    payload = save_toy_artifact(
+        codes, scales, algorithm="rtn-maxabs-fp16-v1", signs=signs, block_size=128
+    )
+    saved_codes, saved_scales, manifest = load_toy_artifact(payload)
+    transformed_inputs = rotate_signed_hadamard(
+        inputs, manifest["transform"]["signs"], manifest["transform"]["block_size"]
+    )
+    activations, activation_scales = quantize_a8_per_group(transformed_inputs)
+    actual = call_native_batch(
+        native_dot[1], saved_codes.reshape(rows, groups, 128),
+        activations.reshape(3, groups, 128),
+        saved_scales.astype(np.float32), activation_scales,
+    )
+    dequantized_inputs = (
+        activations.reshape(3, groups, 128).astype(np.float32)
+        * activation_scales[..., None]
+    ).reshape(3, width)
+    expected = np.einsum(
+        "ri,ti->tr", reconstruct_ternary(saved_codes, saved_scales), dequantized_inputs
+    )
     np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.01)
 
 

@@ -71,6 +71,11 @@ of an eligible pinned MiMo projection. On disjoint synthetic Gaussian inputs,
 an 11-candidate per-row/group FP16 scale grid lowered local MSE for both RTN
 and compensation, but searched RTN still beat searched compensation on this
 slice. These are exploratory numeric checks, not real activation or task quality.
+A separate opt-in test now takes those four real weight rows through explicit
+toy signed rotation, searched FP16 ternary scales, saved-artifact reload,
+synthetic A8 preparation, and the standalone native AVX2 batch kernel. Dense
+rotation and stored-artifact native parity pass; this is not a MiMo block or
+Qwen3.5/BitNet runtime graph.
 
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block

@@ -117,6 +117,15 @@ The deterministic 11-candidate FP16 grid optimizes each weight group's local
 squared error; it was not tuned on held-out model tasks. These comparisons
 cannot establish MiMo quality, genuine activation statistics, or a useful
 whole-model compression ratio. The full shard payload hash remains unverified.
+For a separate toy native round trip using those same real weight bytes:
+
+```bash
+MIMO_BF16_SLICE_TEST=1 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_bitnet_group_scale.py -k bounded_mimo_slice
+```
+
+This opt-in test checks signed dense rotation parity and stored-code/FP16-scale
+output parity after synthetic dynamic A8 preparation through the standalone
+AVX2 kernel. It does not run the Qwen3.5 graph or real model activations.
 
 ## Tokenizer-Only Label Probe
 

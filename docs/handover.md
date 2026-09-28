@@ -446,6 +446,12 @@ Tests reject changed hashes, object arrays, malformed transform metadata, and
 oversized data; loaded artifacts feed the native AVX2 kernel in toy cases.
 The archive is capped at 1 MiB and marked as toy/no-model-weights, not PTQ1_0,
 PQ2_0, GGUF, or a complete source/calibration/runtime provenance artifact.
+An opt-in native test also processes the bounded 2,048-byte real MiMo projection
+slice through toy signed rotation, searched FP16 code/scale storage, reload,
+synthetic dynamic A8, and the standalone AVX2 BitNet-derived batch kernel.
+The original and rotated dense outputs agree; native output matches the saved
+artifact reference. This is only four weight rows with synthetic activations,
+not a full attention/recurrent block, actual graph execution, or quality proof.
 
 ### Prism Has a Concrete Transform Schema
 

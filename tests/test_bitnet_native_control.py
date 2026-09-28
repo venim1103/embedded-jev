@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from embedded_jev.label_probe import load_decision_fixture
+
 
 BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
 LLAMA_REVISION = "390c307752ab78fd8189f359d6954c9ba1be74af"
@@ -206,3 +208,33 @@ def test_pinned_bitnet_model_prefill_dispatches_i2_s_matmul(prefill_control):
     assert "hit Breakpoint" in result.stdout
     assert "llamafile_sgemm_i2s" in result.stdout
     assert "ggml_compute_forward_mul_mat" in result.stdout
+
+
+def test_pinned_bitnet_control_scores_fixture_prompts_without_sampling(prefill_control):
+    binary, model = prefill_control
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "agent_tool_smoke.json"
+    fixture, _ = load_decision_fixture(fixture_path)
+    for case in fixture["cases"]:
+        labels = "ABCDEFGHIJKLMNOP"[:len(case["options"])]
+        choices = "\n".join(
+            f"{label}. {option['description']}"
+            for label, option in zip(labels, case["options"], strict=True)
+        )
+        prompt = (
+            f"State: {case['state']}\nQuestion: {case['question']}\n"
+            f"Options:\n{choices}\nAnswer:"
+        )
+        result = subprocess.run(
+            [str(binary), str(model), prompt], check=True,
+            capture_output=True, text=True, timeout=90,
+        )
+        report = json.loads(result.stdout.strip())
+        assert 0 < report["prompt_tokens"] <= 128
+        assert report["labels"] == list(labels)
+        assert report["label_token_ids"] == [32, 33, 34]
+        assert report["finite_logits"] == report["vocab_size"] == 128256
+        assert abs(sum(report["conditional_probabilities"]) - 1) < 1e-7
+        assert report["selected_label"] in labels
+        assert 0 < report["allowed_label_mass"] <= 1
+        assert report["calibration_status"] == "uncalibrated"
+        assert report["generated_tokens"] == 0
