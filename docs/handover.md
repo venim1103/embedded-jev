@@ -221,8 +221,15 @@ no ports are forwarded, and no camera or actuator is exposed.
 
 The header-only pinned inventory fetched 172,461 metadata/header response-body
 bytes. Later, a separate opt-in reader fetched 2,048 BF16 weight bytes from four
-rows and 256 columns of the pinned `layers.3.mlp.down_proj.weight`. No full
-MiMo tensor/shard was downloaded; its full shard payload hash is not verified.
+rows and 256 columns of the pinned `layers.3.mlp.down_proj.weight`. On
+2026-09-29 the user authorized and downloaded the complete pinned BF16 snapshot
+into `$HOME/.cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177`.
+All 17 files passed pinned Hub size/content checks, and all four safetensors
+shards passed LFS SHA-256 verification. Offline header/index reconciliation
+counts 760 tensors and 18,819,627,488 logical weight bytes; the four shard
+files occupy 18,819,720,848 bytes including headers. A local 2 KiB sample
+matched the prior pinned remote ranges and the opt-in native toy slice test
+passed.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 [docs/development.md](development.md) for both independent tracks. No MiMo
@@ -231,9 +238,11 @@ perplexity, latency, energy, or RSS result exists. The host GPU
 is an RTX A3000 Laptop GPU with 12,288 MiB VRAM. On 2026-09-28, WSL showed
 29 GiB RAM, 21 GiB available, and 8 GiB swap; the user reported 48.3 GB free
 on the Windows drive backing the virtual disk. These point-in-time readings do
-not establish space or RAM for full-model conversion: 18,819,627,488 BF16
+not establish RAM for full-model conversion: 18,819,627,488 BF16
 weight bytes alone occupy about 17.53 GiB of memory before caches and scratch.
-Use bounded streaming/offloading and account for disk copies before downloading.
+On 2026-09-29, the cache filesystem had 319 GB free after the download; this
+does not establish working RAM or a safe conversion scratch budget. Keep only
+one quantized candidate at a time and measure/offload before full-model work.
 
 Do not run the full-model commands from the original PDF: their modules do not
 exist here, and several use incompatible layouts or nonexistent APIs.
@@ -666,8 +675,9 @@ bulk weight download, and a credible memory budget. The current HF API total is
 not a substitute for this implementation.
 
 Next, verify real processor inputs and native tokenizer parity, freeze an owned
-decision fixture, and establish the dense reference. Ask about host memory and
-download budgets before fetching model payloads. Then take one actual block
+decision fixture, and establish the dense reference. The user authorized the
+pinned BF16 source download on 2026-09-29; measure memory and bound temporary
+copies before a full-model conversion. Then take one actual block
 through rotated dense equivalence and ternary reconstruction, alongside a small
 BitNet group-scale kernel proof. Do not create the entire proposed module tree as
 empty scaffolding or copy the nine numbered scripts from the PDF.

@@ -26,6 +26,8 @@ before their revisions and intended roles have been selected.
 
 Status: in progress. The pinned header inventory and byte estimates reconcile;
 the pinned tokenizer and text-only processor agree on prompt IDs and A-P labels.
+A single complete BF16 source snapshot was downloaded and SHA-256 verified on
+2026-09-29; its local headers also reconcile, but no quantized model was kept.
 A synthetic five-case agent/tool fixture verifies option mapping, not model
 quality. Vision inputs, native tokenization parity, a real held-out decision
 fixture, and a dense reference remain open. The quantization host exposes an

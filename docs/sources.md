@@ -41,9 +41,16 @@ processing, native runtime, model weights, or model judgments were tested.
 The later opt-in [weight-slice reader](../embedded_jev/weight_slice.py) used the
 same immutable revision and header offsets to fetch 2,048 BF16 bytes from
 `model.language_model.layers.3.mlp.down_proj.weight` in shard 2. It recorded
-per-row SHA-256 values; it did not verify a complete weight shard hash. A
+per-row SHA-256 values; at the time it did not verify a complete shard hash. A
 synthetic-activation local MSE screen on this slice is documented in
 [docs/development.md](development.md) and is not a quality or accuracy result.
+On 2026-09-29 the complete pinned BF16 snapshot was downloaded to one external
+cache directory. The [pinned Hub blobs API](https://huggingface.co/api/models/XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B/revision/2367e865d009c13ac81713a2878291d33ab28177?blobs=true)
+provided four LFS content SHA-256 digests, each verified against the full local
+shard; Git blob IDs or LFS SHA-256 verified the 13 nonweight files. The offline
+header/index check agreed on 760 tensors and 18,819,627,488 BF16 weight bytes.
+The snapshot does not demonstrate MiMo inference, ternary quality, or BitNet
+model dispatch.
 
 ## BitNet
 

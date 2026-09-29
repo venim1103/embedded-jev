@@ -100,8 +100,8 @@ An opt-in [slice reader](../embedded_jev/weight_slice.py) reuses the pinned
 index/header checks but can fetch at most four BF16 projection rows and two
 contiguous 128-column groups per row (2,048 payload bytes maximum). It refuses
 out-of-range requests and HTTP responses that ignore `Range`; unlike the
-inventory command, it reads actual tensor values. No full tensor or weight
-shard was fetched. Reproduce the selected layer-3 FFN sample and exploratory
+inventory command, it reads actual tensor values without downloading a full
+shard. Reproduce the selected layer-3 FFN sample and exploratory
 synthetic-activation comparison with:
 
 ```bash
@@ -116,7 +116,7 @@ RTN 0.0070, max-abs compensated 0.0315, searched-scale compensated 0.0096.
 The deterministic 11-candidate FP16 grid optimizes each weight group's local
 squared error; it was not tuned on held-out model tasks. These comparisons
 cannot establish MiMo quality, genuine activation statistics, or a useful
-whole-model compression ratio. The full shard payload hash remains unverified.
+whole-model compression ratio. The slice reader alone does not hash a full shard.
 For a separate toy native round trip using those same real weight bytes:
 
 ```bash
@@ -126,6 +126,38 @@ MIMO_BF16_SLICE_TEST=1 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cache
 This opt-in test checks signed dense rotation parity and stored-code/FP16-scale
 output parity after synthetic dynamic A8 preparation through the standalone
 AVX2 kernel. It does not run the Qwen3.5 graph or real model activations.
+
+## Pinned BF16 Snapshot
+
+On 2026-09-29, the user authorized the complete pinned MiMo source download.
+One snapshot, not a Hugging Face cache duplicate or a converted model, is at:
+
+```bash
+snapshot="$HOME/.cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory --local-dir "$snapshot" \
+   | jq '{totals, accounting}'
+```
+
+All 17 pinned files were checked against Hub API byte sizes and Git blob IDs
+or LFS SHA-256 (for LFS content, including `tokenizer.json`). The four
+safetensors shards have these pinned content SHA-256 digests, in shard order:
+
+```text
+aab052180118aee34abc3029b54eaa49096aac606b97d703866b420dceb703c3
+7a0486565f06d25ac4628e9dba470dc3f604353471d240d5a0bf7128f64df396
+6c73207563d1879bfd6c143a028cc70be68edff56280458c71a43df4240300f4
+1379a7cf8c0b8555a39ab65a47e830e0eb45e776b46045734da3afd73c09eea2
+```
+
+The local inventory reconciles 760 tensors, 9,409,813,744 parameters,
+18,819,627,488 logical BF16 weight bytes, and 93,360 shard-header bytes.
+It reads at most 1 MiB per metadata file and shard header; it does not verify
+full-file hashes, which were checked separately with `sha256sum`. The four
+shard files total 18,819,720,848 bytes; about 319 GB remained on the cache
+filesystem after download. No quantized model or second source copy was kept.
+A local 2 KiB row sample matched the pinned remote ranges, and the existing
+opt-in native slice test passed; its synthetic MSE is not decision quality.
+Do not load all BF16 tensors into the 29 GiB host RAM just to test the cache.
 
 ## Tokenizer-Only Label Probe
 
@@ -470,7 +502,7 @@ codes/scales are fixture-owned, not a loadable GGUF type or MiMo model hook.
 The same test runs `--grouped-v`: a 64-wide, two-key-head/two-repetition
 permutation from tiled to grouped order before signed 128-point FWHT and A8,
 with independent scalar parity and the same repeated-graph check.
-No source was vendored and no MiMo shard was downloaded. The earlier BitNet
+No source was vendored or MiMo shard needed for this toy graph check. The earlier BitNet
 control model/build paths above describe the old container; recreate their
 pinned submodule/library/model only if rerunning those opt-in controls.
 

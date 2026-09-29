@@ -12,8 +12,10 @@ targets follow only after native validation.
 tokenizer/processor checks work on the pinned model metadata. A small synthetic
 agent/tool fixture checks prompt and option-label mapping, not decision accuracy.
 Quantization, BitNet integration, model inference, and decision scoring are not
-yet implemented for MiMo. A bounded 2 KiB slice of one pinned MiMo tensor was
-read; no full MiMo shard was downloaded. Separately, a supported 1.19 GB native
+yet implemented for MiMo. The complete pinned BF16 source snapshot (four
+SHA-256-verified shards, 760 indexed tensors) is cached outside this repository;
+an offline inventory reconciles its headers, and a bounded 2 KiB slice passes
+toy quantization/native checks. Separately, a supported 1.19 GB native
 BitNet control checkpoint was loaded and prefilled without answer generation.
 Its A-C labels can be scored directly from final-position logits, but it is not
 a substitute for MiMo or evidence of decision quality or edge speed.
@@ -32,10 +34,18 @@ PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory
 The inventory reads only small metadata and safetensors headers at the pinned
 MiMo revision; it does **not** fetch weight shards. Its JSON output reports
 tensor shapes, storage costs, initial ternary eligibility, and separate memory
-estimates. The audit and exact byte counts live in
+estimates. To inspect the locally cached full snapshot without network access:
+
+```bash
+snapshot="$HOME/.cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory --local-dir "$snapshot"
+```
+
+The audit and exact byte counts live in
 [the research notes](docs/research-audit.md) and
-[development guide](docs/development.md). A network connection is needed for
-the inventory command, not for the tests. See the development guide for the
+[development guide](docs/development.md). Only the default remote inventory
+command needs a network connection; `--local-dir` and the tests do not.
+See the development guide for the
 optional, tokenizer-only [label-boundary probe](embedded_jev/label_probe.py).
 
 ## Approach

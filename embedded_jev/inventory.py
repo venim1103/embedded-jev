@@ -1,11 +1,13 @@
 """Bounded, offline safetensors-header inspection for the pinned MiMo model."""
 
+import argparse
 import hashlib
 import json
 import re
 import sys
 from dataclasses import dataclass
 from math import prod
+from pathlib import Path
 from typing import Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -397,6 +399,44 @@ def fetch_pinned_headers() -> tuple[dict[str, bytes], dict[str, tuple[bytes, int
     return metadata, headers
 
 
+def read_local_headers(directory: Path) -> tuple[dict[str, bytes], dict[str, tuple[bytes, int]]]:
+    """Inspect a local snapshot without loading safetensors payloads into memory."""
+    try:
+        metadata = {}
+        for name in REQUIRED_METADATA + OPTIONAL_METADATA:
+            path = directory / name
+            if name in OPTIONAL_METADATA and not path.exists():
+                continue
+            with path.open("rb") as source:
+                metadata[name] = source.read(MAX_METADATA_BYTES + 1)
+            if len(metadata[name]) > MAX_METADATA_BYTES:
+                raise InventoryError(f"metadata file exceeds allowed bounds: {name}")
+        index = _json_object(metadata["model.safetensors.index.json"], "model.safetensors.index.json")
+        weight_map = index.get("weight_map")
+        if (
+            not isinstance(weight_map, dict) or not weight_map
+            or any(not isinstance(shard, str) or SHARD_NAME.fullmatch(shard) is None
+                   for shard in weight_map.values())
+        ):
+            raise InventoryError("unsupported safetensors shard names in index")
+        shards = set(weight_map.values())
+        if len(shards) > MAX_SHARDS:
+            raise InventoryError("too many indexed safetensors shards")
+        headers = {}
+        for shard in sorted(shards):
+            path = directory / shard
+            with path.open("rb") as source:
+                length_prefix = source.read(8)
+                header_bytes = int.from_bytes(length_prefix, "little")
+                if header_bytes == 0 or header_bytes > MAX_METADATA_BYTES:
+                    raise InventoryError(f"safetensors header exceeds allowed bounds: {shard}")
+                header = source.read(header_bytes)
+            headers[shard] = (length_prefix + header, path.stat().st_size)
+        return metadata, headers
+    except OSError as exc:
+        raise InventoryError(f"unable to read local model snapshot: {exc}") from exc
+
+
 def build_inventory(
     metadata_files: Mapping[str, bytes], shard_headers: Mapping[str, tuple[bytes, int]]
 ) -> dict:
@@ -671,7 +711,12 @@ def build_inventory(
 
 
 def main() -> None:
-    metadata, headers = fetch_pinned_headers()
+    parser = argparse.ArgumentParser(description="Inspect pinned MiMo safetensors headers")
+    parser.add_argument("--local-dir", type=Path, help="inspect a local model snapshot without HTTPS")
+    args = parser.parse_args()
+    metadata, headers = (
+        read_local_headers(args.local_dir) if args.local_dir else fetch_pinned_headers()
+    )
     print(json.dumps(build_inventory(metadata, headers), sort_keys=True, indent=2))
 
 

@@ -185,6 +185,29 @@ def test_inventory_reconciles_and_estimates_bytes_deterministically():
     assert report["memory_estimates"]["rotation_sign_upper_bound_bytes_excluded_from_weight_totals"] > 0
 
 
+def test_local_inventory_reads_bounded_headers_without_weight_payload(tmp_path, monkeypatch):
+    metadata, shards = _model_fixture()
+    for name, data in metadata.items():
+        (tmp_path / name).write_bytes(data)
+    for name, (prefix, size) in shards.items():
+        with (tmp_path / name).open("wb") as destination:
+            destination.write(prefix)
+            destination.truncate(size)
+    monkeypatch.setattr(inventory, "_open_bounded", lambda *args, **kwargs: pytest.fail("network read"))
+    local_metadata, local_headers = inventory.read_local_headers(tmp_path)
+    assert local_metadata == metadata and local_headers == shards
+    assert build_inventory(local_metadata, local_headers)["totals"] == build_inventory(
+        metadata, shards
+    )["totals"]
+    (tmp_path / "config.json").write_bytes(b"x" * (inventory.MAX_METADATA_BYTES + 1))
+    with pytest.raises(InventoryError, match="metadata file exceeds allowed bounds"):
+        inventory.read_local_headers(tmp_path)
+    (tmp_path / "config.json").write_bytes(metadata["config.json"])
+    (tmp_path / next(iter(shards))).unlink()
+    with pytest.raises(InventoryError, match="unable to read local model snapshot"):
+        inventory.read_local_headers(tmp_path)
+
+
 def test_inventory_rejects_missing_inconsistent_or_unsupported_metadata():
     metadata, shards = _model_fixture()
     with pytest.raises(InventoryError, match="missing model metadata"):
