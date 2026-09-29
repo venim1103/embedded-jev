@@ -114,7 +114,8 @@ reorder and folded-versus-unrotated `out_proj` behavior. The folded path sets
 the grouped-V runtime permutation flag instead of permuting stored columns.
 The pinned metadata method writes `prism.hadamard.gdn_v_grouped=true` through
 its bool writer API for a toy folded `ssm_out` manifest, and omits it when the
-flag is off. The local toy exporter still rejects `ssm_out` without verified
+flag is off. A no-tensor GGUF round-trip preserves the bool type and weight
+name. The local toy exporter still rejects `ssm_out` without verified
 head geometry. These checks do not exercise full converter initialization,
 all tensor-value paths, visual export, or the GGUF loader.
 

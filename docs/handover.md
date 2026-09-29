@@ -468,8 +468,9 @@ Hadamard-folded `out_proj` keeps training order and sets the grouped-V runtime
 permutation flag. Executing the pinned converter's `add_hadamard_metadata`
 method on a toy folded `ssm_out` manifest also records a typed
 `prism.hadamard.gdn_v_grouped=true` writer call only when that flag is set.
-This does **not** cover MiMo-sized tensors, serialized GGUF conversion,
-vision-projector export, or native loader parity. The inspected
+The pinned GGUF writer/reader round-trips that bool and folded weight name in
+a no-tensor metadata file. This does **not** cover MiMo-sized tensors, model
+tensor or vision-projector export, or native loader parity. The inspected
 Prism release tag is fully pinned at
 `842b1880415d6f508f03b789e5ce70194def7bfd`; no converter or Prism model
 loader was exercised by this check.

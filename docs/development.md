@@ -393,8 +393,10 @@ independent NumPy oracle. The folded `out_proj` case keeps grouped V columns
 and sets its runtime permutation flag; the unrotated case reorders columns.
 The pinned `add_hadamard_metadata` method also emits the grouped-V GGUF bool
 writer call for a toy folded `ssm_out` manifest, not for the ungrouped case.
+The pinned writer/reader round-trips the typed bool and folded weight name in
+a no-tensor metadata-only GGUF.
 Our toy metadata checker still rejects `ssm_out` pending verified head geometry.
-Do not export or load a GGUF from this name/sampled-value check without
+Do not export or load a model GGUF from this name/sampled-value check without
 full converter and native loader parity tests. The index-wide test transfers
 only bounded JSON, not weight payloads.
 No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,

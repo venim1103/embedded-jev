@@ -357,6 +357,24 @@ with tempfile.TemporaryDirectory() as directory:
         key = "prism.hadamard.gdn_v_grouped"
         assert (key in bool_keys) == grouped
         assert metadata.get(key) is (True if grouped else None)
+        gguf_path = Path(directory, f"grouped-{grouped}.gguf")
+        writer = gguf.GGUFWriter(gguf_path, "qwen35")
+        model.gguf_writer = writer
+        model.add_hadamard_metadata()
+        writer.write_header_to_file()
+        writer.write_kv_data_to_file()
+        writer.write_tensors_to_file()
+        writer.close()
+        reader = gguf.GGUFReader(gguf_path)
+        assert not reader.tensors
+        assert reader.get_field("prism.hadamard.weight_names").contents() == [
+            "blk.0.ssm_out.weight"
+        ]
+        field = reader.get_field(key)
+        assert (field is not None) == grouped
+        if grouped:
+            assert field.types[0].name == "BOOL"
+            assert field.contents() is True
         results.append(grouped)
 print(json.dumps(results))
 """
