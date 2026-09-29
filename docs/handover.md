@@ -454,9 +454,12 @@ layer-3 FFN down is 12,288 inputs and FFN gate/attention Q/K are 4,096.
 It rejects assigning the 256-wide slice to the full FFN down projection.
 The pinned Prism Qwen3.5 name map returns no direct match for MiMo's exact
 `model.language_model.layers.*` names, but the converter's shared filter removes
-`language_model.` before mapping. A model-free opt-in test verifies selected
-FFN/attention paths through that filter and map; full conversion and loader
-parity remain unverified. The inspected
+`language_model.` before mapping. A model-free opt-in check of all 760 pinned
+index names found 333 vision-side names filtered from the text pass and all
+427 retained text names mapped after that filter, including 24 `.dt_bias`
+names renamed to `.dt_proj.bias` by the pinned Qwen converter source. Name
+coverage does **not** verify tensor-value transforms (SSM log/conv/QKV order),
+GGUF conversion, vision-projector export, or native loader parity. The inspected
 Prism release tag is fully pinned at
 `842b1880415d6f508f03b789e5ce70194def7bfd`; no converter or Prism model
 loader was exercised by this check.

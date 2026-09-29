@@ -72,8 +72,11 @@ an explicit candidate map derives selected logical widths from reconciled MiMo
 headers. A pinned Prism Qwen3.5 name-map check returns no direct match for
 MiMo's `model.language_model.layers.*` prefix, but the converter's shared
 filter removes `language_model.` before mapping. Selected FFN/attention paths
-map in a model-free source check. Complete tensor coverage, full GGUF export,
-and loader/tokenizer parity remain open.
+map in a model-free source check. The same pinned filter and name map now cover
+all 760 index entries: 333 vision-side names are excluded from the text pass,
+and all 427 retained text names map after the converter's 24 `.dt_bias` renames.
+This is text **name-path** coverage only; tensor-value conversion, vision export,
+full GGUF export, and loader/tokenizer parity remain open.
 A bounded reader fetched only 2,048 BF16 bytes from four rows and two groups
 of an eligible pinned MiMo projection. On disjoint synthetic Gaussian inputs,
 an 11-candidate per-row/group FP16 scale grid lowered local MSE for both RTN

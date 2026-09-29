@@ -381,10 +381,15 @@ expected input widths from the pinned MiMo header inventory rather than a
 slice shape. The pinned converter's handling of the model's
 `model.language_model` prefix is handled by its shared filter before the
 Qwen3.5 tensor map: raw MiMo names return no match, but selected FFN/attention
-names map after that filter. Run the optional model-free pinned source
+names map after that filter. Across all 760 pinned weight-index names, the
+text-side filter excludes 333 vision entries and all 427 retained text names
+map after 24 source-derived `.dt_bias` to `.dt_proj.bias` renames. Run the
+optional metadata-only pinned source
 test with `PRISM_SOURCE_DIR` and `PRISM_CONVERTER_PYTHON` (an isolated Python
 environment with NumPy 2.2.6 and PyYAML 6.0.3). Do not export or load a GGUF
-from this toy mapping without full converter and native parity tests.
+from this name-path check without tensor-value transforms, full converter, and
+native loader parity tests. The test transfers only the bounded index JSON,
+not weight payloads.
 No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,
 or performance measurement is implemented by this proof.
 The [upstream MIT notice](../native/BitNet-LICENSE.txt) is included with the

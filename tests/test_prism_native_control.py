@@ -90,7 +90,7 @@ def test_pinned_prism_fwht_feeds_bitnet_derived_group_scale_kernel(tmp_path):
     assert report["repeat_scale_error"] < 0.005
 
 
-def test_pinned_prism_qwen35_filter_maps_mimo_text_projections():
+def test_pinned_prism_qwen35_filter_and_ssm_bias_map_mimo_text_names():
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
     if not source_dir or not interpreter:
@@ -111,7 +111,8 @@ from pathlib import Path
 from gguf import MODEL_ARCH, get_tensor_name_map
 
 source = Path(sys.argv[1]) / "conversion/base.py"
-model = next(node for node in ast.parse(source.read_text()).body
+base_tree = ast.parse(source.read_text())
+model = next(node for node in base_tree.body
              if isinstance(node, ast.ClassDef) and node.name == "ModelBase")
 method = next(node for node in model.body
               if isinstance(node, ast.FunctionDef) and node.name == "filter_tensors")
@@ -120,22 +121,72 @@ filtered_class = ast.ClassDef(name="FilteredModel", bases=[], keywords=[],
 namespace = {}
 exec(compile(ast.fix_missing_locations(ast.Module(body=[filtered_class], type_ignores=[])),
              str(source), "exec"), namespace)
+text_model = next(node for node in base_tree.body
+                  if isinstance(node, ast.ClassDef) and node.name == "TextModel")
+text_filter = next(node for node in text_model.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "filter_tensors")
+filtered_text_class = ast.ClassDef(
+    name="FilteredTextModel", bases=[ast.Name(id="FilteredModel", ctx=ast.Load())],
+    keywords=[], body=[text_filter], decorator_list=[])
+exec(compile(ast.fix_missing_locations(ast.Module(body=[filtered_text_class], type_ignores=[])),
+             str(source), "exec"), namespace)
+qwen_source = Path(sys.argv[1]) / "conversion/qwen.py"
+qwen = next(node for node in ast.parse(qwen_source.read_text()).body
+            if isinstance(node, ast.ClassDef) and node.name == "Qwen3NextModel")
+modify = next(node for node in qwen.body
+              if isinstance(node, ast.FunctionDef) and node.name == "modify_tensors")
+bias_branch = next(node for node in ast.walk(modify)
+                   if isinstance(node, ast.If) and ast.unparse(node.test) == "name.endswith('.dt_bias')")
+rename = ast.parse("def rename_dt_bias(name):\\n    return name").body[0]
+rename.body.insert(0, bias_branch.body[0])
+exec(compile(ast.fix_missing_locations(ast.Module(body=[rename], type_ignores=[])),
+             str(qwen_source), "exec"), namespace)
 mapper = get_tensor_name_map(MODEL_ARCH.QWEN35, 32)
 results = []
 for name in sys.argv[2:]:
-    filtered = namespace["FilteredModel"].filter_tensors((name, lambda: None))
+    filtered = namespace["FilteredTextModel"].filter_tensors((name, lambda: None))
+    if filtered is None:
+        results.append([None, None, None])
+        continue
+    mapped_name = (namespace["rename_dt_bias"](filtered[0])
+                   if filtered[0].endswith(".dt_bias") else filtered[0])
     results.append([mapper.get_name(name, try_suffixes=(".weight", ".bias")),
-                    filtered[0], mapper.get_name(filtered[0], try_suffixes=(".weight", ".bias"))])
+                    filtered[0], mapper.get_name(mapped_name, try_suffixes=(".weight", ".bias"))])
 print(json.dumps(results))
 """
     result = subprocess.run(
         [interpreter, "-c", code, str(source),
          "model.language_model.layers.3.mlp.down_proj.weight",
-         "model.language_model.layers.3.self_attn.q_proj.weight"],
+         "model.language_model.layers.3.self_attn.q_proj.weight",
+         "model.language_model.layers.0.linear_attn.dt_bias",
+         "model.visual.blocks.0.attn.qkv.weight"],
         env={**os.environ, "PYTHONPATH": str(source / "gguf-py")},
         check=True, capture_output=True, text=True, timeout=15,
     )
     assert json.loads(result.stdout) == [
         [None, "model.layers.3.mlp.down_proj.weight", "blk.3.ffn_down.weight"],
         [None, "model.layers.3.self_attn.q_proj.weight", "blk.3.attn_q.weight"],
+        [None, "model.layers.0.linear_attn.dt_bias", "blk.0.ssm_dt.bias"],
+        [None, None, None],
     ]
+
+    from embedded_jev.inventory import _json_object, _open_bounded
+
+    index_bytes, _ = _open_bounded("model.safetensors.index.json")
+    names = sorted(_json_object(index_bytes, "model.safetensors.index.json")["weight_map"])
+    assert len(names) == 760
+    all_results = subprocess.run(
+        [interpreter, "-c", code, str(source), *names],
+        env={**os.environ, "PYTHONPATH": str(source / "gguf-py")},
+        check=True, capture_output=True, text=True, timeout=15,
+    )
+    mapped = json.loads(all_results.stdout)
+    assert len(mapped) == len(names)
+    assert sum(result[1] is None for result in mapped) == 333
+    assert sum(result[1] is not None for result in mapped) == 427
+    assert all(result[2] is not None for result in mapped if result[1] is not None)
+    renamed_biases = [
+        result for result in mapped if result[1] is not None and result[1].endswith(".dt_bias")
+    ]
+    assert len(renamed_biases) == 24
+    assert all(result[2].endswith(".ssm_dt.bias") for result in renamed_biases)
