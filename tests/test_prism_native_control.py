@@ -219,19 +219,23 @@ next_modify = next(node for node in next_model.body
                    if isinstance(node, ast.FunctionDef) and node.name == "modify_tensors")
 reorder = next(node for node in value_model.body
                if isinstance(node, ast.FunctionDef) and node.name == "_reorder_v_heads")
+folded_check = next(node for node in value_model.body
+                    if isinstance(node, ast.FunctionDef) and node.name == "_hadamard_folds_tensor")
 value_modify = next(node for node in value_model.body
                     if isinstance(node, ast.FunctionDef) and node.name == "modify_tensors")
 base = ast.parse("class Base:\\n def modify_tensors(self, data_torch, name, bid):\\n  yield name, data_torch").body[0]
 next_class = ast.ClassDef(name="Qwen3NextModel", bases=[ast.Name(id="Base", ctx=ast.Load())],
                           keywords=[], body=[next_modify], decorator_list=[])
 value_class = ast.ClassDef(name="ValueModel", bases=[ast.Name(id="Qwen3NextModel", ctx=ast.Load())],
-                           keywords=[], body=[reorder, value_modify], decorator_list=[])
+                           keywords=[], body=[reorder, folded_check, value_modify], decorator_list=[])
 namespace = {"torch": torch, "np": np}
 exec(compile(ast.fix_missing_locations(ast.Module(body=[base, next_class, value_class], type_ignores=[])),
              str(Path(sys.argv[1]) / "conversion/qwen.py"), "exec"), namespace)
 model = namespace["ValueModel"]()
 model.hparams = {"linear_num_key_heads": 2, "linear_num_value_heads": 4,
                  "linear_key_head_dim": 2, "linear_value_head_dim": 2, "hidden_size": 8}
+model.hadamard_folded_names = lambda: []
+model._hadamard_gdn_v_grouped = False
 name = "model.layers.0.linear_attn."
 qkv = torch.arange(16 * 8, dtype=torch.float32).reshape(16, 8)
 result = list(model.modify_tensors(qkv, name + "in_proj_qkv.weight", 0))
@@ -248,6 +252,25 @@ np.testing.assert_allclose(result_log[0][1].numpy(), -np.exp(expected_heads).ast
 result_bias = list(model.modify_tensors(log_values, name + "dt_bias", 0))
 assert result_bias[0][0].endswith(".dt_proj.bias")
 assert np.array_equal(result_bias[0][1].numpy(), expected_heads)
+alpha = torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8)
+result_alpha = list(model.modify_tensors(alpha, name + "in_proj_a.weight", 0))
+expected_alpha = alpha.numpy().reshape(2, 2, 1, 8).transpose(1, 0, 2, 3).reshape(4, 8)
+assert np.array_equal(result_alpha[0][1].numpy(), expected_alpha)
+conv = torch.arange(16 * 3, dtype=torch.float32).reshape(16, 1, 3)
+result_conv = list(model.modify_tensors(conv, name + "conv1d.weight", 0))
+conv_values = conv.numpy().reshape(16, 3)
+expected_conv_v = conv_values[8:].reshape(2, 2, 2, 3).transpose(1, 0, 2, 3).reshape(8, 3)
+assert np.array_equal(result_conv[0][1].numpy(), np.concatenate([conv_values[:8], expected_conv_v]))
+out = torch.arange(3 * 8, dtype=torch.float32).reshape(3, 8)
+out_name = name + "out_proj.weight"
+unfolded = list(model.modify_tensors(out, out_name, 0))
+expected_columns = out.numpy().reshape(3, 2, 2, 2).transpose(0, 2, 1, 3).reshape(3, 8)
+assert np.array_equal(unfolded[0][1].numpy(), expected_columns)
+assert model._hadamard_gdn_v_grouped is False
+model.hadamard_folded_names = lambda: [out_name]
+folded = list(model.modify_tensors(out, out_name, 0))
+assert np.array_equal(folded[0][1].numpy(), out.numpy())
+assert model._hadamard_gdn_v_grouped is True
 print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3]}))
 """
     result = subprocess.run(

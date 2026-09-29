@@ -78,8 +78,9 @@ and all 427 retained text names map after the converter's 24 `.dt_bias` renames.
 This is text **name-path** coverage only; tensor-value conversion, vision export,
 full GGUF export, and loader/tokenizer parity remain open. A separate pinned
 CPU Torch method check now verifies QKV/Z value-head reorder and A-log/dt-bias
-transformations on tiny synthetic tensors, not full MiMo tensor geometry or
-the remaining SSM/vision value paths.
+transformations on tiny synthetic tensors, plus alpha/conv1d row order and the
+folded-versus-unrotated `out_proj` column/flag rule. This is not full MiMo
+tensor geometry, complete SSM/vision value coverage, or a native graph test.
 A bounded reader fetched only 2,048 BF16 bytes from four rows and two groups
 of an eligible pinned MiMo projection. On disjoint synthetic Gaussian inputs,
 an 11-candidate per-row/group FP16 scale grid lowered local MSE for both RTN

@@ -107,7 +107,9 @@ check passed all 760 pinned index names through the source-derived text filter,
 mapped, including 24 SSM biases. This is name coverage, not proof of tensor
 value transformations, visual export, or loader compatibility. A separate
 source-derived method test using isolated `torch==2.10.0+cpu` and NumPy 2.2.6
-checks small QKV/Z value-head permutations, A-log `-exp`, and dt-bias reorder.
+checks small QKV/Z/alpha/conv1d value-head permutations, A-log `-exp`, dt-bias
+reorder and folded-versus-unrotated `out_proj` behavior. The folded path sets
+the grouped-V runtime permutation flag instead of permuting stored columns.
 It does not exercise full converter initialization, all tensor-value paths,
 visual export, or the GGUF loader.
 
@@ -117,7 +119,7 @@ visual export, or the GGUF loader.
 | [Format documentation](https://github.com/PrismML-Eng/Bonsai-demo/blob/main/MODEL-FORMATS.md) | PQ2_0 versus PTQ1_0 versus group-64 Q2_0 and migration hazards | Must be matched to a release; old names/type IDs are ambiguous. |
 | [Block layouts](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/ggml/src/ggml-common.h) | Exact block field sizes, scale placement, and effective bpw | A struct definition alone does not prove encoding order or kernel support. |
 | [Qwen3.5 graph](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/src/models/qwen35.cpp) | Hybrid graph, gated projections, optional MTP path, final normalization and output projection | A capable graph does not prove this checkpoint's export or BitNet execution. |
-| [Converter registration](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/conversion/qwen3vl.py), [shared tensor filter](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/conversion/base.py), [SSM transforms](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/conversion/qwen.py), and [GGUF tensor mapping](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/gguf-py/gguf/tensor_mapping.py) | Qwen3.5 registered; all 427 pinned text names map, and tiny synthetic QKV/Z/A-log/dt-bias value paths passed. | Source-derived toy checks; full tensor transforms, converter and tokenizer/processor export remain unvalidated. |
+| [Converter registration](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/conversion/qwen3vl.py), [shared tensor filter](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/conversion/base.py), [SSM transforms](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/conversion/qwen.py), and [GGUF tensor mapping](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/gguf-py/gguf/tensor_mapping.py) | Qwen3.5 registered; all 427 pinned text names map, and tiny synthetic QKV/Z/alpha/conv/out-projection paths passed. | Source-derived toy checks; full tensor transforms, converter and tokenizer/processor export remain unvalidated. |
 | [Model loader](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/src/llama-model.cpp) | `prism.hadamard.*` metadata validation, width-keyed signs, optional GDN permutation, tied/inverse embedding rules, FP32 recurrent caches | Runtime schema is more constrained than arbitrary per-tensor transforms. |
 | [Graph helpers](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/src/llama-graph.cpp) | Matmul transform ordering and inverse lookup ordering; source-disclosed multi-sequence recurrent-cache hazard | Backend FWHT dispatch and cache-risk reproduction remain native integration work. |
 

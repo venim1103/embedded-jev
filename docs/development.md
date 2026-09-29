@@ -388,8 +388,10 @@ optional metadata-only pinned source
 test with `PRISM_SOURCE_DIR` and `PRISM_CONVERTER_PYTHON` (an isolated Python
 environment with NumPy 2.2.6, PyYAML 6.0.3 and CPU Torch 2.10.0). The same
 opt-in test also runs pinned Qwen3.5 method bodies on tiny synthetic QKV/Z,
-A-log and dt-bias tensors, comparing row order against an independent NumPy
-oracle. Do not export or load a GGUF from this name/sampled-value check without
+alpha/conv1d, A-log and dt-bias tensors, comparing row order against an
+independent NumPy oracle. The folded `out_proj` case keeps grouped V columns
+and sets its runtime permutation flag; the unrotated case reorders columns.
+Do not export or load a GGUF from this name/sampled-value check without
 full converter and native loader parity tests. The index-wide test transfers
 only bounded JSON, not weight payloads.
 No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,
