@@ -418,24 +418,35 @@ confirming per-token dynamic A8 scale separation for this tiny graph. It
 does not test KV/recurrent cache state or real model activations.
 
 The pinned Prism release `prism-b10735-842b188` resolves to
-`842b1880415d6f508f03b789e5ce70194def7bfd`. A shallow external checkout
-under `$HOME/embedded-jev-cache/prism-source` and a Clang 18 CPU-only `llama`
-build under `$HOME/embedded-jev-cache/prism-build` succeeded without weights.
-Built `libggml-cpu.so` SHA-256 is
-`52fe58a3333b2cf69ac82132c5db1518dd35c506546a280d42fd00187d01a4dd`,
-and `libllama.so.0` SHA-256 is
-`3e585b7919a91662195ffccb85c2eb6eefdaee0deb383b5a182d309ecafcce06`.
-Run the optional [native Prism tests](../tests/test_prism_native_control.py):
+`842b1880415d6f508f03b789e5ce70194def7bfd`. The original external
+`$HOME/embedded-jev-cache` checkout disappeared on a container reopen. Use
+the writable child of this CPU profile's persistent volume instead; different
+devcontainer profiles may use different cache volumes. The pinned source and
+model-free CPU library can be recreated without weights:
 
 ```bash
-PRISM_SOURCE_DIR="$HOME/embedded-jev-cache/prism-source" PRISM_GGML_CPU_LIBRARY="$HOME/embedded-jev-cache/prism-build/bin/libggml-cpu.so" BITNET_SOURCE_DIR="$HOME/embedded-jev-cache/bitnet-source" PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py
+NATIVE_CACHE="$HOME/.cache/huggingface/embedded-jev/native"
+mkdir -p "$NATIVE_CACHE"
+git clone --depth 1 --branch prism-b10735-842b188 --single-branch --filter=blob:none https://github.com/PrismML-Eng/llama.cpp.git "$NATIVE_CACHE/prism-source"
+git clone --depth 1 --filter=blob:none https://github.com/microsoft/BitNet.git "$NATIVE_CACHE/bitnet-source"
+CCACHE_DIR="$NATIVE_CACHE/ccache" cmake -S "$NATIVE_CACHE/prism-source" -B "$NATIVE_CACHE/prism-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 -DGGML_NATIVE=OFF -DGGML_AVX2=ON -DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_UI=OFF
+CCACHE_DIR="$NATIVE_CACHE/ccache" cmake --build "$NATIVE_CACHE/prism-build" --target ggml-cpu --parallel 4
+PRISM_SOURCE_DIR="$NATIVE_CACHE/prism-source" PRISM_GGML_CPU_LIBRARY="$NATIVE_CACHE/prism-build/bin/libggml-cpu.so" BITNET_SOURCE_DIR="$NATIVE_CACHE/bitnet-source" PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py
 ```
 
-One test verifies signed F32 FWHT dispatch; another calls the standalone
-BitNet-derived AVX2 group-scale kernel after native FWHT and dynamic A8 in the
-same process. This is not a registered Prism GGML BitNet operator, a converted
-MiMo GGUF, or evidence of usable model quality. No source was vendored into
-the project and no MiMo shard was downloaded.
+Clone only when those directories are absent and verify both `git rev-parse HEAD`
+values against the pins above and in [docs/sources.md](sources.md). This CPU
+build's `libggml-cpu.so` SHA-256 is
+`adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150`;
+it need not match a differently configured build. One optional test verifies
+signed F32 FWHT dispatch. The other runs the BitNet-derived grouped dot as a
+toy Prism `MAP_CUSTOM2` graph node after native FWHT and A8. Two graph
+evaluations pass when input and sign leaves are re-uploaded between runs;
+allocator-managed graph leaves cannot be assumed intact after compute. Packed
+codes/scales are fixture-owned, not a loadable GGUF type or MiMo model hook.
+No source was vendored and no MiMo shard was downloaded. The earlier BitNet
+control model/build paths above describe the old container; recreate their
+pinned submodule/library/model only if rerunning those opt-in controls.
 
 The `llama` target was later built from the same pins (using the writable
 `CCACHE_DIR`). A supported MIT-licensed native BitNet GGUF at revision

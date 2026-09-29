@@ -83,5 +83,8 @@ def test_pinned_prism_fwht_feeds_bitnet_derived_group_scale_kernel(tmp_path):
     )
     report = json.loads(result.stdout.strip())
     assert report["tokens"] == 2 and report["groups"] == 2
+    assert report["graph_op"] == "map_custom2"
+    assert report["graph_evaluations"] == report["callback_calls"] == 2
     assert report["max_transform_error"] < 1e-4
     assert report["max_output_error"] < 0.005
+    assert report["repeat_scale_error"] < 0.005

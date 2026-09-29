@@ -477,12 +477,14 @@ block sizes or signs into this schema. The pinned Prism fork at
 `842b1880415d6f508f03b789e5ce70194def7bfd` built CPU `llama`/GGML libraries.
 An opt-in [native FWHT test](../tests/test_prism_native_control.py) executed a
 two-token signed 128-point Hadamard graph with zero matrix data and agreed with
-independent dense math (max error about 7.2e-7). A separate same-process toy
-fed two 128-wide groups through Prism's FWHT graph, dynamic A8, and the
-standalone BitNet-derived AVX2 kernel (max transform/output errors about
-3.8e-7/9.5e-7). The kernel is still called **outside** Prism's GGML graph;
-this does not verify a Qwen3.5 model loader, native low-bit type, codec ordering,
-other CPU/ARM backends, or a speedup.
+independent dense math (max error about 7.2e-7). A separate toy now schedules
+the BitNet-derived AVX2 grouped dot as Prism's `MAP_CUSTOM2` node after FWHT
+and dynamic A8 (max transform/output errors about 3.8e-7/9.5e-7).
+Two consecutive graph evaluations also passed when both input and sign leaves
+were restored before each run; the toy graph allocator may overwrite those
+buffers during compute. This is a fixture-owned callback, **not** a loadable
+group-scale GGUF type, Qwen3.5 model hook, safe sequence-state implementation,
+codec test, other CPU/ARM backend, or speedup.
 
 ### Integer Arithmetic Needs Bounds
 

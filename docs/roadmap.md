@@ -129,9 +129,10 @@ same tiny graph also passed two token columns with different dynamic A8 scales
 (+1.0 and -2.0 inputs); position/recurrent state is not involved.
 The separately pinned Prism Qwen3.5-capable fork now builds on x86-64. Its
 native CPU FWHT graph matches dense signed Hadamard on two tokens, and a
-same-process toy bridges that graph through dynamic A8 to the standalone
-BitNet-derived group-scale kernel with scalar parity. The kernel is still
-called **outside** Prism's graph; this is not MiMo loader/dispatch parity.
+toy `MAP_CUSTOM2` graph node now schedules dynamic A8 and the BitNet-derived
+group-scale kernel with scalar parity. Two repeat evaluations pass when graph
+input and sign leaves are re-uploaded. The node uses fixture-owned codes/scales,
+not a registered loadable GGUF tensor or MiMo loader/dispatch parity.
 
 1. Pin Microsoft BitNet and its submodules; build the documented native control
    with Clang 18. Use a supported model only after confirming download budget.
