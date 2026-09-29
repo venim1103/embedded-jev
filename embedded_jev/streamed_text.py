@@ -18,6 +18,8 @@ from embedded_jev.label_probe import (
 
 
 MAX_SELECTED_HEAD_BYTES = 256 * 1024
+MAX_FULL_HEAD_BYTES = 3 * 1024**3
+FULL_HEAD_BATCH_ROWS = 256
 
 
 def make_native_ffn_down(weight, library: Path):
@@ -137,10 +139,68 @@ def score_selected_head(directory: Path, metadata_files, shard_headers, hidden, 
     }
 
 
+def stream_full_vocabulary_mass(directory: Path, metadata_files, shard_headers, hidden, selected: dict) -> dict:
+    """Bound the full-vocabulary normalizer while retaining only one head row batch."""
+    report = build_inventory(metadata_files, shard_headers)
+    head = next((tensor for tensor in report["tensors"] if tensor["name"] == "lm_head.weight"), None)
+    vector = np.asarray(hidden, dtype=np.float32)
+    if (
+        head is None or head["dtype"] != "BF16" or len(head["shape"]) != 2
+        or head["storage_bytes"] > MAX_FULL_HEAD_BYTES
+        or vector.shape != (head["shape"][1],) or not np.isfinite(vector).all()
+        or not selected.get("options")
+    ):
+        raise InventoryError("full-vocabulary mass exceeds head or vector bounds")
+    index = _json_object(metadata_files["model.safetensors.index.json"], "model.safetensors.index.json")
+    shard = index["weight_map"]["lm_head.weight"]
+    header, file_bytes = shard_headers[shard]
+    offsets = _json_object(header[8:], shard)["lm_head.weight"]["data_offsets"]
+    if offsets[1] - offsets[0] != head["storage_bytes"] or len(header) + offsets[1] > file_bytes:
+        raise InventoryError("full-vocabulary LM-head byte span mismatch")
+    rows, width = head["shape"]
+    normalizer = -np.inf
+    max_logit = -np.inf
+    max_token_id = None
+    try:
+        with (directory / shard).open("rb") as source:
+            source.seek(len(header) + offsets[0])
+            for first_row in range(0, rows, FULL_HEAD_BATCH_ROWS):
+                count = min(FULL_HEAD_BATCH_ROWS, rows - first_row)
+                data = source.read(count * width * 2)
+                if len(data) != count * width * 2:
+                    raise InventoryError("short full-vocabulary LM-head batch")
+                weights = (np.frombuffer(data, dtype="<u2").astype(np.uint32) << 16).view("<f4")
+                logits = weights.reshape(count, width) @ vector
+                if not np.isfinite(logits).all():
+                    raise InventoryError("nonfinite full-vocabulary logits")
+                normalizer = float(np.logaddexp(normalizer, np.logaddexp.reduce(logits.astype(np.float64))))
+                winner = int(np.argmax(logits))
+                if float(logits[winner]) > max_logit:
+                    max_logit = float(logits[winner])
+                    max_token_id = first_row + winner
+    except OSError as exc:
+        raise InventoryError(f"unable to stream full LM head: {exc}") from exc
+    selected_logits = np.asarray([option["logit"] for option in selected["options"].values()])
+    selected_mass = float(np.exp(np.logaddexp.reduce(selected_logits.astype(np.float64)) - normalizer))
+    if not np.isfinite(selected_mass) or not 0 <= selected_mass <= 1:
+        raise InventoryError("invalid selected-label full-vocabulary mass")
+    return {
+        "vocabulary_rows": rows,
+        "payload_bytes": head["storage_bytes"],
+        "rows_per_batch": FULL_HEAD_BATCH_ROWS,
+        "logsumexp": normalizer,
+        "max_token_id": max_token_id,
+        "max_logit": max_logit,
+        "selected_label_mass": selected_mass,
+        "scope": "diagnostic_full_vocabulary_mass_not_confidence_calibration",
+    }
+
+
 def run_streamed_text(
     directory: Path, *, layers: int = 4, prompt: str, label_count: int | None = None,
     fixture_path: Path | None = None, case_id: str | None = None,
     native_ffn_library: Path | None = None,
+    full_vocabulary_mass: bool = False,
 ) -> dict:
     """Execute at most one verified BF16 decoder layer at a time on CPU."""
     if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
@@ -149,6 +209,8 @@ def run_streamed_text(
         raise InventoryError("fixture path and case id must be provided together")
     if native_ffn_library is not None and (layers < 4 or not native_ffn_library.is_file()):
         raise InventoryError("native FFN-down requires four layers and an existing library")
+    if full_vocabulary_mass and layers != 32:
+        raise InventoryError("full-vocabulary mass requires all 32 text layers")
     import torch
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
@@ -324,6 +386,11 @@ def run_streamed_text(
             raise InventoryError("selected FP32 logits disagree with BF16 head rounding")
         scored["max_fp32_to_bf16_logit_gap"] = float(torch.max(torch.abs(torch_logits - scored_logits)))
         summary["selected_head"] = scored
+        if full_vocabulary_mass:
+            summary["vocabulary_mass"] = stream_full_vocabulary_mass(
+                directory, metadata, headers, hidden[0, -1].float().numpy(), scored,
+            )
+            scored["full_vocabulary_mass"] = summary["vocabulary_mass"]["selected_label_mass"]
         if fixture_case is not None:
             options = [
                 {
@@ -338,6 +405,7 @@ def run_streamed_text(
                 "expected_option_id": fixture_case["expected_option_id"],
                 "options": options,
             }
+    summary["peak_process_rss_kib"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return summary
 
 
@@ -350,11 +418,13 @@ def main() -> None:
     parser.add_argument("--fixture", type=Path)
     parser.add_argument("--case-id")
     parser.add_argument("--native-ffn-library", type=Path)
+    parser.add_argument("--full-vocabulary-mass", action="store_true")
     args = parser.parse_args()
     print(json.dumps(run_streamed_text(
         args.local_dir, layers=args.layers, prompt=args.prompt, label_count=args.label_count,
         fixture_path=args.fixture, case_id=args.case_id,
         native_ffn_library=args.native_ffn_library,
+        full_vocabulary_mass=args.full_vocabulary_mass,
     ), sort_keys=True))
 
 

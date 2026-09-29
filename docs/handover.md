@@ -287,6 +287,11 @@ scores on the 22-token prompt move from 0.2695/0.7305 to 0.2709/0.7291.
 No quantized candidate was saved. This is a proof of one in-model Python
 adapter, not evidence of acceptable quality, a registered GGUF type, or a
 loadable BitNet/Qwen3.5 runtime.
+An opt-in full-vocabulary normalizer streams the 2,034,237,440-byte BF16
+output head in bounded row batches. On the 22-token smoke, selected A/B mass
+was 0.873 for BF16 and 0.882 after the one-layer native substitution; B was
+the top token both times. This clarifies the earlier conditional-only score
+for this prompt, but is not confidence calibration or a decision-quality gate.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

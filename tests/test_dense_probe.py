@@ -182,11 +182,14 @@ def test_streamed_text_substitutes_one_bitnet_derived_ffn(tmp_path):
         interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
         "--layers", "32", "--label-count", "2",
     ]
+    if os.environ.get("MIMO_FULL_HEAD_TEST") == "1":
+        command.append("--full-vocabulary-mass")
     reports = []
     for extra in ([], ["--native-ffn-library", str(library)]):
         result = subprocess.run(
             command + extra, env=environment, check=True,
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, text=True,
+            timeout=360 if os.environ.get("MIMO_FULL_HEAD_TEST") == "1" else 180,
         )
         reports.append(json.loads(result.stdout))
     dense, native = reports
@@ -205,3 +208,10 @@ def test_streamed_text_substitutes_one_bitnet_derived_ffn(tmp_path):
             sum(option["conditional_probability"] for option in options.values()), 1.0,
             rel_tol=1e-7,
         )
+        if os.environ.get("MIMO_FULL_HEAD_TEST") == "1":
+            mass = report["vocabulary_mass"]
+            assert mass["vocabulary_rows"] == 248320
+            assert mass["payload_bytes"] == 2034237440
+            assert mass["max_token_id"] == options["B"]["token_id"]
+            assert 0 < mass["selected_label_mass"] < 1
+            assert report["selected_head"]["full_vocabulary_mass"] == mass["selected_label_mass"]

@@ -348,6 +348,17 @@ or safety, and a small final-score change does not erase the substantial
 local FFN approximation error. This is a Python-hosted, in-memory substitution,
 **not** a registered model-loadable ternary GGUF/operator or stock BitNet I2_S.
 
+To diagnose how much probability mass the selected A/B labels receive, add
+`--full-vocabulary-mass` to either streamed-text command. This optional pass
+reads the 2,034,237,440-byte BF16 untied head in 256-row batches and computes
+a stable full-vocabulary log-sum-exp without generating tokens or keeping the
+head in memory. Set `MIMO_FULL_HEAD_TEST=1` alongside
+`MIMO_IN_MODEL_NATIVE_TEST=1` for the gated BF16/native comparison. On the same
+22-token prompt, A/B mass was 0.873 in BF16 and 0.882 after the one-layer
+native substitution; B was the top token in both. These are measurements for
+one deliberately constrained prompt, **not** calibrated confidence, a quality
+benchmark, or evidence that bulk ternary quantization is safe.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo

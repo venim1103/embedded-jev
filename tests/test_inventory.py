@@ -11,7 +11,9 @@ import pytest
 from embedded_jev import inventory
 from embedded_jev import weight_slice
 from embedded_jev.dense_probe import plan_streamed_text, plan_text_prefix, run_text_prefix
-from embedded_jev.streamed_text import run_streamed_text, score_selected_head
+from embedded_jev.streamed_text import (
+    run_streamed_text, score_selected_head, stream_full_vocabulary_mass,
+)
 from embedded_jev.inventory import (
     InventoryError,
     TensorHeader,
@@ -245,7 +247,7 @@ def test_streamed_text_plan_bounds_each_layer_independently(monkeypatch):
         plan_streamed_text(metadata, headers, layers=1)
 
 
-def test_selected_lm_head_scores_only_bounded_bf16_rows(tmp_path):
+def test_selected_lm_head_scores_only_bounded_bf16_rows(tmp_path, monkeypatch):
     metadata, headers = _model_fixture()
     for name, data in metadata.items():
         (tmp_path / name).write_bytes(data)
@@ -274,6 +276,25 @@ def test_selected_lm_head_scores_only_bounded_bf16_rows(tmp_path):
         run_streamed_text(None, prompt="A or B", label_count=1)
     with pytest.raises(InventoryError, match="fixture path and case id"):
         run_streamed_text(None, prompt="A or B", case_id="inspect-before-answer")
+    with pytest.raises(InventoryError, match="requires all 32 text layers"):
+        run_streamed_text(None, prompt="A or B", full_vocabulary_mass=True)
+
+    value = np.float32(1 / 512)
+    bits = (np.array([value], dtype=np.float32).view(np.uint32) >> 16).astype("<u2")
+    with (tmp_path / shard).open("r+b") as destination:
+        for token_id, sign in ((0, 1), (1, -1)):
+            destination.seek(len(prefix) + offset + token_id * row_bytes)
+            signed_bits = bits if sign > 0 else bits | np.uint16(0x8000)
+            destination.write(signed_bits.astype("<u2").tobytes() * 1024)
+    selected = score_selected_head(tmp_path, metadata, headers, np.ones(1024), {"A": 0, "B": 1})
+    mass = stream_full_vocabulary_mass(tmp_path, metadata, headers, np.ones(1024), selected)
+    assert mass["vocabulary_rows"] == 32 and mass["max_token_id"] == 0
+    assert mass["payload_bytes"] == 32 * row_bytes
+    expected_mass = (np.exp(2) + np.exp(-2)) / (np.exp(2) + np.exp(-2) + 30)
+    assert mass["selected_label_mass"] == pytest.approx(expected_mass)
+    monkeypatch.setattr("embedded_jev.streamed_text.MAX_FULL_HEAD_BYTES", 10)
+    with pytest.raises(InventoryError, match="full-vocabulary mass exceeds"):
+        stream_full_vocabulary_mass(tmp_path, metadata, headers, np.ones(1024), selected)
 
 
 def test_inventory_rejects_missing_inconsistent_or_unsupported_metadata():
