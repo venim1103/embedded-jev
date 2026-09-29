@@ -215,3 +215,18 @@ def test_streamed_text_substitutes_one_bitnet_derived_ffn(tmp_path):
             assert mass["max_token_id"] == options["B"]["token_id"]
             assert 0 < mass["selected_label_mass"] < 1
             assert report["selected_head"]["full_vocabulary_mass"] == mass["selected_label_mass"]
+    artifact = os.environ.get("MIMO_PROJECTION_ARTIFACT")
+    if artifact:
+        if not Path(artifact).is_dir():
+            pytest.fail("MIMO_PROJECTION_ARTIFACT must point to the saved native fixture")
+        saved_command = [argument for argument in command if argument != "--full-vocabulary-mass"]
+        saved_result = subprocess.run(
+            saved_command + ["--native-ffn-library", str(library), "--projection-artifact", artifact],
+            env=environment, check=True, capture_output=True, text=True, timeout=180,
+        )
+        saved = json.loads(saved_result.stdout)
+        assert saved["native_ffn_down"]["candidate_origin"] == "saved_hash_checked_native_fixture"
+        assert saved["native_ffn_down"]["max_native_reference_error"] < 1e-4
+        assert saved["ffn_down_input_sha256"] == native["ffn_down_input_sha256"]
+        assert saved["last_token_sha256"] == native["last_token_sha256"]
+        assert saved["selected_head"]["options"] == native["selected_head"]["options"]

@@ -115,6 +115,10 @@ through the isolated BitNet-derived AVX2 grouped matvec. Its 4,096 outputs
 matched portable group-scaled arithmetic (max absolute error 1.67e-6), but
 the relative output error on one synthetic A8 input was 0.467 versus BF16.
 No GGUF tensor format, Qwen3.5 dispatch, or quality result follows from this.
+One full layer-3 FFN-down candidate is now retained as a hashed, non-pickle
+native fixture. Saved and freshly quantized candidates match exactly through
+the single-projection Python adapter; a complete registered GGUF/model format
+and representative quality evidence remain open.
 The isolated Transformers text prefix compares the same complete projection
 against its actual BF16 output on one local prompt: searched-scale RTN has
 relative output RMSE 0.423 without activation quantization. On the captured

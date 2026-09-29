@@ -75,6 +75,21 @@ def pack_group128_codes(codes: np.ndarray) -> np.ndarray:
     return packed
 
 
+def unpack_group128_codes(packed: np.ndarray) -> np.ndarray:
+    """Decode the isolated AVX2 2-bit groups back to signed ternary codes."""
+    blocks = np.asarray(packed)
+    if blocks.ndim != 3 or blocks.dtype != np.uint8 or 0 in blocks.shape or blocks.shape[2] != 32:
+        raise ValueError("packed group-128 ternary blocks required")
+    rows, groups, _ = blocks.shape
+    codes = np.empty((rows, groups, 4, 32), dtype=np.int8)
+    for lane in range(4):
+        value = (blocks >> (6 - 2 * lane)) & 3
+        if np.any(value == 3):
+            raise ValueError("packed ternary block contains invalid code")
+        codes[:, :, lane, :] = value.astype(np.int8) - 1
+    return codes.reshape(rows, groups, 128)
+
+
 def quantize_ternary_compensated(
     weights, activations, group_size: int = 128, *, damping_ratio: float = 0.01,
     max_damping_attempts: int = 3, processing_block_size: int | None = None,

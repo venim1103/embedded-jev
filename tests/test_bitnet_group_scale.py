@@ -21,6 +21,7 @@ from embedded_jev.ternary import (
     quantize_ternary_rtn,
     pack_group128_codes,
     reconstruct_ternary,
+    unpack_group128_codes,
 )
 from embedded_jev.ternary_artifact import load_toy_artifact, save_toy_artifact
 from embedded_jev.weight_slice import (
@@ -120,6 +121,9 @@ def test_bitnet_layout_zero_compensation_and_row_dependent_scales(native_dot):
     np.testing.assert_allclose(actual, reference(codes, activations, weight_scales, activation_scales))
     with pytest.raises(ValueError, match="group-128 ternary codes"):
         pack_group128_codes(np.full((1, 1, 128), 2, dtype=np.int8))
+    np.testing.assert_array_equal(unpack_group128_codes(packed), codes)
+    with pytest.raises(ValueError, match="invalid code"):
+        unpack_group128_codes(np.full((1, 1, 32), 255, dtype=np.uint8))
 
 
 @pytest.mark.parametrize("groups", [32, 96])

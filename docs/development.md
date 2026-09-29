@@ -359,6 +359,42 @@ native substitution; B was the top token in both. These are measurements for
 one deliberately constrained prompt, **not** calibrated confidence, a quality
 benchmark, or evidence that bulk ternary quantization is safe.
 
+## Single-Projection Native Fixture
+
+One searched-FP16 group-128 layer-3 FFN-down candidate is retained under
+`$cache/quantized/layer3-ffn-down-rtn-searched-fp16`. The pinned source shard
+was rehashed before quantization (SHA-256
+`7a0486565f06d25ac4628e9dba470dc3f604353471d240d5a0bf7128f64df396`).
+The non-pickle NumPy arrays are 12,583,040 bytes of BitNet-derived packed
+codes (SHA-256 `34ddd9e802c9024a3d62688a90a3929d189a66502df41c48b06a6a53fe32670d`)
+and 786,560 bytes of FP16 row/group scales (SHA-256
+`25f919c92d05a09220970519ce06dbe991efbc3f9ba16d49240da54c01517913`),
+plus a 697-byte JSON manifest. This is **one** experimental projection,
+not stock I2_S, GGUF, or a full MiMo checkpoint. No second quantization was kept.
+
+The writer refuses an existing output directory. To run its saved-candidate
+parity check (rather than recomputing the same ternary weights), use:
+
+```bash
+candidate="$cache/quantized/layer3-ffn-down-rtn-searched-fp16"
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$snapshot" --layers 32 --label-count 2 \
+   --native-ffn-library "$cache/native/bitnet_group_scale_probe.so" \
+   --projection-artifact "$candidate"
+MIMO_IN_MODEL_NATIVE_TEST=1 MIMO_PROJECTION_ARTIFACT="$candidate" \
+   MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" MIMO_LOCAL_DIR="$snapshot" \
+   PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
+   tests/test_dense_probe.py -k streamed_text_substitutes_one_bitnet_derived_ffn
+```
+
+The full 32-layer saved-candidate output hash and A/B scores exactly match
+fresh in-memory RTN, with the same native/integer reference parity. The
+manifest and arrays are size/hash checked; invalid packed trits are rejected
+even if array hashes are recomputed. No approved group-scale GGUF codec or
+model loader can consume this fixture directly, and its one-prompt score
+parity is not a quantization quality gate.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo

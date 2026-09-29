@@ -19,8 +19,9 @@ calibrated confidence or validated decisions. The complete pinned BF16 source
 snapshot (four SHA-256-verified shards, 760 indexed tensors) is cached outside
 this repository; an offline inventory reconciles its headers. One real FFN-down
 matmul can be replaced in the streamed BF16 text path by an in-memory
-BitNet-derived ternary/A8 AVX2 adapter. This is not a loadable quantized model
-or a quality result. Separately, a supported 1.19 GB native
+BitNet-derived ternary/A8 AVX2 adapter. One hash-checked, packed projection
+fixture is retained outside Git; it is not a loadable quantized model or a
+quality result. Separately, a supported 1.19 GB native
 BitNet control checkpoint was loaded and prefilled without answer generation.
 Its A-C labels can be scored directly from final-position logits, but it is not
 a substitute for MiMo or evidence of decision quality or edge speed.

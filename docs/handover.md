@@ -287,6 +287,13 @@ scores on the 22-token prompt move from 0.2695/0.7305 to 0.2709/0.7291.
 No quantized candidate was saved. This is a proof of one in-model Python
 adapter, not evidence of acceptable quality, a registered GGUF type, or a
 loadable BitNet/Qwen3.5 runtime.
+Subsequently **one** searched-FP16 layer-3 FFN-down projection was saved outside
+Git as hash-checked packed codes, FP16 row/group scales, and a JSON manifest
+(about 13 MB) after verifying the pinned source shard SHA-256. Reloading it
+through the same native adapter reproduces the fresh-RTN 32-layer final hash
+and A/B scores exactly. [docs/development.md](development.md) records its path,
+hashes, and opt-in test. This is not GGUF or an approved model-loadable format;
+it does not address the large ternary error or missing calibration/holdout data.
 An opt-in full-vocabulary normalizer streams the 2,034,237,440-byte BF16
 output head in bounded row batches. On the 22-token smoke, selected A/B mass
 was 0.873 for BF16 and 0.882 after the one-layer native substitution; B was

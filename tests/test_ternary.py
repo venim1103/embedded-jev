@@ -15,6 +15,9 @@ from embedded_jev.ternary_artifact import (
     prism_v1_transform_metadata,
     save_toy_artifact,
 )
+from embedded_jev.projection_artifact import (
+    ProjectionArtifactError, load_projection_artifact, save_projection_artifact,
+)
 from embedded_jev.ternary import (
     quantize_ternary_compensated,
     quantize_ternary_rtn,
@@ -181,6 +184,37 @@ def test_toy_artifact_is_deterministic_and_retains_fp16_scales():
     assert manifest["group_size"] == 128
     assert manifest["transform"] == {"kind": "identity"}
     assert manifest["origin"] == "toy_no_model_weights"
+
+
+def test_single_projection_native_artifact_roundtrip_and_tamper_rejection(tmp_path):
+    weights = np.random.default_rng(79).normal(size=(2, 256)).astype(np.float32)
+    codes, scales = quantize_ternary_rtn(weights, scale_search=True)
+    directory = tmp_path / "one-projection"
+    manifest = save_projection_artifact(
+        directory, codes.reshape(2, 2, 128), scales, shard_sha256="0" * 64,
+    )
+    packed, loaded_scales, loaded_manifest = load_projection_artifact(directory)
+    assert loaded_manifest == manifest and packed.shape == (2, 2, 32)
+    np.testing.assert_array_equal(loaded_scales, scales)
+    assert manifest["rotation"] == "identity"
+    with pytest.raises(ProjectionArtifactError, match="already exists"):
+        save_projection_artifact(directory, codes.reshape(2, 2, 128), scales, shard_sha256="0" * 64)
+    with (directory / "packed.npy").open("r+b") as output:
+        output.seek(-1, 2)
+        original = output.read(1)
+        output.seek(-1, 2)
+        output.write(bytes([original[0] ^ 1]))
+    with pytest.raises(ProjectionArtifactError, match="hash mismatch"):
+        load_projection_artifact(directory)
+    with (directory / "packed.npy").open("r+b") as output:
+        output.seek(-1, 2)
+        output.write(b"\xff")
+    updated = json.loads((directory / "manifest.json").read_text())
+    packed_bytes = (directory / "packed.npy").read_bytes()
+    updated["arrays"]["packed.npy"]["sha256"] = hashlib.sha256(packed_bytes).hexdigest()
+    (directory / "manifest.json").write_text(json.dumps(updated))
+    with pytest.raises(ProjectionArtifactError, match="invalid packed projection trits"):
+        load_projection_artifact(directory)
 
 
 def test_toy_artifact_rejects_tampering_pickle_and_unsupported_metadata():

@@ -22,20 +22,35 @@ MAX_FULL_HEAD_BYTES = 3 * 1024**3
 FULL_HEAD_BATCH_ROWS = 256
 
 
-def make_native_ffn_down(weight, library: Path):
+def make_native_ffn_down(weight, library: Path, artifact: Path | None = None):
     """Substitute one in-memory group-128 BitNet-derived AVX2 projection."""
     import ctypes
 
     import torch
 
     from embedded_jev.activation import quantize_a8_per_group
-    from embedded_jev.ternary import pack_group128_codes, quantize_ternary_rtn
+    from embedded_jev.ternary import (
+        pack_group128_codes, quantize_ternary_rtn, unpack_group128_codes,
+    )
 
     if tuple(weight.shape) != (4096, 12288) or weight.dtype != torch.bfloat16:
         raise InventoryError("native FFN-down requires the pinned BF16 projection")
-    codes, scales = quantize_ternary_rtn(weight.detach().float().cpu().numpy(), scale_search=True)
-    grouped_codes = codes.reshape(4096, 96, 128)
-    packed = np.ascontiguousarray(pack_group128_codes(grouped_codes))
+    if artifact is None:
+        codes, scales = quantize_ternary_rtn(weight.detach().float().cpu().numpy(), scale_search=True)
+        grouped_codes = codes.reshape(4096, 96, 128)
+        packed = np.ascontiguousarray(pack_group128_codes(grouped_codes))
+        origin = "in_memory_rtn"
+    else:
+        from embedded_jev.projection_artifact import (
+            PINNED_SHARD_SHA256, load_projection_artifact,
+        )
+
+        packed, scales, manifest = load_projection_artifact(artifact)
+        if manifest["shape"] != [4096, 12288] or manifest["source_shard_sha256"] != PINNED_SHARD_SHA256:
+            raise InventoryError("saved projection does not match pinned BF16 source")
+        grouped_codes = unpack_group128_codes(packed)
+        packed = np.ascontiguousarray(packed)
+        origin = "saved_hash_checked_native_fixture"
     weight_scales = np.ascontiguousarray(scales.astype(np.float32))
     function = ctypes.CDLL(str(library)).bitnet_group_scale_matmul_avx2
     function.argtypes = [
@@ -45,7 +60,10 @@ def make_native_ffn_down(weight, library: Path):
         ctypes.POINTER(ctypes.c_float),
     ]
     function.restype = ctypes.c_int
-    diagnostics = {"calls": 0, "max_native_reference_error": 0.0, "packed_bytes": packed.nbytes}
+    diagnostics = {
+        "calls": 0, "max_native_reference_error": 0.0,
+        "packed_bytes": packed.nbytes, "candidate_origin": origin,
+    }
 
     class NativeFFNDown(torch.nn.Module):
         def forward(self, features):
@@ -201,6 +219,7 @@ def run_streamed_text(
     fixture_path: Path | None = None, case_id: str | None = None,
     native_ffn_library: Path | None = None,
     full_vocabulary_mass: bool = False,
+    projection_artifact: Path | None = None,
 ) -> dict:
     """Execute at most one verified BF16 decoder layer at a time on CPU."""
     if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
@@ -209,6 +228,8 @@ def run_streamed_text(
         raise InventoryError("fixture path and case id must be provided together")
     if native_ffn_library is not None and (layers < 4 or not native_ffn_library.is_file()):
         raise InventoryError("native FFN-down requires four layers and an existing library")
+    if projection_artifact is not None and native_ffn_library is None:
+        raise InventoryError("projection artifact requires the native FFN-down library")
     if full_vocabulary_mass and layers != 32:
         raise InventoryError("full-vocabulary mass requires all 32 text layers")
     import torch
@@ -301,7 +322,7 @@ def run_streamed_text(
         if layer_index == 3:
             if native_ffn_library is not None:
                 decoder.mlp.down_proj, native_diagnostics = make_native_ffn_down(
-                    decoder.mlp.down_proj.weight, native_ffn_library,
+                    decoder.mlp.down_proj.weight, native_ffn_library, projection_artifact,
                 )
 
             def capture_ffn_input(_module, args):
@@ -418,6 +439,7 @@ def main() -> None:
     parser.add_argument("--fixture", type=Path)
     parser.add_argument("--case-id")
     parser.add_argument("--native-ffn-library", type=Path)
+    parser.add_argument("--projection-artifact", type=Path)
     parser.add_argument("--full-vocabulary-mass", action="store_true")
     args = parser.parse_args()
     print(json.dumps(run_streamed_text(
@@ -425,6 +447,7 @@ def main() -> None:
         fixture_path=args.fixture, case_id=args.case_id,
         native_ffn_library=args.native_ffn_library,
         full_vocabulary_mass=args.full_vocabulary_mass,
+        projection_artifact=args.projection_artifact,
     ), sort_keys=True))
 
 
