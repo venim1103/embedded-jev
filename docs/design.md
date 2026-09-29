@@ -191,8 +191,10 @@ A toy Prism v1 metadata compatibility check requires full logical input widths,
 one block size, and one sign vector per width. A conservative candidate mapper
 can derive those widths from the pinned reconciled MiMo headers; it fails if
 a 256-wide slice is named as a full 12,288-wide projection. The pinned Prism
-converter's handling of MiMo's extra `model.language_model` prefix remains
-unverified. These checks do not convert tensors, write GGUF, or validate a loader.
+Qwen3.5 tensor-name map returns no match for exact MiMo
+`model.language_model.layers.*` paths; a candidate path with only that prefix
+removed maps selected FFN/attention projections. These checks do not establish
+full converter support, write GGUF, or validate a loader.
 
 | Manifest section | Required content |
 | --- | --- |

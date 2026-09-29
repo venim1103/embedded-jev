@@ -88,3 +88,35 @@ def test_pinned_prism_fwht_feeds_bitnet_derived_group_scale_kernel(tmp_path):
     assert report["max_transform_error"] < 1e-4
     assert report["max_output_error"] < 0.005
     assert report["repeat_scale_error"] < 0.005
+
+
+def test_pinned_prism_qwen35_name_map_needs_mimo_prefix_adapter():
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source_dir or not interpreter:
+        pytest.skip("requires pinned Prism source and isolated GGUF Python environment")
+    source = Path(source_dir)
+    if not source.is_dir() or not Path(interpreter).is_file():
+        pytest.fail("missing pinned Prism source or GGUF Python environment")
+    revision = subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
+    ).strip()
+    assert revision == PRISM_REVISION
+    code = (
+        "import json; from gguf import MODEL_ARCH, get_tensor_name_map; "
+        "mapper=get_tensor_name_map(MODEL_ARCH.QWEN35,32); "
+        "names=['model.language_model.layers.3.mlp.down_proj.weight',"
+        "'model.layers.3.mlp.down_proj.weight',"
+        "'model.language_model.layers.3.self_attn.q_proj.weight',"
+        "'model.layers.3.self_attn.q_proj.weight']; "
+        "print(json.dumps([mapper.get_name(name,try_suffixes=('.weight','.bias')) "
+        "for name in names]))"
+    )
+    result = subprocess.run(
+        [interpreter, "-c", code],
+        env={**os.environ, "PYTHONPATH": str(source / "gguf-py")},
+        check=True, capture_output=True, text=True, timeout=15,
+    )
+    assert json.loads(result.stdout) == [
+        None, "blk.3.ffn_down.weight", None, "blk.3.attn_q.weight"
+    ]

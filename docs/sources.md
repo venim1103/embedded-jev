@@ -97,6 +97,11 @@ Hashes are build-specific. Native tests pass signed FWHT parity and a toy
 `MAP_CUSTOM2` BitNet-derived grouped-dot node on two repeated evaluations.
 No MiMo model, converter, native low-bit GGUF tensor, or Qwen3.5 model hook was
 loaded or validated.
+In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
+MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
+no match. Removing only `language_model.` mapped those samples to
+`blk.3.ffn_down.weight` and `blk.3.attn_q.weight`. This does not establish
+conversion of all text and vision tensors or loader compatibility.
 
 | Source | What it establishes | Limit |
 | --- | --- | --- |
@@ -104,6 +109,7 @@ loaded or validated.
 | [Format documentation](https://github.com/PrismML-Eng/Bonsai-demo/blob/main/MODEL-FORMATS.md) | PQ2_0 versus PTQ1_0 versus group-64 Q2_0 and migration hazards | Must be matched to a release; old names/type IDs are ambiguous. |
 | [Block layouts](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/ggml/src/ggml-common.h) | Exact block field sizes, scale placement, and effective bpw | A struct definition alone does not prove encoding order or kernel support. |
 | [Qwen3.5 graph](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/src/models/qwen35.cpp) | Hybrid graph, gated projections, optional MTP path, final normalization and output projection | A capable graph does not prove this checkpoint's export or BitNet execution. |
+| [Converter registration](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/conversion/qwen3vl.py) and [GGUF tensor mapping](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/gguf-py/gguf/tensor_mapping.py) | Qwen3.5 conditional-generation is registered; the pinned name map needs explicit normalization for sampled nested MiMo text paths. | Model-free map probe; full converter and tokenizer/processor paths remain unvalidated. |
 | [Model loader](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/src/llama-model.cpp) | `prism.hadamard.*` metadata validation, width-keyed signs, optional GDN permutation, tied/inverse embedding rules, FP32 recurrent caches | Runtime schema is more constrained than arbitrary per-tensor transforms. |
 | [Graph helpers](https://github.com/PrismML-Eng/llama.cpp/blob/prism-b10735-842b188/src/llama-graph.cpp) | Matmul transform ordering and inverse lookup ordering; source-disclosed multi-sequence recurrent-cache hazard | Backend FWHT dispatch and cache-risk reproduction remain native integration work. |
 

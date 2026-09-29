@@ -69,8 +69,10 @@ scaling, native artifact export, and model-quality steps remain open.
 A metadata-only check against pinned Prism v1 transform rules rejects a toy
 weight with the wrong full-model logical width or conflicting sign/block data;
 an explicit candidate map derives selected logical widths from reconciled MiMo
-headers. MiMo's `model.language_model` HF prefix has not been validated in the
-pinned Prism converter, so this is not native GGUF export or loader parity.
+headers. A pinned Prism Qwen3.5 name-map check returns no direct match for
+MiMo's `model.language_model.layers.*` prefix, while selected names map after
+an explicit prefix removal. A reviewed converter adaptation, full GGUF export,
+and loader/tokenizer parity remain open.
 A bounded reader fetched only 2,048 BF16 bytes from four rows and two groups
 of an eligible pinned MiMo projection. On disjoint synthetic Gaussian inputs,
 an 11-candidate per-row/group FP16 scale grid lowered local MSE for both RTN
