@@ -11,11 +11,13 @@ targets follow only after native validation.
 **Status:** The CPU research environment, bounded inventory, and text-only
 tokenizer/processor checks work on the pinned model metadata. A small synthetic
 agent/tool fixture checks prompt and option-label mapping, not decision accuracy.
-Quantization, BitNet integration, model inference, and decision scoring are not
-yet implemented for MiMo. The complete pinned BF16 source snapshot (four
+Full-model quantization, model-loadable BitNet dispatch, MiMo final logits, and
+decision scoring remain open. The complete pinned BF16 source snapshot (four
 SHA-256-verified shards, 760 indexed tensors) is cached outside this repository;
-an offline inventory reconciles its headers, and a bounded 2 KiB slice passes
-toy quantization/native checks. Separately, a supported 1.19 GB native
+an offline inventory reconciles its headers. One complete projection passes
+isolated BitNet-derived native arithmetic parity, while a four-layer BF16 text
+prefix exposes its actual FFN input on a short prompt; neither proves quality.
+Separately, a supported 1.19 GB native
 BitNet control checkpoint was loaded and prefilled without answer generation.
 Its A-C labels can be scored directly from final-position logits, but it is not
 a substitute for MiMo or evidence of decision quality or edge speed.

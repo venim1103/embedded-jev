@@ -210,6 +210,40 @@ with an independent integer/group-scale reference (maximum absolute error
 synthetic input was 0.467, including A8 rounding. This is not stock BitNet
 I2_S or a model-loadable MiMo operator, and says nothing about decision quality.
 
+## Partial Dense Text Prefix
+
+An isolated CPU-only environment under
+`$HOME/.cache/huggingface/embedded-jev/dense-venv` has Torch 2.10.0+cpu,
+Transformers 5.12.1 (the pinned MiMo config version), safetensors 0.7.0,
+Accelerate 1.12.0, and NumPy 2.2.6. It is separate from the Prism converter
+environment. To recreate it if absent, use `uv` with a writable cache:
+
+```bash
+cache="$HOME/.cache/huggingface/embedded-jev"
+UV_CACHE_DIR="$cache/native/uv" uv venv "$cache/dense-venv" --python /opt/venv/bin/python
+UV_CACHE_DIR="$cache/native/uv" uv pip install --python "$cache/dense-venv/bin/python" \
+   --index https://download.pytorch.org/whl/cpu 'torch==2.10.0+cpu'
+UV_CACHE_DIR="$cache/native/uv" uv pip install --python "$cache/dense-venv/bin/python" \
+   'transformers==5.12.1' 'safetensors==0.7.0' 'accelerate==1.12.0' \
+   'numpy==2.2.6' 'jinja2==3.1.6'
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.dense_probe \
+   --local-dir "$snapshot" --layers 4 --compare-ternary
+```
+
+The probe constructs a `Qwen3_5TextModel` on `meta`, requires exact names and
+BF16 shapes for the 55 pinned embedding/first-four-layer/final-norm tensors,
+and materializes only 3,764,136,064 BF16 weight bytes. On its 13-token local
+text prompt the Torch fallback produced finite outputs and captured the real
+layer-3 FFN-down input (1 x 13 x 12,288). Searched FP16 group-128 RTN for that
+one complete projection had relative output RMSE 0.423 against the BF16
+layer output, **without** activation A8. The probe computes no final model
+logits or answer tokens, and this one prompt is not representative calibration
+or a decision-quality result. It stores no activations or quantized weights.
+Run the optional end-to-end prefix smoke with `MIMO_DENSE_PREFIX_TEST=1`,
+`MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python"`, and `MIMO_LOCAL_DIR="$snapshot"`
+against `tests/test_dense_probe.py`.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo

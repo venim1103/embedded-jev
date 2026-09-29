@@ -30,7 +30,10 @@ A single complete BF16 source snapshot was downloaded and SHA-256 verified on
 2026-09-29; its local headers also reconcile, but no quantized model was kept.
 A synthetic five-case agent/tool fixture verifies option mapping, not model
 quality. Vision inputs, native tokenization parity, a real held-out decision
-fixture, and a dense reference remain open. The quantization host exposes an
+fixture, and full-model dense-reference logits remain open. A CPU-only BF16
+first-four-layer text prefix now reaches the real layer-3 FFN-down input on one
+13-token prompt, but this is not representative calibration or a quality gate.
+The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment
 also passed one 4x4 FP32 matmul. WSL reported 29 GiB RAM (21 GiB available),
@@ -107,6 +110,10 @@ through the isolated BitNet-derived AVX2 grouped matvec. Its 4,096 outputs
 matched portable group-scaled arithmetic (max absolute error 1.67e-6), but
 the relative output error on one synthetic A8 input was 0.467 versus BF16.
 No GGUF tensor format, Qwen3.5 dispatch, or quality result follows from this.
+The isolated Transformers text prefix compares the same complete projection
+against its actual BF16 output on one local prompt: searched-scale RTN has
+relative output RMSE 0.423 without activation quantization. Expand to
+representative activation sets and block-level parity before selecting policy.
 
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block

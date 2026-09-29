@@ -246,9 +246,17 @@ then executes a BitNet-derived AVX2 group-scaled matvec: all 4,096 outputs
 match the portable integer/group-scale reference (max error 1.67e-6).
 Relative error versus dense BF16 output for one synthetic A8 input is 0.467.
 This is neither the stock I2_S model path nor a MiMo loader/quality proof.
+A separate CPU-only Transformers 5.12.1 environment now materializes the
+verified embedding and first four text layers plus norm (55 BF16 tensors,
+3,764,136,064 bytes) under a 4 GiB source-weight budget. The 13-token
+text-prefix forward reaches the layer-3 FFN-down input. On those actual
+model-path activations, unrotated searched-scale ternary RTN has 0.423 relative
+output RMSE versus the BF16 FFN output, without A8. This one prompt is neither
+calibration nor decision quality; the probe produces no final model logits,
+no generated tokens, and no retained quantized candidate.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
-the development guide for the independent BitNet track. No MiMo
+the development guide for both bounded tracks. No full MiMo
 inference runtime or whole model has been validated, and no owned MiMo quality,
 perplexity, latency, energy, or RSS result exists. The host GPU
 is an RTX A3000 Laptop GPU with 12,288 MiB VRAM. On 2026-09-28, WSL showed

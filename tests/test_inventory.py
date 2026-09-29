@@ -9,6 +9,7 @@ import pytest
 
 from embedded_jev import inventory
 from embedded_jev import weight_slice
+from embedded_jev.dense_probe import plan_text_prefix, run_text_prefix
 from embedded_jev.inventory import (
     InventoryError,
     TensorHeader,
@@ -207,6 +208,23 @@ def test_local_inventory_reads_bounded_headers_without_weight_payload(tmp_path, 
     (tmp_path / next(iter(shards))).unlink()
     with pytest.raises(InventoryError, match="unable to read local model snapshot"):
         inventory.read_local_headers(tmp_path)
+
+
+def test_dense_prefix_plan_rejects_oversized_or_unsupported_layers(monkeypatch):
+    metadata, headers = _model_fixture()
+    plan = plan_text_prefix(metadata, headers, layers=1)
+    assert plan["layers"] == 1 and plan["layer_types"] == ["full_attention"]
+    assert plan["tensor_count"] == 2 + 2 + 9
+    assert all(name.startswith("model.language_model.") for name in plan["parameter_names"])
+    assert plan["weight_bytes"] < 4 * 1024**3
+    for count in (0, 2, 5, True):
+        with pytest.raises(InventoryError, match="prefix length"):
+            plan_text_prefix(metadata, headers, layers=count)
+    monkeypatch.setattr("embedded_jev.dense_probe.MAX_PREFIX_WEIGHT_BYTES", 10)
+    with pytest.raises(InventoryError, match="BF16 budget"):
+        plan_text_prefix(metadata, headers, layers=1)
+    with pytest.raises(InventoryError, match="requires four dense prefix layers"):
+        run_text_prefix(None, layers=1, prompt="A or B", compare_ternary=True)
 
 
 def test_inventory_rejects_missing_inconsistent_or_unsupported_metadata():
