@@ -102,6 +102,11 @@ A bounded streaming pass quantized the entire layer-3 FFN-down tensor in memory,
 with max-abs, searched-scale, and signed-Hadamard searched-scale relative
 **weight** RMSE of 0.770, 0.461, and 0.454. No candidate was retained; these
 numbers are insufficient to choose a full-model quantization policy.
+One searched-scale full-projection candidate was packed in memory and run
+through the isolated BitNet-derived AVX2 grouped matvec. Its 4,096 outputs
+matched portable group-scaled arithmetic (max absolute error 1.67e-6), but
+the relative output error on one synthetic A8 input was 0.467 versus BF16.
+No GGUF tensor format, Qwen3.5 dispatch, or quality result follows from this.
 
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block

@@ -241,6 +241,11 @@ FFN-down tensor in 64-row batches: relative **weight** RMSE is 0.770 for
 max-abs RTN, 0.461 for searched FP16 RTN, and 0.454 for signed-Hadamard
 searched RTN. This is one full projection, not representative activations or
 a saved/loadable ternary model. Do not bulk-convert MiMo from these results.
+An opt-in native test streams and packs this entire projection in memory,
+then executes a BitNet-derived AVX2 group-scaled matvec: all 4,096 outputs
+match the portable integer/group-scale reference (max error 1.67e-6).
+Relative error versus dense BF16 output for one synthetic A8 input is 0.467.
+This is neither the stock I2_S model path nor a MiMo loader/quality proof.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for the independent BitNet track. No MiMo

@@ -1,6 +1,7 @@
 """Golden checks for the isolated BitNet-derived AVX2 group-scaled dot."""
 
 import ctypes
+import json
 import os
 import platform
 import shutil
@@ -12,14 +13,18 @@ import pytest
 from scipy.linalg import hadamard
 
 from embedded_jev.activation import quantize_a8_per_group, rotate_signed_hadamard
-from embedded_jev.inventory import MODEL_REVISION, fetch_pinned_headers
+from embedded_jev.inventory import (
+    MODEL_REVISION, _json_object, build_inventory, fetch_pinned_headers, read_local_headers,
+)
 from embedded_jev.ternary import (
     quantize_ternary_compensated,
     quantize_ternary_rtn,
     reconstruct_ternary,
 )
 from embedded_jev.ternary_artifact import load_toy_artifact, save_toy_artifact
-from embedded_jev.weight_slice import fetch_bf16_projection_slice
+from embedded_jev.weight_slice import (
+    DEFAULT_TENSOR, MAX_STREAM_TENSOR_BYTES, STREAM_ROWS, fetch_bf16_projection_slice,
+)
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
@@ -316,6 +321,80 @@ def test_bounded_mimo_slice_rotates_and_executes_saved_native_artifact(native_do
         "ri,ti->tr", reconstruct_ternary(saved_codes, saved_scales), dequantized_inputs
     )
     np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.01)
+
+
+@pytest.mark.skipif(
+    os.environ.get("MIMO_FULL_PROJECTION_TEST") != "1",
+    reason="explicitly opt in to streaming one complete MiMo projection through the native kernel",
+)
+def test_full_mimo_projection_matches_bitnet_derived_native_dot(native_dot):
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    if not local_dir:
+        pytest.fail("MIMO_LOCAL_DIR must point to the verified pinned MiMo snapshot")
+    directory = Path(local_dir)
+    metadata, headers = read_local_headers(directory)
+    report = build_inventory(metadata, headers)
+    assert report["source"]["revision"] == MODEL_REVISION
+    tensor = next(entry for entry in report["tensors"] if entry["name"] == DEFAULT_TENSOR)
+    rows, columns = tensor["shape"]
+    assert (rows, columns) == (4096, 12288)
+    assert tensor["storage_bytes"] <= MAX_STREAM_TENSOR_BYTES
+    groups = columns // 128
+    header, file_bytes = headers[tensor["shard"]]
+    start, end = _json_object(header[8:], tensor["shard"])[DEFAULT_TENSOR]["data_offsets"]
+    assert end - start == tensor["storage_bytes"] and len(header) + end <= file_bytes
+
+    inputs = np.random.default_rng(903).normal(size=(1, columns)).astype(np.float32)
+    activations, activation_scales = quantize_a8_per_group(inputs)
+    grouped_activations = activations.reshape(groups, 128)
+    packed = np.empty((rows, groups, 32), dtype=np.uint8)
+    weight_scales = np.empty((rows, groups), dtype=np.float32)
+    expected = np.empty(rows, dtype=np.float32)
+    dense = np.empty(rows, dtype=np.float32)
+    with (directory / tensor["shard"]).open("rb") as source:
+        source.seek(len(header) + start)
+        for start_row in range(0, rows, STREAM_ROWS):
+            batch_rows = min(STREAM_ROWS, rows - start_row)
+            data = source.read(batch_rows * columns * 2)
+            assert len(data) == batch_rows * columns * 2
+            weights = (np.frombuffer(data, dtype="<u2").astype(np.uint32) << 16).view("<f4")
+            weights = weights.reshape(batch_rows, columns)
+            assert np.isfinite(weights).all()
+            codes, scales = quantize_ternary_rtn(weights, scale_search=True)
+            grouped_codes = codes.reshape(batch_rows, groups, 128)
+            stop_row = start_row + batch_rows
+            packed[start_row:stop_row] = pack_codes(grouped_codes)
+            weight_scales[start_row:stop_row] = scales.astype(np.float32)
+            group_dots = np.einsum(
+                "rgi,gi->rg", grouped_codes.astype(np.int32), grouped_activations.astype(np.int32)
+            )
+            expected[start_row:stop_row] = (
+                group_dots * weight_scales[start_row:stop_row] * activation_scales[0]
+            ).sum(axis=1)
+            dense[start_row:stop_row] = weights @ inputs[0]
+
+    assert packed.nbytes == rows * groups * 32 and np.isfinite(weight_scales).all()
+    actual = np.empty(rows, dtype=np.float32)
+    status = native_dot[0](
+        packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        grouped_activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
+        activation_scales[0].ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        rows, groups, actual.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    )
+    assert status == 0
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.005)
+    relative_synthetic_error = float(np.linalg.norm(actual - dense) / np.linalg.norm(dense))
+    assert np.isfinite(relative_synthetic_error)
+    print(json.dumps({
+        "purpose": "full_projection_native_parity_not_model_quality",
+        "tensor": DEFAULT_TENSOR,
+        "rows": rows,
+        "groups": groups,
+        "packed_bytes": packed.nbytes,
+        "max_native_reference_error": float(np.max(np.abs(actual - expected))),
+        "relative_synthetic_output_error": relative_synthetic_error,
+    }, sort_keys=True))
 
 
 def test_multi_token_rejects_empty_and_overflowed_shapes(native_dot):

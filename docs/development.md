@@ -194,6 +194,22 @@ again or write quantized weights; the snapshot was separately SHA-256 verified.
 These errors are too large to promote a whole-model ternary candidate without
 representative activations and block-level quality checks.
 
+For a full-projection **native arithmetic** check (no retained candidate):
+
+```bash
+MIMO_LOCAL_DIR="$snapshot" MIMO_FULL_PROJECTION_TEST=1 \
+   PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -s -p no:cacheprovider \
+   tests/test_bitnet_group_scale.py -k full_mimo_projection_matches_bitnet_derived_native_dot
+```
+
+The opt-in test streams the same 4,096 rows through searched FP16 group-128
+RTN, packs 12,582,912 ternary-code bytes in memory, prepares one synthetic A8
+token, and executes the BitNet-derived AVX2 grouped dot. All outputs agreed
+with an independent integer/group-scale reference (maximum absolute error
+1.67e-6). Relative error versus the dense BF16 projection on that one
+synthetic input was 0.467, including A8 rounding. This is not stock BitNet
+I2_S or a model-loadable MiMo operator, and says nothing about decision quality.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo
