@@ -487,6 +487,10 @@ The inspected `prism.hadamard.*` metadata specifies version, one block size,
 transform identity, input axis, tensor names, and identity/explicit signs.
 Explicit sign vectors are keyed by input width, not independently by tensor.
 Optional `gdn_v_grouped` changes the value-head ordering at `ssm_out`.
+The pinned MiMo `config.json` is 2,784 bytes and declares 16 linear key heads,
+32 linear value heads, and 128 dimensions per value head, so Prism's declared
+repetition count is two. This metadata alone does not prove folded `ssm_out`
+tensor shape/value parity or safely extend our reject-only toy exporter.
 
 The generic matmul helper applies optional permutation, signs, Hadamard, matmul,
 and scale in that order. Inverse embedding lookup uses Hadamard then signs.
