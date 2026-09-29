@@ -450,6 +450,8 @@ A separate toy Prism v1 metadata check requires full logical input widths,
 rejects unsupported foldable names, and refuses conflicting block sizes or
 sign vectors for the same input width. A conservative candidate mapping now
 derives widths from the pinned MiMo inventory for exact HF projection paths;
+it still rejects `ssm_out`: the inventory does not carry the key/value-head
+counts needed to validate Prism's grouped-V loader geometry.
 layer-3 FFN down is 12,288 inputs and FFN gate/attention Q/K are 4,096.
 It rejects assigning the 256-wide slice to the full FFN down projection.
 The pinned Prism Qwen3.5 name map returns no direct match for MiMo's exact
@@ -463,7 +465,10 @@ test with isolated CPU Torch 2.10.0 executed small QKV/Z/alpha/conv1d value-head
 row reorders against independent NumPy ordering, and checked A-log `-exp` and
 dt-bias reorder/rename. Unrotated `out_proj` permutes value-head columns;
 Hadamard-folded `out_proj` keeps training order and sets the grouped-V runtime
-permutation flag. This does **not** cover MiMo-sized tensors, GGUF conversion,
+permutation flag. Executing the pinned converter's `add_hadamard_metadata`
+method on a toy folded `ssm_out` manifest also records a typed
+`prism.hadamard.gdn_v_grouped=true` writer call only when that flag is set.
+This does **not** cover MiMo-sized tensors, serialized GGUF conversion,
 vision-projector export, or native loader parity. The inspected
 Prism release tag is fully pinned at
 `842b1880415d6f508f03b789e5ce70194def7bfd`; no converter or Prism model

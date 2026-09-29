@@ -290,3 +290,79 @@ print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 
         capture_output=True, text=True, timeout=15,
     )
     assert json.loads(result.stdout) == {"qkv_shape": [16, 8], "v_head_order": [0, 2, 1, 3]}
+
+
+def test_pinned_prism_grouped_v_metadata_writer_for_folded_out_projection():
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source_dir or not interpreter:
+        pytest.skip("requires pinned Prism converter and isolated GGUF Python environment")
+    source = Path(source_dir)
+    assert subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
+    ).strip() == PRISM_REVISION
+    code = """
+import ast
+import json
+import logging
+import re
+import sys
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+import gguf
+
+source = Path(sys.argv[1]) / "conversion/base.py"
+tree = ast.parse(source.read_text())
+base = next(node for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "ModelBase")
+method = next(node for node in base.body
+              if isinstance(node, ast.FunctionDef) and node.name == "add_hadamard_metadata")
+model_class = ast.ClassDef(name="Model", bases=[], keywords=[], body=[method], decorator_list=[])
+namespace = {"json": json, "re": re, "gguf": gguf, "logger": logging.getLogger("prism")}
+exec(compile(ast.fix_missing_locations(ast.Module(body=[model_class], type_ignores=[])),
+             str(source), "exec"), namespace)
+manifest = {
+    "schema_version": 1, "kind": "hadamard-weight-fold",
+    "status": "requires-matching-runtime",
+    "transform": {"block_size": 128, "name": "normalized-signed-sylvester-walsh-hadamard",
+                  "sign_mode": "identity"},
+    "tensors": [{"name": "model.layers.0.linear_attn.out_proj.weight", "axis": -1}],
+}
+results = []
+with tempfile.TemporaryDirectory() as directory:
+    Path(directory, "hadamard_packing.json").write_text(json.dumps(manifest))
+    for grouped in (False, True):
+        metadata = {}
+        bool_keys = []
+        def put(key, value):
+            metadata[key] = value
+        def put_bool(key, value):
+            bool_keys.append(key)
+            put(key, value)
+        model = namespace["Model"]()
+        model.dir_model = Path(directory)
+        model.model_arch = gguf.MODEL_ARCH.QWEN35
+        model.hparams = {"tie_word_embeddings": False}
+        model._hadamard_gdn_v_grouped = grouped
+        model.filter_tensors = lambda tensor: tensor
+        model.map_tensor_name = {
+            "model.layers.0.linear_attn.out_proj.weight": "blk.0.ssm_out.weight"
+        }.__getitem__
+        model.gguf_writer = SimpleNamespace(
+            add_bool=put_bool, add_uint32=put, add_string=put, add_array=put,
+        )
+        model.add_hadamard_metadata()
+        assert metadata["prism.hadamard.weight_names"] == ["blk.0.ssm_out.weight"]
+        key = "prism.hadamard.gdn_v_grouped"
+        assert (key in bool_keys) == grouped
+        assert metadata.get(key) is (True if grouped else None)
+        results.append(grouped)
+print(json.dumps(results))
+"""
+    result = subprocess.run(
+        [interpreter, "-c", code, str(source)],
+        env={**os.environ, "PYTHONPATH": str(source / "gguf-py")},
+        check=True, capture_output=True, text=True, timeout=15,
+    )
+    assert json.loads(result.stdout) == [False, True]

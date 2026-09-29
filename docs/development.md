@@ -391,6 +391,9 @@ opt-in test also runs pinned Qwen3.5 method bodies on tiny synthetic QKV/Z,
 alpha/conv1d, A-log and dt-bias tensors, comparing row order against an
 independent NumPy oracle. The folded `out_proj` case keeps grouped V columns
 and sets its runtime permutation flag; the unrotated case reorders columns.
+The pinned `add_hadamard_metadata` method also emits the grouped-V GGUF bool
+writer call for a toy folded `ssm_out` manifest, not for the ungrouped case.
+Our toy metadata checker still rejects `ssm_out` pending verified head geometry.
 Do not export or load a GGUF from this name/sampled-value check without
 full converter and native loader parity tests. The index-wide test transfers
 only bounded JSON, not weight payloads.

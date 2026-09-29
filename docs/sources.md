@@ -112,8 +112,11 @@ source-derived method test using isolated `torch==2.10.0+cpu` and NumPy 2.2.6
 checks small QKV/Z/alpha/conv1d value-head permutations, A-log `-exp`, dt-bias
 reorder and folded-versus-unrotated `out_proj` behavior. The folded path sets
 the grouped-V runtime permutation flag instead of permuting stored columns.
-It does not exercise full converter initialization, all tensor-value paths,
-visual export, or the GGUF loader.
+The pinned metadata method writes `prism.hadamard.gdn_v_grouped=true` through
+its bool writer API for a toy folded `ssm_out` manifest, and omits it when the
+flag is off. The local toy exporter still rejects `ssm_out` without verified
+head geometry. These checks do not exercise full converter initialization,
+all tensor-value paths, visual export, or the GGUF loader.
 
 | Source | What it establishes | Limit |
 | --- | --- | --- |
