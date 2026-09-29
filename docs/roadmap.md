@@ -30,9 +30,11 @@ A single complete BF16 source snapshot was downloaded and SHA-256 verified on
 2026-09-29; its local headers also reconcile, but no quantized model was kept.
 A synthetic five-case agent/tool fixture verifies option mapping, not model
 quality. Vision inputs, native tokenization parity, a real held-out decision
-fixture, and full-model dense-reference logits remain open. A CPU-only BF16
-first-four-layer text prefix now reaches the real layer-3 FFN-down input on one
-13-token prompt, but this is not representative calibration or a quality gate.
+fixture, full-vocabulary label mass, and dense decision accuracy remain open.
+A CPU-only BF16 text path now runs all 32 layers in sequence and reads only
+selected untied-head rows: on one 22-token non-thinking engineering prompt,
+A/B conditional scores were 0.269/0.731 with zero generated tokens. This is
+not representative calibration or a quality gate.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

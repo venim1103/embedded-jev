@@ -13,6 +13,8 @@ from embedded_jev.inventory import (
 MAX_PREFIX_LAYERS = 4
 MAX_PREFIX_WEIGHT_BYTES = 4 * 1024**3
 MAX_PREFIX_TOKENS = 32
+MAX_STREAM_LAYER_BYTES = 512 * 1024**2
+MAX_STREAM_EMBED_BYTES = 2304 * 1024**2
 
 
 def plan_text_prefix(metadata_files, shard_headers, *, layers: int = 4) -> dict:
@@ -46,6 +48,47 @@ def plan_text_prefix(metadata_files, shard_headers, *, layers: int = 4) -> dict:
         "tensor_count": len(selected),
         "weight_bytes": total_bytes,
         "parameter_names": sorted(names),
+    }
+
+
+def plan_streamed_text(metadata_files, shard_headers, *, layers: int = 32) -> dict:
+    """Bound each text layer independently without budgeting the full model in RAM."""
+    report = build_inventory(metadata_files, shard_headers)
+    text = _json_object(metadata_files["config.json"], "config.json")["text_config"]
+    if type(layers) is not int or not 1 <= layers <= len(text["layer_types"]):
+        raise InventoryError("unsupported streamed text layer count")
+    indexed = {tensor["name"]: tensor for tensor in report["tensors"]}
+    embedding = "model.language_model.embed_tokens.weight"
+    final_norm = "model.language_model.norm.weight"
+    if embedding not in indexed or final_norm not in indexed:
+        raise InventoryError("missing streamed text embedding or norm")
+    layer_names = [
+        sorted(
+            name for name in indexed
+            if name.startswith(f"model.language_model.layers.{layer}.")
+        )
+        for layer in range(layers)
+    ]
+    layer_bytes = [sum(indexed[name]["storage_bytes"] for name in names) for names in layer_names]
+    if (
+        indexed[embedding]["dtype"] != "BF16"
+        or indexed[embedding]["storage_bytes"] > MAX_STREAM_EMBED_BYTES
+        or indexed[final_norm]["dtype"] != "BF16"
+        or any(not names or size > MAX_STREAM_LAYER_BYTES for names, size in zip(layer_names, layer_bytes))
+        or any(indexed[name]["dtype"] != "BF16" for names in layer_names for name in names)
+    ):
+        raise InventoryError("streamed text weights missing or exceed per-layer BF16 budget")
+    return {
+        "model": report["source"]["model"],
+        "revision": report["source"]["revision"],
+        "layers": layers,
+        "layer_types": text["layer_types"][:layers],
+        "embedding_bytes": indexed[embedding]["storage_bytes"],
+        "max_layer_bytes": max(layer_bytes),
+        "layer_weight_bytes": layer_bytes,
+        "layer_parameter_names": layer_names,
+        "embedding_name": embedding,
+        "final_norm_name": final_norm,
     }
 
 

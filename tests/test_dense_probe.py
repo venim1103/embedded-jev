@@ -73,3 +73,44 @@ def test_local_dense_text_prefix_captures_real_ffn_input(tmp_path):
         assert native["activation_quantized"] is True
         assert native["max_native_reference_error"] < 1e-4
         assert math.isfinite(native["relative_dense_output_rmse"])
+
+
+@pytest.mark.skipif(
+    os.environ.get("MIMO_STREAMED_TEXT_TEST") != "1",
+    reason="requires verified pinned MiMo shards and isolated CPU Torch/Transformers",
+)
+def test_streamed_full_text_scores_only_selected_labels():
+    interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    if not interpreter or not local_dir or not Path(interpreter).is_file():
+        pytest.fail("set MIMO_DENSE_PYTHON and MIMO_LOCAL_DIR for the opt-in streamed test")
+    environment = {
+        **os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4",
+    }
+    reports = []
+    for layers in (4, 32):
+        result = subprocess.run(
+            [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+             "--layers", str(layers), "--label-count", "2"],
+            env=environment, check=True, capture_output=True, text=True, timeout=180,
+        )
+        reports.append(json.loads(result.stdout))
+    prefix, full = reports
+    assert prefix["revision"] == full["revision"] == MODEL_REVISION
+    assert prefix["ffn_down_input_sha256"] == full["ffn_down_input_sha256"]
+    assert prefix["tokens"] == full["tokens"] == 22
+    assert prefix["generated_tokens"] == full["generated_tokens"] == 0
+    assert "selected_head" not in prefix
+    assert full["layers"] == 32 and full["output_shape"] == [1, 22, 4096]
+    assert full["max_layer_bytes"] <= 512 * 1024**2
+    selected = full["selected_head"]
+    assert selected["head_payload_bytes"] == 16384
+    assert selected["full_vocabulary_mass"] == "not_computed"
+    assert selected["max_fp32_to_bf16_logit_gap"] < 0.125
+    assert set(selected["options"]) == {"A", "B"}
+    assert math.isclose(
+        sum(option["conditional_probability"] for option in selected["options"].values()),
+        1.0, rel_tol=1e-7,
+    )
+    assert all(math.isfinite(option["logit"]) for option in selected["options"].values())

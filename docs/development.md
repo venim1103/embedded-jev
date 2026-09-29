@@ -272,6 +272,33 @@ last-token native/reference maximum difference was 1.10e-7 and relative
 error versus BF16 was 0.422 after A8. This is still one synthetic prompt,
 not calibrated option scores or a decision-quality measurement.
 
+## Streamed Text-Only Scores
+
+The same pinned CPU environment now streams all 32 text decoder layers, loading
+one at a time rather than retaining the 18.8 GB BF16 checkpoint in RAM. Its
+four-layer run exactly matches the full-prefix FFN input and final-norm hashes
+above. With the pinned non-thinking 22-token prompt, it completed 32 layers,
+applied the text final norm, and read only two BF16 rows (16,384 bytes) from
+the untied LM head:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$snapshot" --layers 32 --label-count 2
+MIMO_STREAMED_TEXT_TEST=1 MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+   MIMO_LOCAL_DIR="$snapshot" PYTHONDONTWRITEBYTECODE=1 \
+   python -m pytest -q -p no:cacheprovider tests/test_dense_probe.py \
+   -k streamed_full_text_scores_only_selected_labels
+```
+
+The A/B FP32-accumulated logits from BF16 head rows were 19.481/20.478,
+conditional probabilities 0.269/0.731. Independent safetensors row slices
+matched the byte hashes; Torch BF16 head rounding differed by at most 0.022.
+No answer tokens were generated. The head was never fully loaded and the
+full-vocabulary mass was **not** computed. These scores are conditional among
+A/B on one engineering prompt, not calibrated confidence, task accuracy, a
+vision path, or a ternary/BitNet model dispatch result.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo

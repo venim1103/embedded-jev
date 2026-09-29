@@ -10,7 +10,8 @@ import pytest
 
 from embedded_jev import inventory
 from embedded_jev import weight_slice
-from embedded_jev.dense_probe import plan_text_prefix, run_text_prefix
+from embedded_jev.dense_probe import plan_streamed_text, plan_text_prefix, run_text_prefix
+from embedded_jev.streamed_text import run_streamed_text, score_selected_head
 from embedded_jev.inventory import (
     InventoryError,
     TensorHeader,
@@ -228,6 +229,49 @@ def test_dense_prefix_plan_rejects_oversized_or_unsupported_layers(monkeypatch):
         run_text_prefix(None, layers=1, prompt="A or B", compare_ternary=True)
     with pytest.raises(InventoryError, match="native comparison requires ternary"):
         run_text_prefix(None, layers=1, prompt="A or B", native_library=Path("kernel.so"))
+
+
+def test_streamed_text_plan_bounds_each_layer_independently(monkeypatch):
+    metadata, headers = _model_fixture()
+    plan = plan_streamed_text(metadata, headers, layers=1)
+    assert plan["layers"] == 1 and plan["layer_types"] == ["full_attention"]
+    assert len(plan["layer_parameter_names"][0]) == 11
+    assert plan["embedding_bytes"] > 0 and plan["max_layer_bytes"] > 0
+    for count in (0, 2, True):
+        with pytest.raises(InventoryError, match="layer count"):
+            plan_streamed_text(metadata, headers, layers=count)
+    monkeypatch.setattr("embedded_jev.dense_probe.MAX_STREAM_LAYER_BYTES", 10)
+    with pytest.raises(InventoryError, match="per-layer BF16 budget"):
+        plan_streamed_text(metadata, headers, layers=1)
+
+
+def test_selected_lm_head_scores_only_bounded_bf16_rows(tmp_path):
+    metadata, headers = _model_fixture()
+    for name, data in metadata.items():
+        (tmp_path / name).write_bytes(data)
+    shard, (prefix, file_bytes) = next(iter(headers.items()))
+    with (tmp_path / shard).open("wb") as destination:
+        destination.write(prefix)
+        destination.truncate(file_bytes)
+    row_bytes = 1024 * 2
+    offset = json.loads(prefix[8:])["lm_head.weight"]["data_offsets"][0]
+    with (tmp_path / shard).open("r+b") as destination:
+        for token_id, value in ((0, 1.0), (1, -1.0)):
+            bits = (np.array([value], dtype=np.float32).view(np.uint32) >> 16).astype("<u2")
+            destination.seek(len(prefix) + offset + token_id * row_bytes)
+            destination.write(bits.tobytes() * 1024)
+    report = score_selected_head(tmp_path, metadata, headers, np.ones(1024), {"A": 0, "B": 1})
+    assert report["head_payload_bytes"] == 2 * row_bytes
+    assert report["options"]["A"]["logit"] == 1024.0
+    assert report["options"]["B"]["logit"] == -1024.0
+    assert report["options"]["A"]["conditional_probability"] == 1.0
+    assert len(report["options"]["A"]["row_sha256"]) == 64
+    assert report["full_vocabulary_mass"] == "not_computed"
+    for labels in ({"A": 0, "B": 32}, {"A": 0, "B": 0}, {"B": 1, "A": 0}):
+        with pytest.raises(InventoryError, match="invalid selected-head"):
+            score_selected_head(tmp_path, metadata, headers, np.ones(1024), labels)
+    with pytest.raises(InventoryError, match="selected label count"):
+        run_streamed_text(None, prompt="A or B", label_count=1)
 
 
 def test_inventory_rejects_missing_inconsistent_or_unsupported_metadata():

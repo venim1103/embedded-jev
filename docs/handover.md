@@ -264,10 +264,19 @@ continuations and runs a 22-token prompt with zero generated tokens; the
 last-token native/reference max difference is 1.10e-7 and its BF16-relative
 error after A8 is 0.422. This is still synthetic engineering smoke, not
 representative calibration.
+The pinned BF16 text decoder can now execute all 32 layers sequentially,
+materializing at most one 436,814,208-byte layer at a time after the
+2,034,237,440-byte embedding. The four-layer activation and final-norm hashes
+match the previous full-prefix control exactly. A bounded untied LM-head reader
+then scored only A/B (16,384 BF16 bytes): FP32-accumulated logits 19.481 and
+20.478, conditional probabilities 0.269/0.731, zero generated tokens.
+Independent safetensors BF16 row slices and Torch BF16 rounding passed parity
+(max rounding gap 0.022). The full-vocabulary label mass is unknown, and this
+single engineering prompt is not calibrated confidence or a decision benchmark.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
-the development guide for both bounded tracks. No full MiMo
-inference runtime or whole model has been validated, and no owned MiMo quality,
+the development guide for both bounded tracks. No vision path or MiMo
+ternary/BitNet model runtime has been validated, and no owned MiMo quality,
 perplexity, latency, energy, or RSS result exists. The host GPU
 is an RTX A3000 Laptop GPU with 12,288 MiB VRAM. On 2026-09-28, WSL showed
 29 GiB RAM, 21 GiB available, and 8 GiB swap; the user reported 48.3 GB free
