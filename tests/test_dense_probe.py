@@ -26,6 +26,8 @@ def test_local_dense_text_prefix_captures_real_ffn_input(tmp_path):
         interpreter, "-m", "embedded_jev.dense_probe", "--local-dir", local_dir,
         "--layers", "4", "--compare-ternary",
     ]
+    if os.environ.get("MIMO_CHAT_TEMPLATE_TEST") == "1":
+        command.append("--chat-template")
     if os.environ.get("MIMO_NATIVE_ACTIVATION_TEST") == "1":
         compiler = shutil.which("clang++-18")
         if (
@@ -61,6 +63,10 @@ def test_local_dense_text_prefix_captures_real_ffn_input(tmp_path):
     assert comparison["activation_quantized"] is False
     assert math.isfinite(comparison["relative_output_rmse"])
     assert math.isfinite(comparison["weight_mse"])
+    if os.environ.get("MIMO_CHAT_TEMPLATE_TEST") == "1":
+        assert report["tokens"] == 22 and report["generated_tokens"] == 0
+        assert len(report["prompt_sha256"]) == 64
+        assert set(report["label_token_ids"]) == set("ABCDEFGHIJKLMNOP")
     if os.environ.get("MIMO_NATIVE_ACTIVATION_TEST") == "1":
         native = report["native_comparison"]
         assert native["groups"] == 96 and native["packed_bytes"] == 12582912

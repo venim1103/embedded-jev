@@ -264,6 +264,13 @@ and ternary rounding. Set `MIMO_NATIVE_ACTIVATION_TEST=1` alongside the three
 prefix-smoke environment variables above to make the optional test compile
 a temporary library and check this path. No quantized model was kept, and the
 kernel is not the stock I2_S type or a Qwen3.5 model loader/decision engine.
+Add `--chat-template` to the probe command (or `MIMO_CHAT_TEMPLATE_TEST=1`
+to the opt-in test) to use the pinned non-thinking chat template and recheck
+the A-P one-token boundary before forwarding. The short prompt becomes 22
+tokens with zero generated tokens. On that template-faithful input, the
+last-token native/reference maximum difference was 1.10e-7 and relative
+error versus BF16 was 0.422 after A8. This is still one synthetic prompt,
+not calibrated option scores or a decision-quality measurement.
 
 ## Tokenizer-Only Label Probe
 

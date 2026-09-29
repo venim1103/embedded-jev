@@ -51,7 +51,7 @@ def plan_text_prefix(metadata_files, shard_headers, *, layers: int = 4) -> dict:
 
 def run_text_prefix(
     directory: Path, *, layers: int = 1, prompt: str, compare_ternary: bool = False,
-    native_library: Path | None = None,
+    native_library: Path | None = None, chat_template: bool = False,
 ) -> dict:
     """Run a small text-only dense prefix without generating answer tokens."""
     if compare_ternary and layers != MAX_PREFIX_LAYERS:
@@ -65,11 +65,21 @@ def run_text_prefix(
     from transformers import AutoConfig, AutoTokenizer
     from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5TextModel
 
+    from embedded_jev.label_probe import probe_label_boundary
+
     metadata, headers = read_local_headers(directory)
     plan = plan_text_prefix(metadata, headers, layers=layers)
     config = AutoConfig.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
     tokenizer = AutoTokenizer.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
-    input_ids = tokenizer(prompt, return_tensors="pt")["input_ids"]
+    if chat_template:
+        messages = [{"role": "user", "content": prompt}]
+        boundary = probe_label_boundary(tokenizer, messages)
+        encoded = tokenizer.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=True, enable_thinking=False,
+        )
+        input_ids = torch.tensor([encoded["input_ids"]], dtype=torch.long)
+    else:
+        input_ids = tokenizer(prompt, return_tensors="pt")["input_ids"]
     if not 1 <= input_ids.shape[1] <= MAX_PREFIX_TOKENS:
         raise InventoryError("dense prefix prompt exceeds token budget")
     with init_empty_weights():
@@ -132,6 +142,10 @@ def run_text_prefix(
         ).hexdigest(),
         "purpose": "text_prefix_activation_smoke_not_model_logits_or_quality",
     }
+    if chat_template:
+        summary["prompt_sha256"] = boundary["prompt_sha256"]
+        summary["label_token_ids"] = boundary["label_token_ids"]
+        summary["generated_tokens"] = 0
     if layers == MAX_PREFIX_LAYERS:
         if len(captured) != 1 or tuple(captured[0].shape) != (1, input_ids.shape[1], 12288):
             raise InventoryError("missing layer-3 FFN-down input activation")
@@ -217,12 +231,14 @@ def main() -> None:
     parser.add_argument("--local-dir", required=True, type=Path)
     parser.add_argument("--layers", type=int, choices=range(1, MAX_PREFIX_LAYERS + 1), default=1)
     parser.add_argument("--prompt", default="Choose A or B. A: pause. B: continue.")
+    parser.add_argument("--chat-template", action="store_true")
     parser.add_argument("--compare-ternary", action="store_true")
     parser.add_argument("--native-library", type=Path)
     args = parser.parse_args()
     print(json.dumps(run_text_prefix(
         args.local_dir, layers=args.layers, prompt=args.prompt,
         compare_ternary=args.compare_ternary, native_library=args.native_library,
+        chat_template=args.chat_template,
     ), sort_keys=True))
 
 

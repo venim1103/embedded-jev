@@ -117,6 +117,9 @@ last-token activation, dynamic A8 plus the BitNet-derived AVX2 grouped dot
 matched a portable integer reference (max difference 3.23e-8), but BF16
 relative output error was still 0.433. Expand to
 representative activation sets and block-level parity before selecting policy.
+The pinned non-thinking chat-template variant also passes A-P boundary checks
+and real-prefix native parity on a 22-token smoke (BF16-relative error 0.422).
+It does not provide final-model logits or owned decision labels.
 
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block

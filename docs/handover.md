@@ -259,6 +259,11 @@ AVX2 group-scale kernel: 4,096 outputs matched portable integer arithmetic
 (maximum difference 3.23e-8), while relative error versus dense BF16 was
 0.433. This is a single projection with a real model-path activation, not a
 registered Qwen3.5/BitNet tensor type or full-model decision result.
+An opt-in non-thinking chat-template variant validates distinct A-P label
+continuations and runs a 22-token prompt with zero generated tokens; the
+last-token native/reference max difference is 1.10e-7 and its BF16-relative
+error after A8 is 0.422. This is still synthetic engineering smoke, not
+representative calibration.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No full MiMo
