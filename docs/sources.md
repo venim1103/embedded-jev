@@ -95,6 +95,8 @@ After a container reopen, a persistent-cache CPU-only rebuild of `ggml-cpu`
 had SHA-256 `adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150`.
 Hashes are build-specific. Native tests pass signed FWHT parity and a toy
 `MAP_CUSTOM2` BitNet-derived grouped-dot node on two repeated evaluations.
+The same toy node passes an opt-in two-key-head/two-repetition grouped-V
+activation permutation before signs/FWHT, with independent scalar parity.
 No MiMo model, converter, native low-bit GGUF tensor, or Qwen3.5 model hook was
 loaded or validated.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact

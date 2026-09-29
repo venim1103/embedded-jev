@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 extern "C" int bitnet_group_scale_matmul_avx2(
@@ -78,7 +79,11 @@ void grouped_bitnet_op(
 
 }
 
-int main() {
+int main(int argc, char** argv) {
+    const bool grouped_values = argc == 2 && std::strcmp(argv[1], "--grouped-v") == 0;
+    if (argc > 2 || (argc == 2 && !grouped_values)) {
+        return 11;
+    }
     bridge_data bridge;
     std::array<int8_t, rows * width> reference_codes;
     for (int row = 0; row < rows; ++row) {
@@ -99,7 +104,13 @@ int main() {
     ggml_tensor* matrix = ggml_new_tensor_2d(context, GGML_TYPE_F32, group_width, group_width);
     ggml_tensor* signs = ggml_new_tensor_1d(context, GGML_TYPE_F32, width);
     ggml_tensor* input = ggml_new_tensor_2d(context, GGML_TYPE_F32, width, tokens);
-    ggml_tensor* signed_input = ggml_mul(context, input, signs);
+    ggml_tensor* ordered_input = input;
+    if (grouped_values) {
+        ggml_tensor* tiled = ggml_reshape_4d(context, input, 64, 2, 2, tokens);
+        ggml_tensor* permuted = ggml_permute(context, tiled, 0, 2, 1, 3);
+        ordered_input = ggml_reshape_2d(context, ggml_cont(context, permuted), width, tokens);
+    }
+    ggml_tensor* signed_input = ggml_mul(context, ordered_input, signs);
     ggml_tensor* grouped = ggml_reshape_2d(context, signed_input, group_width, groups * tokens);
     ggml_tensor* rotated_groups = ggml_mul_mat(context, matrix, grouped);
     ggml_mul_mat_set_hint(rotated_groups, GGML_HINT_SRC0_IS_HADAMARD);
@@ -151,8 +162,11 @@ int main() {
                 double expected = 0.0;
                 for (int index = 0; index < group_width; ++index) {
                     const int offset = group * group_width + index;
+                    const int source_index = grouped_values
+                        ? (((offset / 64) % 2) * 2 + (offset / 128)) * 64 + offset % 64
+                        : offset;
                     const int parity = __builtin_popcount(static_cast<unsigned>(index & column)) & 1;
-                    expected += inputs[token * width + offset] * explicit_signs[offset] *
+                    expected += inputs[token * width + source_index] * explicit_signs[offset] *
                                 (parity ? -1 : 1);
                 }
                 expected /= std::sqrt(group_width);
@@ -229,10 +243,11 @@ int main() {
         repeat_error = std::max(repeat_error, error);
     }
     std::printf(
-        "{\"tokens\":%d,\"groups\":%d,\"graph_op\":\"map_custom2\","
+        "{\"tokens\":%d,\"groups\":%d,\"gdn_v_grouped\":%s,\"graph_op\":\"map_custom2\","
         "\"graph_evaluations\":2,\"callback_calls\":%d,\"max_transform_error\":%.8f,"
         "\"max_output_error\":%.8f,\"repeat_scale_error\":%.8f}\n",
-        tokens, groups, 1 + bridge.calls, max_transform_error, max_output_error, repeat_error);
+        tokens, groups, grouped_values ? "true" : "false",
+        1 + bridge.calls, max_transform_error, max_output_error, repeat_error);
     ggml_gallocr_free(allocator);
     ggml_backend_free(backend);
     ggml_free(context);

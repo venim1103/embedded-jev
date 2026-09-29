@@ -495,10 +495,15 @@ two-token signed 128-point Hadamard graph with zero matrix data and agreed with
 independent dense math (max error about 7.2e-7). A separate toy now schedules
 the BitNet-derived AVX2 grouped dot as Prism's `MAP_CUSTOM2` node after FWHT
 and dynamic A8 (max transform/output errors about 3.8e-7/9.5e-7).
+An optional grouped-V mode first permutes a two-key-head/two-repetition,
+64-wide tiled activation to grouped feature order, then applies grouped signs,
+128-point FWHT, A8, and that same dot. Independent scalar parity on both
+tokens passed (max transform/output errors about 5.7e-7/7.2e-7).
 Two consecutive graph evaluations also passed when both input and sign leaves
 were restored before each run; the toy graph allocator may overwrite those
 buffers during compute. This is a fixture-owned callback, **not** a loadable
-group-scale GGUF type, Qwen3.5 model hook, safe sequence-state implementation,
+group-scale GGUF type, Qwen3.5 model hook, proof of MiMo head geometry or
+folded-weight export, safe sequence-state implementation,
 codec test, other CPU/ARM backend, or speedup.
 
 ### Integer Arithmetic Needs Bounds

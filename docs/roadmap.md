@@ -143,7 +143,9 @@ The separately pinned Prism Qwen3.5-capable fork now builds on x86-64. Its
 native CPU FWHT graph matches dense signed Hadamard on two tokens, and a
 toy `MAP_CUSTOM2` graph node now schedules dynamic A8 and the BitNet-derived
 group-scale kernel with scalar parity. Two repeat evaluations pass when graph
-input and sign leaves are re-uploaded. The node uses fixture-owned codes/scales,
+input and sign leaves are re-uploaded. An optional grouped-V mode also checks
+the two-key-head/two-repetition tiled-to-grouped activation permutation before
+signs/FWHT against independent scalar math. The node uses fixture-owned codes/scales,
 not a registered loadable GGUF tensor or MiMo loader/dispatch parity.
 
 1. Pin Microsoft BitNet and its submodules; build the documented native control

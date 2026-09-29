@@ -462,6 +462,9 @@ toy Prism `MAP_CUSTOM2` graph node after native FWHT and A8. Two graph
 evaluations pass when input and sign leaves are re-uploaded between runs;
 allocator-managed graph leaves cannot be assumed intact after compute. Packed
 codes/scales are fixture-owned, not a loadable GGUF type or MiMo model hook.
+The same test runs `--grouped-v`: a 64-wide, two-key-head/two-repetition
+permutation from tiled to grouped order before signed 128-point FWHT and A8,
+with independent scalar parity and the same repeated-graph check.
 No source was vendored and no MiMo shard was downloaded. The earlier BitNet
 control model/build paths above describe the old container; recreate their
 pinned submodule/library/model only if rerunning those opt-in controls.
