@@ -379,12 +379,12 @@ saved-and-reloaded path. This is not a model converter or native packed format.
 For candidate Prism v1 projection names, an allowlisted mapping now derives
 expected input widths from the pinned MiMo header inventory rather than a
 slice shape. The pinned converter's handling of the model's
-`model.language_model` prefix is not established by the direct Qwen3.5 tensor
-map: exact MiMo projection names return no match, while explicitly removing
-that prefix maps selected FFN/attention names. Run the optional pinned source
+`model.language_model` prefix is handled by its shared filter before the
+Qwen3.5 tensor map: raw MiMo names return no match, but selected FFN/attention
+names map after that filter. Run the optional model-free pinned source
 test with `PRISM_SOURCE_DIR` and `PRISM_CONVERTER_PYTHON` (an isolated Python
 environment with NumPy 2.2.6 and PyYAML 6.0.3). Do not export or load a GGUF
-from this toy mapping without a reviewed converter and native parity tests.
+from this toy mapping without full converter and native parity tests.
 No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,
 or performance measurement is implemented by this proof.
 The [upstream MIT notice](../native/BitNet-LICENSE.txt) is included with the

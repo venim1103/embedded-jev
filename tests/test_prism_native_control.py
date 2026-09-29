@@ -90,7 +90,7 @@ def test_pinned_prism_fwht_feeds_bitnet_derived_group_scale_kernel(tmp_path):
     assert report["repeat_scale_error"] < 0.005
 
 
-def test_pinned_prism_qwen35_name_map_needs_mimo_prefix_adapter():
+def test_pinned_prism_qwen35_filter_maps_mimo_text_projections():
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
     if not source_dir or not interpreter:
@@ -102,21 +102,40 @@ def test_pinned_prism_qwen35_name_map_needs_mimo_prefix_adapter():
         ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
     ).strip()
     assert revision == PRISM_REVISION
-    code = (
-        "import json; from gguf import MODEL_ARCH, get_tensor_name_map; "
-        "mapper=get_tensor_name_map(MODEL_ARCH.QWEN35,32); "
-        "names=['model.language_model.layers.3.mlp.down_proj.weight',"
-        "'model.layers.3.mlp.down_proj.weight',"
-        "'model.language_model.layers.3.self_attn.q_proj.weight',"
-        "'model.layers.3.self_attn.q_proj.weight']; "
-        "print(json.dumps([mapper.get_name(name,try_suffixes=('.weight','.bias')) "
-        "for name in names]))"
-    )
+    code = """
+from __future__ import annotations
+import ast
+import json
+import sys
+from pathlib import Path
+from gguf import MODEL_ARCH, get_tensor_name_map
+
+source = Path(sys.argv[1]) / "conversion/base.py"
+model = next(node for node in ast.parse(source.read_text()).body
+             if isinstance(node, ast.ClassDef) and node.name == "ModelBase")
+method = next(node for node in model.body
+              if isinstance(node, ast.FunctionDef) and node.name == "filter_tensors")
+filtered_class = ast.ClassDef(name="FilteredModel", bases=[], keywords=[],
+                              body=[method], decorator_list=[])
+namespace = {}
+exec(compile(ast.fix_missing_locations(ast.Module(body=[filtered_class], type_ignores=[])),
+             str(source), "exec"), namespace)
+mapper = get_tensor_name_map(MODEL_ARCH.QWEN35, 32)
+results = []
+for name in sys.argv[2:]:
+    filtered = namespace["FilteredModel"].filter_tensors((name, lambda: None))
+    results.append([mapper.get_name(name, try_suffixes=(".weight", ".bias")),
+                    filtered[0], mapper.get_name(filtered[0], try_suffixes=(".weight", ".bias"))])
+print(json.dumps(results))
+"""
     result = subprocess.run(
-        [interpreter, "-c", code],
+        [interpreter, "-c", code, str(source),
+         "model.language_model.layers.3.mlp.down_proj.weight",
+         "model.language_model.layers.3.self_attn.q_proj.weight"],
         env={**os.environ, "PYTHONPATH": str(source / "gguf-py")},
         check=True, capture_output=True, text=True, timeout=15,
     )
     assert json.loads(result.stdout) == [
-        None, "blk.3.ffn_down.weight", None, "blk.3.attn_q.weight"
+        [None, "model.layers.3.mlp.down_proj.weight", "blk.3.ffn_down.weight"],
+        [None, "model.layers.3.self_attn.q_proj.weight", "blk.3.attn_q.weight"],
     ]

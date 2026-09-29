@@ -453,9 +453,10 @@ derives widths from the pinned MiMo inventory for exact HF projection paths;
 layer-3 FFN down is 12,288 inputs and FFN gate/attention Q/K are 4,096.
 It rejects assigning the 256-wide slice to the full FFN down projection.
 The pinned Prism Qwen3.5 name map returns no direct match for MiMo's exact
-`model.language_model.layers.*` names; selected FFN/attention names map only
-after explicit prefix normalization. A model-free opt-in test verifies this,
-but no converter run or loader parity authorizes GGUF export. The inspected
+`model.language_model.layers.*` names, but the converter's shared filter removes
+`language_model.` before mapping. A model-free opt-in test verifies selected
+FFN/attention paths through that filter and map; full conversion and loader
+parity remain unverified. The inspected
 Prism release tag is fully pinned at
 `842b1880415d6f508f03b789e5ce70194def7bfd`; no converter or Prism model
 loader was exercised by this check.

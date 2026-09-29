@@ -70,8 +70,9 @@ A metadata-only check against pinned Prism v1 transform rules rejects a toy
 weight with the wrong full-model logical width or conflicting sign/block data;
 an explicit candidate map derives selected logical widths from reconciled MiMo
 headers. A pinned Prism Qwen3.5 name-map check returns no direct match for
-MiMo's `model.language_model.layers.*` prefix, while selected names map after
-an explicit prefix removal. A reviewed converter adaptation, full GGUF export,
+MiMo's `model.language_model.layers.*` prefix, but the converter's shared
+filter removes `language_model.` before mapping. Selected FFN/attention paths
+map in a model-free source check. Complete tensor coverage, full GGUF export,
 and loader/tokenizer parity remain open.
 A bounded reader fetched only 2,048 BF16 bytes from four rows and two groups
 of an eligible pinned MiMo projection. On disjoint synthetic Gaussian inputs,
