@@ -20,6 +20,65 @@ from embedded_jev.label_probe import (
 MAX_SELECTED_HEAD_BYTES = 256 * 1024
 
 
+def make_native_ffn_down(weight, library: Path):
+    """Substitute one in-memory group-128 BitNet-derived AVX2 projection."""
+    import ctypes
+
+    import torch
+
+    from embedded_jev.activation import quantize_a8_per_group
+    from embedded_jev.ternary import pack_group128_codes, quantize_ternary_rtn
+
+    if tuple(weight.shape) != (4096, 12288) or weight.dtype != torch.bfloat16:
+        raise InventoryError("native FFN-down requires the pinned BF16 projection")
+    codes, scales = quantize_ternary_rtn(weight.detach().float().cpu().numpy(), scale_search=True)
+    grouped_codes = codes.reshape(4096, 96, 128)
+    packed = np.ascontiguousarray(pack_group128_codes(grouped_codes))
+    weight_scales = np.ascontiguousarray(scales.astype(np.float32))
+    function = ctypes.CDLL(str(library)).bitnet_group_scale_matmul_avx2
+    function.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
+        ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_float),
+    ]
+    function.restype = ctypes.c_int
+    diagnostics = {"calls": 0, "max_native_reference_error": 0.0, "packed_bytes": packed.nbytes}
+
+    class NativeFFNDown(torch.nn.Module):
+        def forward(self, features):
+            if features.device.type != "cpu" or features.dtype != torch.bfloat16 or features.shape[-1] != 12288:
+                raise InventoryError("native FFN-down received incompatible activations")
+            shape = features.shape
+            inputs = np.ascontiguousarray(features.detach().float().numpy().reshape(-1, 12288))
+            activations, activation_scales = quantize_a8_per_group(inputs)
+            activations = np.ascontiguousarray(activations)
+            activation_scales = np.ascontiguousarray(activation_scales)
+            outputs = np.empty((inputs.shape[0], 4096), dtype=np.float32)
+            status = function(
+                packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+                weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
+                activation_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                inputs.shape[0], 4096, 96, outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+            )
+            if status != 0 or not np.isfinite(outputs).all():
+                raise InventoryError(f"native FFN-down failed with status {status}")
+            last_codes = activations[-1].reshape(96, 128).astype(np.int32)
+            partial = np.einsum("rgi,gi->rg", grouped_codes.astype(np.int32), last_codes)
+            expected = (partial * weight_scales * activation_scales[-1]).sum(axis=1)
+            error = float(np.max(np.abs(outputs[-1] - expected)))
+            if not np.isfinite(error) or error > 0.005:
+                raise InventoryError("native FFN-down disagrees with integer group reference")
+            diagnostics["calls"] += 1
+            diagnostics["max_native_reference_error"] = max(
+                diagnostics["max_native_reference_error"], error,
+            )
+            return torch.from_numpy(outputs.reshape(*shape[:-1], 4096)).to(dtype=features.dtype)
+
+    return NativeFFNDown(), diagnostics
+
+
 def score_selected_head(directory: Path, metadata_files, shard_headers, hidden, label_ids: dict) -> dict:
     """Compute only conditional label scores from bounded untied BF16 head rows."""
     report = build_inventory(metadata_files, shard_headers)
@@ -81,12 +140,15 @@ def score_selected_head(directory: Path, metadata_files, shard_headers, hidden, 
 def run_streamed_text(
     directory: Path, *, layers: int = 4, prompt: str, label_count: int | None = None,
     fixture_path: Path | None = None, case_id: str | None = None,
+    native_ffn_library: Path | None = None,
 ) -> dict:
     """Execute at most one verified BF16 decoder layer at a time on CPU."""
     if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
         raise InventoryError("selected label count must be between 2 and 16")
     if (fixture_path is None) != (case_id is None):
         raise InventoryError("fixture path and case id must be provided together")
+    if native_ffn_library is not None and (layers < 4 or not native_ffn_library.is_file()):
+        raise InventoryError("native FFN-down requires four layers and an existing library")
     import torch
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
@@ -162,6 +224,7 @@ def run_streamed_text(
     linear_mask = model._update_linear_attn_mask(attention_mask, None)
     position_embeddings = model.rotary_emb(hidden, position_ids[1:])
     captured = []
+    native_diagnostics = None
 
     for layer_index, names in enumerate(plan["layer_parameter_names"]):
         if set(names) != {
@@ -174,6 +237,11 @@ def run_streamed_text(
         if any(parameter.is_meta or parameter.dtype != torch.bfloat16 for parameter in decoder.parameters()):
             raise InventoryError(f"incomplete BF16 layer {layer_index} materialization")
         if layer_index == 3:
+            if native_ffn_library is not None:
+                decoder.mlp.down_proj, native_diagnostics = make_native_ffn_down(
+                    decoder.mlp.down_proj.weight, native_ffn_library,
+                )
+
             def capture_ffn_input(_module, args):
                 captured.append(args[0].detach().float().cpu().clone())
 
@@ -225,6 +293,14 @@ def run_streamed_text(
         if len(captured) != 1 or tuple(captured[0].shape) != (1, input_ids.shape[1], 12288):
             raise InventoryError("missing streamed FFN-down input")
         summary["ffn_down_input_sha256"] = hashlib.sha256(captured[0].numpy().tobytes()).hexdigest()
+    if native_diagnostics is not None:
+        if native_diagnostics["calls"] != 1:
+            raise InventoryError("native FFN-down was not executed exactly once")
+        summary["native_ffn_down"] = {
+            **native_diagnostics,
+            "purpose": "one_in_memory_bitnet_derived_projection_not_loadable_model",
+            "activation_quantized": True,
+        }
     if layers == config.text_config.num_hidden_layers:
         selected = {label: boundary["label_token_ids"][label] for label in LABELS[:label_count]}
         scored = score_selected_head(
@@ -273,10 +349,12 @@ def main() -> None:
     parser.add_argument("--prompt", default="Choose A or B. A: pause. B: continue.")
     parser.add_argument("--fixture", type=Path)
     parser.add_argument("--case-id")
+    parser.add_argument("--native-ffn-library", type=Path)
     args = parser.parse_args()
     print(json.dumps(run_streamed_text(
         args.local_dir, layers=args.layers, prompt=args.prompt, label_count=args.label_count,
         fixture_path=args.fixture, case_id=args.case_id,
+        native_ffn_library=args.native_ffn_library,
     ), sort_keys=True))
 
 

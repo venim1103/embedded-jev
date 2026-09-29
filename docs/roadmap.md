@@ -159,8 +159,9 @@ model-quality gate below. A model-free build of the pinned BitNet fork's
 dot symbol with group-sum compensation. A separate four-row, 128-input GGML
 graph smoke returned exact zero/positive/negative ternary outputs. No supported
 BitNet checkpoint was downloaded or loaded at that stage, and MiMo dispatch
-remains untested. Subsequently a pinned MIT-licensed 1.19 GB native BitNet
-control GGUF loaded: 22 prompt tokens produced 128,256 finite final-position
+through a registered loader remains untested. Subsequently a pinned
+MIT-licensed 1.19 GB native BitNet control GGUF loaded: 22 prompt tokens
+produced 128,256 finite final-position
 logits with zero generated tokens. A debugger stopped inside the fork's
 `llamafile_sgemm_i2s` during prefill. This proves control-model I2_S dispatch,
 not group-scaled MiMo runtime integration or a performance result.
@@ -168,6 +169,10 @@ The control also verifies A-C as exact one-token continuations and reports
 conditional option scores without generation. Allowed-label mass on one sample
 was only about 0.000070, so its conditional maximum is not calibrated
 confidence; MiMo/SemIf backend integration remains open.
+A later Python-hosted BF16 text run substituted one actual MiMo FFN-down
+projection with the BitNet-derived AVX2 group-scale kernel; the 22-token
+prompt's A/B conditional scores changed from 0.2695/0.7305 to 0.2709/0.7291.
+This is not a full-model ternary export or a quality result.
 Running that same graph serially for two 128-value groups and applying distinct
 row/group scales outside the graph returned exact toy outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

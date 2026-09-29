@@ -153,3 +153,55 @@ def test_streamed_text_maps_synthetic_options_to_typed_scores():
             1.0, rel_tol=1e-7,
         )
         assert report["selected_head"]["full_vocabulary_mass"] == "not_computed"
+
+
+@pytest.mark.skipif(
+    os.environ.get("MIMO_IN_MODEL_NATIVE_TEST") != "1",
+    reason="requires pinned MiMo BF16 shards, isolated Torch, Clang 18, and x86-64 AVX2",
+)
+def test_streamed_text_substitutes_one_bitnet_derived_ffn(tmp_path):
+    interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    compiler = shutil.which("clang++-18")
+    if not interpreter or not local_dir or not Path(interpreter).is_file():
+        pytest.fail("set MIMO_DENSE_PYTHON and MIMO_LOCAL_DIR for the opt-in native model test")
+    if compiler is None or platform.machine() != "x86_64" or "avx2" not in Path("/proc/cpuinfo").read_text():
+        pytest.skip("requires Clang 18 and x86-64 AVX2")
+    library = tmp_path / "bitnet_group_scale.so"
+    source = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
+    subprocess.run(
+        [compiler, "-std=c++17", "-O2", "-mavx2", "-shared", "-fPIC",
+         str(source), "-o", str(library)],
+        check=True, capture_output=True, text=True,
+    )
+    environment = {
+        **os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4",
+    }
+    command = [
+        interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+        "--layers", "32", "--label-count", "2",
+    ]
+    reports = []
+    for extra in ([], ["--native-ffn-library", str(library)]):
+        result = subprocess.run(
+            command + extra, env=environment, check=True,
+            capture_output=True, text=True, timeout=180,
+        )
+        reports.append(json.loads(result.stdout))
+    dense, native = reports
+    assert dense["revision"] == native["revision"] == MODEL_REVISION
+    assert dense["ffn_down_input_sha256"] == native["ffn_down_input_sha256"]
+    assert dense["last_token_sha256"] != native["last_token_sha256"]
+    assert dense["generated_tokens"] == native["generated_tokens"] == 0
+    assert "native_ffn_down" not in dense
+    assert native["native_ffn_down"]["calls"] == 1
+    assert native["native_ffn_down"]["packed_bytes"] == 12582912
+    assert native["native_ffn_down"]["max_native_reference_error"] < 1e-4
+    for report in reports:
+        options = report["selected_head"]["options"]
+        assert set(options) == {"A", "B"}
+        assert math.isclose(
+            sum(option["conditional_probability"] for option in options.values()), 1.0,
+            rel_tol=1e-7,
+        )

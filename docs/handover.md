@@ -279,10 +279,18 @@ labels, and A-C conditional scores with zero generated tokens. All five selected
 IDs matched fixture expectations; reordered labels and a missing-permission
 case are gated in an opt-in test. This is engineering smoke only, not an owned
 held-out benchmark, representative calibration, or a confidence claim.
+A subsequent Python-hosted staged text run replaces only layer 3's real
+FFN-down matmul with the BitNet-derived searched-FP16 ternary/A8 grouped AVX2
+kernel. The BF16 and substituted runs share the same pre-FFN activation hash;
+native/portable last-token outputs agree to 1.10e-7. Final A/B conditional
+scores on the 22-token prompt move from 0.2695/0.7305 to 0.2709/0.7291.
+No quantized candidate was saved. This is a proof of one in-model Python
+adapter, not evidence of acceptable quality, a registered GGUF type, or a
+loadable BitNet/Qwen3.5 runtime.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
-the development guide for both bounded tracks. No vision path or MiMo
-ternary/BitNet model runtime has been validated, and no owned MiMo quality,
+the development guide for both bounded tracks. No vision path or registered
+MiMo ternary/BitNet model runtime has been validated, and no owned MiMo quality,
 perplexity, latency, energy, or RSS result exists. The host GPU
 is an RTX A3000 Laptop GPU with 12,288 MiB VRAM. On 2026-09-28, WSL showed
 29 GiB RAM, 21 GiB available, and 8 GiB swap; the user reported 48.3 GB free

@@ -321,6 +321,33 @@ and missing-permission cases have a gated regression check. This tiny synthetic
 set is **not** a held-out benchmark or calibration set; full-vocabulary mass
 and real decision quality remain unknown. No quantized model copies were kept.
 
+## In-Memory Native FFN Substitution
+
+The streamed BF16 text path can replace **only** layer 3's FFN-down matmul
+with an in-memory searched-FP16 group-128 ternary/A8 adapter. It uses the
+BitNet-derived AVX2 grouped kernel built above, keeps every other layer in
+BF16, and releases the packed candidate after the process exits:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$snapshot" --layers 32 --label-count 2 \
+   --native-ffn-library "$cache/native/bitnet_group_scale_probe.so"
+MIMO_IN_MODEL_NATIVE_TEST=1 MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+   MIMO_LOCAL_DIR="$snapshot" PYTHONDONTWRITEBYTECODE=1 \
+   python -m pytest -q -p no:cacheprovider tests/test_dense_probe.py \
+   -k streamed_text_substitutes_one_bitnet_derived_ffn
+```
+
+The 22-token non-thinking prompt reaches the same pre-FFN activation hash
+in BF16 and substituted runs. The adapter is called once for the whole token
+batch and agrees with portable integer/group-scale arithmetic on its last
+token (max difference 1.10e-7). The final A/B conditional scores move from
+0.2695/0.7305 to 0.2709/0.7291. This single smoke cannot establish quality
+or safety, and a small final-score change does not erase the substantial
+local FFN approximation error. This is a Python-hosted, in-memory substitution,
+**not** a registered model-loadable ternary GGUF/operator or stock BitNet I2_S.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo
