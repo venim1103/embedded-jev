@@ -19,6 +19,7 @@ from embedded_jev.inventory import (
 from embedded_jev.ternary import (
     quantize_ternary_compensated,
     quantize_ternary_rtn,
+    pack_group128_codes,
     reconstruct_ternary,
 )
 from embedded_jev.ternary_artifact import load_toy_artifact, save_toy_artifact
@@ -63,13 +64,7 @@ def native_dot(tmp_path_factory):
 
 
 def pack_codes(codes):
-    rows, groups, group_width = codes.shape
-    assert group_width == 128 and np.isin(codes, [-1, 0, 1]).all()
-    lanes = (codes + 1).astype(np.uint8).reshape(rows, groups, 4, 32)
-    packed = np.zeros((rows, groups, 32), dtype=np.uint8)
-    for lane in range(4):
-        packed |= lanes[:, :, lane, :] << (6 - 2 * lane)
-    return packed
+    return pack_group128_codes(codes)
 
 
 def call_native(function, codes, activations, weight_scales, activation_scales):
@@ -123,6 +118,8 @@ def test_bitnet_layout_zero_compensation_and_row_dependent_scales(native_dot):
     assert packed[1, 0, 0] == 0x19
     assert actual[0] == 0.0
     np.testing.assert_allclose(actual, reference(codes, activations, weight_scales, activation_scales))
+    with pytest.raises(ValueError, match="group-128 ternary codes"):
+        pack_group128_codes(np.full((1, 1, 128), 2, dtype=np.int8))
 
 
 @pytest.mark.parametrize("groups", [32, 96])

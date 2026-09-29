@@ -3,6 +3,7 @@
 import io
 import hashlib
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -225,6 +226,8 @@ def test_dense_prefix_plan_rejects_oversized_or_unsupported_layers(monkeypatch):
         plan_text_prefix(metadata, headers, layers=1)
     with pytest.raises(InventoryError, match="requires four dense prefix layers"):
         run_text_prefix(None, layers=1, prompt="A or B", compare_ternary=True)
+    with pytest.raises(InventoryError, match="native comparison requires ternary"):
+        run_text_prefix(None, layers=1, prompt="A or B", native_library=Path("kernel.so"))
 
 
 def test_inventory_rejects_missing_inconsistent_or_unsupported_metadata():

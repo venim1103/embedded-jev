@@ -3,6 +3,8 @@
 import json
 import math
 import os
+import platform
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -15,14 +17,32 @@ from embedded_jev.inventory import MODEL_REVISION
     os.environ.get("MIMO_DENSE_PREFIX_TEST") != "1",
     reason="requires isolated CPU Torch/Transformers and the verified local MiMo snapshot",
 )
-def test_local_dense_text_prefix_captures_real_ffn_input():
+def test_local_dense_text_prefix_captures_real_ffn_input(tmp_path):
     interpreter = os.environ.get("MIMO_DENSE_PYTHON")
     local_dir = os.environ.get("MIMO_LOCAL_DIR")
     if not interpreter or not local_dir or not Path(interpreter).is_file():
         pytest.fail("set MIMO_DENSE_PYTHON and MIMO_LOCAL_DIR for the opt-in prefix test")
+    command = [
+        interpreter, "-m", "embedded_jev.dense_probe", "--local-dir", local_dir,
+        "--layers", "4", "--compare-ternary",
+    ]
+    if os.environ.get("MIMO_NATIVE_ACTIVATION_TEST") == "1":
+        compiler = shutil.which("clang++-18")
+        if (
+            compiler is None or platform.machine() != "x86_64"
+            or "avx2" not in Path("/proc/cpuinfo").read_text()
+        ):
+            pytest.skip("requires Clang 18 and x86-64 AVX2 for native comparison")
+        library = tmp_path / "bitnet_group_scale.so"
+        source = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
+        subprocess.run(
+            [compiler, "-std=c++17", "-O2", "-mavx2", "-shared", "-fPIC",
+             str(source), "-o", str(library)],
+            check=True, capture_output=True, text=True,
+        )
+        command.extend(("--native-library", str(library)))
     result = subprocess.run(
-        [interpreter, "-m", "embedded_jev.dense_probe", "--local-dir", local_dir,
-         "--layers", "4", "--compare-ternary"],
+        command,
         env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
              "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"},
         check=True, capture_output=True, text=True, timeout=120,
@@ -41,3 +61,9 @@ def test_local_dense_text_prefix_captures_real_ffn_input():
     assert comparison["activation_quantized"] is False
     assert math.isfinite(comparison["relative_output_rmse"])
     assert math.isfinite(comparison["weight_mse"])
+    if os.environ.get("MIMO_NATIVE_ACTIVATION_TEST") == "1":
+        native = report["native_comparison"]
+        assert native["groups"] == 96 and native["packed_bytes"] == 12582912
+        assert native["activation_quantized"] is True
+        assert native["max_native_reference_error"] < 1e-4
+        assert math.isfinite(native["relative_dense_output_rmse"])

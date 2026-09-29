@@ -112,7 +112,10 @@ the relative output error on one synthetic A8 input was 0.467 versus BF16.
 No GGUF tensor format, Qwen3.5 dispatch, or quality result follows from this.
 The isolated Transformers text prefix compares the same complete projection
 against its actual BF16 output on one local prompt: searched-scale RTN has
-relative output RMSE 0.423 without activation quantization. Expand to
+relative output RMSE 0.423 without activation quantization. On the captured
+last-token activation, dynamic A8 plus the BitNet-derived AVX2 grouped dot
+matched a portable integer reference (max difference 3.23e-8), but BF16
+relative output error was still 0.433. Expand to
 representative activation sets and block-level parity before selecting policy.
 
 1. Implement matching weight/input rotations with per-tensor transform records.

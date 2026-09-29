@@ -253,7 +253,12 @@ text-prefix forward reaches the layer-3 FFN-down input. On those actual
 model-path activations, unrotated searched-scale ternary RTN has 0.423 relative
 output RMSE versus the BF16 FFN output, without A8. This one prompt is neither
 calibration nor decision quality; the probe produces no final model logits,
-no generated tokens, and no retained quantized candidate.
+no generated tokens, and no retained quantized candidate. The same captured
+last-token activation, after dynamic A8, fed the isolated BitNet-derived
+AVX2 group-scale kernel: 4,096 outputs matched portable integer arithmetic
+(maximum difference 3.23e-8), while relative error versus dense BF16 was
+0.433. This is a single projection with a real model-path activation, not a
+registered Qwen3.5/BitNet tensor type or full-model decision result.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No full MiMo

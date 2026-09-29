@@ -244,6 +244,27 @@ Run the optional end-to-end prefix smoke with `MIMO_DENSE_PREFIX_TEST=1`,
 `MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python"`, and `MIMO_LOCAL_DIR="$snapshot"`
 against `tests/test_dense_probe.py`.
 
+For an opt-in native run on the **captured last-token activation**, compile
+the existing BitNet-derived AVX2 kernel outside the repo and pass its library
+to the same probe:
+
+```bash
+clang++-18 -std=c++17 -O2 -mavx2 -shared -fPIC native/bitnet_group_scale.cpp \
+   -o "$cache/native/bitnet_group_scale_probe.so"
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.dense_probe \
+   --local-dir "$snapshot" --layers 4 --compare-ternary \
+   --native-library "$cache/native/bitnet_group_scale_probe.so"
+```
+
+The 4,096 native outputs agreed with portable integer/group-scale arithmetic
+to max absolute error 3.23e-8 after dynamic per-group A8. Relative error
+against that last token's dense BF16 FFN output was 0.433; this combines A8
+and ternary rounding. Set `MIMO_NATIVE_ACTIVATION_TEST=1` alongside the three
+prefix-smoke environment variables above to make the optional test compile
+a temporary library and check this path. No quantized model was kept, and the
+kernel is not the stock I2_S type or a Qwen3.5 model loader/decision engine.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo

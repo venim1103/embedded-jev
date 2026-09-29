@@ -51,10 +51,13 @@ def plan_text_prefix(metadata_files, shard_headers, *, layers: int = 4) -> dict:
 
 def run_text_prefix(
     directory: Path, *, layers: int = 1, prompt: str, compare_ternary: bool = False,
+    native_library: Path | None = None,
 ) -> dict:
     """Run a small text-only dense prefix without generating answer tokens."""
     if compare_ternary and layers != MAX_PREFIX_LAYERS:
         raise InventoryError("ternary comparison requires four dense prefix layers")
+    if native_library is not None and not compare_ternary:
+        raise InventoryError("native comparison requires ternary comparison")
     import torch
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
@@ -160,6 +163,52 @@ def run_text_prefix(
             "relative_output_rmse": float(np.sqrt(error / reference_energy)),
             "weight_mse": float(np.mean((weights - reconstructed) ** 2)),
         }
+        if native_library is not None:
+            import ctypes
+
+            from embedded_jev.activation import quantize_a8_per_group
+            from embedded_jev.ternary import pack_group128_codes
+
+            groups = weights.shape[1] // 128
+            packed = pack_group128_codes(codes.reshape(weights.shape[0], groups, 128))
+            weight_scales = np.ascontiguousarray(scales.astype(np.float32))
+            activations, activation_scales = quantize_a8_per_group(captured[0].numpy()[0, -1:])
+            grouped_activations = np.ascontiguousarray(activations.reshape(groups, 128))
+            native_dot = ctypes.CDLL(str(native_library)).bitnet_group_scale_matvec_avx2
+            native_dot.argtypes = [
+                ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
+                ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
+                ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float),
+            ]
+            native_dot.restype = ctypes.c_int
+            actual = np.empty(weights.shape[0], dtype=np.float32)
+            status = native_dot(
+                packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+                weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                grouped_activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
+                activation_scales[0].ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                weights.shape[0], groups, actual.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+            )
+            if status != 0:
+                raise InventoryError(f"native grouped-dot status {status}")
+            group_dots = np.einsum(
+                "rgi,gi->rg", codes.reshape(weights.shape[0], groups, 128).astype(np.int32),
+                grouped_activations.astype(np.int32),
+            )
+            expected = (group_dots * weight_scales * activation_scales[0]).sum(axis=1)
+            dense_last = reference[-1]
+            dense_energy = float(np.mean(dense_last.astype(np.float64) ** 2))
+            native_error = float(np.mean((actual.astype(np.float64) - dense_last) ** 2))
+            if not np.isfinite(actual).all() or not np.isfinite(expected).all() or dense_energy <= 0:
+                raise InventoryError("nonfinite or zero native comparison output")
+            summary["native_comparison"] = {
+                "purpose": "one_model_path_activation_bitnet_derived_dot_not_model_inference",
+                "groups": groups,
+                "packed_bytes": packed.nbytes,
+                "max_native_reference_error": float(np.max(np.abs(actual - expected))),
+                "relative_dense_output_rmse": float(np.sqrt(native_error / dense_energy)),
+                "activation_quantized": True,
+            }
     return summary
 
 
@@ -169,9 +218,11 @@ def main() -> None:
     parser.add_argument("--layers", type=int, choices=range(1, MAX_PREFIX_LAYERS + 1), default=1)
     parser.add_argument("--prompt", default="Choose A or B. A: pause. B: continue.")
     parser.add_argument("--compare-ternary", action="store_true")
+    parser.add_argument("--native-library", type=Path)
     args = parser.parse_args()
     print(json.dumps(run_text_prefix(
-        args.local_dir, layers=args.layers, prompt=args.prompt, compare_ternary=args.compare_ternary,
+        args.local_dir, layers=args.layers, prompt=args.prompt,
+        compare_ternary=args.compare_ternary, native_library=args.native_library,
     ), sort_keys=True))
 
 

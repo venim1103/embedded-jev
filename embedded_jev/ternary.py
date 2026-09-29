@@ -59,6 +59,22 @@ def quantize_ternary_rtn(
     return codes.reshape(matrix.shape), scales
 
 
+def pack_group128_codes(codes: np.ndarray) -> np.ndarray:
+    """Pack -1/0/+1 groups for the isolated BitNet-derived AVX2 kernel."""
+    ternary = np.asarray(codes)
+    if (
+        ternary.ndim != 3 or ternary.dtype != np.int8 or ternary.shape[2] != 128
+        or 0 in ternary.shape or not np.isin(ternary, (-1, 0, 1)).all()
+    ):
+        raise ValueError("group-128 ternary codes required for native packing")
+    rows, groups, _ = ternary.shape
+    lanes = (ternary + 1).astype(np.uint8).reshape(rows, groups, 4, 32)
+    packed = np.zeros((rows, groups, 32), dtype=np.uint8)
+    for lane in range(4):
+        packed |= lanes[:, :, lane, :] << (6 - 2 * lane)
+    return packed
+
+
 def quantize_ternary_compensated(
     weights, activations, group_size: int = 128, *, damping_ratio: float = 0.01,
     max_damping_attempts: int = 3, processing_block_size: int | None = None,
