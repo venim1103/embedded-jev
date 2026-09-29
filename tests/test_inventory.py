@@ -14,6 +14,13 @@ from embedded_jev.inventory import (
     build_inventory,
     parse_safetensors_header,
 )
+from embedded_jev.ternary import quantize_ternary_rtn
+from embedded_jev.ternary_artifact import (
+    TernaryArtifactError,
+    mimo_prism_expected_widths,
+    prism_v1_transform_metadata,
+    save_toy_artifact,
+)
 
 
 def _header(specs, payload_bytes):
@@ -375,3 +382,31 @@ def test_synthetic_slice_screen_is_bounded_and_deterministic():
     for invalid in (np.ones((5, 256)), np.ones((1, 257)), np.zeros((0, 256))):
         with pytest.raises(ValueError, match="at most four rows"):
             weight_slice.screen_synthetic_reconstruction(invalid)
+
+
+def test_prism_candidate_widths_come_from_pinned_eligible_hf_headers():
+    metadata, shards = _model_fixture()
+    report = build_inventory(metadata, shards)
+    names = ["blk.0.ffn_down.weight", "blk.0.ffn_gate.weight", "blk.0.attn_q.weight"]
+    widths = mimo_prism_expected_widths(report, names)
+    assert widths == {
+        "blk.0.ffn_down.weight": 2048,
+        "blk.0.ffn_gate.weight": 1024,
+        "blk.0.attn_q.weight": 1024,
+    }
+    with pytest.raises(TernaryArtifactError, match="unverified MiMo"):
+        mimo_prism_expected_widths({**report, "source": {**report["source"], "revision": "main"}}, names)
+    with pytest.raises(TernaryArtifactError, match="missing or ineligible"):
+        mimo_prism_expected_widths(report, ["blk.1.ffn_down.weight"])
+    with pytest.raises(TernaryArtifactError, match="unsupported MiMo"):
+        mimo_prism_expected_widths(report, ["blk.0.ssm_out.weight"])
+
+    codes, scales = quantize_ternary_rtn(np.ones((2, 256), dtype=np.float32))
+    payload = save_toy_artifact(
+        codes, scales, algorithm="rtn-maxabs-fp16-v1",
+        signs=np.ones(256, dtype=np.int8), block_size=128,
+    )
+    with pytest.raises(TernaryArtifactError, match="logical input width mismatch"):
+        prism_v1_transform_metadata(
+            {names[0]: payload}, expected_widths=mimo_prism_expected_widths(report, [names[0]])
+        )

@@ -376,6 +376,11 @@ It permits an explicit signed-Hadamard transform record or identity, refuses
 malformed/oversized payloads, and is limited to 1 MiB. The
 [offline artifact tests](../tests/test_ternary.py) and native fixture exercise a
 saved-and-reloaded path. This is not a model converter or native packed format.
+For candidate Prism v1 projection names, an allowlisted mapping now derives
+expected input widths from the pinned MiMo header inventory rather than a
+slice shape. The pinned converter's handling of the model's
+`model.language_model` prefix remains unverified; do not export or load a GGUF
+from this toy mapping.
 No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,
 or performance measurement is implemented by this proof.
 The [upstream MIT notice](../native/BitNet-LICENSE.txt) is included with the

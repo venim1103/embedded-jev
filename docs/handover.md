@@ -446,10 +446,14 @@ Tests reject changed hashes, object arrays, malformed transform metadata, and
 oversized data; loaded artifacts feed the native AVX2 kernel in toy cases.
 The archive is capped at 1 MiB and marked as toy/no-model-weights, not PTQ1_0,
 PQ2_0, GGUF, or a complete source/calibration/runtime provenance artifact.
-A separate toy Prism v1 metadata check requires independently supplied logical
-input widths, rejects unsupported foldable names, and refuses conflicting
-block sizes or sign vectors for the same input width. It rejects assigning a
-256-wide slice to the pinned MiMo FFN's 12,288-wide logical input. The inspected
+A separate toy Prism v1 metadata check requires full logical input widths,
+rejects unsupported foldable names, and refuses conflicting block sizes or
+sign vectors for the same input width. A conservative candidate mapping now
+derives widths from the pinned MiMo inventory for exact HF projection paths;
+layer-3 FFN down is 12,288 inputs and FFN gate/attention Q/K are 4,096.
+It rejects assigning the 256-wide slice to the full FFN down projection.
+The Prism converter was not shown to handle MiMo's extra `model.language_model`
+prefix, so the candidate mapping does **not** authorize GGUF export. The inspected
 Prism release tag is fully pinned at
 `842b1880415d6f508f03b789e5ce70194def7bfd`; no converter or Prism model
 loader was exercised by this check.

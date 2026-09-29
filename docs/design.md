@@ -187,10 +187,12 @@ A [bounded toy container](../embedded_jev/ternary_artifact.py) now exercises thi
 boundary for in-memory RTN/compensated fixtures only: non-pickle NumPy arrays,
 hashed payloads, and explicit identity or signed-Hadamard metadata. It is not
 a native model artifact or the full provenance manifest described below.
-A toy Prism v1 metadata compatibility check requires independently supplied
-logical input widths, one block size, and one sign vector per width. It fails
-if a 256-wide slice is named as a full 12,288-wide projection; it does not
-convert tensors, write GGUF, or validate a native loader.
+A toy Prism v1 metadata compatibility check requires full logical input widths,
+one block size, and one sign vector per width. A conservative candidate mapper
+can derive those widths from the pinned reconciled MiMo headers; it fails if
+a 256-wide slice is named as a full 12,288-wide projection. The pinned Prism
+converter's handling of MiMo's extra `model.language_model` prefix remains
+unverified. These checks do not convert tensors, write GGUF, or validate a loader.
 
 | Manifest section | Required content |
 | --- | --- |

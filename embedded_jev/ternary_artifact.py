@@ -8,7 +8,7 @@ import zipfile
 
 import numpy as np
 
-from embedded_jev.inventory import _json_object
+from embedded_jev.inventory import MODEL_ID, MODEL_REVISION, _json_object
 from embedded_jev.ternary import reconstruct_ternary
 
 
@@ -18,6 +18,12 @@ PRISM_FOLDABLE = re.compile(
     r"blk\.(0|[1-9][0-9]*)\."
     r"(ffn_gate|ffn_up|ffn_down|attn_q|attn_k|attn_v|attn_output)\.weight\Z"
 )
+HF_PROJECTION = {
+    "ffn_gate": "mlp.gate_proj", "ffn_up": "mlp.up_proj",
+    "ffn_down": "mlp.down_proj", "attn_q": "self_attn.q_proj",
+    "attn_k": "self_attn.k_proj", "attn_v": "self_attn.v_proj",
+    "attn_output": "self_attn.o_proj",
+}
 
 
 class TernaryArtifactError(ValueError):
@@ -207,3 +213,37 @@ def prism_v1_transform_metadata(
             sign for width in widths for sign in signs_by_width[width]
         ],
     }
+
+
+def mimo_prism_expected_widths(inventory: dict, names: list[str]) -> dict[str, int]:
+    """Derive conservative candidate Prism widths from a pinned HF inventory."""
+    source = inventory.get("source", {})
+    if (
+        source.get("model") != MODEL_ID or source.get("revision") != MODEL_REVISION
+        or inventory.get("schema_version") != 1
+        or inventory.get("metadata_summary", {}).get("architecture")
+        != "Qwen3_5ForConditionalGeneration"
+        or not isinstance(names, list) or not 1 <= len(names) <= 16
+        or len(set(names)) != len(names)
+    ):
+        raise TernaryArtifactError("unverified MiMo inventory or Prism selection")
+    tensors = {entry["name"]: entry for entry in inventory["tensors"]}
+    widths = {}
+    for name in names:
+        match = PRISM_FOLDABLE.fullmatch(name) if isinstance(name, str) else None
+        if match is None:
+            raise TernaryArtifactError("unsupported MiMo Prism projection")
+        hf_name = (
+            f"model.language_model.layers.{match[1]}."
+            f"{HF_PROJECTION[match[2]]}.weight"
+        )
+        tensor = tensors.get(hf_name)
+        if (
+            tensor is None or tensor["dtype"] != "BF16"
+            or tensor["category"] != "language_projection"
+            or not tensor["quantization_eligible"]
+            or len(tensor["shape"]) != 2
+        ):
+            raise TernaryArtifactError("missing or ineligible MiMo projection")
+        widths[name] = tensor["shape"][1]
+    return widths
