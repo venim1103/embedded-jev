@@ -1,6 +1,7 @@
 """Offline checks for bounded, revision-pinned model inventory."""
 
 import io
+import hashlib
 import json
 
 import numpy as np
@@ -367,6 +368,41 @@ def test_bounded_bf16_slice_uses_exact_row_ranges_and_keeps_hashes(monkeypatch):
     assert source["full_weight_hash"] == "not_checked_bounded_slice_only"
 
 
+def test_local_bf16_rows_read_complete_width_with_exact_offsets(tmp_path, monkeypatch):
+    metadata, headers = _model_fixture()
+    for name, data in metadata.items():
+        (tmp_path / name).write_bytes(data)
+    shard, (prefix, file_bytes) = next(iter(headers.items()))
+    name = "model.language_model.layers.0.mlp.down_proj.weight"
+    offset = json.loads(prefix[8:])[name]["data_offsets"][0]
+    row_bytes = 2048 * 2
+    with (tmp_path / shard).open("wb") as destination:
+        destination.write(prefix)
+        destination.truncate(file_bytes)
+    raw_rows = []
+    with (tmp_path / shard).open("r+b") as destination:
+        for row, value in enumerate((1.25, -2.5), start=1):
+            bits = (np.array([value], dtype=np.float32).view(np.uint32) >> 16).astype("<u2")
+            data = bits.tobytes() * 2048
+            destination.seek(len(prefix) + offset + row * row_bytes)
+            destination.write(data)
+            raw_rows.append(data)
+    monkeypatch.setattr(weight_slice, "_open_bounded", lambda *args, **kwargs: pytest.fail("network read"))
+    values, source = weight_slice.read_local_bf16_projection_rows(
+        tmp_path, name=name, start_row=1, rows=2,
+    )
+    np.testing.assert_array_equal(values, np.array([[1.25] * 2048, [-2.5] * 2048]))
+    assert source["payload_bytes"] == 2 * row_bytes
+    assert source["row_sha256"] == [hashlib.sha256(data).hexdigest() for data in raw_rows]
+    assert source["full_weight_hash"] == "not_checked_local_rows_only"
+    for request in ({"rows": 5}, {"start_row": 1023, "rows": 2}, {"name": "lm_head.weight"}):
+        with pytest.raises(InventoryError):
+            weight_slice.read_local_bf16_projection_rows(tmp_path, **request)
+    monkeypatch.setattr(weight_slice, "MAX_LOCAL_PAYLOAD_BYTES", row_bytes)
+    with pytest.raises(InventoryError, match="payload budget"):
+        weight_slice.read_local_bf16_projection_rows(tmp_path, name=name, rows=2)
+
+
 def test_bounded_bf16_slice_rejects_invalid_requests_before_fetch(monkeypatch):
     metadata, headers = _model_fixture()
     def no_fetch(*args, **kwargs):
@@ -405,6 +441,23 @@ def test_synthetic_slice_screen_is_bounded_and_deterministic():
     for invalid in (np.ones((5, 256)), np.ones((1, 257)), np.zeros((0, 256))):
         with pytest.raises(ValueError, match="at most four rows"):
             weight_slice.screen_synthetic_reconstruction(invalid)
+
+
+def test_full_width_synthetic_screen_checks_rotation_and_bounds():
+    weights = np.random.default_rng(441).normal(size=(2, 256)).astype(np.float32)
+    result = weight_slice.screen_full_width_synthetic(weights)
+    assert result == weight_slice.screen_full_width_synthetic(weights)
+    assert result["purpose"] == "four_full_width_rows_synthetic_inputs_not_model_quality"
+    assert set(result["policies"]) == {
+        "maxabs", "searched_fp16", "signed_hadamard_128_searched_fp16",
+    }
+    assert all(
+        np.isfinite(policy["weight_mse"]) and np.isfinite(policy["output_mse"])
+        for policy in result["policies"].values()
+    )
+    for invalid in (np.ones((5, 256)), np.ones((2, 257)), np.full((2, 256), np.inf)):
+        with pytest.raises(ValueError, match="four bounded projection rows"):
+            weight_slice.screen_full_width_synthetic(invalid)
 
 
 def test_prism_candidate_widths_come_from_pinned_eligible_hf_headers():

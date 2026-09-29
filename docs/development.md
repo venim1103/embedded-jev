@@ -159,6 +159,24 @@ A local 2 KiB row sample matched the pinned remote ranges, and the existing
 opt-in native slice test passed; its synthetic MSE is not decision quality.
 Do not load all BF16 tensors into the 29 GiB host RAM just to test the cache.
 
+For a bounded full-width trial, read only four rows of the layer-3 FFN-down
+projection (4 x 12,288 BF16 values; 98,304 bytes):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.weight_slice \
+   --local-dir "$snapshot" --screen-full-rows
+```
+
+The local reader checks the pinned index/header, caps payloads at 128 KiB,
+and records a SHA-256 for each complete row. On 32 fixed synthetic Gaussian
+inputs (seed 903), relative output RMSE versus those four dense rows was
+0.685 for max-abs RTN, 0.426 for searched FP16 row/group-128 scales, and
+0.446 for signed 128-point Hadamard followed by searched RTN (sign seed 773).
+Dense signed-rotation parity passed before quantization. These are warnings
+about this sample, not representative activations, calibrated quality, or
+evidence for a whole-model policy. All three trials ran in memory; no
+quantized checkpoint was stored.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo

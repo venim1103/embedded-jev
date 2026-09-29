@@ -229,10 +229,17 @@ shards passed LFS SHA-256 verification. Offline header/index reconciliation
 counts 760 tensors and 18,819,627,488 logical weight bytes; the four shard
 files occupy 18,819,720,848 bytes including headers. A local 2 KiB sample
 matched the prior pinned remote ranges and the opt-in native toy slice test
-passed.
+passed. A second bounded reader checks four complete layer-3 FFN-down rows
+(98,304 BF16 bytes) from the local shard. On fixed synthetic Gaussian inputs,
+max-abs, searched-scale, and signed-Hadamard searched-scale ternary RTN had
+relative output RMSE of 0.685, 0.426, and 0.446, respectively. The signed
+rotation itself preserves the dense output; rounding does not. Do not select
+a full-model quantization policy from four rows or synthetic inputs. No
+quantized model copy was kept; see [docs/development.md](development.md) for
+the reproducible command.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
-[docs/development.md](development.md) for both independent tracks. No MiMo
+the development guide for the independent BitNet track. No MiMo
 inference runtime or whole model has been validated, and no owned MiMo quality,
 perplexity, latency, energy, or RSS result exists. The host GPU
 is an RTX A3000 Laptop GPU with 12,288 MiB VRAM. On 2026-09-28, WSL showed

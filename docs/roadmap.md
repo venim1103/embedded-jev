@@ -93,6 +93,11 @@ toy signed rotation, searched FP16 ternary scales, saved-artifact reload,
 synthetic A8 preparation, and the standalone native AVX2 batch kernel. Dense
 rotation and stored-artifact native parity pass; this is not a MiMo block or
 Qwen3.5/BitNet runtime graph.
+A local reader now screens four complete layer-3 FFN-down rows (12,288 columns)
+with max-abs, searched-scale, and signed-Hadamard searched-scale RTN in memory.
+The best synthetic relative output RMSE on those four rows is still 0.426;
+representative activation calibration and block-level parity are required
+before committing to a whole-model ternary candidate.
 
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block
