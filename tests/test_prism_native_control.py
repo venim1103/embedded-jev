@@ -190,3 +190,68 @@ print(json.dumps(results))
     ]
     assert len(renamed_biases) == 24
     assert all(result[2].endswith(".ssm_dt.bias") for result in renamed_biases)
+
+
+def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors():
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source_dir or not interpreter:
+        pytest.skip("requires pinned Prism converter and isolated CPU Torch environment")
+    source = Path(source_dir)
+    assert subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
+    ).strip() == PRISM_REVISION
+    code = """
+from __future__ import annotations
+import ast
+import json
+import sys
+from pathlib import Path
+import numpy as np
+import torch
+
+module = ast.parse((Path(sys.argv[1]) / "conversion/qwen.py").read_text())
+next_model = next(node for node in module.body
+                  if isinstance(node, ast.ClassDef) and node.name == "Qwen3NextModel")
+value_model = next(node for node in module.body
+                   if isinstance(node, ast.ClassDef) and node.name == "_LinearAttentionVReorderBase")
+next_modify = next(node for node in next_model.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "modify_tensors")
+reorder = next(node for node in value_model.body
+               if isinstance(node, ast.FunctionDef) and node.name == "_reorder_v_heads")
+value_modify = next(node for node in value_model.body
+                    if isinstance(node, ast.FunctionDef) and node.name == "modify_tensors")
+base = ast.parse("class Base:\\n def modify_tensors(self, data_torch, name, bid):\\n  yield name, data_torch").body[0]
+next_class = ast.ClassDef(name="Qwen3NextModel", bases=[ast.Name(id="Base", ctx=ast.Load())],
+                          keywords=[], body=[next_modify], decorator_list=[])
+value_class = ast.ClassDef(name="ValueModel", bases=[ast.Name(id="Qwen3NextModel", ctx=ast.Load())],
+                           keywords=[], body=[reorder, value_modify], decorator_list=[])
+namespace = {"torch": torch, "np": np}
+exec(compile(ast.fix_missing_locations(ast.Module(body=[base, next_class, value_class], type_ignores=[])),
+             str(Path(sys.argv[1]) / "conversion/qwen.py"), "exec"), namespace)
+model = namespace["ValueModel"]()
+model.hparams = {"linear_num_key_heads": 2, "linear_num_value_heads": 4,
+                 "linear_key_head_dim": 2, "linear_value_head_dim": 2, "hidden_size": 8}
+name = "model.layers.0.linear_attn."
+qkv = torch.arange(16 * 8, dtype=torch.float32).reshape(16, 8)
+result = list(model.modify_tensors(qkv, name + "in_proj_qkv.weight", 0))
+assert len(result) == 1
+expected_v = qkv[8:].numpy().reshape(2, 2, 2, 8).transpose(1, 0, 2, 3).reshape(8, 8)
+assert np.array_equal(result[0][1].numpy(), np.concatenate([qkv[:8].numpy(), expected_v]))
+gate = torch.arange(8 * 8, dtype=torch.float32).reshape(8, 8)
+result_z = list(model.modify_tensors(gate, name + "in_proj_z.weight", 0))
+assert np.array_equal(result_z[0][1].numpy(), gate.numpy().reshape(2, 2, 2, 8).transpose(1, 0, 2, 3).reshape(8, 8))
+log_values = torch.arange(4, dtype=torch.float32)
+result_log = list(model.modify_tensors(log_values, name + "A_log", 0))
+expected_heads = np.array([0, 2, 1, 3], dtype=np.float32)
+np.testing.assert_allclose(result_log[0][1].numpy(), -np.exp(expected_heads).astype(np.float32), rtol=1e-6, atol=1e-6)
+result_bias = list(model.modify_tensors(log_values, name + "dt_bias", 0))
+assert result_bias[0][0].endswith(".dt_proj.bias")
+assert np.array_equal(result_bias[0][1].numpy(), expected_heads)
+print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3]}))
+"""
+    result = subprocess.run(
+        [interpreter, "-c", code, str(source)], check=True,
+        capture_output=True, text=True, timeout=15,
+    )
+    assert json.loads(result.stdout) == {"qkv_shape": [16, 8], "v_head_order": [0, 2, 1, 3]}

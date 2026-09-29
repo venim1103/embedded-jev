@@ -386,10 +386,12 @@ text-side filter excludes 333 vision entries and all 427 retained text names
 map after 24 source-derived `.dt_bias` to `.dt_proj.bias` renames. Run the
 optional metadata-only pinned source
 test with `PRISM_SOURCE_DIR` and `PRISM_CONVERTER_PYTHON` (an isolated Python
-environment with NumPy 2.2.6 and PyYAML 6.0.3). Do not export or load a GGUF
-from this name-path check without tensor-value transforms, full converter, and
-native loader parity tests. The test transfers only the bounded index JSON,
-not weight payloads.
+environment with NumPy 2.2.6, PyYAML 6.0.3 and CPU Torch 2.10.0). The same
+opt-in test also runs pinned Qwen3.5 method bodies on tiny synthetic QKV/Z,
+A-log and dt-bias tensors, comparing row order against an independent NumPy
+oracle. Do not export or load a GGUF from this name/sampled-value check without
+full converter and native loader parity tests. The index-wide test transfers
+only bounded JSON, not weight payloads.
 No runtime-side rotation/A8, actual model block, loader/graph, ARM/RISC-V path,
 or performance measurement is implemented by this proof.
 The [upstream MIT notice](../native/BitNet-LICENSE.txt) is included with the

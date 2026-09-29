@@ -458,8 +458,12 @@ The pinned Prism Qwen3.5 name map returns no direct match for MiMo's exact
 index names found 333 vision-side names filtered from the text pass and all
 427 retained text names mapped after that filter, including 24 `.dt_bias`
 names renamed to `.dt_proj.bias` by the pinned Qwen converter source. Name
-coverage does **not** verify tensor-value transforms (SSM log/conv/QKV order),
-GGUF conversion, vision-projector export, or native loader parity. The inspected
+coverage alone does not verify tensor values. A separate pinned source-method
+test with isolated CPU Torch 2.10.0 executed small QKV/Z value-head row
+reorders against an independent NumPy ordering, and checked A-log `-exp` and
+dt-bias reorder/rename. This does **not** cover MiMo-sized tensors, convolution
+and out-projection transforms, GGUF conversion, vision-projector export, or
+native loader parity. The inspected
 Prism release tag is fully pinned at
 `842b1880415d6f508f03b789e5ce70194def7bfd`; no converter or Prism model
 loader was exercised by this check.
