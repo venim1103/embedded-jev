@@ -460,6 +460,34 @@ def test_full_width_synthetic_screen_checks_rotation_and_bounds():
             weight_slice.screen_full_width_synthetic(invalid)
 
 
+def test_local_projection_streams_sparse_rows_without_copying_weights(tmp_path, monkeypatch):
+    metadata, headers = _model_fixture()
+    for name, data in metadata.items():
+        (tmp_path / name).write_bytes(data)
+    shard, (prefix, file_bytes) = next(iter(headers.items()))
+    name = "model.language_model.layers.3.mlp.down_proj.weight"
+    indexed_name = "model.language_model.layers.0.mlp.down_proj.weight"
+    offset = json.loads(prefix[8:])[indexed_name]["data_offsets"][0]
+    with (tmp_path / shard).open("wb") as destination:
+        destination.write(prefix)
+        destination.truncate(file_bytes)
+    bits = (np.array([1.25], dtype=np.float32).view(np.uint32) >> 16).astype("<u2")
+    with (tmp_path / shard).open("r+b") as destination:
+        destination.seek(len(prefix) + offset)
+        destination.write(bits.tobytes() * 2048)
+    monkeypatch.setattr(weight_slice, "DEFAULT_TENSOR", indexed_name)
+    monkeypatch.setattr(weight_slice, "_open_bounded", lambda *args, **kwargs: pytest.fail("network read"))
+    report = weight_slice.screen_local_projection(tmp_path)
+    assert report["tensor"] == indexed_name and report["rows"] == 1024
+    assert report["columns"] == 2048 and report["rows_per_batch"] == 64
+    assert report["policies"]["maxabs"]["weight_mse"] == 0.0
+    assert report["policies"]["searched_fp16"]["weight_mse"] == 0.0
+    assert report["policies"]["searched_fp16"]["nonzero_fraction"] == 1 / 1024
+    monkeypatch.setattr(weight_slice, "MAX_STREAM_TENSOR_BYTES", 4096)
+    with pytest.raises(InventoryError, match="stream screen bounds"):
+        weight_slice.screen_local_projection(tmp_path)
+
+
 def test_prism_candidate_widths_come_from_pinned_eligible_hf_headers():
     metadata, shards = _model_fixture()
     report = build_inventory(metadata, shards)

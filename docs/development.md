@@ -177,6 +177,23 @@ about this sample, not representative activations, calibrated quality, or
 evidence for a whole-model policy. All three trials ran in memory; no
 quantized checkpoint was stored.
 
+The same shard also supports one capped, streaming projection check:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.weight_slice \
+   --local-dir "$snapshot" --screen-projection
+```
+
+This reads the full 4,096 x 12,288 layer-3 FFN-down tensor (100,663,296 BF16
+bytes) in 64-row batches, with a 128 MiB tensor limit. In-memory group-128 RTN
+on all rows gave relative **weight** RMSE of 0.770 (max-abs scales), 0.461
+(searched FP16 scales), and 0.454 (signed 128-point Hadamard and searched
+scales, sign seed 773). This checks reconstruction, not real activation output,
+perplexity, or decision quality. The command does not check the full shard hash
+again or write quantized weights; the snapshot was separately SHA-256 verified.
+These errors are too large to promote a whole-model ternary candidate without
+representative activations and block-level quality checks.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo

@@ -28,6 +28,8 @@ MAX_GROUPS = 2
 GROUP_SIZE = 128
 MAX_PAYLOAD_BYTES = MAX_ROWS * MAX_GROUPS * GROUP_SIZE * 2
 MAX_LOCAL_PAYLOAD_BYTES = 128 * 1024
+MAX_STREAM_TENSOR_BYTES = 128 * 1024 * 1024
+STREAM_ROWS = 64
 DEFAULT_TENSOR = "model.language_model.layers.3.mlp.down_proj.weight"
 
 
@@ -219,13 +221,99 @@ def screen_full_width_synthetic(weights) -> dict:
     }
 
 
+def screen_local_projection(directory: Path) -> dict:
+    """Stream one pinned projection through in-memory RTN reconstruction checks."""
+    metadata, shard_headers = read_local_headers(directory)
+    report = build_inventory(metadata, shard_headers)
+    tensor = next((entry for entry in report["tensors"] if entry["name"] == DEFAULT_TENSOR), None)
+    if tensor is None or tensor["dtype"] != "BF16" or not tensor["quantization_eligible"]:
+        raise InventoryError("stream screen requires the pinned eligible BF16 projection")
+    rows, columns = tensor["shape"]
+    if (
+        rows > 4096 or columns > 12288 or columns % GROUP_SIZE
+        or tensor["storage_bytes"] > MAX_STREAM_TENSOR_BYTES
+    ):
+        raise InventoryError("projection exceeds stream screen bounds")
+    shard = tensor["shard"]
+    header, file_bytes = shard_headers[shard]
+    offsets = _json_object(header[8:], shard)[DEFAULT_TENSOR]["data_offsets"]
+    if offsets[1] - offsets[0] != tensor["storage_bytes"] or len(header) + offsets[1] > file_bytes:
+        raise InventoryError("local projection byte span mismatch")
+
+    signs = np.random.default_rng(773).choice([-1, 1], size=columns)
+    results = {
+        label: {"squared_error": 0.0, "nonzero_codes": 0, "row_mse": []}
+        for label in ("maxabs", "searched_fp16", "signed_hadamard_128_searched_fp16")
+    }
+    weight_energy = 0.0
+    try:
+        with (directory / shard).open("rb") as source:
+            source.seek(len(header) + offsets[0])
+            for start_row in range(0, rows, STREAM_ROWS):
+                batch_rows = min(STREAM_ROWS, rows - start_row)
+                data = source.read(batch_rows * columns * 2)
+                if len(data) != batch_rows * columns * 2:
+                    raise InventoryError("short streamed BF16 projection batch")
+                weights = (np.frombuffer(data, dtype="<u2").astype(np.uint32) << 16).view("<f4")
+                weights = weights.reshape(batch_rows, columns)
+                if not np.isfinite(weights).all():
+                    raise InventoryError("streamed BF16 projection contains nonfinite values")
+                weight_energy += float(np.sum(weights.astype(np.float64) ** 2))
+                rotated = rotate_signed_hadamard(weights, signs, GROUP_SIZE)
+                for label, matrix, search in (
+                    ("maxabs", weights, False),
+                    ("searched_fp16", weights, True),
+                    ("signed_hadamard_128_searched_fp16", rotated, True),
+                ):
+                    codes, scales = quantize_ternary_rtn(matrix, scale_search=search)
+                    difference = matrix.astype(np.float64) - reconstruct_ternary(codes, scales)
+                    result = results[label]
+                    result["squared_error"] += float(np.sum(difference ** 2))
+                    result["nonzero_codes"] += int(np.count_nonzero(codes))
+                    result["row_mse"].extend(np.mean(difference ** 2, axis=1).tolist())
+    except OSError as exc:
+        raise InventoryError(f"unable to stream local projection: {exc}") from exc
+    if not np.isfinite(weight_energy) or any(
+        not np.isfinite(result["squared_error"]) for result in results.values()
+    ):
+        raise InventoryError("nonfinite streamed projection error")
+    for result in results.values():
+        squared_error = result.pop("squared_error")
+        result["weight_mse"] = squared_error / tensor["parameters"]
+        result["relative_weight_rmse"] = (
+            float(np.sqrt(squared_error / weight_energy)) if weight_energy else None
+        )
+        result["nonzero_fraction"] = result.pop("nonzero_codes") / tensor["parameters"]
+        result["row_mse_quantiles_0_50_95_99_100"] = np.percentile(
+            result.pop("row_mse"), [0, 50, 95, 99, 100]
+        ).tolist()
+    return {
+        "model": report["source"]["model"],
+        "revision": report["source"]["revision"],
+        "tensor": DEFAULT_TENSOR,
+        "rows": rows,
+        "columns": columns,
+        "payload_bytes": tensor["storage_bytes"],
+        "rows_per_batch": STREAM_ROWS,
+        "purpose": "whole_projection_weight_reconstruction_not_model_quality",
+        "full_weight_hash": "not_checked_stream_only",
+        "policies": results,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read a bounded pinned BF16 projection slice")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--screen-toy", action="store_true", help="run synthetic local MSE only")
     modes.add_argument("--screen-full-rows", action="store_true", help="screen four local full-width rows")
+    modes.add_argument("--screen-projection", action="store_true", help="stream one full local projection")
     parser.add_argument("--local-dir", type=Path, help="verified local model snapshot for full-width rows")
     args = parser.parse_args()
+    if args.screen_projection:
+        if args.local_dir is None:
+            parser.error("--screen-projection requires --local-dir")
+        print(json.dumps(screen_local_projection(args.local_dir), indent=2, sort_keys=True))
+        return
     if args.screen_full_rows:
         if args.local_dir is None:
             parser.error("--screen-full-rows requires --local-dir")
@@ -233,7 +321,7 @@ def main() -> None:
         provenance["screen"] = screen_full_width_synthetic(values)
     else:
         if args.local_dir is not None:
-            parser.error("--local-dir requires --screen-full-rows")
+            parser.error("--local-dir requires --screen-full-rows or --screen-projection")
         metadata, headers = fetch_pinned_headers()
         values, provenance = fetch_bf16_projection_slice(metadata, headers)
         if args.screen_toy:

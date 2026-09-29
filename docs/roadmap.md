@@ -98,6 +98,10 @@ with max-abs, searched-scale, and signed-Hadamard searched-scale RTN in memory.
 The best synthetic relative output RMSE on those four rows is still 0.426;
 representative activation calibration and block-level parity are required
 before committing to a whole-model ternary candidate.
+A bounded streaming pass quantized the entire layer-3 FFN-down tensor in memory,
+with max-abs, searched-scale, and signed-Hadamard searched-scale relative
+**weight** RMSE of 0.770, 0.461, and 0.454. No candidate was retained; these
+numbers are insufficient to choose a full-model quantization policy.
 
 1. Implement matching weight/input rotations with per-tensor transform records.
 2. Verify dense equivalence on toy linears, then an actual full-attention block

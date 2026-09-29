@@ -236,7 +236,11 @@ relative output RMSE of 0.685, 0.426, and 0.446, respectively. The signed
 rotation itself preserves the dense output; rounding does not. Do not select
 a full-model quantization policy from four rows or synthetic inputs. No
 quantized model copy was kept; see [docs/development.md](development.md) for
-the reproducible command.
+the reproducible command. A second CLI streams the entire 4,096 x 12,288
+FFN-down tensor in 64-row batches: relative **weight** RMSE is 0.770 for
+max-abs RTN, 0.461 for searched FP16 RTN, and 0.454 for signed-Hadamard
+searched RTN. This is one full projection, not representative activations or
+a saved/loadable ternary model. Do not bulk-convert MiMo from these results.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for the independent BitNet track. No MiMo
