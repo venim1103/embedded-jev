@@ -13,9 +13,11 @@ tokenizer/processor checks work on the pinned model metadata. A small synthetic
 agent/tool fixture checks prompt and option-label mapping, not decision accuracy.
 Full-model quantization and model-loadable BitNet dispatch remain open. Pinned
 MiMo text layers now stream in BF16 and produce no-generation A/B conditional
-scores from selected output-head rows; they are not calibrated confidence or
-validated decisions. The complete pinned BF16 source snapshot (four
-SHA-256-verified shards, 760 indexed tensors) is cached outside this repository;
+scores from selected output-head rows. A bounded synthetic agent/tool fixture
+also returns typed option IDs with A-C conditional scores; these are not
+calibrated confidence or validated decisions. The complete pinned BF16 source
+snapshot (four SHA-256-verified shards, 760 indexed tensors) is cached outside
+this repository;
 an offline inventory reconciles its headers. One complete projection passes
 isolated BitNet-derived native arithmetic parity, while a four-layer BF16 text
 prefix exposes its actual FFN input on a short prompt; neither proves quality.

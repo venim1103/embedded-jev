@@ -272,6 +272,8 @@ def test_selected_lm_head_scores_only_bounded_bf16_rows(tmp_path):
             score_selected_head(tmp_path, metadata, headers, np.ones(1024), labels)
     with pytest.raises(InventoryError, match="selected label count"):
         run_streamed_text(None, prompt="A or B", label_count=1)
+    with pytest.raises(InventoryError, match="fixture path and case id"):
+        run_streamed_text(None, prompt="A or B", case_id="inspect-before-answer")
 
 
 def test_inventory_rejects_missing_inconsistent_or_unsupported_metadata():

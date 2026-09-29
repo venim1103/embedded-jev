@@ -100,6 +100,22 @@ def probe_text_processor(
     return report
 
 
+def decision_case_messages(case: dict) -> list[dict]:
+    """Render a validated synthetic fixture case with stable A-P labels."""
+    labels = LABELS[: len(case["options"])]
+    choices = "\n".join(
+        f"{label}. {option['description']}"
+        for label, option in zip(labels, case["options"], strict=True)
+    )
+    return [{
+        "role": "user",
+        "content": (
+            f"State: {case['state']}\nQuestion: {case['question']}\n"
+            f"Options:\n{choices}\nAnswer:"
+        ),
+    }]
+
+
 def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[dict]:
     """Check a small labeled fixture's option mapping and prompt boundaries."""
     if not isinstance(cases, list) or not 1 <= len(cases) <= 32:
@@ -135,17 +151,7 @@ def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[d
             raise LabelProbeError(f"duplicate options or unknown expected choice: {case_id}")
 
         labels = LABELS[: len(options)]
-        choices = "\n".join(
-            f"{label}. {option['description']}"
-            for label, option in zip(labels, options, strict=True)
-        )
-        messages = [{
-            "role": "user",
-            "content": (
-                f"State: {case['state']}\nQuestion: {case['question']}\n"
-                f"Options:\n{choices}\nAnswer:"
-            ),
-        }]
+        messages = decision_case_messages(case)
         report = (
             probe_text_processor(processor, tokenizer, messages, labels)
             if processor is not None else probe_label_boundary(tokenizer, messages, labels)

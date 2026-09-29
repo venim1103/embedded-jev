@@ -299,6 +299,28 @@ full-vocabulary mass was **not** computed. These scores are conditional among
 A/B on one engineering prompt, not calibrated confidence, task accuracy, a
 vision path, or a ternary/BitNet model dispatch result.
 
+For a typed option-mapping smoke, select one case from the repository's
+versioned synthetic fixture. Its messages use the same formatter and A-P
+continuation check as the tokenizer probe:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$snapshot" --layers 32 \
+   --fixture tests/fixtures/agent_tool_smoke.json --case-id edit-reordered-options
+MIMO_TYPED_FIXTURE_TEST=1 MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+   MIMO_LOCAL_DIR="$snapshot" PYTHONDONTWRITEBYTECODE=1 \
+   python -m pytest -q -p no:cacheprovider tests/test_dense_probe.py \
+   -k streamed_text_maps_synthetic_options_to_typed_scores
+```
+
+The five 80-87-token engineering cases were tried one at a time; each returned
+typed option IDs/descriptions and conditional A-C scores without generating
+tokens, and its selected ID matched the fixture's expected ID. Option reorder
+and missing-permission cases have a gated regression check. This tiny synthetic
+set is **not** a held-out benchmark or calibration set; full-vocabulary mass
+and real decision quality remain unknown. No quantized model copies were kept.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo

@@ -114,3 +114,42 @@ def test_streamed_full_text_scores_only_selected_labels():
         1.0, rel_tol=1e-7,
     )
     assert all(math.isfinite(option["logit"]) for option in selected["options"].values())
+
+
+@pytest.mark.skipif(
+    os.environ.get("MIMO_TYPED_FIXTURE_TEST") != "1",
+    reason="requires pinned BF16 MiMo text layers and isolated CPU Torch/Transformers",
+)
+def test_streamed_text_maps_synthetic_options_to_typed_scores():
+    interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    if not interpreter or not local_dir or not Path(interpreter).is_file():
+        pytest.fail("set MIMO_DENSE_PYTHON and MIMO_LOCAL_DIR for the opt-in fixture test")
+    fixture = Path(__file__).parent / "fixtures" / "agent_tool_smoke.json"
+    environment = {
+        **os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4",
+    }
+    for case_id, option_ids, expected_id in (
+        ("edit-reordered-options", ("ask", "inspect", "edit"), "edit"),
+        ("publish-without-authorization", ("edit", "inspect", "ask"), "ask"),
+    ):
+        result = subprocess.run(
+            [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+             "--layers", "32", "--fixture", str(fixture), "--case-id", case_id],
+            env=environment, check=True, capture_output=True, text=True, timeout=180,
+        )
+        report = json.loads(result.stdout)
+        assert report["revision"] == MODEL_REVISION and report["generated_tokens"] == 0
+        assert report["fixture"]["purpose"] == "synthetic_engineering_smoke_not_calibration_or_benchmark"
+        assert report["fixture"]["prompt_token_count"] == report["tokens"] <= 128
+        decision = report["decision"]
+        assert decision["scope"] == "synthetic_fixture_observation_not_quality_or_calibration"
+        assert decision["expected_option_id"] == decision["chosen_option_id"] == expected_id
+        assert [option["id"] for option in decision["options"]] == list(option_ids)
+        assert [option["label"] for option in decision["options"]] == ["A", "B", "C"]
+        assert math.isclose(
+            sum(option["conditional_probability"] for option in decision["options"]),
+            1.0, rel_tol=1e-7,
+        )
+        assert report["selected_head"]["full_vocabulary_mass"] == "not_computed"

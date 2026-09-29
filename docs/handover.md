@@ -273,6 +273,12 @@ then scored only A/B (16,384 BF16 bytes): FP32-accumulated logits 19.481 and
 Independent safetensors BF16 row slices and Torch BF16 rounding passed parity
 (max rounding gap 0.022). The full-vocabulary label mass is unknown, and this
 single engineering prompt is not calibrated confidence or a decision benchmark.
+The five versioned synthetic agent/tool fixture cases (80-87 tokens) now pass
+through the same streamed text scorer and return typed option IDs, descriptions,
+labels, and A-C conditional scores with zero generated tokens. All five selected
+IDs matched fixture expectations; reordered labels and a missing-permission
+case are gated in an opt-in test. This is engineering smoke only, not an owned
+held-out benchmark, representative calibration, or a confidence claim.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or MiMo

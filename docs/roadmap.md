@@ -35,6 +35,9 @@ A CPU-only BF16 text path now runs all 32 layers in sequence and reads only
 selected untied-head rows: on one 22-token non-thinking engineering prompt,
 A/B conditional scores were 0.269/0.731 with zero generated tokens. This is
 not representative calibration or a quality gate.
+The five synthetic agent/tool cases also yielded typed A-C conditional scores
+and expected option IDs in an engineering smoke, including option reordering;
+this must not be reported as dense task accuracy on held-out data.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

@@ -11,7 +11,10 @@ import numpy as np
 
 from embedded_jev.dense_probe import MAX_PREFIX_TOKENS, plan_streamed_text
 from embedded_jev.inventory import InventoryError, _json_object, build_inventory, read_local_headers
-from embedded_jev.label_probe import LABELS, probe_label_boundary
+from embedded_jev.label_probe import (
+    LABELS, decision_case_messages, load_decision_fixture, probe_decision_cases,
+    probe_label_boundary,
+)
 
 
 MAX_SELECTED_HEAD_BYTES = 256 * 1024
@@ -75,10 +78,15 @@ def score_selected_head(directory: Path, metadata_files, shard_headers, hidden, 
     }
 
 
-def run_streamed_text(directory: Path, *, layers: int = 4, prompt: str, label_count: int = 2) -> dict:
+def run_streamed_text(
+    directory: Path, *, layers: int = 4, prompt: str, label_count: int | None = None,
+    fixture_path: Path | None = None, case_id: str | None = None,
+) -> dict:
     """Execute at most one verified BF16 decoder layer at a time on CPU."""
-    if type(label_count) is not int or not 2 <= label_count <= len(LABELS):
+    if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
         raise InventoryError("selected label count must be between 2 and 16")
+    if (fixture_path is None) != (case_id is None):
+        raise InventoryError("fixture path and case id must be provided together")
     import torch
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
@@ -92,8 +100,26 @@ def run_streamed_text(directory: Path, *, layers: int = 4, prompt: str, label_co
     plan = plan_streamed_text(metadata, headers, layers=layers)
     config = AutoConfig.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
     tokenizer = AutoTokenizer.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
-    messages = [{"role": "user", "content": prompt}]
-    boundary = probe_label_boundary(tokenizer, messages)
+    fixture_case = None
+    if fixture_path is not None:
+        fixture, fixture_digest = load_decision_fixture(fixture_path)
+        case_reports = probe_decision_cases(tokenizer, fixture["cases"])
+        matching = [
+            (case, case_report)
+            for case, case_report in zip(fixture["cases"], case_reports, strict=True)
+            if case["id"] == case_id
+        ]
+        if len(matching) != 1:
+            raise InventoryError("fixture case id not found")
+        fixture_case, case_report = matching[0]
+        messages = decision_case_messages(fixture_case)
+        if label_count is not None and label_count != len(fixture_case["options"]):
+            raise InventoryError("label count disagrees with fixture options")
+        label_count = len(fixture_case["options"])
+    else:
+        messages = [{"role": "user", "content": prompt}]
+        label_count = label_count or 2
+    boundary = probe_label_boundary(tokenizer, messages, LABELS[:label_count])
     if not 1 <= boundary["prompt_token_count"] <= MAX_PREFIX_TOKENS:
         raise InventoryError("streamed text prompt exceeds token budget")
     encoded = tokenizer.apply_chat_template(
@@ -187,6 +213,14 @@ def run_streamed_text(directory: Path, *, layers: int = 4, prompt: str, label_co
         "peak_process_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         "purpose": "streamed_text_layers_not_model_logits_or_quality",
     }
+    if fixture_case is not None:
+        summary["fixture"] = {
+            "purpose": fixture["purpose"],
+            "sha256": fixture_digest,
+            "case_id": case_id,
+            "expected_option_id": fixture_case["expected_option_id"],
+            "prompt_token_count": case_report["prompt_token_count"],
+        }
     if layers >= 4:
         if len(captured) != 1 or tuple(captured[0].shape) != (1, input_ids.shape[1], 12288):
             raise InventoryError("missing streamed FFN-down input")
@@ -214,6 +248,20 @@ def run_streamed_text(directory: Path, *, layers: int = 4, prompt: str, label_co
             raise InventoryError("selected FP32 logits disagree with BF16 head rounding")
         scored["max_fp32_to_bf16_logit_gap"] = float(torch.max(torch.abs(torch_logits - scored_logits)))
         summary["selected_head"] = scored
+        if fixture_case is not None:
+            options = [
+                {
+                    "id": option["id"], "description": option["description"], "label": label,
+                    **scored["options"][label],
+                }
+                for label, option in zip(LABELS[:len(fixture_case["options"])], fixture_case["options"], strict=True)
+            ]
+            summary["decision"] = {
+                "scope": "synthetic_fixture_observation_not_quality_or_calibration",
+                "chosen_option_id": max(options, key=lambda option: option["conditional_probability"])["id"],
+                "expected_option_id": fixture_case["expected_option_id"],
+                "options": options,
+            }
     return summary
 
 
@@ -221,11 +269,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run pinned MiMo text layers one at a time")
     parser.add_argument("--local-dir", required=True, type=Path)
     parser.add_argument("--layers", type=int, default=4)
-    parser.add_argument("--label-count", type=int, default=2)
+    parser.add_argument("--label-count", type=int)
     parser.add_argument("--prompt", default="Choose A or B. A: pause. B: continue.")
+    parser.add_argument("--fixture", type=Path)
+    parser.add_argument("--case-id")
     args = parser.parse_args()
     print(json.dumps(run_streamed_text(
         args.local_dir, layers=args.layers, prompt=args.prompt, label_count=args.label_count,
+        fixture_path=args.fixture, case_id=args.case_id,
     ), sort_keys=True))
 
 
