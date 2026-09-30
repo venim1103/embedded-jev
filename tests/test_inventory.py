@@ -293,9 +293,16 @@ def test_selected_lm_head_scores_only_bounded_bf16_rows(tmp_path, monkeypatch):
         run_streamed_text(None, prompt="A or B", full_vocabulary_mass=True)
     with pytest.raises(InventoryError, match="requires the native FFN-down library"):
         run_streamed_text(None, prompt="A or B", projection_artifact=tmp_path)
-    for backend in ("unsupported", "prism_ggml", "prism_ggml_f32"):
+    for backend in ("unsupported", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128"):
         with pytest.raises(InventoryError, match="native graph backend requires"):
             run_streamed_text(None, prompt="A or B", native_ffn_backend=backend)
+    library = tmp_path / "kernel.so"
+    library.write_bytes(b"placeholder not loaded")
+    with pytest.raises(InventoryError, match="cannot reinterpret"):
+        run_streamed_text(
+            None, prompt="A or B", native_ffn_backend="prism_ggml_hadamard128",
+            native_ffn_library=library, projection_artifact=tmp_path / "identity-artifact",
+        )
 
     value = np.float32(1 / 512)
     bits = (np.array([value], dtype=np.float32).view(np.uint32) >> 16).astype("<u2")

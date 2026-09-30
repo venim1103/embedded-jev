@@ -631,6 +631,25 @@ only a one-token portable diagnostic reference remains Python-side. This
 extends the one-projection native boundary without moving model hosting,
 tokenization, or saved-weight ownership into a registered GGUF runtime.
 
+An experimental `--native-ffn-backend prism_ggml_hadamard128` path applies
+matching explicit signs and normalized 128-point Hadamard to weights and
+inputs before ternary/A8 rounding. It rotates/quantizes weight rows in 64-row
+batches in memory and executes input signs/FWHT/A8 natively. It must run
+without `--projection-artifact`: identity artifacts are refused, not
+reinterpreted. The fixed sign seed is 773 and float32 sign-vector SHA-256 is
+`9b53024527e03670a7f12b6b8eeab741a6f41f13fdbfe26dff9a0c7b2e3258c6`.
+
+Dense FP32 equivalence is checked on four probe weight rows before native
+rounding. The public validation observation remains `calories`, with zero
+generation; the dense transform and native reference errors were 2.61e-8
+and 8.38e-8. These are transform/arithmetic checks on one projection, not
+full-model quantization acceptance or a calibrated confidence improvement.
+`MIMO_ROTATED_GRAPH_TEST=1` alongside the existing graph-test variables adds
+the in-memory 32-layer transform smoke. The frozen paired evaluator deliberately
+does not accept this freshly built rotated policy as the saved identity
+candidate. No rotated artifact was retained or promoted; the one saved RTN
+fixture is unchanged.
+
 ## Single-Projection Native Fixture
 
 One searched-FP16 group-128 layer-3 FFN-down candidate is retained under

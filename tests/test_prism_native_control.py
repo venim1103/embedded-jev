@@ -185,6 +185,28 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         pointers[0], pointers[1], inputs.ctypes.data_as(float_graph.argtypes[2]), None,
         2, 5, 3, actual.ctypes.data_as(arguments[-1]),
     ) == 2
+    from embedded_jev.activation import rotate_signed_hadamard
+
+    rotated_graph = native.prism_bitnet_group_scale_matmul_hadamard128
+    rotated_graph.argtypes = float_arguments + [ctypes.POINTER(ctypes.c_float)]
+    rotated_graph.restype = ctypes.c_int
+    inputs = generator.normal(size=(2, 384)).astype(np.float32)
+    signs = np.random.default_rng(773).choice([-1, 1], size=384).astype(np.float32)
+    prepared, input_scales = quantize_a8_per_group(rotate_signed_hadamard(inputs, signs, 128))
+    assert direct(
+        pointers[0], pointers[1], prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+        2, 5, 3, expected.ctypes.data_as(arguments[-1]),
+    ) == 0
+    assert rotated_graph(
+        pointers[0], pointers[1], inputs.ctypes.data_as(float_arguments[2]), None,
+        2, 5, 3, actual.ctypes.data_as(arguments[-1]), signs.ctypes.data_as(rotated_graph.argtypes[-1]),
+    ) == 0
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=1e-5)
+    signs[0] = 0
+    assert rotated_graph(
+        pointers[0], pointers[1], inputs.ctypes.data_as(float_arguments[2]), None,
+        2, 5, 3, actual.ctypes.data_as(arguments[-1]), signs.ctypes.data_as(rotated_graph.argtypes[-1]),
+    ) == 1
     if os.environ.get("MIMO_PRISM_GRAPH_TEST") == "1":
         interpreter = os.environ.get("MIMO_DENSE_PYTHON")
         local_dir = os.environ.get("MIMO_LOCAL_DIR")
@@ -231,6 +253,23 @@ with patch.object(activation, "quantize_a8_per_group", reference_only):
             assert graph_report["selected_head"]["options"] == direct_report["selected_head"]["options"]
             assert graph_report["generated_tokens"] == direct_report["generated_tokens"] == 0
         assert reports[2]["native_ffn_down"]["activation_preparation"] == "native_graph_callback"
+        if os.environ.get("MIMO_ROTATED_GRAPH_TEST") == "1":
+            result = subprocess.run(
+                [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+                 "--layers", "32", "--native-ffn-library", str(binary),
+                 "--native-ffn-backend", "prism_ggml_hadamard128"],
+                env=environment, check=True, capture_output=True, text=True, timeout=180,
+            )
+            rotated = json.loads(result.stdout)
+            execution = rotated["native_ffn_down"]
+            assert execution["candidate_origin"] == "in_memory_signed_hadamard_rtn"
+            assert execution["transform"]["kind"] == "signed_normalized_hadamard"
+            assert execution["transform"]["sign_seed"] == 773
+            assert execution["dense_rotation_max_abs_error"] < 1e-4
+            assert execution["max_native_reference_error"] < 1e-4
+            assert execution["activation_preparation"] == "native_graph_callback"
+            assert rotated["ffn_down_input_sha256"] == direct_report["ffn_down_input_sha256"]
+            assert rotated["generated_tokens"] == 0 and set(rotated["selected_head"]["options"]) == {"A", "B"}
 
 
 def test_pinned_prism_qwen35_filter_and_ssm_bias_map_mimo_text_names():

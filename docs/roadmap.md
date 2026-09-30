@@ -215,6 +215,10 @@ The additional FP32 graph backend performs native dynamic A8 in the callback;
 instrumented full-text parity proves Python prepares only the one-token
 reference, not the production batch. The model is still Python-hosted and
 its callback-owned packed weights are not registered GGUF tensors.
+Matching native sign/FWHT/A8 and Python weight rotation also pass a reversible
+in-memory one-projection smoke, with dense pre-rounding probe equivalence.
+The identity saved fixture cannot be used under the rotated policy; no rotated
+artifact or quality-policy promotion is established.
 Running that same graph serially for two 128-value groups and applying distinct
 row/group scales outside the graph returned exact toy outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

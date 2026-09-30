@@ -89,10 +89,20 @@ extern "C" const char* prism_group_scale_library_path(int index) {
 static int run_grouped_graph(
     const uint8_t* packed, const float* weight_scales, const void* activations,
     const float* activation_scales, std::size_t tokens, std::size_t rows,
-    std::size_t groups, float* output, bool prepare_inputs) {
+    std::size_t groups, float* output, bool prepare_inputs, const float* signs = nullptr) {
     if (!packed || !weight_scales || !activations || (!prepare_inputs && !activation_scales) || !output ||
         tokens == 0 || tokens > 128 || rows == 0 || rows > 4096 || groups == 0 || groups > 96) {
         return 1;
+    }
+    if (signs) {
+        if (!prepare_inputs) {
+            return 1;
+        }
+        for (std::size_t index = 0; index < groups * 128; ++index) {
+            if (signs[index] != 1.0f && signs[index] != -1.0f) {
+                return 1;
+            }
+        }
     }
     graph_state state { packed, weight_scales, activation_scales, tokens, rows, groups };
     state.prepare_inputs = prepare_inputs;
@@ -107,8 +117,22 @@ static int run_grouped_graph(
     }
     ggml_tensor* input = ggml_new_tensor_2d(
         context.get(), prepare_inputs ? GGML_TYPE_F32 : GGML_TYPE_I8, groups * 128, tokens);
+    ggml_tensor* ordered_input = input;
+    ggml_tensor* sign_tensor = nullptr;
+    ggml_tensor* rotation = nullptr;
+    if (signs) {
+        sign_tensor = ggml_new_tensor_1d(context.get(), GGML_TYPE_F32, groups * 128);
+        rotation = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, 128, 128);
+        ggml_tensor* signed_input = ggml_mul(context.get(), input, sign_tensor);
+        ggml_tensor* grouped = ggml_reshape_2d(context.get(), signed_input, 128, groups * tokens);
+        ggml_tensor* rotated = ggml_mul_mat(context.get(), rotation, grouped);
+        ggml_mul_mat_set_hint(rotated, GGML_HINT_SRC0_IS_HADAMARD);
+        ordered_input = ggml_reshape_2d(context.get(), rotated, groups * 128, tokens);
+        ggml_set_input(sign_tensor);
+        ggml_set_input(rotation);
+    }
     ggml_tensor* shape = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, rows, tokens);
-    ggml_tensor* result = ggml_map_custom2(context.get(), shape, input, grouped_dot, 1, &state);
+    ggml_tensor* result = ggml_map_custom2(context.get(), shape, ordered_input, grouped_dot, 1, &state);
     if (result->op != GGML_OP_MAP_CUSTOM2) {
         return 3;
     }
@@ -130,6 +154,11 @@ static int run_grouped_graph(
     }
     std::vector<float> empty(rows * tokens, 0.0f);
     ggml_backend_tensor_set(input, activations, 0, tokens * groups * 128 * (prepare_inputs ? sizeof(float) : sizeof(int8_t)));
+    if (signs) {
+        std::vector<float> unused_rotation(128 * 128, 0.0f);
+        ggml_backend_tensor_set(sign_tensor, signs, 0, groups * 128 * sizeof(float));
+        ggml_backend_tensor_set(rotation, unused_rotation.data(), 0, unused_rotation.size() * sizeof(float));
+    }
     ggml_backend_tensor_set(shape, empty.data(), 0, empty.size() * sizeof(float));
     if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
         return 3;
@@ -153,4 +182,14 @@ extern "C" int prism_bitnet_group_scale_matmul_f32(
     const float*, std::size_t tokens, std::size_t rows,
     std::size_t groups, float* output) {
     return run_grouped_graph(packed, weight_scales, inputs, nullptr, tokens, rows, groups, output, true);
+}
+
+extern "C" int prism_bitnet_group_scale_matmul_hadamard128(
+    const uint8_t* packed, const float* weight_scales, const float* inputs,
+    const float*, std::size_t tokens, std::size_t rows,
+    std::size_t groups, float* output, const float* signs) {
+    if (!signs) {
+        return 1;
+    }
+    return run_grouped_graph(packed, weight_scales, inputs, nullptr, tokens, rows, groups, output, true, signs);
 }

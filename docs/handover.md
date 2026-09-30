@@ -377,6 +377,12 @@ match the direct and Python-prepared graph paths exactly. An instrumented
 test rejects Python preparation of that batch; only the one-token reference
 check remains Python-side. Frozen artifact/model hosting and format limits
 are unchanged, and no speed or quality claim follows.
+An additional reversible `prism_ggml_hadamard128` experiment rotates weights
+in 64-row batches with signs (seed 773) and matching native input signs/FWHT/A8.
+Identity artifacts are refused on that path. A four-row dense FP32 probe
+passes before rounding, and the 32-layer/public validation smoke remains
+finite, zero-generation, and native-reference consistent. The public case
+still selects `calories`; no quality promotion or rotated artifact followed.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered
