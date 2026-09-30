@@ -481,6 +481,13 @@ FP16 scales, and dynamic A8 through the native grouped kernel on live
 validation inputs. No candidate is saved and the sole full-projection RTN
 artifact remains unchanged. These are local slice numerics, not full-projection
 GPTQ, final-model scores, or representative task quality.
+Bounded compensation curvature can now be prepared once and reused across
+weight-row batches. Factors are read-only and bound to the float64 calibration
+sample digest, shape, damping ratio, and retry bound. Changed samples/settings
+and invalid triangular factors are rejected. Cached and fresh paths produce
+identical codes/scales/damping, and row batching is invariant. This avoids
+re-solving the same bounded system; it does not expand the 256-column limit
+or establish a full-width Hessian approximation.
 
 ## In-Memory Native FFN Substitution
 

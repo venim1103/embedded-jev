@@ -102,6 +102,42 @@ def test_compensation_matches_rtn_on_diagonal_curvature_and_zero_groups():
     np.testing.assert_array_equal(reconstruct_ternary(codes, scales)[0, 2:], 0)
 
 
+def test_prepared_compensation_matches_fresh_and_rejects_changed_calibration(monkeypatch):
+    from dataclasses import replace
+
+    from embedded_jev.ternary import prepare_compensation_factors
+
+    generator = np.random.default_rng(991)
+    weights = generator.normal(size=(4, 256)).astype(np.float32)
+    samples = generator.normal(size=(64, 256)).astype(np.float32)
+    fresh = quantize_ternary_compensated(weights, samples, scale_search=True, processing_block_size=128)
+    prepared = prepare_compensation_factors(samples)
+    assert prepared.upper.flags.writeable is False
+    monkeypatch.setattr(np.linalg, "solve", lambda *args, **kwargs: pytest.fail("refactored reused calibration curvature"))
+    cached = quantize_ternary_compensated(
+        weights, samples, scale_search=True, processing_block_size=128, prepared=prepared,
+    )
+    np.testing.assert_array_equal(cached[0], fresh[0])
+    np.testing.assert_array_equal(cached[1], fresh[1])
+    assert cached[2] == fresh[2]
+    batches = [quantize_ternary_compensated(
+        weights[first:first + 2], samples, scale_search=True, processing_block_size=128, prepared=prepared,
+    ) for first in range(0, 4, 2)]
+    np.testing.assert_array_equal(np.concatenate([batch[0] for batch in batches]), fresh[0])
+    np.testing.assert_array_equal(np.concatenate([batch[1] for batch in batches]), fresh[1])
+    changed = samples.copy()
+    changed[0, 0] += 1
+    with pytest.raises(ValueError, match="disagree with calibration"):
+        quantize_ternary_compensated(weights, changed, prepared=prepared)
+    with pytest.raises(ValueError, match="disagree with calibration"):
+        quantize_ternary_compensated(weights, samples, damping_ratio=0.02, prepared=prepared)
+    zero_factor = np.zeros_like(prepared.upper)
+    zero_factor.setflags(write=False)
+    for invalid in (replace(prepared, damping=-1.0), replace(prepared, upper=zero_factor)):
+        with pytest.raises(ValueError, match="disagree with calibration"):
+            quantize_ternary_compensated(weights, samples, prepared=invalid)
+
+
 @pytest.mark.parametrize(
     ("weights", "inputs", "options"),
     [

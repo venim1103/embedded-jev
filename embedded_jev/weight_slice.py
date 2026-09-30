@@ -17,6 +17,7 @@ from embedded_jev.inventory import (
     read_local_headers,
 )
 from embedded_jev.ternary import (
+    prepare_compensation_factors,
     quantize_ternary_compensated,
     quantize_ternary_rtn,
     reconstruct_ternary,
@@ -199,6 +200,7 @@ def screen_calibration_reconstruction(weights, activations, *, validation_activa
             raise ValueError("validation screen requires bounded 256-column inputs")
     reference = samples.astype(np.float64) @ matrix.astype(np.float64).T
     reference_energy = float(np.mean(reference ** 2))
+    prepared = prepare_compensation_factors(samples)
     policies = {}
     for label, compensated, search in (
         ("rtn_maxabs", False, False), ("rtn_grid", False, True),
@@ -206,7 +208,7 @@ def screen_calibration_reconstruction(weights, activations, *, validation_activa
     ):
         if compensated:
             codes, scales, details = quantize_ternary_compensated(
-                matrix, samples, processing_block_size=128, scale_search=search,
+                matrix, samples, processing_block_size=128, scale_search=search, prepared=prepared,
             )
         else:
             codes, scales = quantize_ternary_rtn(matrix, scale_search=search)

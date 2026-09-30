@@ -5,7 +5,61 @@ commit 2d65066eeb06a5c9ff5184d8cebdf33662c67faf under the repo's
 Apache-2.0 license; it is not a drop-in implementation of upstream GPTQ.
 """
 
+import hashlib
+from dataclasses import dataclass
+
 import numpy as np
+
+
+@dataclass(frozen=True, eq=False)
+class CompensationFactors:
+    sample_shape: tuple[int, int]
+    sample_sha256: str
+    damping_ratio: float
+    max_damping_attempts: int
+    damping: float
+    damping_attempts: int
+    upper: np.ndarray
+
+
+def prepare_compensation_factors(
+    activations, *, damping_ratio: float = 0.01, max_damping_attempts: int = 3,
+) -> CompensationFactors:
+    """Prepare one bounded, read-only curvature factor tied to calibration inputs."""
+    samples = np.asarray(activations, dtype=np.float64)
+    if (
+        samples.ndim != 2 or samples.shape[0] == 0 or not 1 <= samples.shape[1] <= 256
+        or not np.isfinite(samples).all() or not np.isfinite(damping_ratio) or damping_ratio <= 0
+        or type(max_damping_attempts) is not int or not 1 <= max_damping_attempts <= 4
+    ):
+        raise ValueError("invalid compensation factor inputs or bounds")
+    width = samples.shape[1]
+    curvature = 2 * samples.T @ samples / samples.shape[0]
+    baseline_damp = damping_ratio * np.mean(np.diag(curvature))
+    if not np.isfinite(curvature).all() or baseline_damp <= 0:
+        raise ValueError("nonfinite or zero activation curvature")
+    for attempt in range(max_damping_attempts):
+        damping = baseline_damp * 10**attempt
+        damped = curvature + np.eye(width) * damping
+        try:
+            np.linalg.cholesky(damped)
+            inverse = np.linalg.solve(damped, np.eye(width))
+            inverse = (inverse + inverse.T) / 2
+            upper = np.linalg.cholesky(inverse).T
+            break
+        except np.linalg.LinAlgError:
+            continue
+    else:
+        raise ValueError("curvature factorization failed after bounded damping")
+    if not np.isfinite(upper).all() or not np.isfinite(damping):
+        raise ValueError("nonfinite compensation factors")
+    upper.setflags(write=False)
+    return CompensationFactors(
+        sample_shape=tuple(samples.shape),
+        sample_sha256=hashlib.sha256(np.ascontiguousarray(samples).tobytes()).hexdigest(),
+        damping_ratio=float(damping_ratio), max_damping_attempts=max_damping_attempts,
+        damping=float(damping), damping_attempts=attempt + 1, upper=upper,
+    )
 
 
 def _group_scales(groups: np.ndarray, scale_search: bool) -> np.ndarray:
@@ -94,6 +148,7 @@ def quantize_ternary_compensated(
     weights, activations, group_size: int = 128, *, damping_ratio: float = 0.01,
     max_damping_attempts: int = 3, processing_block_size: int | None = None,
     scale_search: bool = False,
+    prepared: CompensationFactors | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Toy GPTQ-style traversal with fixed representable row/group scales."""
     matrix = np.asarray(weights, dtype=np.float32)
@@ -118,24 +173,25 @@ def quantize_ternary_compensated(
         raise ValueError("invalid compensated ternary inputs or bounds")
 
     width = matrix.shape[1]
-    curvature = 2 * samples.T @ samples / samples.shape[0]
-    baseline_damp = damping_ratio * np.mean(np.diag(curvature))
-    if not np.isfinite(curvature).all() or baseline_damp <= 0:
-        raise ValueError("nonfinite or zero activation curvature")
-
-    for attempt in range(max_damping_attempts):
-        damping = baseline_damp * 10**attempt
-        damped = curvature + np.eye(width) * damping
-        try:
-            np.linalg.cholesky(damped)
-            inverse = np.linalg.solve(damped, np.eye(width))
-            inverse = (inverse + inverse.T) / 2
-            upper = np.linalg.cholesky(inverse).T
-            break
-        except np.linalg.LinAlgError:
-            continue
-    else:
-        raise ValueError("curvature factorization failed after bounded damping")
+    if prepared is None:
+        prepared = prepare_compensation_factors(
+            samples, damping_ratio=damping_ratio, max_damping_attempts=max_damping_attempts,
+        )
+    if (
+        not isinstance(prepared, CompensationFactors)
+        or prepared.sample_shape != tuple(samples.shape)
+        or prepared.sample_sha256 != hashlib.sha256(np.ascontiguousarray(samples).tobytes()).hexdigest()
+        or prepared.damping_ratio != damping_ratio
+        or prepared.max_damping_attempts != max_damping_attempts
+        or not isinstance(prepared.upper, np.ndarray)
+        or prepared.upper.shape != (width, width) or prepared.upper.dtype != np.float64
+        or prepared.upper.flags.writeable or not np.isfinite(prepared.upper).all()
+        or np.any(np.diag(prepared.upper) <= 0) or np.any(np.tril(prepared.upper, k=-1) != 0)
+        or not np.isfinite(prepared.damping) or prepared.damping <= 0
+        or type(prepared.damping_attempts) is not int or not 1 <= prepared.damping_attempts <= max_damping_attempts
+    ):
+        raise ValueError("prepared compensation factors disagree with calibration inputs or settings")
+    upper = prepared.upper
 
     working = matrix.astype(np.float64)
     codes = np.zeros(matrix.shape, dtype=np.int8)
@@ -164,7 +220,7 @@ def quantize_ternary_compensated(
         if block_end < width:
             working[:, block_end:] -= block_errors @ upper[block_start:block_end, block_end:]
 
-    return codes, scales, {"damping": damping, "damping_attempts": attempt + 1}
+    return codes, scales, {"damping": prepared.damping, "damping_attempts": prepared.damping_attempts}
 
 
 def reconstruct_ternary(codes, scales) -> np.ndarray:

@@ -345,6 +345,10 @@ on validation. Code/scale hashes cannot depend on validation inputs, and
 compensated native A8 arithmetic parity passes. No candidate was saved or
 replaced, held-out data was not observed, and these local errors do not prove
 full-width GPTQ or final-model quality.
+The bounded compensation factorization is reusable across row batches, with
+read-only factors tied to calibration digest/shape and damping settings.
+Fresh/cached codes and scales match exactly; reuse with changed inputs or
+settings is refused. Its original 256-column width bound remains intact.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered
