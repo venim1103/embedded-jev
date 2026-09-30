@@ -355,6 +355,11 @@ def test_streamed_capture_refuses_validation_and_held_out_before_model_import(tm
                 None, layers=4, prompt="unused", dataset_path=tmp_path / "decisions.json",
                 split=split, case_id="example", calibration_output=tmp_path / "capture",
             )
+    with pytest.raises(InventoryError, match="activation observer requires"):
+        run_streamed_text(
+            None, layers=4, prompt="unused", dataset_path=tmp_path / "decisions.json",
+            split="held_out", case_id="example", activation_observer=lambda values: None,
+        )
 
 
 @pytest.mark.parametrize("defect", ["version", "split", "shape", "size", "pickle"])

@@ -53,6 +53,11 @@ workflow with human-labeled source data, preserving original train/validation/
 test roles. One validation comparison and training activation capture pass;
 held-out scoring and fitting have not run. This reduced in-scope proxy does
 not establish official CLINC150 or representative agent/tool quality.
+Calibration-fitted compensation on a four-row/two-group real slice gives
+0.401 validation relative error versus 0.423 for searched RTN, but its much
+larger calibration benefit does not generalize proportionally. Native parity
+passes; no full-width scaling, saved-candidate replacement, or quality gate
+is established by this diagnostic.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

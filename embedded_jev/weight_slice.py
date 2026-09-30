@@ -177,6 +177,121 @@ def screen_synthetic_reconstruction(weights) -> dict:
     }
 
 
+def screen_calibration_reconstruction(weights, activations, *, validation_activations=None) -> dict:
+    """Compare four bounded policies on calibration-only slice reconstructions."""
+    matrix = np.asarray(weights, dtype=np.float32)
+    samples = np.asarray(activations, dtype=np.float32)
+    if (
+        matrix.ndim != 2 or not 1 <= matrix.shape[0] <= MAX_ROWS or matrix.shape[1] != 256
+        or samples.ndim != 2 or not 1 <= samples.shape[0] <= 128 or samples.shape[1] != 256
+        or not np.isfinite(matrix).all() or not np.isfinite(samples).all()
+    ):
+        raise ValueError("calibration screen requires bounded four-row, 256-column inputs")
+    if not np.any(samples):
+        raise ValueError("calibration screen requires nonzero activation curvature")
+    validation = None
+    if validation_activations is not None:
+        validation = np.asarray(validation_activations, dtype=np.float32)
+        if (
+            validation.ndim != 2 or not 1 <= validation.shape[0] <= 128 or validation.shape[1] != 256
+            or not np.isfinite(validation).all()
+        ):
+            raise ValueError("validation screen requires bounded 256-column inputs")
+    reference = samples.astype(np.float64) @ matrix.astype(np.float64).T
+    reference_energy = float(np.mean(reference ** 2))
+    policies = {}
+    for label, compensated, search in (
+        ("rtn_maxabs", False, False), ("rtn_grid", False, True),
+        ("compensated_maxabs", True, False), ("compensated_grid", True, True),
+    ):
+        if compensated:
+            codes, scales, details = quantize_ternary_compensated(
+                matrix, samples, processing_block_size=128, scale_search=search,
+            )
+        else:
+            codes, scales = quantize_ternary_rtn(matrix, scale_search=search)
+            details = {}
+        reconstruction = reconstruct_ternary(codes, scales).astype(np.float64)
+        error = samples.astype(np.float64) @ reconstruction.T - reference
+        output_mse = float(np.mean(error ** 2))
+        weight_mse = float(np.mean((reconstruction - matrix) ** 2))
+        if not np.isfinite(output_mse) or not np.isfinite(weight_mse):
+            raise ValueError("nonfinite calibrated slice error")
+        policies[label] = {
+            "output_mse": output_mse, "weight_mse": weight_mse,
+            "relative_output_rmse": float(np.sqrt(output_mse / reference_energy)) if reference_energy else None,
+            "scale_dtype": str(scales.dtype), **details,
+            "codes_sha256": hashlib.sha256(codes.tobytes()).hexdigest(),
+            "scales_sha256": hashlib.sha256(scales.tobytes()).hexdigest(),
+        }
+        if validation is not None:
+            validation_reference = validation.astype(np.float64) @ matrix.astype(np.float64).T
+            validation_error = validation.astype(np.float64) @ reconstruction.T - validation_reference
+            validation_mse = float(np.mean(validation_error ** 2))
+            validation_energy = float(np.mean(validation_reference ** 2))
+            if not np.isfinite(validation_mse):
+                raise ValueError("nonfinite validation slice error")
+            policies[label]["validation_output_mse"] = validation_mse
+            policies[label]["validation_relative_output_rmse"] = (
+                float(np.sqrt(validation_mse / validation_energy)) if validation_energy else None
+            )
+    return {
+        "purpose": (
+            "calibration_fit_validation_slice_not_model_quality" if validation is not None
+            else "calibration_slice_reconstruction_not_validation_or_model_quality"
+        ),
+        "rows": matrix.shape[0], "columns": matrix.shape[1], "calibration_rows": samples.shape[0],
+        "transform": "identity", "activation_quantized": False, "policies": policies,
+        "validation_rows": validation.shape[0] if validation is not None else 0,
+        "validation_used_for_fitting": False,
+    }
+
+
+def screen_local_calibrated_slice(
+    directory: Path, capture_dir: Path, *, dataset_path: Path | None = None,
+    validation_case_id: str | None = None,
+) -> dict:
+    """Use only a hash-checked calibration capture for a local two-group trial."""
+    from embedded_jev.decision_dataset import load_calibration_capture, load_decision_dataset
+
+    activations, manifest = load_calibration_capture(capture_dir)
+    if (dataset_path is None) != (validation_case_id is None):
+        raise InventoryError("live validation requires a dataset and an explicit validation case id")
+    weights, provenance = read_local_bf16_projection_rows(directory)
+    if manifest["tensor"] != provenance["tensor"] or activations.shape[1] != weights.shape[1]:
+        raise InventoryError("calibration capture disagrees with local projection input width")
+    validation = None
+    validation_report = None
+    if dataset_path is not None:
+        from embedded_jev.streamed_text import run_streamed_text
+
+        _, digest = load_decision_dataset(dataset_path)
+        if digest != manifest["dataset"]["sha256"]:
+            raise InventoryError("calibration capture and validation dataset digest disagree")
+        observed = []
+        validation_report = run_streamed_text(
+            directory, layers=4, prompt="", dataset_path=dataset_path,
+            split="validation", case_id=validation_case_id, activation_observer=observed.append,
+        )
+        if len(observed) != 1 or validation_report["dataset"]["sha256"] != digest:
+            raise InventoryError("missing or changed live validation activation source")
+        validation = observed[0][:, :256]
+    result = {
+        "source": provenance, "capture_dataset": manifest["dataset"],
+        "capture_array_sha256": manifest["array"]["sha256"],
+        "scope": "first_four_rows_first_two_groups_not_full_projection_or_quality",
+        "screen": screen_calibration_reconstruction(
+            weights[:, :256], activations[:, :256], validation_activations=validation,
+        ),
+        "candidate_saved": False,
+    }
+    if validation_report is not None:
+        result["validation_source"] = validation_report["dataset"]
+        result["validation_input_sha256"] = validation_report["ffn_down_input_sha256"]
+        result["validation_capture_saved"] = False
+    return result
+
+
 def screen_full_width_synthetic(weights) -> dict:
     """Compare bounded RTN options on identical synthetic full-width inputs."""
     matrix = np.asarray(weights, dtype=np.float32)
@@ -307,8 +422,24 @@ def main() -> None:
     modes.add_argument("--screen-toy", action="store_true", help="run synthetic local MSE only")
     modes.add_argument("--screen-full-rows", action="store_true", help="screen four local full-width rows")
     modes.add_argument("--screen-projection", action="store_true", help="stream one full local projection")
+    modes.add_argument("--screen-calibrated-slice", action="store_true", help="compare bounded policies on calibration inputs only")
     parser.add_argument("--local-dir", type=Path, help="verified local model snapshot for full-width rows")
+    parser.add_argument("--calibration-capture", type=Path)
+    parser.add_argument("--validation-dataset", type=Path)
+    parser.add_argument("--validation-case-id")
     args = parser.parse_args()
+    if args.screen_calibrated_slice:
+        if args.local_dir is None or args.calibration_capture is None:
+            parser.error("--screen-calibrated-slice requires --local-dir and --calibration-capture")
+        print(json.dumps(screen_local_calibrated_slice(
+            args.local_dir, args.calibration_capture, dataset_path=args.validation_dataset,
+            validation_case_id=args.validation_case_id,
+        ), indent=2, sort_keys=True))
+        return
+    if args.calibration_capture is not None:
+        parser.error("--calibration-capture requires --screen-calibrated-slice")
+    if args.validation_dataset is not None or args.validation_case_id is not None:
+        parser.error("live validation requires --screen-calibrated-slice")
     if args.screen_projection:
         if args.local_dir is None:
             parser.error("--screen-projection requires --local-dir")

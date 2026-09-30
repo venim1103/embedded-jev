@@ -591,6 +591,41 @@ def test_synthetic_slice_screen_is_bounded_and_deterministic():
             weight_slice.screen_synthetic_reconstruction(invalid)
 
 
+def test_calibration_slice_screen_preserves_exact_ternary_weights_and_limits():
+    weights = np.ones((2, 256), dtype=np.float32)
+    samples = np.random.default_rng(314).normal(size=(32, 256)).astype(np.float32)
+    report = weight_slice.screen_calibration_reconstruction(weights, samples)
+    assert report["purpose"] == "calibration_slice_reconstruction_not_validation_or_model_quality"
+    assert report["calibration_rows"] == 32 and report["activation_quantized"] is False
+    assert set(report["policies"]) == {"rtn_maxabs", "rtn_grid", "compensated_maxabs", "compensated_grid"}
+    assert all(policy["output_mse"] == 0 and policy["scale_dtype"] == "float16" for policy in report["policies"].values())
+    assert all(report["policies"][name]["damping"] > 0 for name in ("compensated_maxabs", "compensated_grid"))
+    for invalid_weights, invalid_samples in (
+        (np.ones((5, 256)), samples), (weights, np.ones((129, 256))),
+        (weights, np.ones((32, 255))), (weights, np.full((32, 256), np.nan)),
+    ):
+        with pytest.raises(ValueError, match="bounded four-row"):
+            weight_slice.screen_calibration_reconstruction(invalid_weights, invalid_samples)
+    with pytest.raises(ValueError, match="nonzero activation curvature"):
+        weight_slice.screen_calibration_reconstruction(weights, np.zeros_like(samples))
+    nonternary = np.random.default_rng(315).normal(scale=0.03, size=(2, 256)).astype(np.float32)
+    calibration_only = weight_slice.screen_calibration_reconstruction(nonternary, samples)
+    first_validation = weight_slice.screen_calibration_reconstruction(
+        nonternary, samples, validation_activations=samples[:4],
+    )
+    other_validation = weight_slice.screen_calibration_reconstruction(
+        nonternary, samples,
+        validation_activations=np.random.default_rng(316).normal(size=(4, 256)).astype(np.float32),
+    )
+    assert first_validation["validation_used_for_fitting"] is False
+    assert first_validation["validation_rows"] == 4
+    assert first_validation["purpose"] == "calibration_fit_validation_slice_not_model_quality"
+    for label in report["policies"]:
+        assert first_validation["policies"][label]["codes_sha256"] == calibration_only["policies"][label]["codes_sha256"]
+        assert other_validation["policies"][label]["scales_sha256"] == calibration_only["policies"][label]["scales_sha256"]
+        assert first_validation["policies"][label]["validation_output_mse"] != other_validation["policies"][label]["validation_output_mse"]
+
+
 def test_full_width_synthetic_screen_checks_rotation_and_bounds():
     weights = np.random.default_rng(441).normal(size=(2, 256)).astype(np.float32)
     result = weight_slice.screen_full_width_synthetic(weights)

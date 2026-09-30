@@ -449,6 +449,39 @@ alongside the interpreter/snapshot/candidate variables for the cached-only
 public integration test. It verifies original source hashes, one validation
 comparison, and a temporary training capture without network access.
 
+## Calibration-Fitted Slice Check
+
+The existing 256-column compensated toy can now consume a hash-checked
+calibration capture, with a live validation prefix kept read-only and never
+persisted or passed into fitting:
+
+```bash
+capture="$proxy/calibration-clinc150_train_127"
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.weight_slice \
+   --local-dir "$snapshot" --screen-calibrated-slice \
+   --calibration-capture "$capture" --validation-dataset "$proxy/decisions.json" \
+   --validation-case-id clinc150_val_1561
+```
+
+This examines only four weight rows and the first two 128-column groups.
+Fitting uses 75 training-capture tokens; scoring uses a separate 70-token
+validation prefix. Searched FP16 RTN has relative reconstruction error 0.417
+on calibration and 0.423 on validation. Searched compensated fitting gives
+0.212 and 0.401, respectively, while max-abs compensation worsens validation
+error to 0.970. The large training benefit does not generalize proportionally,
+and the compensated weight error itself is higher than searched RTN's.
+
+Reports retain source/capture hashes, code/scale hashes, damping, and separate
+calibration/validation metrics. Tests require identical fitted code/scale
+hashes when validation inputs change. Held-out activation observation is
+refused. `MIMO_CALIBRATED_SLICE_TEST=1` with the interpreter/snapshot/public
+dataset and `MIMO_CALIBRATION_CAPTURE` variables verifies compensated codes,
+FP16 scales, and dynamic A8 through the native grouped kernel on live
+validation inputs. No candidate is saved and the sole full-projection RTN
+artifact remains unchanged. These are local slice numerics, not full-projection
+GPTQ, final-model scores, or representative task quality.
+
 ## In-Memory Native FFN Substitution
 
 The streamed BF16 text path can replace **only** layer 3's FFN-down matmul

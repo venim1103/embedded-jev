@@ -337,6 +337,14 @@ total variation 0.00354), and one training FFN capture reloads correctly.
 Proxy held-out data remains unscored and no new candidate was fitted. This is
 not official CLINC150 performance, agent/tool representativeness, or proof
 against training contamination; see the development guide for provenance.
+The 256-column compensated toy was fit using 75 tokens from the public train
+capture and scored on 70 live validation tokens. For four rows/two groups,
+searched RTN relative error is 0.417 calibration / 0.423 validation, versus
+0.212 / 0.401 for searched compensation; max-abs compensation gives 0.970
+on validation. Code/scale hashes cannot depend on validation inputs, and
+compensated native A8 arithmetic parity passes. No candidate was saved or
+replaced, held-out data was not observed, and these local errors do not prove
+full-width GPTQ or final-model quality.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

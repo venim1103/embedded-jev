@@ -238,6 +238,7 @@ def run_streamed_text(
     dataset_path: Path | None = None,
     split: str | None = None,
     calibration_output: Path | None = None,
+    activation_observer=None,
 ) -> dict:
     """Execute at most one verified BF16 decoder layer at a time on CPU."""
     if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
@@ -261,6 +262,11 @@ def run_streamed_text(
             raise InventoryError("activation capture requires a BF16 calibration split and at least four layers")
         if calibration_output.exists():
             raise InventoryError("calibration capture already exists")
+    if activation_observer is not None and (
+        not callable(activation_observer) or dataset_path is None
+        or split not in ("calibration", "validation") or layers < 4 or native_ffn_library is not None
+    ):
+        raise InventoryError("activation observer requires a BF16 calibration or validation dataset prefix")
     import torch
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
@@ -422,6 +428,10 @@ def run_streamed_text(
         if len(captured) != 1 or tuple(captured[0].shape) != (1, input_ids.shape[1], 12288):
             raise InventoryError("missing streamed FFN-down input")
         summary["ffn_down_input_sha256"] = hashlib.sha256(captured[0].numpy().tobytes()).hexdigest()
+    if activation_observer is not None:
+        observed = captured[0].numpy().reshape(-1, 12288).copy()
+        observed.setflags(write=False)
+        activation_observer(observed)
     if calibration_output is not None:
         capture_manifest = save_calibration_capture(
             calibration_output, captured[0].numpy().reshape(-1, 12288),

@@ -398,6 +398,69 @@ def test_full_mimo_projection_matches_bitnet_derived_native_dot(native_dot):
     }, sort_keys=True))
 
 
+@pytest.mark.skipif(
+    os.environ.get("MIMO_CALIBRATED_SLICE_TEST") != "1",
+    reason="requires pinned MiMo snapshot, a calibration capture, and isolated Torch for live validation",
+)
+def test_calibration_fitted_slice_native_dot_on_live_validation(native_dot):
+    from embedded_jev.decision_dataset import load_calibration_capture, load_decision_dataset
+    from embedded_jev.weight_slice import read_local_bf16_projection_rows
+
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+    dataset_path = os.environ.get("MIMO_PUBLIC_DATASET")
+    capture_path = os.environ.get("MIMO_CALIBRATION_CAPTURE")
+    if not all((local_dir, interpreter, dataset_path, capture_path)):
+        pytest.fail("set MiMo interpreter/snapshot, MIMO_PUBLIC_DATASET, and MIMO_CALIBRATION_CAPTURE")
+    calibration, manifest = load_calibration_capture(Path(capture_path))
+    dataset, digest = load_decision_dataset(Path(dataset_path))
+    assert manifest["dataset"]["sha256"] == digest
+    weights, provenance = read_local_bf16_projection_rows(Path(local_dir))
+    assert provenance["tensor"] == manifest["tensor"]
+    weights = weights[:, :256]
+    codes, scales, details = quantize_ternary_compensated(
+        weights, calibration[:, :256], processing_block_size=128, scale_search=True,
+    )
+    assert details["damping"] > 0 and scales.dtype == np.float16
+    validation_case = dataset["splits"]["validation"][0]["id"]
+    script = """
+import json
+import sys
+from pathlib import Path
+from embedded_jev.streamed_text import run_streamed_text
+observed = []
+report = run_streamed_text(
+    Path(sys.argv[1]), layers=4, prompt="", dataset_path=Path(sys.argv[2]),
+    split="validation", case_id=sys.argv[3], activation_observer=observed.append,
+)
+assert len(observed) == 1 and not observed[0].flags.writeable
+print(json.dumps({"values": observed[0][:, :256].tolist(), "dataset_sha256": report["dataset"]["sha256"]}))
+"""
+    result = subprocess.run(
+        [interpreter, "-c", script, local_dir, dataset_path, validation_case],
+        env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+             "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"},
+        check=True, capture_output=True, text=True, timeout=180,
+    )
+    assert len(result.stdout) <= 1 << 20
+    validation = json.loads(result.stdout)
+    assert validation["dataset_sha256"] == digest
+    values = np.asarray(validation["values"], dtype=np.float32)
+    assert values.ndim == 2 and 1 <= values.shape[0] <= 128 and values.shape[1] == 256
+    activations, activation_scales = quantize_a8_per_group(values)
+    actual = call_native_batch(
+        native_dot[1], codes.reshape(4, 2, 128), activations.reshape(values.shape[0], 2, 128),
+        scales.astype(np.float32), activation_scales,
+    )
+    partial = np.einsum(
+        "rgi,tgi->trg", codes.reshape(4, 2, 128).astype(np.int32),
+        activations.reshape(values.shape[0], 2, 128).astype(np.int32),
+    )
+    expected = (partial * scales.astype(np.float32)[None] * activation_scales[:, None]).sum(axis=-1)
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=1e-5)
+    assert np.isfinite(actual).all()
+
+
 def test_multi_token_rejects_empty_and_overflowed_shapes(native_dot):
     packed = np.zeros(32, dtype=np.uint8)
     scale = np.ones(1, dtype=np.float32)
