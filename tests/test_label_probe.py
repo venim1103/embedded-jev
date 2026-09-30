@@ -501,3 +501,78 @@ def test_pairwise_evaluation_refuses_unbounded_or_duplicate_case_requests(tmp_pa
             tmp_path, dataset_path=tmp_path / "not-read.json", split="held_out", case_ids=case_ids,
             native_library=library, candidate=tmp_path / "not-read-candidate",
         )
+
+
+def test_public_intent_proxy_preserves_official_split_roles_and_attribution(tmp_path):
+    from embedded_jev.decision_dataset import load_decision_dataset
+    from embedded_jev.public_data import _build_clinc_proxy
+
+    source = {
+        split: [[f"{split} request {index}", f"intent_{index}"] for index in range(4)]
+        for split in ("train", "val", "test")
+    }
+    proxy = _build_clinc_proxy(source, per_split=2)
+    assert proxy == _build_clinc_proxy(source, per_split=2)
+    assert proxy["purpose"] == "public_intent_proxy" and proxy["provenance"]["license"] == "CC-BY-3.0"
+    for origin, target in (("train", "calibration"), ("val", "validation"), ("test", "held_out")):
+        assert len(proxy["splits"][target]) == 2
+        assert all(case["id"].startswith(f"clinc150_{origin}_") for case in proxy["splits"][target])
+        assert all(len(case["options"]) == 4 for case in proxy["splits"][target])
+        assert all(case["expected_option_id"] in {option["id"] for option in case["options"]} for case in proxy["splits"][target])
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps(proxy))
+    loaded, _ = load_decision_dataset(path)
+    assert loaded == proxy
+
+
+@pytest.mark.parametrize("headers", [
+    {"Content-Length": "99999999"}, {"Content-Length": "invalid"}, {"Content-Encoding": "gzip"},
+])
+def test_public_source_reader_rejects_bad_headers_before_body(monkeypatch, headers):
+    from embedded_jev import public_data
+
+    class Response:
+        status = 200
+        read_calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def geturl(self):
+            return public_data.CLINC_URL + "README.md"
+
+        def read(self, length):
+            self.read_calls += 1
+            pytest.fail("read an unbounded or encoded source response")
+
+    response = Response()
+    response.headers = headers
+    monkeypatch.setattr(public_data, "urlopen", lambda request, timeout: response)
+    with pytest.raises(public_data.PublicDataError):
+        public_data._fetch_source_file("README.md")
+    assert response.read_calls == 0
+
+
+@pytest.mark.parametrize("count,seed", [(0, 902), (33, 902), (True, 902), (4, True)])
+def test_public_proxy_selection_rejects_unbounded_requests(count, seed):
+    from embedded_jev.public_data import PublicDataError, _build_clinc_proxy
+
+    with pytest.raises(PublicDataError, match="1-32 cases"):
+        _build_clinc_proxy({}, per_split=count, seed=seed)
+
+
+def test_public_bundle_rejects_changed_source_without_creating_output(tmp_path, monkeypatch):
+    from embedded_jev import public_data
+
+    directory = tmp_path / "bundle"
+    monkeypatch.setattr(public_data, "_fetch_source_file", lambda name: b"changed source")
+    with pytest.raises(public_data.PublicDataError, match="SHA-256 mismatch"):
+        public_data.prepare_clinc_proxy(directory)
+    assert not directory.exists()
+    directory.mkdir()
+    monkeypatch.setattr(public_data, "_fetch_source_file", lambda name: pytest.fail("overwriting or refetching existing bundle"))
+    with pytest.raises(public_data.PublicDataError, match="already exists"):
+        public_data.prepare_clinc_proxy(directory)

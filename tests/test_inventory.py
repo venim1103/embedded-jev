@@ -57,6 +57,19 @@ def test_header_counts_tensors_without_weight_data():
     )
 
 
+def test_json_object_retains_metadata_cap_with_explicit_public_data_bound():
+    payload = json.dumps({"text": "x" * inventory.MAX_METADATA_BYTES}).encode()
+    with pytest.raises(InventoryError, match="allowed bounds"):
+        inventory._json_object(payload, "model metadata")
+    result = inventory._json_object(payload, "public data", max_bytes=3 << 20)
+    assert len(result["text"]) == inventory.MAX_METADATA_BYTES
+    for limit in (0, True):
+        with pytest.raises(InventoryError, match="invalid JSON byte bound"):
+            inventory._json_object(b"{}", "public data", max_bytes=limit)
+    with pytest.raises(InventoryError):
+        inventory._json_object(b'{"key":1,"key":2}', "public data", max_bytes=3 << 20)
+
+
 def test_header_rejects_missing_or_inconsistent_data():
     prefix, shard_bytes = _header(
         {"weight": {"dtype": "BF16", "shape": [2], "data_offsets": [0, 4]}}, 4

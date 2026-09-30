@@ -314,7 +314,8 @@ and whitespace/option-order-equivalent prompts cannot cross splits. The
 streamed scorer requires an explicit split and retains its digest and purpose;
 it never relabels the existing synthetic fixture as representative data.
 The dataset-to-32-layer smoke passes using temporary synthetic split data.
-Real calibration/holdout cases are still absent; scoring performs no tuning.
+Representative agent/tool calibration/holdout cases are still absent; scoring
+performs no tuning.
 The dataset path can now save the actual layer-3 FFN-down input in a bounded
 calibration-only array plus digest/provenance manifest. Evaluation splits and
 native substitutions cannot request captures; the writer checks the original
@@ -327,6 +328,15 @@ kernel/source/runtime bindings, choices, conditional-score deltas, and expected
 matches without fitting. Changed inputs or inconsistent paired reports abort
 the comparison. Real BF16/native paired execution passes on temporary synthetic
 split data; this is evaluation infrastructure, not representative quality proof.
+A small public CLINC150 four-choice proxy is now cached outside Git, pinned at
+`828f8093932c8fe6ca7936c3d2e52903b1c523de`, with the original CC BY 3.0
+license and attribution README. Its 4/4/4 source train/validation/test subsets
+retain those roles and use deterministic distractor shortlists, excluding OOS.
+One validation case matched the gold intent in BF16/native runs (conditional
+total variation 0.00354), and one training FFN capture reloads correctly.
+Proxy held-out data remains unscored and no new candidate was fitted. This is
+not official CLINC150 performance, agent/tool representativeness, or proof
+against training contamination; see the development guide for provenance.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

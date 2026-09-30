@@ -13,7 +13,7 @@ from embedded_jev.weight_slice import DEFAULT_TENSOR
 
 
 MAX_DATASET_BYTES = 1 << 20
-DATASET_PURPOSES = {"synthetic_split_contract_smoke", "user_labeled_text_decisions"}
+DATASET_PURPOSES = {"synthetic_split_contract_smoke", "user_labeled_text_decisions", "public_intent_proxy"}
 SPLITS = ("calibration", "validation", "held_out")
 MAX_CAPTURE_TOKENS = 128
 MAX_CAPTURE_BYTES = MAX_CAPTURE_TOKENS * 12288 * 4 + 4096

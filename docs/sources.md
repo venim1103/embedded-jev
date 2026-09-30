@@ -52,6 +52,30 @@ header/index check agreed on 760 tensors and 18,819,627,488 BF16 weight bytes.
 The snapshot does not demonstrate MiMo inference, ternary quality, or BitNet
 model dispatch.
 
+## Public Intent Proxy
+
+On 2026-09-30, CLINC150 source was pinned at
+`828f8093932c8fe6ca7936c3d2e52903b1c523de` from
+[clinc/oos-eval](https://github.com/clinc/oos-eval/tree/828f8093932c8fe6ca7936c3d2e52903b1c523de).
+Attribution: Stefan Larson et al., *An Evaluation Dataset for Intent
+Classification and Out-of-Scope Prediction*, EMNLP-IJCNLP 2019,
+[paper D19-1131](https://aclanthology.org/D19-1131/).
+The pinned [CC BY 3.0 license](https://github.com/clinc/oos-eval/blob/828f8093932c8fe6ca7936c3d2e52903b1c523de/LICENSE)
+and [README](https://github.com/clinc/oos-eval/blob/828f8093932c8fe6ca7936c3d2e52903b1c523de/README.md)
+were retained with the external source bundle. The
+[data file](https://github.com/clinc/oos-eval/blob/828f8093932c8fe6ca7936c3d2e52903b1c523de/data/data_full.json)
+is 2,495,390 bytes, Git blob `7a7b26c5f2dfbbf213f3e67d2dd0727e1af545aa`,
+SHA-256 `36923c3705a59e08fe9c3883d8bc2dd966ef93e22cb78ac41171782a698d56e0`.
+Original in-scope splits contain 15,000/3,000/4,500 train/val/test rows.
+
+Changes: four deterministic cases per original split (seed 902), each with
+its gold intent and three shuffled distractors; OOS excluded; normalized
+duplicate utterances excluded across the selected subsets. These are public
+intent diagnostics, **not** official CLINC150 evaluation or representative
+agent/tool decisions. Model-training contamination is unknown. One validation
+comparison and one training activation capture were executed without fitting;
+the proxy held-out subset remains unscored.
+
 ## BitNet
 
 Inspected parent commit: `0b341e582afbf9e1011f24744b554c96a3477eb5`.

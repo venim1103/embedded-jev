@@ -279,6 +279,67 @@ def test_frozen_dataset_pairwise_evaluation_reports_model_observations(tmp_path)
 
 
 @pytest.mark.skipif(
+    os.environ.get("MIMO_PUBLIC_PROXY_TEST") != "1",
+    reason="requires the cached attributed public proxy, MiMo shards, isolated Torch, and saved native candidate",
+)
+def test_cached_public_proxy_validation_and_training_capture(tmp_path):
+    from embedded_jev.decision_dataset import load_calibration_capture, load_decision_dataset
+    from embedded_jev.public_data import CLINC_DATA_SHA256, CLINC_REVISION, SOURCE_FILES
+
+    interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    artifact = os.environ.get("MIMO_PROJECTION_ARTIFACT")
+    dataset_path = os.environ.get("MIMO_PUBLIC_DATASET")
+    compiler = shutil.which("clang++-18")
+    if not all((interpreter, local_dir, artifact, dataset_path)) or not Path(interpreter).is_file():
+        pytest.fail("set MiMo interpreter/snapshot/candidate and MIMO_PUBLIC_DATASET to the cached proxy")
+    if compiler is None or platform.machine() != "x86_64" or "avx2" not in Path("/proc/cpuinfo").read_text():
+        pytest.skip("requires Clang 18 and x86-64 AVX2")
+    path = Path(dataset_path)
+    dataset, digest = load_decision_dataset(path)
+    assert dataset["purpose"] == "public_intent_proxy" and dataset["provenance"]["license"] == "CC-BY-3.0"
+    manifest = json.loads((path.parent / "source_manifest.json").read_text())
+    assert manifest["revision"] == CLINC_REVISION and manifest["dataset_sha256"] == digest
+    for name, (size, blob) in SOURCE_FILES.items():
+        source_path = path.parent / name
+        assert source_path.stat().st_size == size
+        data = source_path.read_bytes()
+        assert hashlib.sha1(b"blob " + str(size).encode() + b"\0" + data).hexdigest() == blob
+        if name == "data/data_full.json":
+            assert hashlib.sha256(data).hexdigest() == CLINC_DATA_SHA256
+    library = tmp_path / "kernel.so"
+    source = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
+    subprocess.run(
+        [compiler, "-std=c++17", "-O2", "-mavx2", "-shared", "-fPIC", str(source), "-o", str(library)],
+        check=True, capture_output=True, text=True,
+    )
+    environment = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+                   "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"}
+    result = subprocess.run(
+        [interpreter, "-m", "embedded_jev.evaluation", "--local-dir", local_dir,
+         "--dataset", str(path), "--split", "validation", "--case-ids", dataset["splits"]["validation"][0]["id"],
+         "--candidate", artifact, "--native-library", str(library)],
+        env=environment, check=True, capture_output=True, text=True, timeout=240,
+    )
+    report = json.loads(result.stdout)
+    assert report["dataset"]["purpose"] == "public_intent_proxy"
+    assert report["dataset"]["sha256"] == digest and report["dataset"]["split"] == "validation"
+    assert report["quantizer_fitting"] is False and report["generated_tokens"] == 0
+    assert report["summary"]["cases"] == 1
+    capture_dir = tmp_path / "public-calibration"
+    subprocess.run(
+        [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+         "--layers", "4", "--dataset", str(path), "--split", "calibration",
+         "--case-id", dataset["splits"]["calibration"][0]["id"], "--calibration-output", str(capture_dir)],
+        env=environment, check=True, capture_output=True, text=True, timeout=180,
+    )
+    values, capture = load_calibration_capture(capture_dir)
+    assert capture["dataset"]["purpose"] == "public_intent_proxy"
+    assert capture["dataset"]["split"] == "calibration" and capture["dataset"]["sha256"] == digest
+    assert values.shape[1] == 12288 and values.shape[0] <= 128
+
+
+@pytest.mark.skipif(
     os.environ.get("MIMO_IN_MODEL_NATIVE_TEST") != "1",
     reason="requires pinned MiMo BF16 shards, isolated Torch, Clang 18, and x86-64 AVX2",
 )

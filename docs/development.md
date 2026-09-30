@@ -329,7 +329,8 @@ fixture schema or supply representative data. The dataset is capped at 1 MiB
 and has these exact top-level fields:
 
 - `schema_version`: integer `1`.
-- `purpose`: `user_labeled_text_decisions` or `synthetic_split_contract_smoke`.
+- `purpose`: `user_labeled_text_decisions`, `synthetic_split_contract_smoke`,
+  or `public_intent_proxy`.
 - `provenance`: nonempty `source` and `license` strings; these are declared
    provenance, not automatic verification of ownership or representativeness.
 - `splits`: exactly `calibration`, `validation`, and `held_out`, each containing
@@ -405,6 +406,48 @@ final evaluation rather than repeatedly selecting policies from it. The
 and `MIMO_PROJECTION_ARTIFACT` variables) uses temporary synthetic split data
 and checks the full BF16/native path. Its expected-choice agreement is not
 representative task accuracy or a whole-model quantization quality gate.
+
+## Attributed Public Intent Proxy
+
+An optional importer prepares a tiny diagnostic proxy from CLINC150 at
+revision `828f8093932c8fe6ca7936c3d2e52903b1c523de`, under CC BY 3.0. It
+verifies the original data, license, and attribution README against pinned Git
+blob IDs and the data SHA-256
+`36923c3705a59e08fe9c3883d8bc2dd966ef93e22cb78ac41171782a698d56e0`.
+The successful bundle transfer is 2,517,525 body bytes. Original source and
+attribution files stay outside Git alongside the derived decisions:
+
+```bash
+proxy="$cache/datasets/clinc150-828f809-proxy-seed902"
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.public_data \
+   --output "$proxy" --cases-per-split 4 --seed 902
+```
+
+Run only when the bundle is absent; existing outputs are refused. The source
+JSON has a separate explicit 3 MiB decoding bound. Ordinary model metadata
+keeps its 1 MiB default and the inventory's network range limits are unchanged.
+Four source training cases map to calibration, four source validation cases to
+validation, and four source test cases to held-out. Repeated normalized
+utterances are excluded across these subsets. Every case has the gold intent
+plus three deterministic distractors in shuffled order. Out-of-scope rows are
+excluded. Source, authors/paper, license, transformations, and seed are retained
+in provenance, along with the original license and README.
+
+**This is not the official 150-intent/OOS benchmark**, a representative
+agent/tool corpus, or evidence of freedom from model-training contamination.
+The reduced shortlist deliberately makes a different task. The derived dataset
+SHA-256 is `0efccfd5c6b3d0a1759c1a2c0bf34c8f17f5fa5612ecd5f29870cbbb4c14733f`.
+All 12 non-thinking prompts fit within 66-80 tokens. One frozen-candidate
+validation observation (`clinc150_val_1561`) selected `calories` in BF16 and
+native runs with conditional total variation 0.00354 and zero generation or
+fitting. One training input capture (`clinc150_train_127`) has shape
+75 x 12,288 float32 and reloads read-only with its public-proxy provenance.
+No proxy held-out case has been scored or used for fitting.
+
+Set `MIMO_PUBLIC_PROXY_TEST=1` and `MIMO_PUBLIC_DATASET="$proxy/decisions.json"`
+alongside the interpreter/snapshot/candidate variables for the cached-only
+public integration test. It verifies original source hashes, one validation
+comparison, and a temporary training capture without network access.
 
 ## In-Memory Native FFN Substitution
 

@@ -48,6 +48,11 @@ Temporary synthetic capture parity passes, not representative calibration.
 Frozen-candidate pairwise evaluation now records BF16/native choice changes
 and conditional-score deltas with data, kernel, candidate, source, and runtime
 bindings. Synthetic end-to-end parity passes; no policy fitting is performed.
+An attributed pinned CLINC150 four-choice public proxy also exercises the
+workflow with human-labeled source data, preserving original train/validation/
+test roles. One validation comparison and training activation capture pass;
+held-out scoring and fitting have not run. This reduced in-scope proxy does
+not establish official CLINC150 or representative agent/tool quality.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

@@ -152,8 +152,10 @@ def parse_safetensors_header(
     return tuple(sorted(tensors, key=lambda tensor: tensor.name))
 
 
-def _json_object(data: bytes, name: str) -> dict:
-    if len(data) > MAX_METADATA_BYTES:
+def _json_object(data: bytes, name: str, *, max_bytes: int = MAX_METADATA_BYTES) -> dict:
+    if type(max_bytes) is not int or max_bytes < 1:
+        raise InventoryError(f"invalid JSON byte bound: {name}")
+    if len(data) > max_bytes:
         raise InventoryError(f"metadata file exceeds allowed bounds: {name}")
     try:
         value = json.loads(
