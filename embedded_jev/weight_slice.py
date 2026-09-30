@@ -17,7 +17,9 @@ from embedded_jev.inventory import (
     read_local_headers,
 )
 from embedded_jev.ternary import (
+    prepare_block_diagonal_factors,
     prepare_compensation_factors,
+    quantize_block_diagonal_compensated,
     quantize_ternary_compensated,
     quantize_ternary_rtn,
     reconstruct_ternary,
@@ -178,13 +180,18 @@ def screen_synthetic_reconstruction(weights) -> dict:
     }
 
 
-def screen_calibration_reconstruction(weights, activations, *, validation_activations=None) -> dict:
+def screen_calibration_reconstruction(
+    weights, activations, *, validation_activations=None, block_diagonal: bool = False,
+) -> dict:
     """Compare four bounded policies on calibration-only slice reconstructions."""
     matrix = np.asarray(weights, dtype=np.float32)
     samples = np.asarray(activations, dtype=np.float32)
     if (
-        matrix.ndim != 2 or not 1 <= matrix.shape[0] <= MAX_ROWS or matrix.shape[1] != 256
-        or samples.ndim != 2 or not 1 <= samples.shape[0] <= 128 or samples.shape[1] != 256
+        type(block_diagonal) is not bool
+        or matrix.ndim != 2 or not 1 <= matrix.shape[0] <= MAX_ROWS
+        or not 256 <= matrix.shape[1] <= 12288 or matrix.shape[1] % 256
+        or (not block_diagonal and matrix.shape[1] != 256)
+        or samples.ndim != 2 or not 1 <= samples.shape[0] <= 128 or samples.shape[1] != matrix.shape[1]
         or not np.isfinite(matrix).all() or not np.isfinite(samples).all()
     ):
         raise ValueError("calibration screen requires bounded four-row, 256-column inputs")
@@ -194,22 +201,27 @@ def screen_calibration_reconstruction(weights, activations, *, validation_activa
     if validation_activations is not None:
         validation = np.asarray(validation_activations, dtype=np.float32)
         if (
-            validation.ndim != 2 or not 1 <= validation.shape[0] <= 128 or validation.shape[1] != 256
+            validation.ndim != 2 or not 1 <= validation.shape[0] <= 128 or validation.shape[1] != matrix.shape[1]
             or not np.isfinite(validation).all()
         ):
             raise ValueError("validation screen requires bounded 256-column inputs")
     reference = samples.astype(np.float64) @ matrix.astype(np.float64).T
     reference_energy = float(np.mean(reference ** 2))
-    prepared = prepare_compensation_factors(samples)
+    prepared = prepare_block_diagonal_factors(samples) if block_diagonal else prepare_compensation_factors(samples)
     policies = {}
     for label, compensated, search in (
         ("rtn_maxabs", False, False), ("rtn_grid", False, True),
         ("compensated_maxabs", True, False), ("compensated_grid", True, True),
     ):
         if compensated:
-            codes, scales, details = quantize_ternary_compensated(
-                matrix, samples, processing_block_size=128, scale_search=search, prepared=prepared,
-            )
+            if block_diagonal:
+                codes, scales, details = quantize_block_diagonal_compensated(
+                    matrix, samples, scale_search=search, prepared=prepared,
+                )
+            else:
+                codes, scales, details = quantize_ternary_compensated(
+                    matrix, samples, processing_block_size=128, scale_search=search, prepared=prepared,
+                )
         else:
             codes, scales = quantize_ternary_rtn(matrix, scale_search=search)
             details = {}
@@ -239,7 +251,8 @@ def screen_calibration_reconstruction(weights, activations, *, validation_activa
             )
     return {
         "purpose": (
-            "calibration_fit_validation_slice_not_model_quality" if validation is not None
+            "block_diagonal_calibration_diagnostic_not_full_gptq_or_model_quality" if block_diagonal
+            else "calibration_fit_validation_slice_not_model_quality" if validation is not None
             else "calibration_slice_reconstruction_not_validation_or_model_quality"
         ),
         "rows": matrix.shape[0], "columns": matrix.shape[1], "calibration_rows": samples.shape[0],
@@ -251,7 +264,7 @@ def screen_calibration_reconstruction(weights, activations, *, validation_activa
 
 def screen_local_calibrated_slice(
     directory: Path, capture_dir: Path, *, dataset_path: Path | None = None,
-    validation_case_id: str | None = None,
+    validation_case_id: str | None = None, block_diagonal: bool = False,
 ) -> dict:
     """Use only a hash-checked calibration capture for a local two-group trial."""
     from embedded_jev.decision_dataset import load_calibration_capture, load_decision_dataset
@@ -277,13 +290,18 @@ def screen_local_calibrated_slice(
         )
         if len(observed) != 1 or validation_report["dataset"]["sha256"] != digest:
             raise InventoryError("missing or changed live validation activation source")
-        validation = observed[0][:, :256]
+        validation = observed[0] if block_diagonal else observed[0][:, :256]
     result = {
         "source": provenance, "capture_dataset": manifest["dataset"],
         "capture_array_sha256": manifest["array"]["sha256"],
-        "scope": "first_four_rows_first_two_groups_not_full_projection_or_quality",
+        "scope": (
+            "first_four_full_width_rows_block_diagonal_not_full_gptq_or_quality" if block_diagonal
+            else "first_four_rows_first_two_groups_not_full_projection_or_quality"
+        ),
         "screen": screen_calibration_reconstruction(
-            weights[:, :256], activations[:, :256], validation_activations=validation,
+            weights if block_diagonal else weights[:, :256],
+            activations if block_diagonal else activations[:, :256],
+            validation_activations=validation, block_diagonal=block_diagonal,
         ),
         "candidate_saved": False,
     }
@@ -425,17 +443,18 @@ def main() -> None:
     modes.add_argument("--screen-full-rows", action="store_true", help="screen four local full-width rows")
     modes.add_argument("--screen-projection", action="store_true", help="stream one full local projection")
     modes.add_argument("--screen-calibrated-slice", action="store_true", help="compare bounded policies on calibration inputs only")
+    modes.add_argument("--screen-block-diagonal", action="store_true", help="compare independent-block approximation on four full-width rows")
     parser.add_argument("--local-dir", type=Path, help="verified local model snapshot for full-width rows")
     parser.add_argument("--calibration-capture", type=Path)
     parser.add_argument("--validation-dataset", type=Path)
     parser.add_argument("--validation-case-id")
     args = parser.parse_args()
-    if args.screen_calibrated_slice:
+    if args.screen_calibrated_slice or args.screen_block_diagonal:
         if args.local_dir is None or args.calibration_capture is None:
             parser.error("--screen-calibrated-slice requires --local-dir and --calibration-capture")
         print(json.dumps(screen_local_calibrated_slice(
             args.local_dir, args.calibration_capture, dataset_path=args.validation_dataset,
-            validation_case_id=args.validation_case_id,
+            validation_case_id=args.validation_case_id, block_diagonal=args.screen_block_diagonal,
         ), indent=2, sort_keys=True))
         return
     if args.calibration_capture is not None:

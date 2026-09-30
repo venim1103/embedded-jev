@@ -138,6 +138,41 @@ def test_prepared_compensation_matches_fresh_and_rejects_changed_calibration(mon
             quantize_ternary_compensated(weights, samples, prepared=invalid)
 
 
+def test_block_diagonal_compensation_matches_independent_bounded_fits(monkeypatch):
+    from embedded_jev.ternary import prepare_block_diagonal_factors, quantize_block_diagonal_compensated
+
+    generator = np.random.default_rng(992)
+    weights = generator.normal(size=(4, 512)).astype(np.float32)
+    samples = generator.normal(size=(64, 512)).astype(np.float32)
+    expected = [quantize_ternary_compensated(
+        weights[:, first:first + 256], samples[:, first:first + 256],
+        processing_block_size=128, scale_search=True,
+    ) for first in (0, 256)]
+    factors = prepare_block_diagonal_factors(samples)
+    monkeypatch.setattr(np.linalg, "solve", lambda *args, **kwargs: pytest.fail("re-solved cached block curvature"))
+    codes, scales, details = quantize_block_diagonal_compensated(weights, samples, scale_search=True, prepared=factors)
+    np.testing.assert_array_equal(codes, np.concatenate([block[0] for block in expected], axis=1))
+    np.testing.assert_array_equal(scales, np.concatenate([block[1] for block in expected], axis=1))
+    assert details["cross_block_curvature"] is False and details["cross_block_error_propagation"] is False
+    assert details["approximation"] == "independent_256_column_blocks_not_full_gptq"
+    batches = [quantize_block_diagonal_compensated(
+        weights[first:first + 2], samples, scale_search=True, prepared=factors,
+    ) for first in (0, 2)]
+    np.testing.assert_array_equal(codes, np.concatenate([batch[0] for batch in batches]))
+    changed = samples.copy()
+    changed[0, 300] += 1
+    with pytest.raises(ValueError, match="disagree with calibration"):
+        quantize_block_diagonal_compensated(weights, changed, prepared=factors)
+
+
+@pytest.mark.parametrize("rows,width,tokens", [(65, 512, 64), (4, 513, 64), (4, 512, 129), (0, 512, 64)])
+def test_block_diagonal_compensation_has_explicit_batch_and_width_limits(rows, width, tokens):
+    from embedded_jev.ternary import quantize_block_diagonal_compensated
+
+    with pytest.raises(ValueError, match="bounded block-diagonal"):
+        quantize_block_diagonal_compensated(np.ones((rows, width)), np.ones((tokens, width)))
+
+
 @pytest.mark.parametrize(
     ("weights", "inputs", "options"),
     [

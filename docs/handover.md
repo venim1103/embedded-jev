@@ -349,6 +349,12 @@ The bounded compensation factorization is reusable across row batches, with
 read-only factors tied to calibration digest/shape and damping settings.
 Fresh/cached codes and scales match exactly; reuse with changed inputs or
 settings is refused. Its original 256-column width bound remains intact.
+A separate independent-256-column-block approximation was tested on four
+complete 12,288-input rows. It discards cross-block curvature/error propagation
+and is not full GPTQ. Searched compensation has 0.194 calibration / 0.426
+validation relative error, versus 0.390 / 0.406 for searched RTN on the same
+public proxy pair. Native parity passes for all 96 groups, but this validation
+result is worse; no wider fit, policy promotion, or second artifact was saved.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

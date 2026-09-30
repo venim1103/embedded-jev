@@ -626,6 +626,26 @@ def test_calibration_slice_screen_preserves_exact_ternary_weights_and_limits():
         assert first_validation["policies"][label]["validation_output_mse"] != other_validation["policies"][label]["validation_output_mse"]
 
 
+def test_block_diagonal_screen_preserves_full_row_bounds_and_validation_independence():
+    generator = np.random.default_rng(318)
+    weights = generator.normal(size=(2, 512)).astype(np.float32)
+    calibration = generator.normal(size=(32, 512)).astype(np.float32)
+    validation = generator.normal(size=(8, 512)).astype(np.float32)
+    report = weight_slice.screen_calibration_reconstruction(
+        weights, calibration, validation_activations=validation, block_diagonal=True,
+    )
+    repeated = weight_slice.screen_calibration_reconstruction(
+        weights, calibration, validation_activations=-validation, block_diagonal=True,
+    )
+    assert report["columns"] == 512 and report["validation_used_for_fitting"] is False
+    assert report["purpose"] == "block_diagonal_calibration_diagnostic_not_full_gptq_or_model_quality"
+    assert report["policies"]["compensated_grid"]["cross_block_curvature"] is False
+    for label in report["policies"]:
+        assert report["policies"][label]["codes_sha256"] == repeated["policies"][label]["codes_sha256"]
+    with pytest.raises(ValueError, match="bounded four-row"):
+        weight_slice.screen_calibration_reconstruction(weights, calibration)
+
+
 def test_full_width_synthetic_screen_checks_rotation_and_bounds():
     weights = np.random.default_rng(441).normal(size=(2, 256)).astype(np.float32)
     result = weight_slice.screen_full_width_synthetic(weights)

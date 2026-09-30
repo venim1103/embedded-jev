@@ -248,3 +248,54 @@ def reconstruct_ternary(codes, scales) -> np.ndarray:
     return (groups.astype(np.float32) * saved_scales.astype(np.float32)[..., None]).reshape(
         ternary.shape
     )
+
+
+def prepare_block_diagonal_factors(activations) -> tuple[CompensationFactors, ...]:
+    """Prepare independent 256-column factors, deliberately discarding cross-block curvature."""
+    samples = np.asarray(activations, dtype=np.float64)
+    if (
+        samples.ndim != 2 or not 1 <= samples.shape[0] <= 128
+        or not 256 <= samples.shape[1] <= 12288 or samples.shape[1] % 256
+        or not np.isfinite(samples).all()
+    ):
+        raise ValueError("invalid bounded block-diagonal calibration inputs")
+    return tuple(prepare_compensation_factors(samples[:, first:first + 256])
+                 for first in range(0, samples.shape[1], 256))
+
+
+def quantize_block_diagonal_compensated(
+    weights, activations, *, scale_search: bool = False,
+    prepared: tuple[CompensationFactors, ...] | None = None,
+) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Approximate full-width compensation with independent blocks; this is not full GPTQ."""
+    matrix = np.asarray(weights, dtype=np.float32)
+    samples = np.asarray(activations, dtype=np.float64)
+    if (
+        matrix.ndim != 2 or not 1 <= matrix.shape[0] <= 64
+        or not 256 <= matrix.shape[1] <= 12288 or matrix.shape[1] % 256
+        or samples.ndim != 2 or not 1 <= samples.shape[0] <= 128
+        or samples.shape[1] != matrix.shape[1]
+        or type(scale_search) is not bool
+        or not np.isfinite(matrix).all() or not np.isfinite(samples).all()
+    ):
+        raise ValueError("invalid bounded block-diagonal weight or calibration inputs")
+    if prepared is None:
+        prepared = prepare_block_diagonal_factors(samples)
+    if not isinstance(prepared, tuple) or len(prepared) != matrix.shape[1] // 256:
+        raise ValueError("block-diagonal factor count disagrees with input width")
+    codes = np.empty(matrix.shape, dtype=np.int8)
+    scales = np.empty((matrix.shape[0], matrix.shape[1] // 128), dtype=np.float16)
+    blocks = []
+    for index, first in enumerate(range(0, matrix.shape[1], 256)):
+        block_codes, block_scales, details = quantize_ternary_compensated(
+            matrix[:, first:first + 256], samples[:, first:first + 256],
+            processing_block_size=128, scale_search=scale_search, prepared=prepared[index],
+        )
+        codes[:, first:first + 256] = block_codes
+        scales[:, first // 128:first // 128 + 2] = block_scales
+        blocks.append({"first_column": first, **details})
+    return codes, scales, {
+        "approximation": "independent_256_column_blocks_not_full_gptq",
+        "cross_block_curvature": False, "cross_block_error_propagation": False,
+        "group_size": 128, "block_size": 256, "blocks": blocks,
+    }

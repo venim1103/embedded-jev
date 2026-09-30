@@ -58,6 +58,11 @@ Calibration-fitted compensation on a four-row/two-group real slice gives
 larger calibration benefit does not generalize proportionally. Native parity
 passes; no full-width scaling, saved-candidate replacement, or quality gate
 is established by this diagnostic.
+The separately labeled independent-block approximation reaches four complete
+input-width rows without a full Hessian. It gives worse validation error than
+searched RTN (0.426 versus 0.406), despite better calibration error. Native
+96-group arithmetic parity passes; do not promote or bulk-fit this policy
+from that evidence.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

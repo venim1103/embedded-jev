@@ -489,6 +489,33 @@ identical codes/scales/damping, and row batching is invariant. This avoids
 re-solving the same bounded system; it does not expand the 256-column limit
 or establish a full-width Hessian approximation.
 
+An explicitly separate block-diagonal diagnostic extends **only four weight
+rows** across the full 12,288 inputs:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.weight_slice \
+   --local-dir "$snapshot" --screen-block-diagonal \
+   --calibration-capture "$capture" --validation-dataset "$proxy/decisions.json" \
+   --validation-case-id clinc150_val_1561
+```
+
+It prepares 48 independent 256-column factors, reuses them across row batches,
+and intentionally omits cross-block curvature and error propagation. It is
+**not full GPTQ**. The original compensated routine remains capped at 256
+columns; the separate approximation accepts at most 64 weight rows per call
+and 128 calibration tokens. Fresh/cached and independent-block row batching
+match exactly, with calibration/settings digest guards.
+
+On the same single train/validation proxy pair, searched block compensation
+has relative error 0.194 on calibration but 0.426 on validation; searched RTN
+gives 0.390 and 0.406. Thus the narrow-slice benefit does not carry over here.
+No candidate was saved, replaced, or promoted, and no full 4,096-row fit or
+final-model score was evaluated. The opt-in calibrated native test also checks
+all 96 groups for these four full-width rows against portable integer/A8
+arithmetic on live validation features. Arithmetic parity is not a quality
+acceptance criterion.
+
 ## In-Memory Native FFN Substitution
 
 The streamed BF16 text path can replace **only** layer 3's FFN-down matmul
