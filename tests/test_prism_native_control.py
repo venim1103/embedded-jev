@@ -161,6 +161,30 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
     actual.fill(123)
     assert graph(*pointers, 129, 5, 3, actual.ctypes.data_as(arguments[-1])) == 1
     np.testing.assert_array_equal(actual, 123)
+    from embedded_jev.activation import quantize_a8_per_group
+
+    float_graph = native.prism_bitnet_group_scale_matmul_f32
+    float_arguments = list(arguments)
+    float_arguments[2] = ctypes.POINTER(ctypes.c_float)
+    float_graph.argtypes = float_arguments
+    float_graph.restype = ctypes.c_int
+    inputs = generator.normal(size=(2, 384)).astype(np.float32)
+    inputs[0, :128] = 0
+    prepared, input_scales = quantize_a8_per_group(inputs)
+    assert direct(
+        pointers[0], pointers[1], prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+        2, 5, 3, expected.ctypes.data_as(arguments[-1]),
+    ) == 0
+    assert float_graph(
+        pointers[0], pointers[1], inputs.ctypes.data_as(float_graph.argtypes[2]), None,
+        2, 5, 3, actual.ctypes.data_as(arguments[-1]),
+    ) == 0
+    np.testing.assert_array_equal(actual, expected)
+    inputs[0, 0] = np.nan
+    assert float_graph(
+        pointers[0], pointers[1], inputs.ctypes.data_as(float_graph.argtypes[2]), None,
+        2, 5, 3, actual.ctypes.data_as(arguments[-1]),
+    ) == 2
     if os.environ.get("MIMO_PRISM_GRAPH_TEST") == "1":
         interpreter = os.environ.get("MIMO_DENSE_PYTHON")
         local_dir = os.environ.get("MIMO_LOCAL_DIR")
@@ -170,24 +194,43 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         environment = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
                        "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"}
         reports = []
-        for backend in ("direct", "prism_ggml"):
+        for backend in ("direct", "prism_ggml", "prism_ggml_f32"):
+            command = [
+                interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+                "--layers", "32", "--native-ffn-library", str(binary), "--native-ffn-backend", backend,
+                "--projection-artifact", artifact,
+            ]
+            if backend == "prism_ggml_f32":
+                guard = """
+import runpy
+from unittest.mock import patch
+import embedded_jev.activation as activation
+original = activation.quantize_a8_per_group
+def reference_only(values, *args, **kwargs):
+    if values.shape != (1, 12288):
+        raise AssertionError("Python prepared A8 for the production token batch")
+    return original(values, *args, **kwargs)
+with patch.object(activation, "quantize_a8_per_group", reference_only):
+    runpy.run_module("embedded_jev.streamed_text", run_name="__main__")
+"""
+                command = [interpreter, "-c", guard] + command[3:]
             result = subprocess.run(
-                [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
-                 "--layers", "32", "--native-ffn-library", str(binary), "--native-ffn-backend", backend,
-                 "--projection-artifact", artifact],
+                command,
                 env=environment, check=True, capture_output=True, text=True, timeout=180,
             )
             reports.append(json.loads(result.stdout))
-        direct_report, graph_report = reports
-        assert graph_report["native_ffn_down"]["graph_op"] == "map_custom2"
-        assert graph_report["native_ffn_down"]["backend_dependencies"] == dependencies
-        assert graph_report["native_ffn_down"]["bf16_projection_materialized"] is False
-        assert graph_report["native_ffn_down"]["max_native_reference_error"] < 1e-4
-        assert graph_report["native_ffn_down"]["calls"] == 1
-        assert graph_report["ffn_down_input_sha256"] == direct_report["ffn_down_input_sha256"]
-        assert graph_report["last_token_sha256"] == direct_report["last_token_sha256"]
-        assert graph_report["selected_head"]["options"] == direct_report["selected_head"]["options"]
-        assert graph_report["generated_tokens"] == direct_report["generated_tokens"] == 0
+        direct_report = reports[0]
+        for graph_report in reports[1:]:
+            assert graph_report["native_ffn_down"]["graph_op"] == "map_custom2"
+            assert graph_report["native_ffn_down"]["backend_dependencies"] == dependencies
+            assert graph_report["native_ffn_down"]["bf16_projection_materialized"] is False
+            assert graph_report["native_ffn_down"]["max_native_reference_error"] < 1e-4
+            assert graph_report["native_ffn_down"]["calls"] == 1
+            assert graph_report["ffn_down_input_sha256"] == direct_report["ffn_down_input_sha256"]
+            assert graph_report["last_token_sha256"] == direct_report["last_token_sha256"]
+            assert graph_report["selected_head"]["options"] == direct_report["selected_head"]["options"]
+            assert graph_report["generated_tokens"] == direct_report["generated_tokens"] == 0
+        assert reports[2]["native_ffn_down"]["activation_preparation"] == "native_graph_callback"
 
 
 def test_pinned_prism_qwen35_filter_and_ssm_bias_map_mimo_text_names():

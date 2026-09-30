@@ -211,6 +211,10 @@ A pinned CPU GGML shared bridge now schedules that frozen projection through
 Loaded GGML dependency hashes are bound in frozen evaluation. A8 and model
 hosting remain Python-side; GGUF tensor registration and native full-model
 dispatch remain open.
+The additional FP32 graph backend performs native dynamic A8 in the callback;
+instrumented full-text parity proves Python prepares only the one-token
+reference, not the production batch. The model is still Python-hosted and
+its callback-owned packed weights are not registered GGUF tensors.
 Running that same graph serially for two 128-value groups and applying distinct
 row/group scales outside the graph returned exact toy outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

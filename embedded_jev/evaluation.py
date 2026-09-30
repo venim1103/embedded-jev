@@ -118,7 +118,7 @@ def compare_dataset_cases(
         or not 1 <= len(case_ids) <= MAX_COMPARISON_CASES
         or any(not isinstance(case_id, str) or not case_id for case_id in case_ids)
         or len(set(case_ids)) != len(case_ids) or not native_library.is_file()
-        or native_backend not in ("direct", "prism_ggml")
+        or native_backend not in ("direct", "prism_ggml", "prism_ggml_f32")
     ):
         raise DecisionDatasetError("comparison requires 1-4 unique case IDs, an explicit split, and a native library")
     dataset, digest = load_decision_dataset(dataset_path)
@@ -188,7 +188,7 @@ def main() -> None:
     parser.add_argument("--split", choices=SPLITS, required=True)
     parser.add_argument("--case-ids", nargs="+", required=True)
     parser.add_argument("--native-library", type=Path, required=True)
-    parser.add_argument("--native-backend", choices=("direct", "prism_ggml"), default="direct")
+    parser.add_argument("--native-backend", choices=("direct", "prism_ggml", "prism_ggml_f32"), default="direct")
     parser.add_argument("--candidate", type=Path, required=True)
     args = parser.parse_args()
     print(json.dumps(compare_dataset_cases(

@@ -27,7 +27,7 @@ def native_backend_dependencies(library: Path, backend: str) -> dict:
     """Record actual dynamically loaded GGML dependencies for the graph bridge."""
     if backend == "direct":
         return {}
-    if backend != "prism_ggml":
+    if backend not in ("prism_ggml", "prism_ggml_f32"):
         raise InventoryError("unsupported native FFN-down backend")
     import ctypes
 
@@ -79,16 +79,20 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *,
         packed = np.ascontiguousarray(packed)
         origin = "saved_hash_checked_native_fixture"
     weight_scales = np.ascontiguousarray(scales.astype(np.float32))
-    if backend not in ("direct", "prism_ggml"):
+    if backend not in ("direct", "prism_ggml", "prism_ggml_f32"):
         raise InventoryError("unsupported native FFN-down backend")
-    symbol = "prism_bitnet_group_scale_matmul_avx2" if backend == "prism_ggml" else "bitnet_group_scale_matmul_avx2"
+    native_a8 = backend == "prism_ggml_f32"
+    symbol = (
+        "prism_bitnet_group_scale_matmul_f32" if native_a8 else
+        "prism_bitnet_group_scale_matmul_avx2" if backend == "prism_ggml" else "bitnet_group_scale_matmul_avx2"
+    )
     try:
         function = getattr(ctypes.CDLL(str(library)), symbol)
     except (OSError, AttributeError) as exc:
         raise InventoryError(f"unable to load native FFN-down backend {backend}: {exc}") from exc
     function.argtypes = [
         ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float) if native_a8 else ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
         ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
         ctypes.POINTER(ctypes.c_float),
     ]
@@ -97,7 +101,8 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *,
         "calls": 0, "max_native_reference_error": 0.0,
         "packed_bytes": packed.nbytes, "candidate_origin": origin,
         "bf16_projection_materialized": artifact is None,
-        "backend": backend, "graph_op": "map_custom2" if backend == "prism_ggml" else None,
+        "backend": backend, "graph_op": "map_custom2" if backend != "direct" else None,
+        "activation_preparation": "native_graph_callback" if native_a8 else "python",
         "backend_dependencies": native_backend_dependencies(library, backend),
     }
 
@@ -107,22 +112,28 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *,
                 raise InventoryError("native FFN-down received incompatible activations")
             shape = features.shape
             inputs = np.ascontiguousarray(features.detach().float().numpy().reshape(-1, 12288))
-            activations, activation_scales = quantize_a8_per_group(inputs)
-            activations = np.ascontiguousarray(activations)
-            activation_scales = np.ascontiguousarray(activation_scales)
+            if native_a8:
+                input_pointer = inputs.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+                scales_pointer = None
+            else:
+                activations, activation_scales = quantize_a8_per_group(inputs)
+                activations = np.ascontiguousarray(activations)
+                activation_scales = np.ascontiguousarray(activation_scales)
+                input_pointer = activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8))
+                scales_pointer = activation_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
             outputs = np.empty((inputs.shape[0], 4096), dtype=np.float32)
             status = function(
                 packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
                 weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-                activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
-                activation_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                input_pointer, scales_pointer,
                 inputs.shape[0], 4096, 96, outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
             )
             if status != 0 or not np.isfinite(outputs).all():
                 raise InventoryError(f"native FFN-down failed with status {status}")
-            last_codes = activations[-1].reshape(96, 128).astype(np.int32)
+            reference_codes, reference_scales = quantize_a8_per_group(inputs[-1:])
+            last_codes = reference_codes[0].reshape(96, 128).astype(np.int32)
             partial = np.einsum("rgi,gi->rg", grouped_codes.astype(np.int32), last_codes)
-            expected = (partial * weight_scales * activation_scales[-1]).sum(axis=1)
+            expected = (partial * weight_scales * reference_scales[0]).sum(axis=1)
             error = float(np.max(np.abs(outputs[-1] - expected)))
             if not np.isfinite(error) or error > 0.005:
                 raise InventoryError("native FFN-down disagrees with integer group reference")
@@ -288,7 +299,7 @@ def run_streamed_text(
         raise InventoryError("fixture path and case id must be provided together")
     if native_ffn_library is not None and (layers < 4 or not native_ffn_library.is_file()):
         raise InventoryError("native FFN-down requires four layers and an existing library")
-    if native_ffn_backend not in ("direct", "prism_ggml") or (native_ffn_backend != "direct" and native_ffn_library is None):
+    if native_ffn_backend not in ("direct", "prism_ggml", "prism_ggml_f32") or (native_ffn_backend != "direct" and native_ffn_library is None):
         raise InventoryError("native graph backend requires a supported mode and native library")
     if projection_artifact is not None and native_ffn_library is None:
         raise InventoryError("projection artifact requires the native FFN-down library")
@@ -544,7 +555,7 @@ def main() -> None:
     parser.add_argument("--calibration-output", type=Path)
     parser.add_argument("--case-id")
     parser.add_argument("--native-ffn-library", type=Path)
-    parser.add_argument("--native-ffn-backend", choices=("direct", "prism_ggml"), default="direct")
+    parser.add_argument("--native-ffn-backend", choices=("direct", "prism_ggml", "prism_ggml_f32"), default="direct")
     parser.add_argument("--projection-artifact", type=Path)
     parser.add_argument("--full-vocabulary-mass", action="store_true")
     args = parser.parse_args()

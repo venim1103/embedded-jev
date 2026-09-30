@@ -61,7 +61,7 @@ def native_dot(tmp_path_factory):
         ctypes.POINTER(ctypes.c_float),
     ]
     batch.restype = ctypes.c_int
-    return function, batch
+    return function, batch, binary.bitnet_group_scale_prepare_a8
 
 
 def pack_codes(codes):
@@ -124,6 +124,38 @@ def test_bitnet_layout_zero_compensation_and_row_dependent_scales(native_dot):
     np.testing.assert_array_equal(unpack_group128_codes(packed), codes)
     with pytest.raises(ValueError, match="invalid code"):
         unpack_group128_codes(np.full((1, 1, 32), 255, dtype=np.uint8))
+
+
+def test_native_a8_preparation_matches_python_rounding_and_scale_guards(native_dot):
+    prepare = native_dot[2]
+    prepare.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_size_t, ctypes.c_size_t,
+                        ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float)]
+    prepare.restype = ctypes.c_int
+    values = np.random.default_rng(886).normal(size=(2, 3, 128)).astype(np.float32)
+    values[0, 0] = 0
+    values[0, 1, :8] = [127, -127, 0.5, 1.5, 2.5, -0.5, -1.5, -2.5]
+    codes = np.empty_like(values, dtype=np.int8)
+    scales = np.empty(values.shape[:2], dtype=np.float32)
+    status = prepare(
+        values.ctypes.data_as(prepare.argtypes[0]), 2, 3,
+        codes.ctypes.data_as(prepare.argtypes[3]), scales.ctypes.data_as(prepare.argtypes[4]),
+    )
+    assert status == 0
+    expected_codes, expected_scales = quantize_a8_per_group(values.reshape(2, -1))
+    np.testing.assert_array_equal(codes.reshape(2, -1), expected_codes)
+    np.testing.assert_array_equal(scales, expected_scales)
+    for invalid in (np.nan, np.inf):
+        values[1, 2, 0] = invalid
+        assert prepare(values.ctypes.data_as(prepare.argtypes[0]), 2, 3,
+                       codes.ctypes.data_as(prepare.argtypes[3]), scales.ctypes.data_as(prepare.argtypes[4])) == 2
+    values.fill(np.nextafter(np.float32(0), np.float32(1)))
+    assert prepare(values.ctypes.data_as(prepare.argtypes[0]), 2, 3,
+                   codes.ctypes.data_as(prepare.argtypes[3]), scales.ctypes.data_as(prepare.argtypes[4])) == 2
+    codes.fill(11)
+    for tokens, groups in ((0, 3), (129, 3), (2, 97)):
+        assert prepare(values.ctypes.data_as(prepare.argtypes[0]), tokens, groups,
+                       codes.ctypes.data_as(prepare.argtypes[3]), scales.ctypes.data_as(prepare.argtypes[4])) == 1
+        np.testing.assert_array_equal(codes, 11)
 
 
 @pytest.mark.parametrize("groups", [32, 96])

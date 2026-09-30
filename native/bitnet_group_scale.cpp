@@ -1,5 +1,8 @@
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
+#include <cfenv>
+#include <cmath>
 #include <immintrin.h>
 #include <limits>
 
@@ -40,6 +43,37 @@ int32_t dot_group(const uint8_t* packed, const int8_t* activations) {
     return sum_lanes(_mm256_madd_epi16(signed_pairs, ones16));
 }
 
+}
+
+extern "C" int bitnet_group_scale_prepare_a8(
+    const float* inputs, std::size_t tokens, std::size_t groups,
+    int8_t* activations, float* activation_scales) {
+    if (!inputs || !activations || !activation_scales || tokens == 0 || tokens > 128 ||
+        groups == 0 || groups > 96 || std::fegetround() != FE_TONEAREST) {
+        return 1;
+    }
+    for (std::size_t token = 0; token < tokens; ++token) {
+        for (std::size_t group = 0; group < groups; ++group) {
+            const std::size_t offset = (token * groups + group) * kGroupSize;
+            float maximum = 0.0f;
+            for (std::size_t column = 0; column < kGroupSize; ++column) {
+                if (!std::isfinite(inputs[offset + column])) {
+                    return 2;
+                }
+                maximum = std::max(maximum, std::abs(inputs[offset + column]));
+            }
+            const float scale = maximum == 0.0f ? 1.0f : maximum / 127.0f;
+            if (!std::isfinite(scale) || scale <= 0.0f) {
+                return 2;
+            }
+            activation_scales[token * groups + group] = scale;
+            for (std::size_t column = 0; column < kGroupSize; ++column) {
+                activations[offset + column] = static_cast<int8_t>(std::clamp(
+                    std::nearbyint(inputs[offset + column] / scale), -127.0f, 127.0f));
+            }
+        }
+    }
+    return 0;
 }
 
 extern "C" int bitnet_group_scale_matvec_avx2(

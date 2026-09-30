@@ -371,6 +371,12 @@ GGML dependency paths/hashes are recorded and frozen by paired evaluation.
 This is one native graph-scheduled projection with Python-hosted model/A8
 preparation and callback-owned packed weights, not a registered GGUF format or
 whole-model native runtime. No new candidate or speed claim follows.
+A third `prism_ggml_f32` backend now performs production-batch A8 in the native
+GGML callback itself. Its codes/scales and final 32-layer selected scores
+match the direct and Python-prepared graph paths exactly. An instrumented
+test rejects Python preparation of that batch; only the one-token reference
+check remains Python-side. Frozen artifact/model hosting and format limits
+are unchanged, and no speed or quality claim follows.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

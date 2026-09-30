@@ -614,6 +614,23 @@ the Python caller; packed weights/scales are callback-owned, not model-loaded
 GGML weight tensors. No speedup, ARM support, calibrated confidence, or quality
 acceptance is established.
 
+A separate `--native-ffn-backend prism_ggml_f32` path now uploads FP32 FFN
+inputs and performs dynamic group-128 A8 **inside the native GGML callback**
+before invoking the BitNet-derived dot. Rebuild the bridge with the same
+command above. The evaluator also accepts `--native-backend prism_ggml_f32`.
+Native codes/scales match Python's nearest-even quantizer exactly on zero,
+half-way, and random inputs. Nonfinite and underflowing-scale inputs are
+rejected rather than assigned codes. Native preparation
+requires round-to-nearest mode and rejects unsupported dimensions or
+unrepresentable scales.
+
+Direct, Python-prepared GGML, and native-A8 GGML paths have identical real
+32-layer hidden hashes and selected scores for the frozen projection. The
+opt-in graph test forbids Python A8 preparation of the production token batch;
+only a one-token portable diagnostic reference remains Python-side. This
+extends the one-projection native boundary without moving model hosting,
+tokenization, or saved-weight ownership into a registered GGUF runtime.
+
 ## Single-Projection Native Fixture
 
 One searched-FP16 group-128 layer-3 FFN-down candidate is retained under
