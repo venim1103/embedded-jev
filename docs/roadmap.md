@@ -42,6 +42,9 @@ Split-aware dataset loading now requires declared source/license, calibration,
 validation, and held-out partitions, with case/group/equivalent-prompt leakage
 checks and explicit split selection at scoring time. Its end-to-end test uses
 synthetic cases; a representative dataset and quality target remain open.
+The calibration split alone can export a bounded, hashed, unrotated FFN input
+array; validation and held-out captures are refused before model loading.
+Temporary synthetic capture parity passes, not representative calibration.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

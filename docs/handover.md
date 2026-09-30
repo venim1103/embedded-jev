@@ -315,6 +315,12 @@ streamed scorer requires an explicit split and retains its digest and purpose;
 it never relabels the existing synthetic fixture as representative data.
 The dataset-to-32-layer smoke passes using temporary synthetic split data.
 Real calibration/holdout cases are still absent; scoring performs no tuning.
+The dataset path can now save the actual layer-3 FFN-down input in a bounded
+calibration-only array plus digest/provenance manifest. Evaluation splits and
+native substitutions cannot request captures; the writer checks the original
+dataset digest again before saving. A real-prefix temporary capture reproduces
+the model's activation hash exactly, but retains its synthetic-smoke purpose.
+No representative activations or additional quantized candidate were created.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

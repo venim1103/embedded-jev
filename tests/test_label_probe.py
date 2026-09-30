@@ -295,3 +295,99 @@ def test_split_dataset_rejects_invalid_or_oversized_schema(tmp_path, defect):
     path.write_text(payload)
     with pytest.raises(DecisionDatasetError):
         load_decision_dataset(path)
+
+
+def test_calibration_capture_roundtrip_and_rejects_other_splits(tmp_path):
+    import numpy as np
+
+    from embedded_jev.decision_dataset import (
+        DecisionDatasetError, load_calibration_capture, load_decision_dataset, save_calibration_capture,
+    )
+
+    dataset_path = tmp_path / "decisions.json"
+    dataset_path.write_text(json.dumps(split_dataset_smoke()))
+    _, digest = load_decision_dataset(dataset_path)
+    values = np.random.default_rng(12).normal(size=(2, 12288)).astype(np.float32)
+    directory = tmp_path / "capture"
+    manifest = save_calibration_capture(
+        directory, values, dataset_path=dataset_path, dataset_sha256=digest, case_id="inspect-before-answer",
+    )
+    loaded, reloaded = load_calibration_capture(directory)
+    np.testing.assert_array_equal(loaded, values)
+    assert reloaded == manifest and loaded.flags.writeable is False
+    assert manifest["dataset"]["purpose"] == "synthetic_split_contract_smoke"
+    assert manifest["dataset"]["split"] == "calibration"
+    for case_id in ("edit-authorized", "publish-without-authorization"):
+        with pytest.raises(DecisionDatasetError, match="requested split"):
+            save_calibration_capture(
+                tmp_path / case_id, values, dataset_path=dataset_path, dataset_sha256=digest, case_id=case_id,
+            )
+        assert not (tmp_path / case_id).exists()
+    with pytest.raises(DecisionDatasetError, match="already exists"):
+        save_calibration_capture(
+            directory, values, dataset_path=dataset_path, dataset_sha256=digest, case_id="inspect-before-answer",
+        )
+    with (directory / "activations.npy").open("r+b") as destination:
+        destination.seek(-1, 2)
+        original = destination.read(1)
+        destination.seek(-1, 2)
+        destination.write(bytes([original[0] ^ 1]))
+    with pytest.raises(DecisionDatasetError, match="hash mismatch"):
+        load_calibration_capture(directory)
+    changed = split_dataset_smoke()
+    changed["provenance"]["source"] = "changed corpus"
+    dataset_path.write_text(json.dumps(changed))
+    with pytest.raises(DecisionDatasetError, match="dataset changed"):
+        save_calibration_capture(
+            tmp_path / "changed", values, dataset_path=dataset_path,
+            dataset_sha256=digest, case_id="inspect-before-answer",
+        )
+    assert not (tmp_path / "changed").exists()
+
+
+def test_streamed_capture_refuses_validation_and_held_out_before_model_import(tmp_path):
+    from embedded_jev.inventory import InventoryError
+    from embedded_jev.streamed_text import run_streamed_text
+
+    for split in ("validation", "held_out"):
+        with pytest.raises(InventoryError, match="BF16 calibration split"):
+            run_streamed_text(
+                None, layers=4, prompt="unused", dataset_path=tmp_path / "decisions.json",
+                split=split, case_id="example", calibration_output=tmp_path / "capture",
+            )
+
+
+@pytest.mark.parametrize("defect", ["version", "split", "shape", "size", "pickle"])
+def test_calibration_capture_rejects_unsafe_manifest_or_arrays(tmp_path, defect):
+    import hashlib
+
+    import numpy as np
+
+    from embedded_jev.decision_dataset import (
+        DecisionDatasetError, load_calibration_capture, load_decision_dataset, save_calibration_capture,
+    )
+
+    dataset_path = tmp_path / "decisions.json"
+    dataset_path.write_text(json.dumps(split_dataset_smoke()))
+    _, digest = load_decision_dataset(dataset_path)
+    directory = tmp_path / "capture"
+    manifest = save_calibration_capture(
+        directory, np.ones((2, 12288), dtype=np.float32), dataset_path=dataset_path,
+        dataset_sha256=digest, case_id="inspect-before-answer",
+    )
+    if defect == "version":
+        manifest["schema_version"] = True
+    elif defect == "split":
+        manifest["dataset"]["split"] = "held_out"
+    elif defect == "shape":
+        manifest["shape"] = [129, 12288]
+    elif defect == "size":
+        with (directory / "activations.npy").open("r+b") as destination:
+            destination.truncate(manifest["array"]["bytes"] + 1)
+    else:
+        np.save(directory / "activations.npy", np.array([object()], dtype=object), allow_pickle=True)
+        array_bytes = (directory / "activations.npy").read_bytes()
+        manifest["array"] = {"bytes": len(array_bytes), "sha256": hashlib.sha256(array_bytes).hexdigest()}
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(DecisionDatasetError):
+        load_calibration_capture(directory)

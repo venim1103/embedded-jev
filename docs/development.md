@@ -355,6 +355,28 @@ typed conditional option scores. Scoring does not tune weights or scales.
 The gated `MIMO_DATASET_TEST=1` test exercises this path using a temporary
 split of the existing synthetic cases; it is not held-out quality evidence.
 
+For a calibration-only FFN input capture, use an unused output directory whose
+parent exists:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$snapshot" --layers 4 --dataset "$dataset" \
+   --split calibration --case-id calibration-case \
+   --calibration-output "$capture"
+```
+
+Only a BF16 run with at least four layers may capture inputs. Validation and
+held-out splits are rejected before model imports; the writer also resolves
+the case strictly from calibration. At most 128 x 12,288 float32 values are
+saved in a non-pickle NumPy array, accompanied by a hashed provenance manifest.
+The dataset digest must still match the pre-inference digest before writing.
+Reload is read-only and checks byte sizes, hash, dtype, shape, finiteness, and
+calibration role. Existing captures are not overwritten. Synthetic captures
+retain their synthetic purpose and cannot establish representativeness merely
+because model weights produced their activations. The opt-in dataset test
+checks exact activation-byte parity using a temporary synthetic capture.
+
 ## In-Memory Native FFN Substitution
 
 The streamed BF16 text path can replace **only** layer 3's FFN-down matmul

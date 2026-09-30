@@ -1,5 +1,6 @@
 """Opt-in prefix execution against the pinned local MiMo BF16 snapshot."""
 
+import hashlib
 import json
 import math
 import os
@@ -206,6 +207,28 @@ def test_streamed_dataset_preserves_split_and_synthetic_provenance(tmp_path):
     assert report["decision"]["chosen_option_id"] == "ask"
     assert report["selected_head"]["head_payload_bytes"] == 24576
     assert "fixture" not in report
+    assert "calibration_capture" not in report
+
+    capture_dir = tmp_path / "calibration-activations"
+    capture_result = subprocess.run(
+        [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+         "--layers", "4", "--dataset", str(path), "--split", "calibration",
+         "--case-id", "inspect-before-answer", "--calibration-output", str(capture_dir)],
+        env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+             "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"},
+        check=True, capture_output=True, text=True, timeout=180,
+    )
+    captured = json.loads(capture_result.stdout)
+    from embedded_jev.decision_dataset import load_calibration_capture
+
+    values, manifest = load_calibration_capture(capture_dir)
+    assert list(values.shape) == [captured["tokens"], 12288]
+    assert manifest["dataset"]["sha256"] == report["dataset"]["sha256"]
+    assert manifest["dataset"]["split"] == "calibration"
+    assert manifest["dataset"]["purpose"] == "synthetic_split_contract_smoke"
+    assert captured["calibration_capture"]["manifest"] == manifest
+    assert hashlib.sha256(values.tobytes()).hexdigest() == captured["ffn_down_input_sha256"]
+    assert captured["generated_tokens"] == 0
 
 
 @pytest.mark.skipif(

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from embedded_jev.decision_dataset import SPLITS, load_decision_dataset
+from embedded_jev.decision_dataset import SPLITS, load_decision_dataset, save_calibration_capture
 from embedded_jev.dense_probe import MAX_PREFIX_TOKENS, plan_streamed_text
 from embedded_jev.inventory import InventoryError, _json_object, build_inventory, read_local_headers
 from embedded_jev.label_probe import (
@@ -237,6 +237,7 @@ def run_streamed_text(
     projection_artifact: Path | None = None,
     dataset_path: Path | None = None,
     split: str | None = None,
+    calibration_output: Path | None = None,
 ) -> dict:
     """Execute at most one verified BF16 decoder layer at a time on CPU."""
     if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
@@ -255,6 +256,11 @@ def run_streamed_text(
         raise InventoryError("projection artifact requires the native FFN-down library")
     if full_vocabulary_mass and layers != 32:
         raise InventoryError("full-vocabulary mass requires all 32 text layers")
+    if calibration_output is not None:
+        if dataset_path is None or split != "calibration" or layers < 4 or native_ffn_library is not None:
+            raise InventoryError("activation capture requires a BF16 calibration split and at least four layers")
+        if calibration_output.exists():
+            raise InventoryError("calibration capture already exists")
     import torch
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
@@ -416,6 +422,12 @@ def run_streamed_text(
         if len(captured) != 1 or tuple(captured[0].shape) != (1, input_ids.shape[1], 12288):
             raise InventoryError("missing streamed FFN-down input")
         summary["ffn_down_input_sha256"] = hashlib.sha256(captured[0].numpy().tobytes()).hexdigest()
+    if calibration_output is not None:
+        capture_manifest = save_calibration_capture(
+            calibration_output, captured[0].numpy().reshape(-1, 12288),
+            dataset_path=dataset_path, dataset_sha256=dataset_digest, case_id=case_id,
+        )
+        summary["calibration_capture"] = {"path": str(calibration_output), "manifest": capture_manifest}
     if native_diagnostics is not None:
         if native_diagnostics["calls"] != 1:
             raise InventoryError("native FFN-down was not executed exactly once")
@@ -482,6 +494,7 @@ def main() -> None:
     parser.add_argument("--fixture", type=Path)
     parser.add_argument("--dataset", type=Path)
     parser.add_argument("--split", choices=SPLITS)
+    parser.add_argument("--calibration-output", type=Path)
     parser.add_argument("--case-id")
     parser.add_argument("--native-ffn-library", type=Path)
     parser.add_argument("--projection-artifact", type=Path)
@@ -495,6 +508,7 @@ def main() -> None:
         projection_artifact=args.projection_artifact,
         dataset_path=args.dataset,
         split=args.split,
+        calibration_output=args.calibration_output,
     ), sort_keys=True))
 
 
