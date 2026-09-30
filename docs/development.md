@@ -650,6 +650,33 @@ does not accept this freshly built rotated policy as the saved identity
 candidate. No rotated artifact was retained or promoted; the one saved RTN
 fixture is unchanged.
 
+## Native PQ2 Codec Control
+
+A separate ternary-subset codec converts signed codes and FP16 group scales
+to the pinned Prism `PQ2_0` layout: 128 values per 34-byte block, two bytes
+of little-endian scale followed by adjacent low-bit-first 2-bit codes.
+This is **not** the existing BitNet fixture's high-bit-first separated-lane
+packing. Codes retain {-1,0,+1}; native PQ2's additional +2 code is rejected
+by this subset converter rather than silently treated as ternary.
+
+Golden bytes and scale/code roundtrips pass. The actual pinned
+`dequantize_row_pq2_0` reconstructs every value of the frozen 4,096 x 12,288
+projection exactly after in-memory conversion. A genuine `GGML_TYPE_PQ2_0`
+tensor and `GGML_OP_MUL_MAT` also match the portable reconstructed-weight
+control for two exactly representable input columns across all 4,096 rows.
+For non-256-divisible widths, the native operator uses Q8_0 activation blocks
+with FP16 scale rounding; other widths use Q8_K. The 256/384-input fixtures
+therefore compare against actual native activation quantizer/decoder oracles,
+not unrounded inputs. This is a different activation contract from our
+per-token/group-128 A8 callback.
+
+Set `MIMO_PQ2_CODEC_TEST=1` and `MIMO_PROJECTION_ARTIFACT` alongside the pinned
+Prism source/library variables to extend the optional tests to the real
+projection decoder and controlled native tensor operation. No converted
+representation is written, no full GGUF or loader parity is established,
+and this control uses Prism's PQ2 implementation, **not BitNet dispatch**.
+It is a storage/operator compatibility step, not the ternary decision engine.
+
 ## Single-Projection Native Fixture
 
 One searched-FP16 group-128 layer-3 FFN-down candidate is retained under

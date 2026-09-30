@@ -219,6 +219,11 @@ Matching native sign/FWHT/A8 and Python weight rotation also pass a reversible
 in-memory one-projection smoke, with dense pre-rounding probe equivalence.
 The identity saved fixture cannot be used under the rotated policy; no rotated
 artifact or quality-policy promotion is established.
+Separate pinned PQ2_0 codec conversion preserves every frozen ternary value
+and FP16 scale exactly, and controlled native tensor/MUL_MAT parity passes.
+Its Q8_0/Q8_K activation contract and Prism implementation are distinct from
+BitNet-derived group-128 A8. Full GGUF loader integration and genuine BitNet
+dispatch for a registered weight tensor remain open.
 Running that same graph serially for two 128-value groups and applying distinct
 row/group scales outside the graph returned exact toy outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

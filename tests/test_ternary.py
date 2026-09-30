@@ -173,6 +173,26 @@ def test_block_diagonal_compensation_has_explicit_batch_and_width_limits(rows, w
         quantize_block_diagonal_compensated(np.ones((rows, width)), np.ones((tokens, width)))
 
 
+def test_pq2_ternary_subset_golden_layout_and_exact_group_scales():
+    from embedded_jev.prism_codec import pack_ternary_pq2_0, unpack_ternary_pq2_0
+
+    codes = np.zeros((2, 2, 128), dtype=np.int8)
+    codes[0, 0, :4] = [-1, 0, 1, 0]
+    codes[0, 1, :] = -1
+    codes[1, 0, :] = 1
+    scales = np.array([[0.5, 1.25], [2.0, 0.0]], dtype=np.float16)
+    blocks = pack_ternary_pq2_0(codes, scales)
+    assert blocks.shape == (2, 2, 34)
+    assert blocks[0, 0, :3].tolist() == [0, 56, 0x64]
+    assert blocks[0, 0, 3:].tolist() == [0x55] * 31
+    restored_codes, restored_scales = unpack_ternary_pq2_0(blocks)
+    np.testing.assert_array_equal(restored_codes, codes)
+    np.testing.assert_array_equal(restored_scales.view(np.uint16), scales.view(np.uint16))
+    blocks[0, 0, 2] |= 3
+    with pytest.raises(ValueError, match="outside the ternary subset"):
+        unpack_ternary_pq2_0(blocks)
+
+
 @pytest.mark.parametrize(
     ("weights", "inputs", "options"),
     [

@@ -193,3 +193,45 @@ extern "C" int prism_bitnet_group_scale_matmul_hadamard128(
     }
     return run_grouped_graph(packed, weight_scales, inputs, nullptr, tokens, rows, groups, output, true, signs);
 }
+
+extern "C" int prism_pq2_tensor_matmul(
+    const uint8_t* pq2_blocks, const float* inputs, std::size_t tokens,
+    std::size_t rows, std::size_t groups, float* output) {
+    if (!pq2_blocks || !inputs || !output || tokens == 0 || tokens > 128 ||
+        rows == 0 || rows > 4096 || groups == 0 || groups > 96) {
+        return 1;
+    }
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+    if (!context) {
+        return 2;
+    }
+    ggml_tensor* weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, groups * 128, rows);
+    ggml_tensor* input = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, groups * 128, tokens);
+    ggml_tensor* result = ggml_mul_mat(context.get(), weight, input);
+    if (result->op != GGML_OP_MUL_MAT || ggml_nbytes(weight) != rows * groups * 34) {
+        return 3;
+    }
+    ggml_set_input(weight);
+    ggml_set_input(input);
+    ggml_set_output(result);
+    ggml_cgraph* graph = ggml_new_graph(context.get());
+    ggml_build_forward_expand(graph, result);
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
+    if (!backend) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+        ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+    if (!allocator || !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+        return 2;
+    }
+    ggml_backend_tensor_set(weight, pq2_blocks, 0, rows * groups * 34);
+    ggml_backend_tensor_set(input, inputs, 0, tokens * groups * 128 * sizeof(float));
+    if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+        return 3;
+    }
+    ggml_backend_tensor_get(result, output, 0, rows * tokens * sizeof(float));
+    return 0;
+}

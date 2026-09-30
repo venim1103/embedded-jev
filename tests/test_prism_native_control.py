@@ -207,6 +207,59 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         pointers[0], pointers[1], inputs.ctypes.data_as(float_arguments[2]), None,
         2, 5, 3, actual.ctypes.data_as(arguments[-1]), signs.ctypes.data_as(rotated_graph.argtypes[-1]),
     ) == 1
+    from embedded_jev.prism_codec import pack_ternary_pq2_0
+    from embedded_jev.ternary import reconstruct_ternary
+
+    pq2 = native.prism_pq2_tensor_matmul
+    pq2.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
+                    ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float)]
+    pq2.restype = ctypes.c_int
+    for groups in (2, 3):
+        codes = generator.integers(-1, 2, size=(5, groups, 128), dtype=np.int8)
+        fp16_scales = generator.uniform(0.01, 1.0, size=(5, groups)).astype(np.float16)
+        pq2_blocks = pack_ternary_pq2_0(codes, fp16_scales)
+        inputs = np.ones((2, groups * 128), dtype=np.float32)
+        inputs[1] *= -2
+        base = ctypes.CDLL(str(library_dir / "libggml-base.so"))
+        suffix = "q8_K" if groups % 2 == 0 else "q8_0"
+        quantizer = getattr(base, f"quantize_row_{suffix}_ref")
+        decoder = getattr(base, f"dequantize_row_{suffix}")
+        quantizer.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_void_p, ctypes.c_int64]
+        quantizer.restype = None
+        decoder.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_int64]
+        decoder.restype = None
+        block_width, block_bytes = (256, 292) if suffix == "q8_K" else (32, 34)
+        restored_inputs = np.empty_like(inputs)
+        for token in range(2):
+            encoded = np.empty(inputs.shape[1] // block_width * block_bytes, dtype=np.uint8)
+            quantizer(inputs[token].ctypes.data_as(quantizer.argtypes[0]), encoded.ctypes.data, inputs.shape[1])
+            decoder(encoded.ctypes.data, restored_inputs[token].ctypes.data_as(decoder.argtypes[1]), inputs.shape[1])
+        expected = restored_inputs @ reconstruct_ternary(codes.reshape(5, -1), fp16_scales).T
+        actual = np.empty_like(expected)
+        assert pq2(pq2_blocks.ctypes.data_as(pq2.argtypes[0]), inputs.ctypes.data_as(pq2.argtypes[1]),
+                   2, 5, groups, actual.ctypes.data_as(pq2.argtypes[-1])) == 0
+        np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=1e-5)
+    if os.environ.get("MIMO_PQ2_CODEC_TEST") == "1":
+        from embedded_jev.projection_artifact import load_projection_artifact
+        from embedded_jev.ternary import unpack_group128_codes
+
+        artifact = os.environ.get("MIMO_PROJECTION_ARTIFACT")
+        if not artifact:
+            pytest.fail("set MIMO_PROJECTION_ARTIFACT for native full-size PQ2 tensor control")
+        stored_packed, stored_scales, manifest = load_projection_artifact(Path(artifact))
+        assert manifest["shape"] == [4096, 12288]
+        stored_codes = unpack_group128_codes(stored_packed)
+        pq2_blocks = pack_ternary_pq2_0(stored_codes, stored_scales)
+        inputs = np.ones((2, 12288), dtype=np.float32)
+        inputs[1] *= -2
+        actual = np.empty((2, 4096), dtype=np.float32)
+        assert pq2(pq2_blocks.ctypes.data_as(pq2.argtypes[0]), inputs.ctypes.data_as(pq2.argtypes[1]),
+                   2, 4096, 96, actual.ctypes.data_as(pq2.argtypes[-1])) == 0
+        expected = np.empty_like(actual)
+        for first in range(0, 4096, 64):
+            decoded_weights = reconstruct_ternary(stored_codes[first:first + 64].reshape(-1, 12288), stored_scales[first:first + 64])
+            expected[:, first:first + 64] = inputs @ decoded_weights.T
+        np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=1e-5)
     if os.environ.get("MIMO_PRISM_GRAPH_TEST") == "1":
         interpreter = os.environ.get("MIMO_DENSE_PYTHON")
         local_dir = os.environ.get("MIMO_LOCAL_DIR")
@@ -270,6 +323,66 @@ with patch.object(activation, "quantize_a8_per_group", reference_only):
             assert execution["activation_preparation"] == "native_graph_callback"
             assert rotated["ffn_down_input_sha256"] == direct_report["ffn_down_input_sha256"]
             assert rotated["generated_tokens"] == 0 and set(rotated["selected_head"]["options"]) == {"A", "B"}
+
+
+def test_pinned_prism_pq2_ternary_subset_matches_actual_decoder():
+    import ctypes
+
+    import numpy as np
+
+    from embedded_jev.prism_codec import pack_ternary_pq2_0
+    from embedded_jev.ternary import reconstruct_ternary
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    library_name = os.environ.get("PRISM_GGML_CPU_LIBRARY")
+    if not source_dir or not library_name:
+        pytest.skip("requires pinned Prism source and native GGML base library")
+    assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    binary = ctypes.CDLL(str(Path(library_name).parent / "libggml-base.so"))
+
+    class InitParams(ctypes.Structure):
+        _fields_ = [("mem_size", ctypes.c_size_t), ("mem_buffer", ctypes.c_void_p), ("no_alloc", ctypes.c_bool)]
+
+    binary.ggml_init.argtypes = [InitParams]
+    binary.ggml_init.restype = ctypes.c_void_p
+    binary.ggml_free.argtypes = [ctypes.c_void_p]
+    decoder = binary.dequantize_row_pq2_0
+    decoder.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_int64]
+    decoder.restype = None
+    context = binary.ggml_init(InitParams(1 << 20, None, True))
+    assert context
+    try:
+        generator = np.random.default_rng(885)
+        codes = generator.integers(-1, 2, size=(3, 3, 128), dtype=np.int8)
+        scales = generator.uniform(0.01, 2.0, size=(3, 3)).astype(np.float16)
+        scales[0, 0] = 0
+        codes[0, 0] = 0
+        blocks = pack_ternary_pq2_0(codes, scales)
+        expected = reconstruct_ternary(codes.reshape(3, 384), scales)
+        actual = np.empty_like(expected)
+        for row in range(3):
+            decoder(blocks[row].ctypes.data, actual[row].ctypes.data_as(decoder.argtypes[1]), 384)
+        np.testing.assert_array_equal(actual, expected)
+        if os.environ.get("MIMO_PQ2_CODEC_TEST") == "1":
+            from embedded_jev.projection_artifact import load_projection_artifact
+            from embedded_jev.ternary import unpack_group128_codes
+
+            artifact = os.environ.get("MIMO_PROJECTION_ARTIFACT")
+            if not artifact:
+                pytest.fail("set MIMO_PROJECTION_ARTIFACT for actual frozen-projection PQ2 decoder parity")
+            packed, stored_scales, manifest = load_projection_artifact(Path(artifact))
+            assert manifest["shape"] == [4096, 12288]
+            native_codes = unpack_group128_codes(packed)
+            blocks = pack_ternary_pq2_0(native_codes, stored_scales)
+            assert blocks.nbytes == 4096 * 96 * 34
+            for first in range(0, 4096, 64):
+                expected = reconstruct_ternary(native_codes[first:first + 64].reshape(-1, 12288), stored_scales[first:first + 64])
+                actual = np.empty_like(expected)
+                for offset in range(actual.shape[0]):
+                    decoder(blocks[first + offset].ctypes.data, actual[offset].ctypes.data_as(decoder.argtypes[1]), 12288)
+                np.testing.assert_array_equal(actual, expected)
+    finally:
+        binary.ggml_free(context)
 
 
 def test_pinned_prism_qwen35_filter_and_ssm_bias_map_mimo_text_names():

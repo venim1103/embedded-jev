@@ -134,6 +134,12 @@ graph paths have identical selected scores and final hidden hashes. Its
 actual loaded GGML base/CPU library paths and hashes are recorded. This is
 not registered model-loadable tensor/codec evidence or a native whole-model
 inference result.
+A pinned PQ2_0 control additionally uses the actual native decoder and
+native tensor/MUL_MAT implementation: the full frozen projection decodes
+exactly after separate byte conversion. Low-bit-first adjacent packing and
+Q8_0/Q8_K activation dispatch were checked in the pinned source. This is
+Prism codec/operator evidence only; it does not establish BitNet tensor
+dispatch or a complete MiMo GGUF load path.
 No MiMo model, converter, native low-bit GGUF tensor, or Qwen3.5 model hook was
 loaded or validated.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact

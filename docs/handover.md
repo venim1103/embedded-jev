@@ -383,6 +383,13 @@ Identity artifacts are refused on that path. A four-row dense FP32 probe
 passes before rounding, and the 32-layer/public validation smoke remains
 finite, zero-generation, and native-reference consistent. The public case
 still selects `calories`; no quality promotion or rotated artifact followed.
+A separate native codec control now proves that the frozen signed codes and
+FP16 scales convert exactly to pinned PQ2_0 bytes (different packing order
+from BitNet). Every full-projection native-decoded weight matches exactly,
+and a real PQ2 tensor/MUL_MAT matches controlled activation oracles. Native
+Q8_0/Q8_K preparation differs from our group-128 A8 contract. No conversion
+file or second candidate was saved, and this is Prism PQ2 dispatch, not
+BitNet dispatch or full GGUF/model-loader compatibility.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered
