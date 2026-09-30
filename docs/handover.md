@@ -305,6 +305,9 @@ FP32 numerator/denominator inconsistency in full-vocabulary mass, and missing
 native dimension/output-byte overflow guards. The staged-prefix regression
 now compares directly with the normal Transformers forward. The cached
 candidate's bytes and its unrotated searched-scale policy were not changed.
+The saved-projection path now bypasses BF16 FFN-down tensor materialization;
+an instrumented full-model regression rejects any attempt to load that source
+tensor and confirms identical saved/fresh final hidden hashes and option scores.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

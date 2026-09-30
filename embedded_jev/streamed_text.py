@@ -33,9 +33,9 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None):
         pack_group128_codes, quantize_ternary_rtn, unpack_group128_codes,
     )
 
-    if tuple(weight.shape) != (4096, 12288) or weight.dtype != torch.bfloat16:
-        raise InventoryError("native FFN-down requires the pinned BF16 projection")
     if artifact is None:
+        if weight is None or tuple(weight.shape) != (4096, 12288) or weight.dtype != torch.bfloat16:
+            raise InventoryError("native FFN-down requires the pinned BF16 projection")
         codes, scales = quantize_ternary_rtn(weight.detach().float().cpu().numpy(), scale_search=True)
         grouped_codes = codes.reshape(4096, 96, 128)
         packed = np.ascontiguousarray(pack_group128_codes(grouped_codes))
@@ -63,6 +63,7 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None):
     diagnostics = {
         "calls": 0, "max_native_reference_error": 0.0,
         "packed_bytes": packed.nbytes, "candidate_origin": origin,
+        "bf16_projection_materialized": artifact is None,
     }
 
     class NativeFFNDown(torch.nn.Module):
@@ -328,20 +329,24 @@ def run_streamed_text(
             for name, _ in model.layers[layer_index].named_parameters(prefix=f"layers.{layer_index}")
         }:
             raise InventoryError(f"layer {layer_index} parameter names disagree with pinned checkpoint")
-        materialize(names)
+        selected_names = names
+        if layer_index == 3 and projection_artifact is not None:
+            selected_names = [name for name in names if not name.endswith(".mlp.down_proj.weight")]
+        materialize(selected_names)
         decoder = model.layers[layer_index]
-        if any(parameter.is_meta or parameter.dtype != torch.bfloat16 for parameter in decoder.parameters()):
-            raise InventoryError(f"incomplete BF16 layer {layer_index} materialization")
         if layer_index == 3:
             if native_ffn_library is not None:
                 decoder.mlp.down_proj, native_diagnostics = make_native_ffn_down(
-                    decoder.mlp.down_proj.weight, native_ffn_library, projection_artifact,
+                    None if projection_artifact is not None else decoder.mlp.down_proj.weight,
+                    native_ffn_library, projection_artifact,
                 )
 
             def capture_ffn_input(_module, args):
                 captured.append(args[0].detach().float().cpu().clone())
 
             hook = decoder.mlp.down_proj.register_forward_pre_hook(capture_ffn_input)
+        if any(parameter.is_meta or parameter.dtype != torch.bfloat16 for parameter in decoder.parameters()):
+            raise InventoryError(f"incomplete BF16 layer {layer_index} materialization")
         layer_mask = linear_mask if plan["layer_types"][layer_index] == "linear_attention" else causal_mask
         with torch.inference_mode():
             hidden = decoder(

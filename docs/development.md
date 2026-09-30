@@ -391,7 +391,12 @@ MIMO_IN_MODEL_NATIVE_TEST=1 MIMO_PROJECTION_ARTIFACT="$candidate" \
 The full 32-layer saved-candidate output hash and A/B scores exactly match
 fresh in-memory RTN, with the same native/integer reference parity. The
 manifest and arrays are size/hash checked; invalid packed trits are rejected
-even if array hashes are recomputed. No approved group-scale GGUF codec or
+even if array hashes are recomputed. A saved-candidate run omits the
+100,663,296-byte BF16 FFN-down tensor from materialization and builds that
+module directly from packed codes/scales. Its optional regression test forbids
+the corresponding safetensors `get_tensor` call and still requires exact
+saved/fresh hidden hashes and selected scores. Other model weights and
+source-header checks remain unchanged. No approved group-scale GGUF codec or
 model loader can consume this fixture directly, and its one-prompt score
 parity is not a quantization quality gate.
 

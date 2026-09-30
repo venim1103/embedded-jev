@@ -209,6 +209,7 @@ def test_streamed_text_substitutes_one_bitnet_derived_ffn(tmp_path):
     assert "native_ffn_down" not in dense
     assert native["native_ffn_down"]["calls"] == 1
     assert native["native_ffn_down"]["packed_bytes"] == 12582912
+    assert native["native_ffn_down"]["bf16_projection_materialized"] is True
     assert native["native_ffn_down"]["max_native_reference_error"] < 1e-4
     for report in reports:
         options = report["selected_head"]["options"]
@@ -229,12 +230,38 @@ def test_streamed_text_substitutes_one_bitnet_derived_ffn(tmp_path):
         if not Path(artifact).is_dir():
             pytest.fail("MIMO_PROJECTION_ARTIFACT must point to the saved native fixture")
         saved_command = [argument for argument in command if argument != "--full-vocabulary-mass"]
+        checked_loader = """
+import runpy
+from unittest.mock import patch
+import safetensors
+
+original = safetensors.safe_open
+class CheckedReader:
+    def __init__(self, *args, **kwargs):
+        self.context = original(*args, **kwargs)
+    def __enter__(self):
+        self.reader = self.context.__enter__()
+        return self
+    def __exit__(self, *args):
+        return self.context.__exit__(*args)
+    def get_tensor(self, name):
+        if name == "model.language_model.layers.3.mlp.down_proj.weight":
+            raise AssertionError("saved candidate unnecessarily loaded its BF16 source projection")
+        return self.reader.get_tensor(name)
+    def __getattr__(self, name):
+        return getattr(self.reader, name)
+
+with patch("safetensors.safe_open", CheckedReader):
+    runpy.run_module("embedded_jev.streamed_text", run_name="__main__")
+"""
         saved_result = subprocess.run(
-            saved_command + ["--native-ffn-library", str(library), "--projection-artifact", artifact],
+            [interpreter, "-c", checked_loader] + saved_command[3:]
+            + ["--native-ffn-library", str(library), "--projection-artifact", artifact],
             env=environment, check=True, capture_output=True, text=True, timeout=180,
         )
         saved = json.loads(saved_result.stdout)
         assert saved["native_ffn_down"]["candidate_origin"] == "saved_hash_checked_native_fixture"
+        assert saved["native_ffn_down"]["bf16_projection_materialized"] is False
         assert saved["native_ffn_down"]["max_native_reference_error"] < 1e-4
         assert saved["ffn_down_input_sha256"] == native["ffn_down_input_sha256"]
         assert saved["last_token_sha256"] == native["last_token_sha256"]
