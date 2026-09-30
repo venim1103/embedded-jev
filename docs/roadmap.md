@@ -38,6 +38,10 @@ not representative calibration or a quality gate.
 The five synthetic agent/tool cases also yielded typed A-C conditional scores
 and expected option IDs in an engineering smoke, including option reordering;
 this must not be reported as dense task accuracy on held-out data.
+Split-aware dataset loading now requires declared source/license, calibration,
+validation, and held-out partitions, with case/group/equivalent-prompt leakage
+checks and explicit split selection at scoring time. Its end-to-end test uses
+synthetic cases; a representative dataset and quality target remain open.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

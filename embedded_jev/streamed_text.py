@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from embedded_jev.decision_dataset import SPLITS, load_decision_dataset
 from embedded_jev.dense_probe import MAX_PREFIX_TOKENS, plan_streamed_text
 from embedded_jev.inventory import InventoryError, _json_object, build_inventory, read_local_headers
 from embedded_jev.label_probe import (
@@ -234,11 +235,19 @@ def run_streamed_text(
     native_ffn_library: Path | None = None,
     full_vocabulary_mass: bool = False,
     projection_artifact: Path | None = None,
+    dataset_path: Path | None = None,
+    split: str | None = None,
 ) -> dict:
     """Execute at most one verified BF16 decoder layer at a time on CPU."""
     if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
         raise InventoryError("selected label count must be between 2 and 16")
-    if (fixture_path is None) != (case_id is None):
+    if dataset_path is not None and fixture_path is not None:
+        raise InventoryError("choose either a decision dataset or a synthetic fixture")
+    if (dataset_path is None) != (split is None):
+        raise InventoryError("decision dataset requires an explicit split")
+    if dataset_path is not None and (split not in SPLITS or case_id is None):
+        raise InventoryError("decision dataset requires a valid split and case id")
+    if dataset_path is None and (fixture_path is None) != (case_id is None):
         raise InventoryError("fixture path and case id must be provided together")
     if native_ffn_library is not None and (layers < 4 or not native_ffn_library.is_file()):
         raise InventoryError("native FFN-down requires four layers and an existing library")
@@ -260,16 +269,22 @@ def run_streamed_text(
     config = AutoConfig.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
     tokenizer = AutoTokenizer.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
     fixture_case = None
-    if fixture_path is not None:
-        fixture, fixture_digest = load_decision_fixture(fixture_path)
-        case_reports = probe_decision_cases(tokenizer, fixture["cases"])
+    dataset = None
+    if fixture_path is not None or dataset_path is not None:
+        if dataset_path is not None:
+            dataset, dataset_digest = load_decision_dataset(dataset_path)
+            cases = dataset["splits"][split]
+        else:
+            fixture, fixture_digest = load_decision_fixture(fixture_path)
+            cases = fixture["cases"]
+        case_reports = probe_decision_cases(tokenizer, cases)
         matching = [
             (case, case_report)
-            for case, case_report in zip(fixture["cases"], case_reports, strict=True)
+            for case, case_report in zip(cases, case_reports, strict=True)
             if case["id"] == case_id
         ]
         if len(matching) != 1:
-            raise InventoryError("fixture case id not found")
+            raise InventoryError("decision case id not found in requested input or split")
         fixture_case, case_report = matching[0]
         messages = decision_case_messages(fixture_case)
         if label_count is not None and label_count != len(fixture_case["options"]):
@@ -383,13 +398,20 @@ def run_streamed_text(
         "purpose": "streamed_text_layers_not_model_logits_or_quality",
     }
     if fixture_case is not None:
-        summary["fixture"] = {
-            "purpose": fixture["purpose"],
-            "sha256": fixture_digest,
+        case_metadata = {
             "case_id": case_id,
             "expected_option_id": fixture_case["expected_option_id"],
             "prompt_token_count": case_report["prompt_token_count"],
         }
+        if dataset is not None:
+            summary["dataset"] = {
+                **case_metadata, "purpose": dataset["purpose"], "sha256": dataset_digest,
+                "provenance": dataset["provenance"], "split": split,
+            }
+        else:
+            summary["fixture"] = {
+                **case_metadata, "purpose": fixture["purpose"], "sha256": fixture_digest,
+            }
     if layers >= 4:
         if len(captured) != 1 or tuple(captured[0].shape) != (1, input_ids.shape[1], 12288):
             raise InventoryError("missing streamed FFN-down input")
@@ -439,7 +461,10 @@ def run_streamed_text(
                 for label, option in zip(LABELS[:len(fixture_case["options"])], fixture_case["options"], strict=True)
             ]
             summary["decision"] = {
-                "scope": "synthetic_fixture_observation_not_quality_or_calibration",
+                "scope": (
+                    "dataset_observation_not_calibrated_confidence" if dataset is not None
+                    else "synthetic_fixture_observation_not_quality_or_calibration"
+                ),
                 "chosen_option_id": max(options, key=lambda option: option["conditional_probability"])["id"],
                 "expected_option_id": fixture_case["expected_option_id"],
                 "options": options,
@@ -455,6 +480,8 @@ def main() -> None:
     parser.add_argument("--label-count", type=int)
     parser.add_argument("--prompt", default="Choose A or B. A: pause. B: continue.")
     parser.add_argument("--fixture", type=Path)
+    parser.add_argument("--dataset", type=Path)
+    parser.add_argument("--split", choices=SPLITS)
     parser.add_argument("--case-id")
     parser.add_argument("--native-ffn-library", type=Path)
     parser.add_argument("--projection-artifact", type=Path)
@@ -466,6 +493,8 @@ def main() -> None:
         native_ffn_library=args.native_ffn_library,
         full_vocabulary_mass=args.full_vocabulary_mass,
         projection_artifact=args.projection_artifact,
+        dataset_path=args.dataset,
+        split=args.split,
     ), sort_keys=True))
 
 

@@ -165,6 +165,50 @@ def test_streamed_text_maps_synthetic_options_to_typed_scores():
 
 
 @pytest.mark.skipif(
+    os.environ.get("MIMO_DATASET_TEST") != "1",
+    reason="requires pinned MiMo shards and isolated CPU Torch/Transformers for split-aware scoring",
+)
+def test_streamed_dataset_preserves_split_and_synthetic_provenance(tmp_path):
+    interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    if not interpreter or not local_dir or not Path(interpreter).is_file():
+        pytest.fail("set MIMO_DENSE_PYTHON and MIMO_LOCAL_DIR for the opt-in dataset test")
+    fixture_path = Path(__file__).parent / "fixtures" / "agent_tool_smoke.json"
+    fixture = json.loads(fixture_path.read_text())
+    dataset = {
+        "schema_version": 1, "purpose": "synthetic_split_contract_smoke",
+        "provenance": {"source": "repository synthetic engineering fixture", "license": "MIT"},
+        "splits": {
+            "calibration": [fixture["cases"][0]],
+            "validation": [fixture["cases"][2]],
+            "held_out": [fixture["cases"][4]],
+        },
+    }
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps(dataset))
+    command = [
+        interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+        "--layers", "32", "--dataset", str(path), "--split", "held_out",
+        "--case-id", "publish-without-authorization",
+    ]
+    result = subprocess.run(
+        command,
+        env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+             "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"},
+        check=True, capture_output=True, text=True, timeout=180,
+    )
+    report = json.loads(result.stdout)
+    assert report["revision"] == MODEL_REVISION and report["generated_tokens"] == 0
+    assert report["dataset"]["split"] == "held_out"
+    assert report["dataset"]["purpose"] == "synthetic_split_contract_smoke"
+    assert report["dataset"]["provenance"] == dataset["provenance"]
+    assert len(report["dataset"]["sha256"]) == 64
+    assert report["decision"]["chosen_option_id"] == "ask"
+    assert report["selected_head"]["head_payload_bytes"] == 24576
+    assert "fixture" not in report
+
+
+@pytest.mark.skipif(
     os.environ.get("MIMO_IN_MODEL_NATIVE_TEST") != "1",
     reason="requires pinned MiMo BF16 shards, isolated Torch, Clang 18, and x86-64 AVX2",
 )

@@ -198,3 +198,100 @@ def test_fixture_loader_rejects_unsupported_schema_and_oversized_file(tmp_path):
     path.write_text("x" * (64 * 1024 + 1))
     with pytest.raises(LabelProbeError, match="exceeds 64 KiB"):
         load_decision_fixture(path)
+
+
+def split_dataset_smoke():
+    fixture, _ = load_decision_fixture(Path(__file__).parent / "fixtures" / "agent_tool_smoke.json")
+    return {
+        "schema_version": 1,
+        "purpose": "synthetic_split_contract_smoke",
+        "provenance": {"source": "repository synthetic engineering fixture", "license": "MIT"},
+        "splits": {
+            "calibration": [deepcopy(fixture["cases"][0])],
+            "validation": [deepcopy(fixture["cases"][2])],
+            "held_out": [deepcopy(fixture["cases"][4])],
+        },
+    }
+
+
+def test_split_dataset_keeps_provenance_and_requires_explicit_case_split(tmp_path):
+    from embedded_jev.decision_dataset import (
+        DecisionDatasetError, load_decision_dataset, select_dataset_case,
+    )
+
+    dataset = split_dataset_smoke()
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps(dataset))
+    loaded, digest = load_decision_dataset(path)
+    assert loaded == dataset and len(digest) == 64
+    assert loaded["purpose"] == "synthetic_split_contract_smoke"
+    case = select_dataset_case(loaded, split="held_out", case_id="publish-without-authorization")
+    assert case["expected_option_id"] == "ask"
+    with pytest.raises(DecisionDatasetError, match="requested split"):
+        select_dataset_case(loaded, split="calibration", case_id=case["id"])
+    with pytest.raises(DecisionDatasetError, match="unknown decision dataset split"):
+        select_dataset_case(loaded, split="test", case_id=case["id"])
+
+
+@pytest.mark.parametrize("leak", ["id", "group", "prompt"])
+def test_split_dataset_rejects_cross_split_leakage(tmp_path, leak):
+    from embedded_jev.decision_dataset import DecisionDatasetError, load_decision_dataset
+
+    dataset = split_dataset_smoke()
+    if leak == "id":
+        dataset["splits"]["held_out"][0]["id"] = dataset["splits"]["calibration"][0]["id"]
+    elif leak == "group":
+        dataset["splits"]["held_out"][0]["group"] = dataset["splits"]["calibration"][0]["group"]
+    else:
+        copy = deepcopy(dataset["splits"]["calibration"][0])
+        copy["id"] = "renamed-held-out-case"
+        copy["group"] = "different-group"
+        copy["state"] = "  " + copy["state"].replace(" ", "  ")
+        copy["options"].reverse()
+        dataset["splits"]["held_out"] = [copy]
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps(dataset))
+    with pytest.raises(DecisionDatasetError, match="splits"):
+        load_decision_dataset(path)
+
+
+def test_streamed_dataset_requires_explicit_split_and_exclusive_input(tmp_path):
+    from embedded_jev.inventory import InventoryError
+    from embedded_jev.streamed_text import run_streamed_text
+
+    dataset_path = tmp_path / "decisions.json"
+    with pytest.raises(InventoryError, match="explicit split"):
+        run_streamed_text(None, prompt="unused", dataset_path=dataset_path, case_id="example")
+    with pytest.raises(InventoryError, match="valid split and case id"):
+        run_streamed_text(None, prompt="unused", dataset_path=dataset_path, split="validation")
+    with pytest.raises(InventoryError, match="either a decision dataset"):
+        run_streamed_text(
+            None, prompt="unused", dataset_path=dataset_path, split="held_out",
+            case_id="example", fixture_path=tmp_path / "fixture.json",
+        )
+
+
+@pytest.mark.parametrize("defect", ["version", "purpose", "provenance", "split", "cases", "duplicate_key", "oversized"])
+def test_split_dataset_rejects_invalid_or_oversized_schema(tmp_path, defect):
+    from embedded_jev.decision_dataset import DecisionDatasetError, load_decision_dataset
+
+    dataset = split_dataset_smoke()
+    if defect == "version":
+        dataset["schema_version"] = True
+    elif defect == "purpose":
+        dataset["purpose"] = "calibrated_and_certified"
+    elif defect == "provenance":
+        dataset["provenance"]["license"] = " "
+    elif defect == "split":
+        del dataset["splits"]["held_out"]
+    elif defect == "cases":
+        dataset["splits"]["held_out"] = []
+    payload = json.dumps(dataset)
+    if defect == "duplicate_key":
+        payload = '{"schema_version": 2, ' + payload[1:]
+    elif defect == "oversized":
+        payload = " " * ((1 << 20) + 1)
+    path = tmp_path / "decisions.json"
+    path.write_text(payload)
+    with pytest.raises(DecisionDatasetError):
+        load_decision_dataset(path)

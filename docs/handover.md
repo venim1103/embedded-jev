@@ -308,6 +308,13 @@ candidate's bytes and its unrotated searched-scale policy were not changed.
 The saved-projection path now bypasses BF16 FFN-down tensor materialization;
 an instrumented full-model regression rejects any attempt to load that source
 tensor and confirms identical saved/fresh final hidden hashes and option scores.
+A separate dataset contract now supports explicit calibration, validation, and
+held-out splits with declared source/license provenance. Case IDs, groups,
+and whitespace/option-order-equivalent prompts cannot cross splits. The
+streamed scorer requires an explicit split and retains its digest and purpose;
+it never relabels the existing synthetic fixture as representative data.
+The dataset-to-32-layer smoke passes using temporary synthetic split data.
+Real calibration/holdout cases are still absent; scoring performs no tuning.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

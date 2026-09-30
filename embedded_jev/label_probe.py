@@ -116,11 +116,10 @@ def decision_case_messages(case: dict) -> list[dict]:
     }]
 
 
-def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[dict]:
-    """Check a small labeled fixture's option mapping and prompt boundaries."""
+def validate_decision_cases(cases: list[dict]) -> None:
+    """Check bounded labeled cases independently of tokenizer or model loading."""
     if not isinstance(cases, list) or not 1 <= len(cases) <= 32:
         raise LabelProbeError("decision fixture must contain 1-32 cases")
-    reports = []
     seen_ids = set()
     for case in cases:
         if not isinstance(case, dict) or set(case) != {
@@ -150,6 +149,14 @@ def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[d
         if len(set(option_ids)) != len(option_ids) or case["expected_option_id"] not in option_ids:
             raise LabelProbeError(f"duplicate options or unknown expected choice: {case_id}")
 
+
+def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[dict]:
+    """Check a small labeled fixture's option mapping and prompt boundaries."""
+    validate_decision_cases(cases)
+    reports = []
+    for case in cases:
+        options = case["options"]
+        option_ids = [option["id"] for option in options]
         labels = LABELS[: len(options)]
         messages = decision_case_messages(case)
         report = (
@@ -157,7 +164,7 @@ def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[d
             if processor is not None else probe_label_boundary(tokenizer, messages, labels)
         )
         case_report = {
-            "id": case_id,
+            "id": case["id"],
             "group": case["group"],
             "expected_option_id": case["expected_option_id"],
             "expected_label": labels[option_ids.index(case["expected_option_id"])],

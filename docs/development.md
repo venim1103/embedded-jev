@@ -321,6 +321,40 @@ and missing-permission cases have a gated regression check. This tiny synthetic
 set is **not** a held-out benchmark or calibration set; full-vocabulary mass
 and real decision quality remain unknown. No quantized model copies were kept.
 
+## Split-Aware Decision Data
+
+The streamed scorer also accepts a bounded dataset with explicit calibration,
+validation, and held-out splits. This does not change the existing synthetic
+fixture schema or supply representative data. The dataset is capped at 1 MiB
+and has these exact top-level fields:
+
+- `schema_version`: integer `1`.
+- `purpose`: `user_labeled_text_decisions` or `synthetic_split_contract_smoke`.
+- `provenance`: nonempty `source` and `license` strings; these are declared
+   provenance, not automatic verification of ownership or representativeness.
+- `splits`: exactly `calibration`, `validation`, and `held_out`, each containing
+   1-32 cases with the existing `id`, `group`, `state`, `question`, `options`,
+   and `expected_option_id` fields.
+
+Case IDs must be unique across splits. A group may not cross splits, and the
+loader rejects equivalent state/question/option descriptions across splits
+even after whitespace changes or option reordering. These checks do not detect
+every paraphrase or establish statistical independence.
+
+Set `dataset` to the actual local dataset path and select the split explicitly:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$snapshot" --layers 32 --dataset "$dataset" \
+   --split held_out --case-id case-to-evaluate
+```
+
+Results retain dataset purpose, SHA-256, source/license, and split alongside
+typed conditional option scores. Scoring does not tune weights or scales.
+The gated `MIMO_DATASET_TEST=1` test exercises this path using a temporary
+split of the existing synthetic cases; it is not held-out quality evidence.
+
 ## In-Memory Native FFN Substitution
 
 The streamed BF16 text path can replace **only** layer 3's FFN-down matmul
