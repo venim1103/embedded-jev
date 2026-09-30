@@ -88,6 +88,12 @@ def test_streamed_full_text_scores_only_selected_labels():
         **os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
         "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4",
     }
+    reference_result = subprocess.run(
+        [interpreter, "-m", "embedded_jev.dense_probe", "--local-dir", local_dir,
+         "--layers", "4", "--chat-template"],
+        env=environment, check=True, capture_output=True, text=True, timeout=180,
+    )
+    reference = json.loads(reference_result.stdout)
     reports = []
     for layers in (4, 32):
         result = subprocess.run(
@@ -98,6 +104,9 @@ def test_streamed_full_text_scores_only_selected_labels():
         reports.append(json.loads(result.stdout))
     prefix, full = reports
     assert prefix["revision"] == full["revision"] == MODEL_REVISION
+    assert prefix["last_token_sha256"] == reference["last_token_sha256"]
+    assert prefix["ffn_down_input_sha256"] == reference["ffn_down_input_sha256"]
+    assert prefix["prompt_sha256"] == reference["prompt_sha256"]
     assert prefix["ffn_down_input_sha256"] == full["ffn_down_input_sha256"]
     assert prefix["tokens"] == full["tokens"] == 22
     assert prefix["generated_tokens"] == full["generated_tokens"] == 0

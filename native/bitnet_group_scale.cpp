@@ -46,8 +46,10 @@ extern "C" int bitnet_group_scale_matvec_avx2(
     const uint8_t* packed, const float* weight_scales, const int8_t* activations,
     const float* activation_scales, std::size_t rows, std::size_t groups,
     float* output) {
+    const std::size_t limit = std::numeric_limits<std::size_t>::max();
     if (!packed || !weight_scales || !activations || !activation_scales ||
-        !output || rows == 0 || groups == 0) {
+        !output || rows == 0 || groups == 0 || groups > limit / kGroupSize ||
+        rows > limit / groups || rows * groups > limit / kPackedBytes) {
         return 1;
     }
     for (std::size_t row = 0; row < rows; ++row) {
@@ -75,7 +77,7 @@ extern "C" int bitnet_group_scale_matmul_avx2(
         groups > limit / kGroupSize || rows > limit / groups ||
         rows * groups > limit / kPackedBytes ||
         tokens > limit / (groups * kGroupSize) || tokens > limit / groups ||
-        tokens > limit / rows) {
+        tokens > limit / rows / sizeof(float)) {
         return 1;
     }
     for (std::size_t token = 0; token < tokens; ++token) {

@@ -217,6 +217,56 @@ def test_single_projection_native_artifact_roundtrip_and_tamper_rejection(tmp_pa
         load_projection_artifact(directory)
 
 
+@pytest.mark.parametrize("filename", ["packed.npy", "scales.npy"])
+def test_projection_loader_checks_actual_file_size_before_hashing(tmp_path, monkeypatch, filename):
+    codes, scales = quantize_ternary_rtn(np.ones((1, 128), dtype=np.float32), scale_search=True)
+    directory = tmp_path / "one-projection"
+    manifest = save_projection_artifact(
+        directory, codes.reshape(1, 1, 128), scales, shard_sha256="0" * 64,
+    )
+    with (directory / filename).open("r+b") as destination:
+        destination.truncate(manifest["arrays"][filename]["bytes"] + 1)
+    from embedded_jev import projection_artifact
+
+    original = projection_artifact._file_record
+
+    def checked_record(path):
+        if path.name == filename:
+            pytest.fail("hashed a projection array before checking its actual size")
+        return original(path)
+
+    monkeypatch.setattr(projection_artifact, "_file_record", checked_record)
+    with pytest.raises(ProjectionArtifactError, match="size or hash mismatch"):
+        load_projection_artifact(directory)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("schema_version", True), ("schema_version", 1.0), ("group_size", 128.0),
+])
+def test_projection_loader_rejects_noninteger_manifest_fields(tmp_path, field, value):
+    codes, scales = quantize_ternary_rtn(np.ones((1, 128), dtype=np.float32), scale_search=True)
+    directory = tmp_path / "one-projection"
+    manifest = save_projection_artifact(
+        directory, codes.reshape(1, 1, 128), scales, shard_sha256="0" * 64,
+    )
+    manifest[field] = value
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ProjectionArtifactError, match="unsupported projection manifest"):
+        load_projection_artifact(directory)
+
+
+def test_projection_loader_rejects_duplicate_manifest_keys(tmp_path):
+    codes, scales = quantize_ternary_rtn(np.ones((1, 128), dtype=np.float32), scale_search=True)
+    directory = tmp_path / "one-projection"
+    manifest = save_projection_artifact(
+        directory, codes.reshape(1, 1, 128), scales, shard_sha256="0" * 64,
+    )
+    duplicate = '{"schema_version": 2, ' + json.dumps(manifest)[1:]
+    (directory / "manifest.json").write_text(duplicate)
+    with pytest.raises(ProjectionArtifactError, match="invalid projection artifact"):
+        load_projection_artifact(directory)
+
+
 def test_toy_artifact_rejects_tampering_pickle_and_unsupported_metadata():
     codes, scales = quantize_ternary_rtn(np.ones((1, 128), dtype=np.float32))
     payload = save_toy_artifact(codes, scales, algorithm="gptq-style-maxabs-fp16-v1")

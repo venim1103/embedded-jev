@@ -299,6 +299,51 @@ def test_selected_lm_head_scores_only_bounded_bf16_rows(tmp_path, monkeypatch):
         stream_full_vocabulary_mass(tmp_path, metadata, headers, np.ones(1024), selected)
 
 
+def test_full_vocabulary_mass_uses_the_same_logits_for_selected_rows(tmp_path):
+    metadata, headers = _model_fixture()
+    shard, (prefix, file_bytes) = next(iter(headers.items()))
+    offset = json.loads(prefix[8:])["lm_head.weight"]["data_offsets"][0]
+    values = np.random.default_rng(0).normal(size=1024).astype(np.float32)
+    bits = (values.view(np.uint32) >> 16).astype("<u2")
+    vector = (bits.astype(np.uint32) << 16).view("<f4")
+    with (tmp_path / shard).open("wb") as destination:
+        destination.write(prefix)
+        destination.truncate(file_bytes)
+        destination.seek(len(prefix) + offset)
+        destination.write(bits.tobytes() * 2)
+    selected = score_selected_head(tmp_path, metadata, headers, vector, {"A": 0, "B": 1})
+    mass = stream_full_vocabulary_mass(tmp_path, metadata, headers, vector, selected)
+    assert mass["selected_label_mass"] == pytest.approx(1.0, abs=1e-12)
+    assert mass["max_token_id"] in (0, 1)
+
+
+@pytest.mark.parametrize("batch_rows", [1, 7, 256])
+def test_full_vocabulary_mass_tracks_selected_rows_across_batches(tmp_path, monkeypatch, batch_rows):
+    metadata, headers = _model_fixture()
+    shard, (prefix, file_bytes) = next(iter(headers.items()))
+    offset = json.loads(prefix[8:])["lm_head.weight"]["data_offsets"][0]
+    with (tmp_path / shard).open("wb") as destination:
+        destination.write(prefix)
+        destination.truncate(file_bytes)
+        for token_id, value in ((2, 1 / 512), (31, -1 / 512)):
+            bits = (np.array([value], dtype=np.float32).view(np.uint32) >> 16).astype("<u2")
+            destination.seek(len(prefix) + offset + token_id * 2048)
+            destination.write(bits.tobytes() * 1024)
+    vector = np.ones(1024, dtype=np.float32)
+    selected = score_selected_head(tmp_path, metadata, headers, vector, {"A": 2, "B": 31})
+    monkeypatch.setattr("embedded_jev.streamed_text.FULL_HEAD_BATCH_ROWS", batch_rows)
+    mass = stream_full_vocabulary_mass(tmp_path, metadata, headers, vector, selected)
+    expected = (np.exp(2) + np.exp(-2)) / (np.exp(2) + np.exp(-2) + 30)
+    assert mass["selected_label_mass"] == pytest.approx(expected)
+    assert mass["max_token_id"] == 2
+    invalid = {"options": {"A": {"token_id": 2}, "B": {"token_id": 2}}}
+    with pytest.raises(InventoryError, match="duplicate selected-label"):
+        stream_full_vocabulary_mass(tmp_path, metadata, headers, vector, invalid)
+    invalid["options"]["B"]["token_id"] = 32
+    with pytest.raises(InventoryError, match="full-vocabulary mass exceeds"):
+        stream_full_vocabulary_mass(tmp_path, metadata, headers, vector, invalid)
+
+
 def test_inventory_rejects_missing_inconsistent_or_unsupported_metadata():
     metadata, shards = _model_fixture()
     with pytest.raises(InventoryError, match="missing model metadata"):

@@ -410,6 +410,10 @@ def test_multi_token_rejects_empty_and_overflowed_shapes(native_dot):
         scale.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
     )
     output_pointer = output.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    limit = ctypes.c_size_t(-1).value
+    for rows, groups in ((0, 1), (1, 0), (1, limit), (limit, 1), (limit, 2)):
+        assert native_dot[0](*pointers, rows, groups, output_pointer) == 1
     assert native_dot[1](*pointers, 0, 1, 1, output_pointer) == 1
-    assert native_dot[1](*pointers, 1, 1, ctypes.c_size_t(-1).value, output_pointer) == 1
+    assert native_dot[1](*pointers, 1, 1, limit, output_pointer) == 1
+    assert native_dot[1](*pointers, limit // 128, 33, 1, output_pointer) == 1
     assert output[0] == 123.0

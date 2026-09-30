@@ -162,13 +162,19 @@ def stream_full_vocabulary_mass(directory: Path, metadata_files, shard_headers, 
     report = build_inventory(metadata_files, shard_headers)
     head = next((tensor for tensor in report["tensors"] if tensor["name"] == "lm_head.weight"), None)
     vector = np.asarray(hidden, dtype=np.float32)
+    options = selected.get("options") if isinstance(selected, dict) else None
     if (
         head is None or head["dtype"] != "BF16" or len(head["shape"]) != 2
         or head["storage_bytes"] > MAX_FULL_HEAD_BYTES
         or vector.shape != (head["shape"][1],) or not np.isfinite(vector).all()
-        or not selected.get("options")
+        or not isinstance(options, dict) or not 2 <= len(options) <= len(LABELS)
+        or any(not isinstance(option, dict) or type(option.get("token_id")) is not int
+               or not 0 <= option["token_id"] < head["shape"][0] for option in options.values())
     ):
         raise InventoryError("full-vocabulary mass exceeds head or vector bounds")
+    selected_ids = [option["token_id"] for option in options.values()]
+    if len(set(selected_ids)) != len(selected_ids):
+        raise InventoryError("duplicate selected-label token IDs")
     index = _json_object(metadata_files["model.safetensors.index.json"], "model.safetensors.index.json")
     shard = index["weight_map"]["lm_head.weight"]
     header, file_bytes = shard_headers[shard]
@@ -177,6 +183,7 @@ def stream_full_vocabulary_mass(directory: Path, metadata_files, shard_headers, 
         raise InventoryError("full-vocabulary LM-head byte span mismatch")
     rows, width = head["shape"]
     normalizer = -np.inf
+    selected_normalizer = -np.inf
     max_logit = -np.inf
     max_token_id = None
     try:
@@ -192,14 +199,20 @@ def stream_full_vocabulary_mass(directory: Path, metadata_files, shard_headers, 
                 if not np.isfinite(logits).all():
                     raise InventoryError("nonfinite full-vocabulary logits")
                 normalizer = float(np.logaddexp(normalizer, np.logaddexp.reduce(logits.astype(np.float64))))
+                selected_offsets = [token_id - first_row for token_id in selected_ids
+                                    if first_row <= token_id < first_row + count]
+                if selected_offsets:
+                    selected_normalizer = float(np.logaddexp(
+                        selected_normalizer,
+                        np.logaddexp.reduce(logits[selected_offsets].astype(np.float64)),
+                    ))
                 winner = int(np.argmax(logits))
                 if float(logits[winner]) > max_logit:
                     max_logit = float(logits[winner])
                     max_token_id = first_row + winner
     except OSError as exc:
         raise InventoryError(f"unable to stream full LM head: {exc}") from exc
-    selected_logits = np.asarray([option["logit"] for option in selected["options"].values()])
-    selected_mass = float(np.exp(np.logaddexp.reduce(selected_logits.astype(np.float64)) - normalizer))
+    selected_mass = float(np.exp(selected_normalizer - normalizer))
     if not np.isfinite(selected_mass) or not 0 <= selected_mass <= 1:
         raise InventoryError("invalid selected-label full-vocabulary mass")
     return {

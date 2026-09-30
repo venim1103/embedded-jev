@@ -123,16 +123,21 @@ def load_projection_artifact(directory: Path) -> tuple[np.ndarray, np.ndarray, d
         manifest_path = directory / "manifest.json"
         if manifest_path.stat().st_size > MAX_MANIFEST_BYTES:
             raise ProjectionArtifactError("projection manifest exceeds byte budget")
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        with manifest_path.open("rb") as source:
+            manifest_bytes = source.read(MAX_MANIFEST_BYTES + 1)
+        if len(manifest_bytes) > MAX_MANIFEST_BYTES:
+            raise ProjectionArtifactError("projection manifest exceeds byte budget")
+        manifest = _json_object(manifest_bytes, "projection manifest")
         if (
             not isinstance(manifest, dict)
             or set(manifest) != {"schema_version", "format", "model", "revision", "tensor",
                                  "algorithm", "rotation", "shape", "group_size", "source_shard_sha256", "arrays"}
-            or manifest["schema_version"] != 1
+            or type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1
             or manifest["format"] != "single_projection_bitnet_derived_native_fixture_not_gguf"
             or manifest["model"] != MODEL_ID or manifest["revision"] != MODEL_REVISION
             or manifest["tensor"] != DEFAULT_TENSOR or manifest["algorithm"] != "rtn-searched-fp16-group128"
-            or manifest["rotation"] != "identity" or manifest["group_size"] != 128
+            or manifest["rotation"] != "identity"
+            or type(manifest["group_size"]) is not int or manifest["group_size"] != 128
             or not isinstance(manifest["shape"], list) or len(manifest["shape"]) != 2
             or any(type(dimension) is not int or dimension < 1 for dimension in manifest["shape"])
             or manifest["shape"][0] > 4096 or manifest["shape"][1] > 12288
@@ -150,6 +155,7 @@ def load_projection_artifact(directory: Path) -> tuple[np.ndarray, np.ndarray, d
                 not isinstance(record, dict) or set(record) != {"bytes", "sha256"}
                 or type(record["bytes"]) is not int or not 0 < record["bytes"] <= limit
                 or not isinstance(record["sha256"], str) or SHA256.fullmatch(record["sha256"]) is None
+                or (directory / name).stat().st_size != record["bytes"]
                 or _file_record(directory / name) != record
             ):
                 raise ProjectionArtifactError("projection array size or hash mismatch")

@@ -299,6 +299,12 @@ output head in bounded row batches. On the 22-token smoke, selected A/B mass
 was 0.873 for BF16 and 0.882 after the one-layer native substitution; B was
 the top token both times. This clarifies the earlier conditional-only score
 for this prompt, but is not confidence calibration or a decision-quality gate.
+The 2026-09-30 post-restart review reverified all source and candidate hashes.
+It fixed actual-size-before-hash checks and ambiguous projection manifests,
+FP32 numerator/denominator inconsistency in full-vocabulary mass, and missing
+native dimension/output-byte overflow guards. The staged-prefix regression
+now compares directly with the normal Transformers forward. The cached
+candidate's bytes and its unrotated searched-scale policy were not changed.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

@@ -395,6 +395,28 @@ even if array hashes are recomputed. No approved group-scale GGUF codec or
 model loader can consume this fixture directly, and its one-prompt score
 parity is not a quantization quality gate.
 
+## Post-Restart Review
+
+On 2026-09-30 all four cached MiMo shards and both retained projection arrays
+again matched their recorded SHA-256 values. The CPU environments and the
+single-candidate cache survived the reboot; no model files were fetched again.
+
+The review corrected three implementation boundaries. The projection loader
+now rejects actual array-size mismatches before hashing and uses bounded,
+duplicate-key-rejecting JSON with strict integer schema fields. Full-vocabulary
+label mass now obtains its numerator from the same batched logits as the
+denominator: separately accumulated FP32 label dots could previously yield
+mass above one for valid, dominating labels. The native matvec now rejects
+overflowing dimensions, and the batch entry point checks output bytes rather
+than just float-element counts. The raw C API still requires caller-owned
+buffers large enough for the accepted dimensions.
+
+The opt-in streamed-text test also compares the four-layer activation and final
+hidden hashes against the normal Transformers forward, rather than comparing
+only staged runs. These checks strengthen arithmetic and reload evidence;
+they do not provide calibration data, decision-quality validation, or a
+registered ternary model format.
+
 ## Tokenizer-Only Label Probe
 
 The [label probe](../embedded_jev/label_probe.py) verifies that the pinned MiMo
