@@ -355,6 +355,14 @@ and is not full GPTQ. Searched compensation has 0.194 calibration / 0.426
 validation relative error, versus 0.390 / 0.406 for searched RTN on the same
 public proxy pair. Native parity passes for all 96 groups, but this validation
 result is worse; no wider fit, policy promotion, or second artifact was saved.
+The four public training FFN captures are now available. A bounded loader
+balances 32 evenly spaced tokens from each into a read-only 128-token sample,
+retaining source indices/hashes and refusing mixed datasets or repeated IDs.
+On the same validation case, full-width four-row searched compensation becomes
+worse (0.456 versus the unchanged RTN 0.406), although native parity passes.
+No merged capture or compensated candidate is saved, and held-out inference
+remains untouched. Further policy promotion needs a different justified
+approximation and representative quality evidence, not more training-score wins.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

@@ -404,7 +404,9 @@ def test_full_mimo_projection_matches_bitnet_derived_native_dot(native_dot):
 )
 @pytest.mark.parametrize("width", [256, 12288])
 def test_calibration_fitted_slice_native_dot_on_live_validation(native_dot, width):
-    from embedded_jev.decision_dataset import load_calibration_capture, load_decision_dataset
+    from embedded_jev.decision_dataset import (
+        load_balanced_calibration_captures, load_calibration_capture, load_decision_dataset,
+    )
     from embedded_jev.weight_slice import read_local_bf16_projection_rows
     from embedded_jev.ternary import quantize_block_diagonal_compensated
 
@@ -415,6 +417,12 @@ def test_calibration_fitted_slice_native_dot_on_live_validation(native_dot, widt
     if not all((local_dir, interpreter, dataset_path, capture_path)):
         pytest.fail("set MiMo interpreter/snapshot, MIMO_PUBLIC_DATASET, and MIMO_CALIBRATION_CAPTURE")
     calibration, manifest = load_calibration_capture(Path(capture_path))
+    additional = os.environ.get("MIMO_ADDITIONAL_CALIBRATION_CAPTURES")
+    if additional:
+        calibration, selection = load_balanced_calibration_captures(
+            [Path(capture_path)] + [Path(path) for path in additional.split(os.pathsep)],
+        )
+        assert selection["dataset"]["sha256"] == manifest["dataset"]["sha256"]
     dataset, digest = load_decision_dataset(Path(dataset_path))
     assert manifest["dataset"]["sha256"] == digest
     weights, provenance = read_local_bf16_projection_rows(Path(local_dir))

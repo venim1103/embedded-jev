@@ -265,11 +265,21 @@ def screen_calibration_reconstruction(
 def screen_local_calibrated_slice(
     directory: Path, capture_dir: Path, *, dataset_path: Path | None = None,
     validation_case_id: str | None = None, block_diagonal: bool = False,
+    additional_capture_dirs: list[Path] | None = None,
 ) -> dict:
     """Use only a hash-checked calibration capture for a local two-group trial."""
-    from embedded_jev.decision_dataset import load_calibration_capture, load_decision_dataset
+    from embedded_jev.decision_dataset import (
+        load_balanced_calibration_captures, load_calibration_capture, load_decision_dataset,
+    )
 
     activations, manifest = load_calibration_capture(capture_dir)
+    selection = None
+    capture_dataset = manifest["dataset"]
+    if additional_capture_dirs is not None and not isinstance(additional_capture_dirs, list):
+        raise InventoryError("additional calibration captures must be a bounded path list")
+    if additional_capture_dirs:
+        activations, selection = load_balanced_calibration_captures([capture_dir] + additional_capture_dirs)
+        capture_dataset = selection["dataset"]
     if (dataset_path is None) != (validation_case_id is None):
         raise InventoryError("live validation requires a dataset and an explicit validation case id")
     weights, provenance = read_local_bf16_projection_rows(directory)
@@ -281,7 +291,7 @@ def screen_local_calibrated_slice(
         from embedded_jev.streamed_text import run_streamed_text
 
         _, digest = load_decision_dataset(dataset_path)
-        if digest != manifest["dataset"]["sha256"]:
+        if digest != capture_dataset["sha256"]:
             raise InventoryError("calibration capture and validation dataset digest disagree")
         observed = []
         validation_report = run_streamed_text(
@@ -292,7 +302,7 @@ def screen_local_calibrated_slice(
             raise InventoryError("missing or changed live validation activation source")
         validation = observed[0] if block_diagonal else observed[0][:, :256]
     result = {
-        "source": provenance, "capture_dataset": manifest["dataset"],
+        "source": provenance, "capture_dataset": capture_dataset,
         "capture_array_sha256": manifest["array"]["sha256"],
         "scope": (
             "first_four_full_width_rows_block_diagonal_not_full_gptq_or_quality" if block_diagonal
@@ -305,6 +315,9 @@ def screen_local_calibrated_slice(
         ),
         "candidate_saved": False,
     }
+    if selection is not None:
+        del result["capture_array_sha256"]
+        result["balanced_calibration"] = selection
     if validation_report is not None:
         result["validation_source"] = validation_report["dataset"]
         result["validation_input_sha256"] = validation_report["ffn_down_input_sha256"]
@@ -446,19 +459,23 @@ def main() -> None:
     modes.add_argument("--screen-block-diagonal", action="store_true", help="compare independent-block approximation on four full-width rows")
     parser.add_argument("--local-dir", type=Path, help="verified local model snapshot for full-width rows")
     parser.add_argument("--calibration-capture", type=Path)
+    parser.add_argument("--additional-calibration-captures", type=Path, nargs="+")
     parser.add_argument("--validation-dataset", type=Path)
     parser.add_argument("--validation-case-id")
     args = parser.parse_args()
     if args.screen_calibrated_slice or args.screen_block_diagonal:
         if args.local_dir is None or args.calibration_capture is None:
-            parser.error("--screen-calibrated-slice requires --local-dir and --calibration-capture")
+            parser.error("calibrated diagnostics require --local-dir and --calibration-capture")
         print(json.dumps(screen_local_calibrated_slice(
             args.local_dir, args.calibration_capture, dataset_path=args.validation_dataset,
             validation_case_id=args.validation_case_id, block_diagonal=args.screen_block_diagonal,
+            additional_capture_dirs=args.additional_calibration_captures,
         ), indent=2, sort_keys=True))
         return
     if args.calibration_capture is not None:
         parser.error("--calibration-capture requires --screen-calibrated-slice")
+    if args.additional_calibration_captures is not None:
+        parser.error("additional captures require a calibrated diagnostic")
     if args.validation_dataset is not None or args.validation_case_id is not None:
         parser.error("live validation requires --screen-calibrated-slice")
     if args.screen_projection:

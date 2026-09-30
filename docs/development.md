@@ -516,6 +516,21 @@ all 96 groups for these four full-width rows against portable integer/A8
 arithmetic on live validation features. Arithmetic parity is not a quality
 acceptance criterion.
 
+The diagnostic can balance up to four hash-checked training captures with
+`--additional-calibration-captures`. All must share the dataset digest/purpose,
+and case IDs must be distinct. At most 128 tokens are selected with equal
+case quotas and evenly spaced source indices; those indices and source-array
+hashes are retained in the report. No combined capture is written.
+For the four public training cases, 32 tokens per case produced a 128-token
+sample (raw float32 SHA-256
+`c0936357d1dd63ab92cca8e5d2727a43b0aa3265f08eda99ed6aecf6c6c3bfe3`).
+Full-width four-row searched compensation then gave validation relative error
+0.456, worse than the one-context 0.426 and searched RTN's unchanged 0.406.
+Native parity still passes. Broader training coverage alone did not rescue
+this independent-block approximation; do not promote or save it from these
+results. The source proxy, its four calibration-only captures, and the sole
+frozen RTN candidate remain separate. Held-out inference still has not run.
+
 ## In-Memory Native FFN Substitution
 
 The streamed BF16 text path can replace **only** layer 3's FFN-down matmul

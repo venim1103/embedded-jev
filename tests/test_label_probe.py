@@ -581,3 +581,45 @@ def test_public_bundle_rejects_changed_source_without_creating_output(tmp_path, 
     monkeypatch.setattr(public_data, "_fetch_source_file", lambda name: pytest.fail("overwriting or refetching existing bundle"))
     with pytest.raises(public_data.PublicDataError, match="already exists"):
         public_data.prepare_clinc_proxy(directory)
+
+
+def test_balanced_calibration_caps_tokens_preserves_provenance_and_rejects_mixing(tmp_path):
+    import numpy as np
+
+    from embedded_jev.decision_dataset import (
+        DecisionDatasetError, load_balanced_calibration_captures, load_decision_dataset,
+        save_calibration_capture,
+    )
+
+    dataset = split_dataset_smoke()
+    extra = deepcopy(dataset["splits"]["calibration"][0])
+    extra.update(id="second-training-case", group="second-training-group", state="Another calibration request.")
+    dataset["splits"]["calibration"].append(extra)
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps(dataset))
+    _, digest = load_decision_dataset(path)
+    directories = [tmp_path / "first", tmp_path / "second"]
+    for index, directory in enumerate(directories):
+        values = np.full((4 + index * 2, 12288), index + 1, dtype=np.float32)
+        save_calibration_capture(
+            directory, values, dataset_path=path, dataset_sha256=digest,
+            case_id=dataset["splits"]["calibration"][index]["id"],
+        )
+    combined, manifest = load_balanced_calibration_captures(directories, max_tokens=6)
+    assert combined.shape == (6, 12288) and not combined.flags.writeable
+    assert manifest["dataset"]["purpose"] == "synthetic_split_contract_smoke"
+    assert [record["selected_rows"] for record in manifest["captures"]] == [3, 3]
+    assert manifest["captures"][0]["token_indices"] == [0, 1, 3]
+    assert manifest["captures"][1]["token_indices"] == [0, 2, 5]
+    np.testing.assert_array_equal(combined[:3], 1)
+    np.testing.assert_array_equal(combined[3:], 2)
+    with pytest.raises(DecisionDatasetError, match="repeated calibration"):
+        load_balanced_calibration_captures([directories[0], directories[0]])
+    for count in (1, 129, True):
+        with pytest.raises(DecisionDatasetError, match="at most 128 tokens"):
+            load_balanced_calibration_captures(directories, max_tokens=count)
+    changed = json.loads((directories[1] / "manifest.json").read_text())
+    changed["dataset"]["sha256"] = "f" * 64
+    (directories[1] / "manifest.json").write_text(json.dumps(changed))
+    with pytest.raises(DecisionDatasetError, match="different datasets"):
+        load_balanced_calibration_captures(directories)

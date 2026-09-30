@@ -63,6 +63,10 @@ input-width rows without a full Hessian. It gives worse validation error than
 searched RTN (0.426 versus 0.406), despite better calibration error. Native
 96-group arithmetic parity passes; do not promote or bulk-fit this policy
 from that evidence.
+Balancing four original-training contexts into a capped 128-token sample
+also fails to improve this approximation (0.456 validation error versus
+RTN 0.406). Source indices and dataset/array hashes are preserved; no
+compensated candidate is retained or promoted.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

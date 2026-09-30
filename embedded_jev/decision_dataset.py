@@ -175,3 +175,43 @@ def load_calibration_capture(directory: Path) -> tuple[np.ndarray, dict]:
         if isinstance(exc, DecisionDatasetError):
             raise
         raise DecisionDatasetError(f"invalid calibration capture: {exc}") from exc
+
+
+def load_balanced_calibration_captures(
+    directories: list[Path], *, max_tokens: int = MAX_CAPTURE_TOKENS,
+) -> tuple[np.ndarray, dict]:
+    """Balance a bounded token budget across calibration cases from one frozen dataset."""
+    if (
+        not isinstance(directories, list) or not 1 <= len(directories) <= 4
+        or type(max_tokens) is not int or not len(directories) <= max_tokens <= MAX_CAPTURE_TOKENS
+    ):
+        raise DecisionDatasetError("balanced calibration requires 1-4 captures and at most 128 tokens")
+    captures = [load_calibration_capture(directory) for directory in directories]
+    first = captures[0][1]["dataset"]
+    identity = {key: first[key] for key in ("sha256", "purpose", "provenance", "split")}
+    case_ids = set()
+    for _, manifest in captures:
+        dataset = manifest["dataset"]
+        if {key: dataset[key] for key in identity} != identity:
+            raise DecisionDatasetError("calibration captures belong to different datasets or purposes")
+        if dataset["case_id"] in case_ids:
+            raise DecisionDatasetError("repeated calibration capture case ID")
+        case_ids.add(dataset["case_id"])
+    count = min(max_tokens // len(captures), *(values.shape[0] for values, _ in captures))
+    selected = []
+    records = []
+    for values, manifest in captures:
+        indices = np.linspace(0, values.shape[0] - 1, count, dtype=np.int64)
+        selected.append(values[indices])
+        records.append({
+            "case_id": manifest["dataset"]["case_id"], "group": manifest["dataset"]["group"],
+            "source_rows": values.shape[0], "selected_rows": count,
+            "token_indices": indices.tolist(), "source_array_sha256": manifest["array"]["sha256"],
+        })
+    combined = np.ascontiguousarray(np.concatenate(selected, axis=0), dtype=np.float32)
+    combined.setflags(write=False)
+    return combined, {
+        "dataset": identity, "shape": list(combined.shape), "tensor": DEFAULT_TENSOR,
+        "sampling": "equal_case_quota_even_token_indices_no_validation_or_held_out",
+        "captures": records, "sha256": hashlib.sha256(combined.tobytes()).hexdigest(),
+    }
