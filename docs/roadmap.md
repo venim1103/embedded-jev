@@ -45,6 +45,9 @@ synthetic cases; a representative dataset and quality target remain open.
 The calibration split alone can export a bounded, hashed, unrotated FFN input
 array; validation and held-out captures are refused before model loading.
 Temporary synthetic capture parity passes, not representative calibration.
+Frozen-candidate pairwise evaluation now records BF16/native choice changes
+and conditional-score deltas with data, kernel, candidate, source, and runtime
+bindings. Synthetic end-to-end parity passes; no policy fitting is performed.
 The quantization host exposes an
 RTX A3000 Laptop GPU with 12,288 MiB VRAM; CUDA Driver API initialization and
 a four-byte memory round trip passed. An isolated CUDA Torch 2.10.0 environment

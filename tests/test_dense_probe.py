@@ -232,6 +232,53 @@ def test_streamed_dataset_preserves_split_and_synthetic_provenance(tmp_path):
 
 
 @pytest.mark.skipif(
+    os.environ.get("MIMO_PAIRED_EVAL_TEST") != "1",
+    reason="requires pinned MiMo shards, the saved projection, isolated Torch, Clang, and AVX2",
+)
+def test_frozen_dataset_pairwise_evaluation_reports_model_observations(tmp_path):
+    interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    artifact = os.environ.get("MIMO_PROJECTION_ARTIFACT")
+    compiler = shutil.which("clang++-18")
+    if not interpreter or not local_dir or not artifact or not Path(interpreter).is_file():
+        pytest.fail("set MIMO_DENSE_PYTHON, MIMO_LOCAL_DIR, and MIMO_PROJECTION_ARTIFACT")
+    if compiler is None or platform.machine() != "x86_64" or "avx2" not in Path("/proc/cpuinfo").read_text():
+        pytest.skip("requires Clang 18 and x86-64 AVX2")
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "agent_tool_smoke.json").read_text())
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps({
+        "schema_version": 1, "purpose": "synthetic_split_contract_smoke",
+        "provenance": {"source": "repository synthetic engineering fixture", "license": "MIT"},
+        "splits": {"calibration": [fixture["cases"][0]], "validation": [fixture["cases"][2]], "held_out": [fixture["cases"][4]]},
+    }))
+    library = tmp_path / "kernel.so"
+    source = Path(__file__).resolve().parents[1] / "native" / "bitnet_group_scale.cpp"
+    subprocess.run(
+        [compiler, "-std=c++17", "-O2", "-mavx2", "-shared", "-fPIC", str(source), "-o", str(library)],
+        check=True, capture_output=True, text=True,
+    )
+    result = subprocess.run(
+        [interpreter, "-m", "embedded_jev.evaluation", "--local-dir", local_dir,
+         "--dataset", str(path), "--split", "held_out", "--case-ids", "publish-without-authorization",
+         "--native-library", str(library), "--candidate", artifact],
+        env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+             "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"},
+        check=True, capture_output=True, text=True, timeout=240,
+    )
+    report = json.loads(result.stdout)
+    assert report["quantizer_fitting"] is False and report["generated_tokens"] == 0
+    assert report["dataset"]["split"] == "held_out"
+    assert report["dataset"]["purpose"] == "synthetic_split_contract_smoke"
+    assert report["candidate"]["metadata"]["shape"] == [4096, 12288]
+    assert report["runtime_versions"]["transformers"] == "5.12.1"
+    assert len(report["native_library_sha256"]) == 64
+    assert report["summary"]["cases"] == 1 and report["summary"]["changed_choices"] == 0
+    observation = report["cases"][0]
+    assert observation["bf16"]["chosen_option_id"] == observation["native"]["chosen_option_id"] == "ask"
+    assert 0 <= observation["conditional_total_variation"] <= 1
+
+
+@pytest.mark.skipif(
     os.environ.get("MIMO_IN_MODEL_NATIVE_TEST") != "1",
     reason="requires pinned MiMo BF16 shards, isolated Torch, Clang 18, and x86-64 AVX2",
 )

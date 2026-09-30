@@ -321,6 +321,12 @@ native substitutions cannot request captures; the writer checks the original
 dataset digest again before saving. A real-prefix temporary capture reproduces
 the model's activation hash exactly, but retains its synthetic-smoke purpose.
 No representative activations or additional quantized candidate were created.
+A bounded paired evaluator now compares explicit cases with BF16 and the
+single frozen saved native projection. It records immutable data/candidate/
+kernel/source/runtime bindings, choices, conditional-score deltas, and expected
+matches without fitting. Changed inputs or inconsistent paired reports abort
+the comparison. Real BF16/native paired execution passes on temporary synthetic
+split data; this is evaluation infrastructure, not representative quality proof.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

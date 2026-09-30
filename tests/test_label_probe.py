@@ -391,3 +391,113 @@ def test_calibration_capture_rejects_unsafe_manifest_or_arrays(tmp_path, defect)
     (directory / "manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(DecisionDatasetError):
         load_calibration_capture(directory)
+
+
+def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkeypatch):
+    import math
+
+    from embedded_jev import evaluation
+    from embedded_jev.decision_dataset import DecisionDatasetError, load_decision_dataset
+    from embedded_jev.inventory import MODEL_ID, MODEL_REVISION
+
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps(split_dataset_smoke()))
+    dataset, digest = load_decision_dataset(path)
+    case = dataset["splits"]["held_out"][0]
+    library = tmp_path / "kernel.so"
+    library.write_bytes(b"mock library")
+    identity = {"manifest_sha256": "0" * 64}
+    monkeypatch.setattr(evaluation, "_candidate_identity", lambda directory: dict(identity))
+    source_identity = evaluation._source_identity()
+    original_sources = dict(source_identity)
+    monkeypatch.setattr(evaluation, "_source_identity", lambda: dict(source_identity))
+    runtime_versions = evaluation._runtime_versions()
+    original_versions = dict(runtime_versions)
+    monkeypatch.setattr(evaluation, "_runtime_versions", lambda: dict(runtime_versions))
+    calls = []
+    defect = None
+
+    def scorer(snapshot, **kwargs):
+        calls.append(kwargs)
+        native = "native_ffn_library" in kwargs
+        probabilities = (0.6, 0.2, 0.2) if native else (0.1, 0.2, 0.7)
+        options = [
+            {"id": option["id"], "label": label, "token_id": 32 + index,
+             "row_sha256": "0" * 64, "conditional_probability": probability, "logit": math.log(probability)}
+            for index, (option, label, probability) in enumerate(zip(case["options"], "ABC", probabilities, strict=True))
+        ]
+        report = {
+            "model": MODEL_ID, "revision": MODEL_REVISION, "generated_tokens": 0, "layers": 32,
+            "prompt_sha256": "1" * 64, "ffn_down_input_sha256": "3" * 64, "tokens": 82,
+            "dataset": {"sha256": digest, "split": "held_out", "case_id": case["id"]},
+            "native_ffn_down": {"candidate_origin": "saved_hash_checked_native_fixture"} if native else {},
+            "decision": {"options": options, "chosen_option_id": "edit" if native else "ask"},
+        }
+        if native and defect == "generation":
+            report["generated_tokens"] = 1
+        elif native and defect == "prompt":
+            report["prompt_sha256"] = "2" * 64
+        elif native and defect == "mapping":
+            options[0]["token_id"] = 99
+        elif native and defect == "normalization":
+            options[0]["conditional_probability"] = 0.1
+        elif native and defect == "logits":
+            options[0]["logit"] = 10.0
+        elif native and defect == "tokens":
+            report["tokens"] = 83
+        elif native and defect == "activation":
+            report["ffn_down_input_sha256"] = "4" * 64
+        elif native and defect == "case":
+            report["dataset"]["case_id"] = "different-case"
+        elif not native and defect == "dataset":
+            changed = deepcopy(dataset)
+            changed["provenance"]["source"] = "changed after reference run"
+            path.write_text(json.dumps(changed))
+        elif not native and defect == "candidate":
+            identity["manifest_sha256"] = "2" * 64
+        elif not native and defect == "kernel":
+            library.write_bytes(b"changed library")
+        elif not native and defect == "source":
+            source_identity["streamed_text.py"] = "5" * 64
+        elif not native and defect == "runtime":
+            runtime_versions["numpy"] = "changed"
+        return report
+
+    monkeypatch.setattr(evaluation, "run_streamed_text", scorer)
+    report = evaluation.compare_dataset_cases(
+        tmp_path, dataset_path=path, split="held_out", case_ids=[case["id"]],
+        native_library=library, candidate=tmp_path / "candidate",
+    )
+    assert report["quantizer_fitting"] is False and report["generated_tokens"] == 0
+    assert report["dataset"]["purpose"] == "synthetic_split_contract_smoke"
+    assert report["runtime_versions"]["python"]
+    assert len(report["scoring_source_sha256"]["streamed_text.py"]) == 64
+    assert report["summary"] == {"cases": 1, "bf16_expected_matches": 1, "native_expected_matches": 0, "changed_choices": 1}
+    assert report["cases"][0]["conditional_total_variation"] == pytest.approx(0.5)
+    assert len(calls) == 2 and all(call["split"] == "held_out" for call in calls)
+    assert "calibration_output" not in calls[0] and "calibration_output" not in calls[1]
+    for defect in ("generation", "prompt", "mapping", "normalization", "logits", "tokens", "activation", "case", "dataset", "candidate", "kernel", "source", "runtime"):
+        path.write_text(json.dumps(dataset))
+        identity["manifest_sha256"] = "0" * 64
+        source_identity.update(original_sources)
+        runtime_versions.update(original_versions)
+        library.write_bytes(b"mock library")
+        with pytest.raises(DecisionDatasetError):
+            evaluation.compare_dataset_cases(
+                tmp_path, dataset_path=path, split="held_out", case_ids=[case["id"]],
+                native_library=library, candidate=tmp_path / "candidate",
+            )
+
+
+@pytest.mark.parametrize("case_ids", [[], ["repeat", "repeat"], [str(index) for index in range(5)]])
+def test_pairwise_evaluation_refuses_unbounded_or_duplicate_case_requests(tmp_path, case_ids):
+    from embedded_jev.decision_dataset import DecisionDatasetError
+    from embedded_jev.evaluation import compare_dataset_cases
+
+    library = tmp_path / "kernel.so"
+    library.write_bytes(b"mock library")
+    with pytest.raises(DecisionDatasetError, match="1-4 unique case IDs"):
+        compare_dataset_cases(
+            tmp_path, dataset_path=tmp_path / "not-read.json", split="held_out", case_ids=case_ids,
+            native_library=library, candidate=tmp_path / "not-read-candidate",
+        )

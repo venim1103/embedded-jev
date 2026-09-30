@@ -377,6 +377,35 @@ retain their synthetic purpose and cannot establish representativeness merely
 because model weights produced their activations. The opt-in dataset test
 checks exact activation-byte parity using a temporary synthetic capture.
 
+## Frozen-Candidate Comparisons
+
+The paired evaluator runs BF16 and the existing saved native projection on
+1-4 explicitly selected cases, without fitting or replacing that candidate:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.evaluation \
+   --local-dir "$snapshot" --dataset "$dataset" --split validation \
+   --case-ids case-to-compare --candidate "$candidate" \
+   --native-library "$cache/native/bitnet_group_scale_probe.so"
+```
+
+Reports bind the dataset digest/split, saved candidate metadata and manifest
+digest, kernel digest, scoring-source hashes, and runtime versions. Inputs
+must remain unchanged between runs. Prompt, token-count, pre-FFN activation,
+case IDs, option/head-row mappings, logits, and conditional-score normalization
+must agree with their respective contracts; no generated tokens are allowed.
+The output records both choices, expected-label matches, per-option logit and
+probability deltas, conditional total variation, and changed-choice counts.
+It does not convert conditional probabilities into calibrated confidence.
+
+Use validation for candidate diagnostics; reserve held-out data for the frozen
+final evaluation rather than repeatedly selecting policies from it. The
+`MIMO_PAIRED_EVAL_TEST=1` smoke (with the existing MiMo interpreter/snapshot
+and `MIMO_PROJECTION_ARTIFACT` variables) uses temporary synthetic split data
+and checks the full BF16/native path. Its expected-choice agreement is not
+representative task accuracy or a whole-model quantization quality gate.
+
 ## In-Memory Native FFN Substitution
 
 The streamed BF16 text path can replace **only** layer 3's FFN-down matmul
