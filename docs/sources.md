@@ -128,6 +128,12 @@ Hashes are build-specific. Native tests pass signed FWHT parity and a toy
 `MAP_CUSTOM2` BitNet-derived grouped-dot node on two repeated evaluations.
 The same toy node passes an opt-in two-key-head/two-repetition grouped-V
 activation permutation before signs/FWHT, with independent scalar parity.
+A later shared `MAP_CUSTOM2` bridge schedules the real frozen layer-3 FFN-down
+projection during the Python-hosted 32-layer MiMo text forward. Direct and
+graph paths have identical selected scores and final hidden hashes. Its
+actual loaded GGML base/CPU library paths and hashes are recorded. This is
+not registered model-loadable tensor/codec evidence or a native whole-model
+inference result.
 No MiMo model, converter, native low-bit GGUF tensor, or Qwen3.5 model hook was
 loaded or validated.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact

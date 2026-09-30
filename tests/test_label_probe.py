@@ -419,6 +419,9 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
     runtime_versions = evaluation._runtime_versions()
     original_versions = dict(runtime_versions)
     monkeypatch.setattr(evaluation, "_runtime_versions", lambda: dict(runtime_versions))
+    dependencies = {"test_dependency": {"sha256": "6" * 64}}
+    original_dependencies = deepcopy(dependencies)
+    monkeypatch.setattr(evaluation, "native_backend_dependencies", lambda library, backend: deepcopy(dependencies))
     calls = []
     defect = None
 
@@ -435,7 +438,10 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
             "model": MODEL_ID, "revision": MODEL_REVISION, "generated_tokens": 0, "layers": 32,
             "prompt_sha256": "1" * 64, "ffn_down_input_sha256": "3" * 64, "tokens": 82,
             "dataset": {"sha256": digest, "split": "held_out", "case_id": case["id"]},
-            "native_ffn_down": {"candidate_origin": "saved_hash_checked_native_fixture"} if native else {},
+            "native_ffn_down": {
+                "candidate_origin": "saved_hash_checked_native_fixture", "backend": kwargs.get("native_ffn_backend"),
+                "backend_dependencies": deepcopy(dependencies),
+            } if native else {},
             "decision": {"options": options, "chosen_option_id": "edit" if native else "ask"},
         }
         if native and defect == "generation":
@@ -466,6 +472,10 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
             source_identity["streamed_text.py"] = "5" * 64
         elif not native and defect == "runtime":
             runtime_versions["numpy"] = "changed"
+        elif not native and defect == "dependency":
+            dependencies["test_dependency"]["sha256"] = "changed"
+        elif native and defect == "backend_report":
+            report["native_ffn_down"]["backend"] = "incorrect"
         return report
 
     monkeypatch.setattr(evaluation, "run_streamed_text", scorer)
@@ -480,12 +490,15 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
     assert report["summary"] == {"cases": 1, "bf16_expected_matches": 1, "native_expected_matches": 0, "changed_choices": 1}
     assert report["cases"][0]["conditional_total_variation"] == pytest.approx(0.5)
     assert len(calls) == 2 and all(call["split"] == "held_out" for call in calls)
+    assert calls[1]["native_ffn_backend"] == report["native_backend"] == "direct"
     assert "calibration_output" not in calls[0] and "calibration_output" not in calls[1]
-    for defect in ("generation", "prompt", "mapping", "normalization", "logits", "tokens", "activation", "case", "dataset", "candidate", "kernel", "source", "runtime"):
+    for defect in ("generation", "prompt", "mapping", "normalization", "logits", "tokens", "activation", "case", "dataset", "candidate", "kernel", "source", "runtime", "dependency", "backend_report"):
         path.write_text(json.dumps(dataset))
         identity["manifest_sha256"] = "0" * 64
         source_identity.update(original_sources)
         runtime_versions.update(original_versions)
+        dependencies.clear()
+        dependencies.update(deepcopy(original_dependencies))
         library.write_bytes(b"mock library")
         with pytest.raises(DecisionDatasetError):
             evaluation.compare_dataset_cases(

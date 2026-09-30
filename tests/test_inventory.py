@@ -293,6 +293,9 @@ def test_selected_lm_head_scores_only_bounded_bf16_rows(tmp_path, monkeypatch):
         run_streamed_text(None, prompt="A or B", full_vocabulary_mass=True)
     with pytest.raises(InventoryError, match="requires the native FFN-down library"):
         run_streamed_text(None, prompt="A or B", projection_artifact=tmp_path)
+    for backend in ("unsupported", "prism_ggml"):
+        with pytest.raises(InventoryError, match="native graph backend requires"):
+            run_streamed_text(None, prompt="A or B", native_ffn_backend=backend)
 
     value = np.float32(1 / 512)
     bits = (np.array([value], dtype=np.float32).view(np.uint32) >> 16).astype("<u2")

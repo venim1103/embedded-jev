@@ -23,7 +23,33 @@ MAX_FULL_HEAD_BYTES = 3 * 1024**3
 FULL_HEAD_BATCH_ROWS = 256
 
 
-def make_native_ffn_down(weight, library: Path, artifact: Path | None = None):
+def native_backend_dependencies(library: Path, backend: str) -> dict:
+    """Record actual dynamically loaded GGML dependencies for the graph bridge."""
+    if backend == "direct":
+        return {}
+    if backend != "prism_ggml":
+        raise InventoryError("unsupported native FFN-down backend")
+    import ctypes
+
+    try:
+        locator = ctypes.CDLL(str(library)).prism_group_scale_library_path
+        locator.argtypes = [ctypes.c_int]
+        locator.restype = ctypes.c_char_p
+        dependencies = {}
+        for index, name in enumerate(("ggml_cpu", "ggml_base")):
+            raw_path = locator(index)
+            if not raw_path:
+                raise InventoryError("native graph library did not identify its loaded GGML dependency")
+            path = Path(raw_path.decode("utf-8")).resolve()
+            with path.open("rb") as source:
+                digest = hashlib.file_digest(source, "sha256").hexdigest()
+            dependencies[name] = {"path": str(path), "bytes": path.stat().st_size, "sha256": digest}
+        return dependencies
+    except (OSError, AttributeError, UnicodeDecodeError) as exc:
+        raise InventoryError(f"unable to identify native graph dependencies: {exc}") from exc
+
+
+def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *, backend: str = "direct"):
     """Substitute one in-memory group-128 BitNet-derived AVX2 projection."""
     import ctypes
 
@@ -53,7 +79,13 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None):
         packed = np.ascontiguousarray(packed)
         origin = "saved_hash_checked_native_fixture"
     weight_scales = np.ascontiguousarray(scales.astype(np.float32))
-    function = ctypes.CDLL(str(library)).bitnet_group_scale_matmul_avx2
+    if backend not in ("direct", "prism_ggml"):
+        raise InventoryError("unsupported native FFN-down backend")
+    symbol = "prism_bitnet_group_scale_matmul_avx2" if backend == "prism_ggml" else "bitnet_group_scale_matmul_avx2"
+    try:
+        function = getattr(ctypes.CDLL(str(library)), symbol)
+    except (OSError, AttributeError) as exc:
+        raise InventoryError(f"unable to load native FFN-down backend {backend}: {exc}") from exc
     function.argtypes = [
         ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
         ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
@@ -65,6 +97,8 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None):
         "calls": 0, "max_native_reference_error": 0.0,
         "packed_bytes": packed.nbytes, "candidate_origin": origin,
         "bf16_projection_materialized": artifact is None,
+        "backend": backend, "graph_op": "map_custom2" if backend == "prism_ggml" else None,
+        "backend_dependencies": native_backend_dependencies(library, backend),
     }
 
     class NativeFFNDown(torch.nn.Module):
@@ -239,6 +273,7 @@ def run_streamed_text(
     split: str | None = None,
     calibration_output: Path | None = None,
     activation_observer=None,
+    native_ffn_backend: str = "direct",
 ) -> dict:
     """Execute at most one verified BF16 decoder layer at a time on CPU."""
     if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
@@ -253,6 +288,8 @@ def run_streamed_text(
         raise InventoryError("fixture path and case id must be provided together")
     if native_ffn_library is not None and (layers < 4 or not native_ffn_library.is_file()):
         raise InventoryError("native FFN-down requires four layers and an existing library")
+    if native_ffn_backend not in ("direct", "prism_ggml") or (native_ffn_backend != "direct" and native_ffn_library is None):
+        raise InventoryError("native graph backend requires a supported mode and native library")
     if projection_artifact is not None and native_ffn_library is None:
         raise InventoryError("projection artifact requires the native FFN-down library")
     if full_vocabulary_mass and layers != 32:
@@ -365,7 +402,7 @@ def run_streamed_text(
             if native_ffn_library is not None:
                 decoder.mlp.down_proj, native_diagnostics = make_native_ffn_down(
                     None if projection_artifact is not None else decoder.mlp.down_proj.weight,
-                    native_ffn_library, projection_artifact,
+                    native_ffn_library, projection_artifact, backend=native_ffn_backend,
                 )
 
             def capture_ffn_input(_module, args):
@@ -507,6 +544,7 @@ def main() -> None:
     parser.add_argument("--calibration-output", type=Path)
     parser.add_argument("--case-id")
     parser.add_argument("--native-ffn-library", type=Path)
+    parser.add_argument("--native-ffn-backend", choices=("direct", "prism_ggml"), default="direct")
     parser.add_argument("--projection-artifact", type=Path)
     parser.add_argument("--full-vocabulary-mass", action="store_true")
     args = parser.parse_args()
@@ -519,6 +557,7 @@ def main() -> None:
         dataset_path=args.dataset,
         split=args.split,
         calibration_output=args.calibration_output,
+        native_ffn_backend=args.native_ffn_backend,
     ), sort_keys=True))
 
 

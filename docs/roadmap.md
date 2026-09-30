@@ -206,6 +206,11 @@ A later Python-hosted BF16 text run substituted one actual MiMo FFN-down
 projection with the BitNet-derived AVX2 group-scale kernel; the 22-token
 prompt's A/B conditional scores changed from 0.2695/0.7305 to 0.2709/0.7291.
 This is not a full-model ternary export or a quality result.
+A pinned CPU GGML shared bridge now schedules that frozen projection through
+`MAP_CUSTOM2`, with exact direct-versus-graph full-text score/hidden parity.
+Loaded GGML dependency hashes are bound in frozen evaluation. A8 and model
+hosting remain Python-side; GGUF tensor registration and native full-model
+dispatch remain open.
 Running that same graph serially for two 128-value groups and applying distinct
 row/group scales outside the graph returned exact toy outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

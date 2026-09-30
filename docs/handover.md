@@ -363,6 +363,14 @@ worse (0.456 versus the unchanged RTN 0.406), although native parity passes.
 No merged capture or compensated candidate is saved, and held-out inference
 remains untouched. Further policy promotion needs a different justified
 approximation and representative quality evidence, not more training-score wins.
+The original frozen RTN projection now also executes through a real pinned
+Prism CPU GGML `MAP_CUSTOM2` node. Its full 32-layer hidden hash and selected
+scores match direct native execution exactly. The bounded graph bridge checks
+one callback and releases its graph/backend buffers after each call. Actual
+GGML dependency paths/hashes are recorded and frozen by paired evaluation.
+This is one native graph-scheduled projection with Python-hosted model/A8
+preparation and callback-owned packed weights, not a registered GGUF format or
+whole-model native runtime. No new candidate or speed claim follows.
 Separately, an MIT-licensed 1,187,801,280-byte BitNet control GGUF was
 downloaded, SHA-256 verified, and loaded in the pinned native fork. See
 the development guide for both bounded tracks. No vision path or registered

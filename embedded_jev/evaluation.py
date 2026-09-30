@@ -13,7 +13,7 @@ from embedded_jev.decision_dataset import (
 )
 from embedded_jev.inventory import MODEL_ID, MODEL_REVISION
 from embedded_jev.projection_artifact import PINNED_SHARD_SHA256, load_projection_artifact
-from embedded_jev.streamed_text import run_streamed_text
+from embedded_jev.streamed_text import native_backend_dependencies, run_streamed_text
 
 
 MAX_COMPARISON_CASES = 4
@@ -110,6 +110,7 @@ def _case_observation(case: dict, dense: dict, native: dict) -> dict:
 def compare_dataset_cases(
     snapshot: Path, *, dataset_path: Path, split: str, case_ids: list[str],
     native_library: Path, candidate: Path,
+    native_backend: str = "direct",
 ) -> dict:
     """Compare explicit cases using one saved candidate, refusing changed inputs."""
     if (
@@ -117,6 +118,7 @@ def compare_dataset_cases(
         or not 1 <= len(case_ids) <= MAX_COMPARISON_CASES
         or any(not isinstance(case_id, str) or not case_id for case_id in case_ids)
         or len(set(case_ids)) != len(case_ids) or not native_library.is_file()
+        or native_backend not in ("direct", "prism_ggml")
     ):
         raise DecisionDatasetError("comparison requires 1-4 unique case IDs, an explicit split, and a native library")
     dataset, digest = load_decision_dataset(dataset_path)
@@ -124,6 +126,7 @@ def compare_dataset_cases(
     identity = _candidate_identity(candidate)
     source_identity = _source_identity()
     runtime_versions = _runtime_versions()
+    dependencies = native_backend_dependencies(native_library, native_backend)
     with native_library.open("rb") as source:
         library_digest = hashlib.file_digest(source, "sha256").hexdigest()
 
@@ -135,6 +138,7 @@ def compare_dataset_cases(
             current != digest or _candidate_identity(candidate) != identity
             or current_library != library_digest or _source_identity() != source_identity
             or _runtime_versions() != runtime_versions
+            or native_backend_dependencies(native_library, native_backend) != dependencies
         ):
             raise DecisionDatasetError("dataset, candidate, native library, scoring source, or runtime changed during comparison")
 
@@ -148,8 +152,12 @@ def compare_dataset_cases(
         verify_frozen_inputs()
         native = run_streamed_text(
             snapshot, **common, native_ffn_library=native_library, projection_artifact=candidate,
+            native_ffn_backend=native_backend,
         )
         verify_frozen_inputs()
+        execution = native.get("native_ffn_down", {})
+        if execution.get("backend") != native_backend or execution.get("backend_dependencies") != dependencies:
+            raise DecisionDatasetError("native execution backend/dependencies disagree with frozen comparison inputs")
         if any(report["dataset"]["sha256"] != digest or report["dataset"]["split"] != split for report in (dense, native)):
             raise DecisionDatasetError("model reports disagree with the frozen dataset split")
         results.append(_case_observation(case, dense, native))
@@ -159,6 +167,8 @@ def compare_dataset_cases(
         "model": MODEL_ID, "revision": MODEL_REVISION,
         "dataset": {"sha256": digest, "purpose": dataset["purpose"], "provenance": dataset["provenance"], "split": split},
         "candidate": identity, "native_library_sha256": library_digest,
+        "native_backend": native_backend,
+        "native_backend_dependencies": dependencies,
         "runtime_versions": runtime_versions, "scoring_source_sha256": source_identity,
         "generated_tokens": 0, "quantizer_fitting": False,
         "cases": results,
@@ -178,11 +188,13 @@ def main() -> None:
     parser.add_argument("--split", choices=SPLITS, required=True)
     parser.add_argument("--case-ids", nargs="+", required=True)
     parser.add_argument("--native-library", type=Path, required=True)
+    parser.add_argument("--native-backend", choices=("direct", "prism_ggml"), default="direct")
     parser.add_argument("--candidate", type=Path, required=True)
     args = parser.parse_args()
     print(json.dumps(compare_dataset_cases(
         args.local_dir, dataset_path=args.dataset, split=args.split, case_ids=args.case_ids,
         native_library=args.native_library, candidate=args.candidate,
+        native_backend=args.native_backend,
     ), sort_keys=True))
 
 

@@ -102,6 +102,94 @@ def test_pinned_prism_fwht_feeds_bitnet_derived_group_scale_kernel(tmp_path):
     assert grouped["repeat_scale_error"] < 0.005
 
 
+def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
+    import ctypes
+    import platform
+
+    import numpy as np
+
+    from embedded_jev.ternary import pack_group128_codes
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    library_name = os.environ.get("PRISM_GGML_CPU_LIBRARY")
+    compiler = shutil.which("clang++-18")
+    if not source_dir or not library_name or compiler is None:
+        pytest.skip("requires pinned Prism CPU source/library and Clang 18")
+    if platform.machine() != "x86_64" or "avx2" not in Path("/proc/cpuinfo").read_text():
+        pytest.skip("requires x86-64 AVX2")
+    assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    library_dir = Path(library_name).parent
+    sources = Path(__file__).resolve().parents[1] / "native"
+    binary = tmp_path / "prism_group_scale.so"
+    subprocess.run(
+        [compiler, "-std=c++17", "-O2", "-mavx2", "-shared", "-fPIC",
+         "-I", str(Path(source_dir) / "ggml" / "include"),
+         str(sources / "prism_group_scale.cpp"), str(sources / "bitnet_group_scale.cpp"),
+         "-L", str(library_dir), f"-Wl,-rpath,{library_dir}", "-lggml-cpu", "-lggml-base", "-o", str(binary)],
+        check=True, capture_output=True, text=True,
+    )
+    native = ctypes.CDLL(str(binary))
+    from embedded_jev.streamed_text import native_backend_dependencies
+
+    dependencies = native_backend_dependencies(binary, "prism_ggml")
+    assert set(dependencies) == {"ggml_cpu", "ggml_base"}
+    assert Path(dependencies["ggml_cpu"]["path"]) == Path(library_name).resolve()
+    assert all(len(record["sha256"]) == 64 for record in dependencies.values())
+    arguments = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
+                 ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
+                 ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float)]
+    graph = native.prism_bitnet_group_scale_matmul_avx2
+    direct = native.bitnet_group_scale_matmul_avx2
+    for function in (graph, direct):
+        function.argtypes = arguments
+        function.restype = ctypes.c_int
+    generator = np.random.default_rng(884)
+    codes = generator.integers(-1, 2, size=(5, 3, 128), dtype=np.int8)
+    packed = pack_group128_codes(codes)
+    scales = generator.uniform(0.01, 1.0, size=(5, 3)).astype(np.float16).astype(np.float32)
+    activations = generator.integers(-127, 128, size=(2, 3, 128), dtype=np.int8)
+    activation_scales = generator.uniform(0.01, 0.2, size=(2, 3)).astype(np.float32)
+    pointers = [packed.ctypes.data_as(arguments[0]), scales.ctypes.data_as(arguments[1]),
+                activations.ctypes.data_as(arguments[2]), activation_scales.ctypes.data_as(arguments[3])]
+    expected = np.empty((2, 5), dtype=np.float32)
+    actual = np.empty_like(expected)
+    for multiplier in (1, -1, 2):
+        activations[:] = generator.integers(-63, 64, size=activations.shape, dtype=np.int8) * multiplier
+        assert direct(*pointers, 2, 5, 3, expected.ctypes.data_as(arguments[-1])) == 0
+        assert graph(*pointers, 2, 5, 3, actual.ctypes.data_as(arguments[-1])) == 0
+        np.testing.assert_array_equal(actual, expected)
+    actual.fill(123)
+    assert graph(*pointers, 129, 5, 3, actual.ctypes.data_as(arguments[-1])) == 1
+    np.testing.assert_array_equal(actual, 123)
+    if os.environ.get("MIMO_PRISM_GRAPH_TEST") == "1":
+        interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+        local_dir = os.environ.get("MIMO_LOCAL_DIR")
+        artifact = os.environ.get("MIMO_PROJECTION_ARTIFACT")
+        if not all((interpreter, local_dir, artifact)):
+            pytest.fail("set MiMo interpreter/snapshot/candidate for the optional real projection graph test")
+        environment = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+                       "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"}
+        reports = []
+        for backend in ("direct", "prism_ggml"):
+            result = subprocess.run(
+                [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+                 "--layers", "32", "--native-ffn-library", str(binary), "--native-ffn-backend", backend,
+                 "--projection-artifact", artifact],
+                env=environment, check=True, capture_output=True, text=True, timeout=180,
+            )
+            reports.append(json.loads(result.stdout))
+        direct_report, graph_report = reports
+        assert graph_report["native_ffn_down"]["graph_op"] == "map_custom2"
+        assert graph_report["native_ffn_down"]["backend_dependencies"] == dependencies
+        assert graph_report["native_ffn_down"]["bf16_projection_materialized"] is False
+        assert graph_report["native_ffn_down"]["max_native_reference_error"] < 1e-4
+        assert graph_report["native_ffn_down"]["calls"] == 1
+        assert graph_report["ffn_down_input_sha256"] == direct_report["ffn_down_input_sha256"]
+        assert graph_report["last_token_sha256"] == direct_report["last_token_sha256"]
+        assert graph_report["selected_head"]["options"] == direct_report["selected_head"]["options"]
+        assert graph_report["generated_tokens"] == direct_report["generated_tokens"] == 0
+
+
 def test_pinned_prism_qwen35_filter_and_ssm_bias_map_mimo_text_names():
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")

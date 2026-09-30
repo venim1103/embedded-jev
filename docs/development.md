@@ -569,6 +569,51 @@ native substitution; B was the top token in both. These are measurements for
 one deliberately constrained prompt, **not** calibrated confidence, a quality
 benchmark, or evidence that bulk ternary quantization is safe.
 
+## GGML-Scheduled Frozen Projection
+
+The frozen RTN projection can also run through a real CPU GGML `MAP_CUSTOM2`
+node using the pinned Prism library instead of invoking the grouped kernel
+directly. Build the bounded shared bridge outside Git:
+
+```bash
+native="$cache/native"
+clang++-18 -std=c++17 -O2 -mavx2 -shared -fPIC \
+   -I "$native/prism-source/ggml/include" \
+   native/prism_group_scale.cpp native/bitnet_group_scale.cpp \
+   -L "$native/prism-build/bin" -Wl,-rpath,"$native/prism-build/bin" \
+   -lggml-cpu -lggml-base -o "$native/prism_group_scale_probe.so"
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+   "$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$snapshot" --layers 32 --projection-artifact "$candidate" \
+   --native-ffn-library "$native/prism_group_scale_probe.so" \
+   --native-ffn-backend prism_ggml
+```
+
+The graph bridge caps 128 tokens, 4,096 rows, and 96 groups, requires exactly
+one callback, and releases its graph/backend buffers on return. Repeated graph
+calls are exactly equal to the direct kernel on golden fixtures. The real
+frozen 4,096 x 12,288 projection, within all 32 BF16 text layers, gives exactly
+the same final hidden hash and selected A/B logits/scores as direct native
+execution, with zero generation and no BF16 source-projection materialization.
+
+Set `MIMO_PRISM_GRAPH_TEST=1` alongside the Prism source/library and MiMo
+interpreter/snapshot/candidate variables to extend
+`tests/test_prism_native_control.py -k shared_group_scale_graph_matches_direct_kernel`
+to the real full-text parity check. The frozen evaluator accepts
+`--native-backend prism_ggml` with this bridge. Reports obtain the actual
+loaded GGML paths via `dladdr`, record CPU/base library hashes, and refuse
+changed dependencies or mismatched execution reports. The CPU hash is
+`adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150`;
+the base hash is `57a9b6060d3bc902c30fd97fb271ae7f027054d4a9f8b50e27dd6fe91951847d`.
+The public validation observation remains identical to direct execution
+(conditional total variation 0.00354 relative to BF16).
+
+This is **native graph scheduling of one frozen projection**, not a native
+whole-model runtime or GGUF tensor registration. A8 preparation remains in
+the Python caller; packed weights/scales are callback-owned, not model-loaded
+GGML weight tensors. No speedup, ARM support, calibrated confidence, or quality
+acceptance is established.
+
 ## Single-Projection Native Fixture
 
 One searched-FP16 group-128 layer-3 FFN-down candidate is retained under
