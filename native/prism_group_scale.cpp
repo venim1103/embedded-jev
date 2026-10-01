@@ -2,11 +2,15 @@
 #include "ggml-backend.h"
 #include "ggml-cpu.h"
 #include "ggml.h"
+#include "traits.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <dlfcn.h>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 extern "C" int bitnet_group_scale_matmul_avx2(
@@ -70,6 +74,117 @@ void grouped_dot(
         activation_scales, state->tokens, state->rows, state->groups,
         static_cast<float*>(destination->data));
 }
+
+struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
+    std::size_t tokens;
+    std::size_t rows;
+    std::size_t groups;
+    std::size_t calls = 0;
+    int status = 4;
+    std::vector<uint8_t> packed;
+    std::vector<float> weight_scales;
+    std::vector<int8_t> activations;
+    std::vector<float> activation_scales;
+
+    bitnet_tensor_traits(std::size_t token_count, std::size_t row_count, std::size_t group_count)
+        : tokens(token_count), rows(row_count), groups(group_count),
+          packed(rows * groups * 32), weight_scales(rows * groups),
+          activations(tokens * groups * 128), activation_scales(tokens * groups) {}
+
+    bool work_size(int n_threads, const ggml_tensor*, std::size_t& size) override {
+        size = 0;
+        return n_threads == 1;
+    }
+
+    bool compute_forward(ggml_compute_params* params, ggml_tensor* op) override {
+        if (params->ith != 0) {
+            return true;
+        }
+        if (params->nth != 1 || !op->src[0]->data || !op->src[1]->data || !op->data) {
+            status = 4;
+            return true;
+        }
+        const auto* blocks = static_cast<const uint8_t*>(op->src[0]->data);
+        std::fill(packed.begin(), packed.end(), 0);
+        for (std::size_t block = 0; block < rows * groups; ++block) {
+            const uint8_t* source = blocks + block * 34;
+            const ggml_fp16_t scale_bits = static_cast<ggml_fp16_t>(source[0] | (source[1] << 8));
+            const float scale = ggml_fp16_to_fp32(scale_bits);
+            if (!std::isfinite(scale) || scale < 0.0f) {
+                status = 5;
+                return true;
+            }
+            weight_scales[block] = scale;
+            for (std::size_t column = 0; column < 128; ++column) {
+                const uint8_t code = (source[2 + column / 4] >> (2 * (column % 4))) & 3;
+                if (code == 3) {
+                    status = 5;
+                    return true;
+                }
+                packed[block * 32 + column % 32] |= code << (6 - 2 * (column / 32));
+            }
+        }
+        status = bitnet_group_scale_prepare_a8(
+            static_cast<const float*>(op->src[1]->data), tokens, groups,
+            activations.data(), activation_scales.data());
+        if (status == 0) {
+            ++calls;
+            status = bitnet_group_scale_matmul_avx2(
+                packed.data(), weight_scales.data(), activations.data(),
+                activation_scales.data(), tokens, rows, groups, static_cast<float*>(op->data));
+        }
+        return true;
+    }
+};
+
+struct bitnet_buffer_type final : ggml::cpu::extra_buffer_type {
+    bitnet_tensor_traits& traits;
+    ggml_backend_buffer_type type;
+
+    explicit bitnet_buffer_type(bitnet_tensor_traits& tensor_traits)
+        : traits(tensor_traits), type(*ggml_backend_cpu_buffer_type()) {
+        type.context = this;
+        type.iface.get_name = [](ggml_backend_buffer_type_t) { return "JEV_BITNET_GROUP128"; };
+        type.iface.is_host = [](ggml_backend_buffer_type_t) { return false; };
+        type.iface.alloc_buffer = [](ggml_backend_buffer_type_t buft, std::size_t size) {
+            auto* buffer = ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size);
+            if (buffer) {
+                buffer->buft = buft;
+                buffer->iface.init_tensor = [](ggml_backend_buffer_t owner, ggml_tensor* tensor) {
+                    auto* extra = static_cast<bitnet_buffer_type*>(owner->buft->context);
+                    tensor->extra = &extra->traits;
+                    return GGML_STATUS_SUCCESS;
+                };
+            }
+            return buffer;
+        };
+        ggml_backend_cpu_get_extra_buffer_types().push_back(&type);
+    }
+
+    ~bitnet_buffer_type() override {
+        auto& types = ggml_backend_cpu_get_extra_buffer_types();
+        types.erase(std::find(types.begin(), types.end(), &type));
+    }
+
+    bool supports_op(ggml_backend_dev_t, const ggml_tensor* op) override {
+        const ggml_tensor* weight = op->src[0];
+        const ggml_tensor* input = op->src[1];
+        return op->op == GGML_OP_MUL_MAT && weight && input &&
+            weight->buffer && weight->buffer->buft == &type && weight->extra == &traits &&
+            weight->type == GGML_TYPE_PQ2_0 && input->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32 &&
+            weight->ne[0] == static_cast<int64_t>(traits.groups * 128) &&
+            weight->ne[1] == static_cast<int64_t>(traits.rows) &&
+            input->ne[0] == weight->ne[0] && input->ne[1] == static_cast<int64_t>(traits.tokens) &&
+            op->ne[0] == weight->ne[1] && op->ne[1] == input->ne[1] &&
+            weight->ne[2] == 1 && weight->ne[3] == 1 && input->ne[2] == 1 && input->ne[3] == 1 &&
+            op->ne[2] == 1 && op->ne[3] == 1 &&
+            ggml_is_contiguous(weight) && ggml_is_contiguous(input) && ggml_is_contiguous(op);
+    }
+
+    ggml::cpu::tensor_traits* get_tensor_traits(const ggml_tensor* op) override {
+        return supports_op(nullptr, op) ? &traits : nullptr;
+    }
+};
 
 }
 
@@ -192,6 +307,71 @@ extern "C" int prism_bitnet_group_scale_matmul_hadamard128(
         return 1;
     }
     return run_grouped_graph(packed, weight_scales, inputs, nullptr, tokens, rows, groups, output, true, signs);
+}
+
+extern "C" int prism_bitnet_registered_tensor_matmul(
+    const uint8_t* pq2_blocks, const float* inputs, std::size_t tokens,
+    std::size_t rows, std::size_t groups, float* output, std::size_t* dispatch_calls) {
+    if (!dispatch_calls) {
+        return 1;
+    }
+    *dispatch_calls = 0;
+    if (!pq2_blocks || !inputs || !output || tokens == 0 || tokens > 128 ||
+        rows == 0 || rows > 4096 || groups == 0 || groups > 96) {
+        return 1;
+    }
+    static std::mutex registration_mutex;
+    const std::lock_guard<std::mutex> lock(registration_mutex);
+    bitnet_tensor_traits traits(tokens, rows, groups);
+    bitnet_buffer_type registered(traits);
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+    if (!context) {
+        return 2;
+    }
+    ggml_tensor* weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, groups * 128, rows);
+    ggml_tensor* input = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, groups * 128, tokens);
+    ggml_tensor* result = ggml_mul_mat(context.get(), weight, input);
+    const std::size_t weight_bytes = rows * groups * 34;
+    if (ggml_nbytes(weight) != weight_bytes || result->op != GGML_OP_MUL_MAT) {
+        return 3;
+    }
+    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> weight_buffer(
+        ggml_backend_buft_alloc_buffer(&registered.type, weight_bytes), ggml_backend_buffer_free);
+    if (!weight_buffer || ggml_backend_tensor_alloc(weight_buffer.get(), weight,
+            ggml_backend_buffer_get_base(weight_buffer.get())) != GGML_STATUS_SUCCESS) {
+        return 2;
+    }
+    ggml_backend_buffer_set_usage(weight_buffer.get(), GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+    ggml_set_input(input);
+    ggml_set_output(result);
+    ggml_cgraph* graph = ggml_new_graph(context.get());
+    ggml_build_forward_expand(graph, result);
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(
+        ggml_backend_cpu_init(), ggml_backend_free);
+    if (!backend) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    if (!ggml_backend_supports_op(backend.get(), result)) {
+        return 4;
+    }
+    std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+        ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+    if (!allocator || !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+        return 2;
+    }
+    ggml_backend_tensor_set(weight, pq2_blocks, 0, weight_bytes);
+    ggml_backend_tensor_set(input, inputs, 0, tokens * groups * 128 * sizeof(float));
+    if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+        return 3;
+    }
+    *dispatch_calls = traits.calls;
+    if (traits.status != 0 || traits.calls != 1) {
+        return traits.status != 0 ? traits.status : 4;
+    }
+    ggml_backend_tensor_get(result, output, 0, rows * tokens * sizeof(float));
+    return 0;
 }
 
 extern "C" int prism_pq2_tensor_matmul(

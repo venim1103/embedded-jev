@@ -124,6 +124,8 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
     subprocess.run(
         [compiler, "-std=c++17", "-O2", "-mavx2", "-shared", "-fPIC",
          "-I", str(Path(source_dir) / "ggml" / "include"),
+         "-I", str(Path(source_dir) / "ggml" / "src"),
+         "-I", str(Path(source_dir) / "ggml" / "src" / "ggml-cpu"),
          str(sources / "prism_group_scale.cpp"), str(sources / "bitnet_group_scale.cpp"),
          "-L", str(library_dir), f"-Wl,-rpath,{library_dir}", "-lggml-cpu", "-lggml-base", "-o", str(binary)],
         check=True, capture_output=True, text=True,
@@ -210,6 +212,57 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
     from embedded_jev.prism_codec import pack_ternary_pq2_0
     from embedded_jev.ternary import reconstruct_ternary
 
+    registered = native.prism_bitnet_registered_tensor_matmul
+    registered.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
+                           ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
+                           ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_size_t)]
+    registered.restype = ctypes.c_int
+    for groups in (2, 3):
+        codes = generator.integers(-1, 2, size=(5, groups, 128), dtype=np.int8)
+        fp16_scales = generator.uniform(0.01, 1.0, size=(5, groups)).astype(np.float16)
+        fp16_scales[0, 0] = 0
+        codes[0, 0] = 0
+        pq2_blocks = pack_ternary_pq2_0(codes, fp16_scales)
+        packed = pack_group128_codes(codes)
+        scales = fp16_scales.astype(np.float32)
+        inputs = generator.normal(size=(2, groups * 128)).astype(np.float32)
+        inputs[0, :128] = 0
+        for tokens, multiplier in ((1, 1), (2, -2)):
+            values = np.ascontiguousarray(inputs[:tokens] * multiplier)
+            prepared, input_scales = quantize_a8_per_group(values)
+            assert direct(packed.ctypes.data_as(arguments[0]), scales.ctypes.data_as(arguments[1]),
+                          prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+                          tokens, 5, groups, expected.ctypes.data_as(arguments[-1])) == 0
+            calls = ctypes.c_size_t(0)
+            assert registered(pq2_blocks.ctypes.data_as(registered.argtypes[0]),
+                              values.ctypes.data_as(registered.argtypes[1]), tokens, 5, groups,
+                              actual.ctypes.data_as(registered.argtypes[-2]), ctypes.byref(calls)) == 0
+            assert calls.value == 1
+            np.testing.assert_array_equal(actual[:tokens], expected[:tokens])
+
+    valid_blocks = pq2_blocks.copy()
+    for invalid_kind in ("plus_two", "negative_scale", "nan_scale", "inf_scale", "nan_input", "token_limit"):
+        invalid_blocks = valid_blocks.copy()
+        invalid_inputs = inputs.copy()
+        tokens = 2
+        if invalid_kind == "plus_two":
+            invalid_blocks.flat[2] = (int(invalid_blocks.flat[2]) & ~3) | 3
+        elif invalid_kind in ("negative_scale", "nan_scale", "inf_scale"):
+            scale = {"negative_scale": -1, "nan_scale": np.nan, "inf_scale": np.inf}[invalid_kind]
+            invalid_blocks.reshape(-1, 34)[0, :2] = np.array([scale], dtype="<f2").view(np.uint8)
+        elif invalid_kind == "nan_input":
+            invalid_inputs[0, 0] = np.nan
+        else:
+            tokens = 129
+        actual.fill(123)
+        calls = ctypes.c_size_t(99)
+        status = registered(invalid_blocks.ctypes.data_as(registered.argtypes[0]),
+                            invalid_inputs.ctypes.data_as(registered.argtypes[1]), tokens, 5, groups,
+                            actual.ctypes.data_as(registered.argtypes[-2]), ctypes.byref(calls))
+        assert status == (1 if invalid_kind == "token_limit" else 2 if invalid_kind == "nan_input" else 5)
+        assert calls.value == 0
+        np.testing.assert_array_equal(actual, 123)
+
     pq2 = native.prism_pq2_tensor_matmul
     pq2.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
                     ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float)]
@@ -260,6 +313,19 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
             decoded_weights = reconstruct_ternary(stored_codes[first:first + 64].reshape(-1, 12288), stored_scales[first:first + 64])
             expected[:, first:first + 64] = inputs @ decoded_weights.T
         np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=1e-5)
+        inputs = generator.normal(size=(2, 12288)).astype(np.float32)
+        inputs[0, :128] = 0
+        prepared, input_scales = quantize_a8_per_group(inputs)
+        scales = stored_scales.astype(np.float32)
+        assert direct(stored_packed.ctypes.data_as(arguments[0]), scales.ctypes.data_as(arguments[1]),
+                      prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+                      2, 4096, 96, expected.ctypes.data_as(arguments[-1])) == 0
+        calls = ctypes.c_size_t(0)
+        assert registered(pq2_blocks.ctypes.data_as(registered.argtypes[0]),
+                          inputs.ctypes.data_as(registered.argtypes[1]), 2, 4096, 96,
+                          actual.ctypes.data_as(registered.argtypes[-2]), ctypes.byref(calls)) == 0
+        assert calls.value == 1
+        np.testing.assert_array_equal(actual, expected)
     if os.environ.get("MIMO_PRISM_GRAPH_TEST") == "1":
         interpreter = os.environ.get("MIMO_DENSE_PYTHON")
         local_dir = os.environ.get("MIMO_LOCAL_DIR")
