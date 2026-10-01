@@ -14,21 +14,25 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-01)
 
-The last tested implementation commit is `9a1fbfa` (2026-10-01),
-`feat: validate opt-in BitNet dispatch through pinned Prism loader`.
+The last tested implementation commit is `3c4fa81` (2026-10-01),
+`build: package pinned Prism runtime and guarded vocabulary preflight`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
 with documentation checkpoints at `79608a8` and `03b183d`. The latest
 continuation began clean at the user-pushed `03b183d`; `b1f306a` (versioned CPU
 buffer) and `9a1fbfa` (explicit loader route) followed. The assistant made no push
-or branch change. Recheck Git state in each session.
+or branch change. The resource-plan continuation started clean at `c390c0d`,
+adding `ecfcff5` (header-only native budgets) and `3c4fa81` (full runtime build
+and no-weight tokenizer preflight). Recheck Git state in each session.
 
-Current gates: **158 default tests passed, 24 optional tests skipped; all seven
+Current gates: **159 default tests passed, 24 optional tests skipped; all seven
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
 handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
-enabled, including the sole full-size frozen projection (22.71 s).
+enabled, including the sole full-size frozen projection, packaged dependency
+provenance, and guarded vocabulary-only native tokenizer parity (41.59 s).
+The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
 controls were not rerun after the later native file/runtime additions. Ruff,
@@ -105,6 +109,20 @@ development guide for flags.
   one-tensor loader selection/upload/dispatch, not a complete MiMo GGUF/model
   load or 32-layer native hosting. Factory callers must load the same unchanged
   validated file and keep the library alive; no full-model policy is authorized.
+- Header-only `native_reference_plan` reconciles 427 text tensors with
+  17,907,606,528 source bytes (16.678 GiB), excluding vision/MTP and retaining
+  the full embedding/head. The largest source+FP32 staging basis is 5.684 GiB;
+  encoded output and runtime allocations are extra. The development guide
+  records actual RAM/disk observations and the staged conversion plan, not a
+  native-fit or converter-peak guarantee.
+- The versioned [native build wrapper](../native/CMakeLists.txt) compiles the
+  full pinned llama library in a separate approximately 15.3 MB cache directory,
+  importing unchanged GGML CPU/base dependencies. Existing build/dispatch
+  controls pass. A guarded temporary vocabulary-only GGUF has zero weight
+  tensors and loads via real native `vocab_only` API; exact non-thinking prompt
+  and A/B/C token IDs match HF with zero generation and source-weight access
+  forbidden. The existing dense environment supplies the full converter CLI;
+  no installs, source duplication, or cached library overwrite followed.
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
@@ -130,6 +148,7 @@ rebuild the environments merely because the chat history changed.
 | `dense-venv/bin/python` | CPU Torch 2.10.0, Transformers 5.12.1, safetensors 0.7.0 |
 | `native/prism-source` | Prism commit `842b1880415d6f508f03b789e5ce70194def7bfd` |
 | `native/prism-build/bin` | Pinned GGML CPU/base libraries |
+| `native/jev-prism-runtime-v1-build/bin` | Separate versioned full llama/registry/bridge build and control; no model weights |
 | `native/bitnet-source` | Pinned Microsoft BitNet checkout and llama.cpp submodule |
 | `native/converter-venv/bin/python` | Isolated CPU converter environment; use the pinned `gguf-py` path |
 | `datasets/clinc150-828f809-proxy-seed902` | Attributed public proxy, provenance, and four training captures |
@@ -1109,8 +1128,12 @@ For a fresh coding session:
   one-tensor public loader override now pass, including real loader upload and
   full-size frozen-projection dispatch. Preserve default dummy-probe refusal,
   file identity/lifetime requirements, and the isolated steady-state concurrent
-  graph gate. Next is safe deployment of this runtime/build contract and native
-  architecture/error propagation, not another codec proof. The legacy scoped
+  graph gate. The separate full-runtime build and guarded vocabulary-only native
+  tokenization now pass. Read the staged
+  [native hosting plan](development.md#native-hosting-preflight-and-conversion-plan)
+  before further work: bulk text-only BF16 conversion needs separate approval,
+  followed by bounded real-architecture prefill and native error propagation.
+  The legacy scoped
   bridge must not run concurrently with arbitrary Prism graphs or registry
   mutation. Full-model conversion/loading remains outside the current scope.
   A production loader change

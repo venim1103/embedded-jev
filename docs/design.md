@@ -280,6 +280,17 @@ also passes; single-threaded early initialization, validated file identity, and
 library lifetime are explicit caller requirements. Registry/lifecycle race
 safety and complete native model hosting are not established.
 
+A standalone versioned build now packages the full pinned llama library against
+the unchanged GGML CPU/base dependencies. Guarded vocabulary-only conversion
+and public native load match HF's rendered prompt and label token IDs without
+reading source weights or generating tokens. Header-only native-reference
+resource planning preserves both full vocabulary matrices and excludes vision
+and optional MTP; the source-dtype floor is 16.678 GiB. Converter staging and
+native cache/scratch remain additional costs. The next architecture gate is an
+approved text-only dense native reference, then the existing single-projection
+BitNet payload; whole-model ternary conversion is not implied. See the
+[staged plan](development.md#native-hosting-preflight-and-conversion-plan).
+
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed
 execution layout. Report resident packed bytes and scratch separately: expanding
 trits to two bits at load time changes RAM and bandwidth, even without FP16

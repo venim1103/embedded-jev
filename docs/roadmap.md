@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `9a1fbfa` implementation checkpoint and the next bounded native
+For the tested `3c4fa81` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-01).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -255,6 +255,15 @@ ordinary CPU selection. Initialized read-only mixed graph concurrency passes;
 registry mutation/lifecycle safety, full-model loading, architecture/error
 integration, and native hosting remain open. The immutable cached build and
 single retained candidate are unchanged.
+A separate versioned build now compiles the full pinned llama library while
+importing unchanged cached GGML dependencies. Its CTests and guarded no-weight
+vocabulary-only native/HF prompt/label parity pass. Header-only planning derives
+the 427-text-tensor 16.678 GiB source floor and explicit staging bases; it does
+not certify native fit. The staged resource/conversion plan is in
+[development](development.md#native-hosting-preflight-and-conversion-plan).
+Bulk text-only BF16 reference conversion still needs separate approval, before
+actual architecture prefill and one-projection integration; full-model ternary,
+held-out inference, and quality promotion remain blocked.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

@@ -6,17 +6,19 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `9a1fbfa` (2026-10-01).
+The last tested implementation checkpoint is `3c4fa81` (2026-10-01), following
+the metadata-only resource planner at `ecfcff5`.
 The [current handover](handover.md#current-checkpoint-2026-10-01) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
-Current results: 158 default tests passed, 24 optional tests skipped, and all
+Current results: 159 default tests passed, 24 optional tests skipped, and all
 seven pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
-including the full-size frozen projection (22.71 s).
+including the full-size frozen projection and guarded vocabulary-only native
+tokenizer preflight (41.59 s). The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
 native file/runtime additions; unchanged model inference was not rerun afterwards.
@@ -956,6 +958,123 @@ checks, including mixed graph execution and teardown. Clang 18's sanitizer
 runtime is absent in this container; existing GCC was reused without installs.
 These sanitizer controls do not instrument the cached GGML libraries or the
 temporary real-loader units and do not establish lifecycle race safety.
+
+## Native Hosting Preflight and Conversion Plan
+
+The resource planner in [embedded_jev/inventory.py](../embedded_jev/inventory.py)
+adds `native_reference_plan` to the existing reconciled inventory. It reads only
+bounded metadata/headers, excludes vision and optional MTP, and retains both
+full vocabulary matrices. It is not conversion authorization, a measured
+converter peak, or a complete GGUF size prediction. Reproduce it with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory \
+   --local-dir "$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
+   | jq '.native_reference_plan'
+```
+
+Observed on 2026-10-01, before the vocabulary-only preflight:
+
+| Quantity | Bytes | Interpretation |
+| --- | ---: | --- |
+| 427 text source tensors | 17,907,606,528 | 16.678 GiB; source-dtype payload floor, not final GGUF/RSS |
+| Excluded vision | 912,020,960 | No vision conversion or inference in this stage |
+| Optional MTP payload | 0 | Configured MTP does not imply stored tensors |
+| Full input/output vocabulary matrices | 4,068,474,880 | Both retained; no selected-row loader assumption |
+| Largest source tensor | 2,034,237,440 | A vocabulary matrix, 1.895 GiB |
+| Largest FP32 tensor | 4,068,474,880 | 3.789 GiB conversion staging basis |
+| Largest source plus FP32 copy | 6,102,712,320 | 5.684 GiB, before encoded output and other allocations |
+| Above plus BF16 encoded output | 8,136,949,760 | 7.578 GiB illustrative concurrent-copy budget, not measured peak |
+| All text values in FP32 | 35,815,213,056 | Do not assume an eager/all-FP32 conversion fits |
+| Host available RAM | 22,345,261,056 | 20.811 GiB, time-sensitive; not a target-device budget |
+| Host swap / currently used | 8,589,934,592 / 0 | Swap is not working-memory acceptance evidence |
+| Cache filesystem available | 336,891,891,712 | 313.755 GiB, time-sensitive; recheck before conversion |
+
+The cgroup memory limit read `max`; host availability still applies. Pinned
+converter `prepare_tensors` routes source BF16 through FP32 and forces vectors,
+norms, and SSM convolution weights to F32. `--outtype bf16` is therefore not a
+uniform dtype promise. Qwen3.5 value transforms and generated metadata/alignment
+must be audited before final payload accounting. The inventory's FP16 KV and
+FP32 recurrent example is 134,217,728 and 50,331,648 bytes at 4,096 tokens/one
+sequence; convolution, graph/scratch, output logits, and allocator costs are
+excluded. Initial native controls should use at most 128 tokens, one sequence,
+and one CPU thread for the bounded BitNet trait; this is not an edge benchmark.
+
+### Isolated Full Runtime Build
+
+[native/CMakeLists.txt](../native/CMakeLists.txt) builds the complete pinned
+llama library, GGML registry/dynamic helper, bridge, and existing control against
+the immutable cached CPU/base libraries. It refuses a different/dirty tracked
+source revision, native non-AVX2 hosts, and build directories inside the pinned
+source/build. It resolves one root-relative upstream CMake helper include in
+memory; the actual cached helper/source files are not edited. No new source
+copy, environment install, GGML CPU rebuild, or model conversion is required.
+
+```bash
+runtime="$cache/native/jev-prism-runtime-v1-build"
+cmake -S native -B "$runtime" -G Ninja \
+   -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-18 \
+   -DPRISM_SOURCE_DIR="$cache/native/prism-source" \
+   -DPRISM_GGML_LIBRARY_DIR="$cache/native/prism-build/bin"
+cmake --build "$runtime" --parallel 4
+ctest --test-dir "$runtime" --output-on-failure
+```
+
+The build occupied approximately 15.3 MB, without model data. Its two CTests
+pass actual native-A8/BitNet arithmetic, mixed graph concurrency, early discovery,
+and late refusal while linked to the full llama library. This is build/runtime
+compatibility, not complete MiMo weight loading or a native decoder prefill.
+
+### Guarded Vocabulary Preflight
+
+The lightweight `native/converter-venv` lacks Transformers for the full CLI.
+The already-installed `dense-venv` can run the pinned converter; no packages
+were installed. With offline flags, `--vocab-only --outtype bf16 --no-nextn`
+creates only a temporary vocabulary/metadata GGUF. The test wraps safetensors
+to reject all `get_tensor`/`get_slice` source-weight access, confirms zero GGUF
+weight tensors, invokes the full public native load API with `vocab_only=true`,
+and verifies exact HF/native IDs for the non-thinking rendered prompt and
+single-token A/B/C labels. No context decode or answer generation occurs. The
+test deletes the file in `finally` and compares packaged-bridge cached dependency
+paths/SHA-256 hashes with the established bridge provenance.
+
+Add these flags to the existing optional native gate after building:
+
+```bash
+MIMO_NATIVE_VOCAB_TEST=1 \
+MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
+MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
+```
+
+### Staged Approval Gates
+
+1. **Completed, no weight conversion:** reconciled header budgets, isolated full
+   runtime build, dependency provenance, guarded vocabulary-only conversion,
+   real native/HF prompt and label parity, and existing one-tensor BitNet proofs.
+2. **Requires separate bulk-conversion approval:** create one text-only BF16
+   native reference from the existing snapshot, retaining full embedding/head,
+   excluding vision/MTP, leaving the sole ternary candidate unchanged. Use lazy
+   conversion, not `--no-lazy`; plan a temporary output/cleanup path, refresh
+   RAM/disk, measure actual peak/dtypes/bytes, and keep a filesystem/RAM reserve.
+   The lazy CLI and `--use-temp-file` are available, but their combination,
+   split policy, and peak resource behavior are not certified by this preflight.
+3. **After reference acceptance:** load the real architecture, create a bounded
+   native context, prefill without sampling/generation, and compare against the
+   existing engineering reference. Diagnose backend precision/graph differences
+   before claiming exact parity or selecting numerical tolerances. Record memory,
+   finite logits, recurrent/cache state, label mapping, and conditional scores.
+4. **Then one projection only:** extend the versioned file policy to a complete
+   model while binding the exact layer-3 identity payload and preserving every
+   stored code/FP16 scale. The current factory deliberately requires a one-tensor
+   file and cannot be applied unchanged to a 427-tensor model. Integrate native
+   error propagation, single-thread/batch bounds, library lifetime, and counted
+   BitNet dispatch; do not substitute stock PQ2/Q8_K as BitNet evidence.
+5. **Still not authorized:** full-model ternary conversion, compensation
+   promotion, another fitted/retained quantized candidate, held-out inference,
+   calibrated confidence, vision, or deployment benchmarks. Broader quantization
+   requires separate resource, arithmetic, runtime, and representative quality
+   gates. A successful dense native reference is not ternary quality evidence.
 
 ## Single-Projection Native Fixture
 

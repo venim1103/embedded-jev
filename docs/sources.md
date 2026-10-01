@@ -215,6 +215,18 @@ the custom candidate. Initialized mixed-graph concurrency also passes, with no
 registry mutation or lifetime race claim. The seven-control gate passes in
 22.71 s; GCC bridge-only ASan/UBSan/leak checks pass. This is one-tensor loader
 proof, not a complete MiMo/Qwen3.5 model construction or native hosting result.
+At `3c4fa81`, a separate versioned CMake wrapper compiles the full pinned llama
+library, registry, and dynamic helper against unchanged cached GGML CPU/base
+libraries. The actual public `vocab_only` model-load path consumes a temporary
+vocabulary-only GGUF created by the pinned converter in the existing dense
+environment. Source-weight `get_tensor`/`get_slice` calls are forbidden by the
+test, zero weight tensors are verified, and HF/native non-thinking prompt and
+A/B/C token IDs agree without decoding/generation. The file is deleted after
+the check. All seven native controls with this preflight pass in 41.59 s and
+the packaged build passes two CTests; this proves neither full architecture
+prefill nor dense/ternary task quality. Resource planning at `ecfcff5` uses only
+reconciled source headers; observed RAM/disk and known FP32 converter staging
+are distinguished from unmeasured final GGUF and native allocations.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`
