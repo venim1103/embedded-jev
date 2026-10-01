@@ -11,6 +11,7 @@
 #include <dlfcn.h>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <vector>
 
 extern "C" int bitnet_group_scale_matmul_avx2(
@@ -167,12 +168,6 @@ struct bitnet_buffer_type final : ggml::cpu::extra_buffer_type {
             }
             return buffer;
         };
-        ggml_backend_cpu_get_extra_buffer_types().push_back(&type);
-    }
-
-    ~bitnet_buffer_type() override {
-        auto& types = ggml_backend_cpu_get_extra_buffer_types();
-        types.erase(std::find(types.begin(), types.end(), &type));
     }
 
     bool supports_op(ggml_backend_dev_t, const ggml_tensor* op) override {
@@ -192,6 +187,89 @@ struct bitnet_buffer_type final : ggml::cpu::extra_buffer_type {
 
     ggml::cpu::tensor_traits* get_tensor_traits(const ggml_tensor* op) override {
         return supports_op(nullptr, op) ? &traits : nullptr;
+    }
+};
+
+struct bitnet_registration {
+    ggml_backend_buffer_type_t type;
+
+    explicit bitnet_registration(ggml_backend_buffer_type_t buffer_type) : type(buffer_type) {
+        ggml_backend_cpu_get_extra_buffer_types().push_back(type);
+    }
+
+    ~bitnet_registration() {
+        auto& types = ggml_backend_cpu_get_extra_buffer_types();
+        types.erase(std::find(types.begin(), types.end(), type));
+    }
+};
+
+struct registered_projection {
+    bitnet_tensor_traits traits;
+    bitnet_buffer_type buffer_type;
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> context { nullptr, ggml_free };
+    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> weight_buffer { nullptr, ggml_backend_buffer_free };
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend { nullptr, ggml_backend_free };
+    std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator { nullptr, ggml_gallocr_free };
+    ggml_tensor* input = nullptr;
+    ggml_tensor* result = nullptr;
+    ggml_cgraph* graph = nullptr;
+
+    registered_projection(std::size_t tokens, std::size_t rows, std::size_t groups)
+        : traits(tokens, rows, groups), buffer_type(traits) {}
+
+    int initialize(const uint8_t* pq2_blocks) {
+        const bitnet_registration registration(&buffer_type.type);
+        ggml_init_params params = { 1024 * 1024, nullptr, true };
+        context.reset(ggml_init(params));
+        if (!context) {
+            return 2;
+        }
+        ggml_tensor* weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, traits.groups * 128, traits.rows);
+        input = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, traits.groups * 128, traits.tokens);
+        result = ggml_mul_mat(context.get(), weight, input);
+        const std::size_t weight_bytes = traits.rows * traits.groups * 34;
+        if (ggml_nbytes(weight) != weight_bytes || result->op != GGML_OP_MUL_MAT) {
+            return 3;
+        }
+        weight_buffer.reset(ggml_backend_buft_alloc_buffer(&buffer_type.type, weight_bytes));
+        if (!weight_buffer || ggml_backend_tensor_alloc(weight_buffer.get(), weight,
+                ggml_backend_buffer_get_base(weight_buffer.get())) != GGML_STATUS_SUCCESS) {
+            return 2;
+        }
+        ggml_backend_buffer_set_usage(weight_buffer.get(), GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+        ggml_set_input(input);
+        ggml_set_output(result);
+        graph = ggml_new_graph(context.get());
+        ggml_build_forward_expand(graph, result);
+        backend.reset(ggml_backend_cpu_init());
+        if (!backend) {
+            return 2;
+        }
+        ggml_backend_cpu_set_n_threads(backend.get(), 1);
+        if (!ggml_backend_supports_op(backend.get(), result)) {
+            return 4;
+        }
+        allocator.reset(ggml_gallocr_new(ggml_backend_cpu_buffer_type()));
+        if (!allocator || !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+            return 2;
+        }
+        ggml_backend_tensor_set(weight, pq2_blocks, 0, weight_bytes);
+        return traits.prepare_weight(static_cast<const uint8_t*>(weight->data));
+    }
+
+    int compute(const float* inputs, float* output) {
+        const bitnet_registration registration(&buffer_type.type);
+        const std::size_t previous_calls = traits.calls;
+        traits.status = 4;
+        ggml_backend_tensor_set(input, inputs, 0, traits.tokens * traits.groups * 128 * sizeof(float));
+        if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+            return 3;
+        }
+        if (traits.status != 0 || traits.calls != previous_calls + 1 || traits.repacks != 1) {
+            return traits.status != 0 ? traits.status : 4;
+        }
+        ggml_backend_tensor_get(result, output, 0, traits.tokens * traits.rows * sizeof(float));
+        return 0;
     }
 };
 
@@ -335,64 +413,27 @@ static int run_registered_tensor_matmul(
         return 1;
     }
     const std::lock_guard<std::mutex> lock(registration_mutex);
-    bitnet_tensor_traits traits(tokens, rows, groups);
-    bitnet_buffer_type registered(traits);
-    ggml_init_params params = { 1024 * 1024, nullptr, true };
-    std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
-    if (!context) {
-        return 2;
-    }
-    ggml_tensor* weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, groups * 128, rows);
-    ggml_tensor* input = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, groups * 128, tokens);
-    ggml_tensor* result = ggml_mul_mat(context.get(), weight, input);
-    const std::size_t weight_bytes = rows * groups * 34;
-    if (ggml_nbytes(weight) != weight_bytes || result->op != GGML_OP_MUL_MAT) {
-        return 3;
-    }
-    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> weight_buffer(
-        ggml_backend_buft_alloc_buffer(&registered.type, weight_bytes), ggml_backend_buffer_free);
-    if (!weight_buffer || ggml_backend_tensor_alloc(weight_buffer.get(), weight,
-            ggml_backend_buffer_get_base(weight_buffer.get())) != GGML_STATUS_SUCCESS) {
-        return 2;
-    }
-    ggml_backend_buffer_set_usage(weight_buffer.get(), GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
-    ggml_set_input(input);
-    ggml_set_output(result);
-    ggml_cgraph* graph = ggml_new_graph(context.get());
-    ggml_build_forward_expand(graph, result);
-    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(
-        ggml_backend_cpu_init(), ggml_backend_free);
-    if (!backend) {
-        return 2;
-    }
-    ggml_backend_cpu_set_n_threads(backend.get(), 1);
-    if (!ggml_backend_supports_op(backend.get(), result)) {
-        return 4;
-    }
-    std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
-        ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
-    if (!allocator || !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
-        return 2;
-    }
-    ggml_backend_tensor_set(weight, pq2_blocks, 0, weight_bytes);
-    std::vector<float> results(evaluations * tokens * rows);
-    for (std::size_t evaluation = 0; evaluation < evaluations; ++evaluation) {
-        ggml_backend_tensor_set(input, inputs + evaluation * tokens * groups * 128,
-            0, tokens * groups * 128 * sizeof(float));
-        const ggml_status graph_status = ggml_backend_graph_compute(backend.get(), graph);
-        *dispatch_calls = traits.calls;
-        *weight_repacks = traits.repacks;
-        if (graph_status != GGML_STATUS_SUCCESS) {
-            return 3;
+    try {
+        registered_projection projection(tokens, rows, groups);
+        const int initialization_status = projection.initialize(pq2_blocks);
+        if (initialization_status != 0) {
+            return initialization_status;
         }
-        if (traits.status != 0 || traits.calls != evaluation + 1 || traits.repacks != 1) {
-            return traits.status != 0 ? traits.status : 4;
+        std::vector<float> results(evaluations * tokens * rows);
+        for (std::size_t evaluation = 0; evaluation < evaluations; ++evaluation) {
+            const int status = projection.compute(inputs + evaluation * tokens * groups * 128,
+                results.data() + evaluation * tokens * rows);
+            *dispatch_calls = projection.traits.calls;
+            *weight_repacks = projection.traits.repacks;
+            if (status != 0) {
+                return status;
+            }
         }
-        ggml_backend_tensor_get(result, results.data() + evaluation * tokens * rows,
-            0, tokens * rows * sizeof(float));
+        std::copy(results.begin(), results.end(), output);
+        return 0;
+    } catch (const std::bad_alloc&) {
+        return 2;
     }
-    std::copy(results.begin(), results.end(), output);
-    return 0;
 }
 
 extern "C" int prism_bitnet_registered_tensor_matmul(
@@ -414,6 +455,57 @@ extern "C" int prism_bitnet_registered_tensor_matmul_repeated(
 extern "C" std::size_t prism_bitnet_registered_tensor_registry_size() {
     const std::lock_guard<std::mutex> lock(registration_mutex);
     return ggml_backend_cpu_get_extra_buffer_types().size();
+}
+
+extern "C" int prism_bitnet_registered_projection_create(
+    const uint8_t* pq2_blocks, std::size_t tokens, std::size_t rows,
+    std::size_t groups, void** handle) {
+    if (!handle) {
+        return 1;
+    }
+    *handle = nullptr;
+    if (!pq2_blocks || tokens == 0 || tokens > 128 || rows == 0 || rows > 4096 || groups == 0 || groups > 96) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(registration_mutex);
+    try {
+        auto projection = std::make_unique<registered_projection>(tokens, rows, groups);
+        const int status = projection->initialize(pq2_blocks);
+        if (status == 0) {
+            *handle = projection.release();
+        }
+        return status;
+    } catch (const std::bad_alloc&) {
+        return 2;
+    }
+}
+
+extern "C" int prism_bitnet_registered_projection_compute(
+    void* handle, const float* inputs, float* output,
+    std::size_t* dispatch_calls, std::size_t* weight_repacks) {
+    if (!dispatch_calls || !weight_repacks) {
+        return 1;
+    }
+    *dispatch_calls = 0;
+    *weight_repacks = 0;
+    if (!handle || !inputs || !output) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(registration_mutex);
+    auto* projection = static_cast<registered_projection*>(handle);
+    try {
+        const int status = projection->compute(inputs, output);
+        *dispatch_calls = projection->traits.calls;
+        *weight_repacks = projection->traits.repacks;
+        return status;
+    } catch (const std::bad_alloc&) {
+        return 2;
+    }
+}
+
+extern "C" void prism_bitnet_registered_projection_free(void* handle) {
+    const std::lock_guard<std::mutex> lock(registration_mutex);
+    delete static_cast<registered_projection*>(handle);
 }
 
 extern "C" int prism_pq2_tensor_matmul(

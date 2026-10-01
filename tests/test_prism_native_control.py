@@ -223,6 +223,76 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
     registry_size = native.prism_bitnet_registered_tensor_registry_size
     registry_size.argtypes = []
     registry_size.restype = ctypes.c_size_t
+    create_projection = native.prism_bitnet_registered_projection_create
+    create_projection.argtypes = [registered.argtypes[0], ctypes.c_size_t, ctypes.c_size_t,
+                                  ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p)]
+    create_projection.restype = ctypes.c_int
+    compute_projection = native.prism_bitnet_registered_projection_compute
+    compute_projection.argtypes = [ctypes.c_void_p, registered.argtypes[1], registered.argtypes[-2],
+                                   registered.argtypes[-1], registered.argtypes[-1]]
+    compute_projection.restype = ctypes.c_int
+    free_projection = native.prism_bitnet_registered_projection_free
+    free_projection.argtypes = [ctypes.c_void_p]
+    free_projection.restype = None
+
+    def check_projection_lifetime(blocks, values, reference):
+        before = registry_size()
+        tokens, rows = reference.shape[1:]
+        groups = values.shape[-1] // 128
+        copied_blocks = blocks.copy()
+        handle = ctypes.c_void_p()
+        assert create_projection(copied_blocks.ctypes.data_as(create_projection.argtypes[0]),
+                                 tokens, rows, groups, ctypes.byref(handle)) == 0
+        assert handle.value and registry_size() == before
+        copied_blocks.fill(255)
+        calls, repacks = ctypes.c_size_t(0), ctypes.c_size_t(0)
+        output = np.empty((tokens, rows), dtype=np.float32)
+        peer_handle = ctypes.c_void_p()
+        try:
+            output.fill(123)
+            assert compute_projection(None, values[0].ctypes.data_as(compute_projection.argtypes[1]),
+                                      output.ctypes.data_as(compute_projection.argtypes[2]),
+                                      ctypes.byref(calls), ctypes.byref(repacks)) == 1
+            assert calls.value == repacks.value == 0
+            np.testing.assert_array_equal(output, 123)
+            if rows == 5:
+                peer_blocks = blocks.copy()
+                peer_blocks.reshape(-1, 34)[:, :2] = 0
+                assert create_projection(peer_blocks.ctypes.data_as(create_projection.argtypes[0]),
+                                         tokens, rows, groups, ctypes.byref(peer_handle)) == 0
+            for evaluation in range(2):
+                assert compute_projection(handle, values[evaluation].ctypes.data_as(compute_projection.argtypes[1]),
+                                          output.ctypes.data_as(compute_projection.argtypes[2]),
+                                          ctypes.byref(calls), ctypes.byref(repacks)) == 0
+                assert calls.value == evaluation + 1 and repacks.value == 1
+                assert registry_size() == before
+                np.testing.assert_array_equal(output, reference[evaluation])
+                if evaluation == 0:
+                    invalid = values[0].copy()
+                    invalid[0, 0] = np.nan
+                    output.fill(123)
+                    assert compute_projection(handle, invalid.ctypes.data_as(compute_projection.argtypes[1]),
+                                              output.ctypes.data_as(compute_projection.argtypes[2]),
+                                              ctypes.byref(calls), ctypes.byref(repacks)) == 2
+                    assert calls.value == 1 and repacks.value == 1
+                    assert registry_size() == before
+                    np.testing.assert_array_equal(output, 123)
+                    if peer_handle.value:
+                        assert compute_projection(peer_handle, values[0].ctypes.data_as(compute_projection.argtypes[1]),
+                                                  output.ctypes.data_as(compute_projection.argtypes[2]),
+                                                  ctypes.byref(calls), ctypes.byref(repacks)) == 0
+                        assert calls.value == repacks.value == 1
+                        np.testing.assert_array_equal(output, 0)
+                        assert registry_size() == before
+        finally:
+            free_projection(peer_handle)
+            free_projection(handle)
+        assert registry_size() == before
+        handle = ctypes.c_void_p(123)
+        assert create_projection(copied_blocks.ctypes.data_as(create_projection.argtypes[0]),
+                                 tokens, rows, groups, ctypes.byref(handle)) == 5
+        assert handle.value is None and registry_size() == before
+
     for groups in (2, 3):
         codes = generator.integers(-1, 2, size=(5, groups, 128), dtype=np.int8)
         fp16_scales = generator.uniform(0.01, 1.0, size=(5, groups)).astype(np.float16)
@@ -261,6 +331,7 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         assert calls.value == 2 and repacks.value == 1
         assert registry_size() == before
         np.testing.assert_array_equal(actual_repeated, expected_repeated)
+        check_projection_lifetime(pq2_blocks, values, expected_repeated)
         values[1, 0, 0] = np.nan
         actual_repeated.fill(123)
         assert repeated(pq2_blocks.ctypes.data_as(repeated.argtypes[0]), values.ctypes.data_as(repeated.argtypes[1]),
@@ -374,6 +445,7 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         assert calls.value == 2 and repacks.value == 1
         assert registry_size() == before
         np.testing.assert_array_equal(actual_repeated, expected_repeated)
+        check_projection_lifetime(pq2_blocks, values, expected_repeated)
     if os.environ.get("MIMO_PRISM_GRAPH_TEST") == "1":
         interpreter = os.environ.get("MIMO_DENSE_PYTHON")
         local_dir = os.environ.get("MIMO_LOCAL_DIR")
