@@ -6,7 +6,7 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `cb4fe74` (2026-10-01).
+The last tested implementation checkpoint is `9a1fbfa` (2026-10-01).
 The [current handover](handover.md#current-checkpoint-2026-10-01) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
@@ -14,11 +14,14 @@ source/model copy just to start a new chat.
 
 Current results: 158 default tests passed, 24 optional tests skipped, and all
 seven pinned Prism controls passed with full-size PQ2, repeated/owned native
-weights, two-forward module reuse, and tagged toy GGUF import (9.18 s).
+weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
+discovery, mixed concurrent graphs, and real pinned loader selection/upload,
+including the full-size frozen projection (22.71 s).
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
-file-import addition; unchanged model inference was not rerun afterwards.
-Ruff, editor diagnostics, Pylance syntax, and whitespace checks passed. These
+native file/runtime additions; unchanged model inference was not rerun afterwards.
+Ruff, editor diagnostics, and whitespace checks passed. GCC ASan/UBSan and leak
+checks passed for bridge runtime controls; cached GGML is not instrumented. These
 are correctness/scope gates, not whole-model quantization acceptance, a
 benchmark, representative quality, or calibrated confidence.
 
@@ -631,6 +634,7 @@ clang++-18 -std=c++17 -O2 -mavx2 -shared -fPIC \
    -I "$native/prism-source/ggml/include" \
    -I "$native/prism-source/ggml/src" \
    -I "$native/prism-source/ggml/src/ggml-cpu" \
+   -I "$native/prism-source/include" \
    native/prism_group_scale.cpp native/bitnet_group_scale.cpp \
    -L "$native/prism-build/bin" -Wl,-rpath,"$native/prism-build/bin" \
    -lggml-cpu -lggml-base -o "$native/prism_group_scale_probe.so"
@@ -870,9 +874,88 @@ Tests verify two counted kernel calls with one repack after deleting the source
 file, exact direct-kernel outputs, registry cleanup, and rejection of contract,
 transform, tensor, payload, truncated-file, and file-size mismatches. They run
 in the shared group-scale control when `PRISM_CONVERTER_PYTHON` is set, including
-both gate commands above. No full-size candidate GGUF is written, no source or
-cached runtime is modified, and no model-quality inference is performed. This
+both gate commands above. The standalone import fixtures remain toy-size. No
+source or cached runtime is modified, and these file controls perform no
+model-quality inference. The
+later real-loader gate uses a separate transient full-size encoding, deleted
+after parity; no second quantization policy/candidate is retained. This
 explicit adapter does not make an ordinary Prism PQ2 model dispatch BitNet.
+
+### Versioned Opt-In CPU Buffer
+
+[native/prism_bitnet_runtime.h](../native/prism_bitnet_runtime.h) declares ABI v1
+against the pinned Prism source revision. `prism_bitnet_cpu_runtime_init_v1`
+returns the process-stable `JEV_BITNET_LOADER_V1` buffer and checks actual CPU
+extra-buffer discovery. Wrong declared revision/ABI/storage geometry returns 1,
+allocation failure 2, and already-cached discovery without this buffer 7.
+Repeated successful initialization returns the same pointer exactly once.
+Initialize on one thread before any CPU discovery and retain the bridge library
+until all CPU users are finished. A caller revision string is not binary hash
+attestation; the pinned dependency provenance checks still matter.
+
+The buffer owns each tensor's copied weight bytes, native trait, repacked lanes,
+and exact FP16-derived scales. Only the bounded named layer-3 PQ2 weight is
+accepted. Sequential uploads are validated and packed once when complete;
+rewriting packed weights is refused. Ordinary `MUL_MAT` performs native A8 for
+1 through 128 tokens, allowing the token count to change between graphs.
+`prism_bitnet_cpu_tensor_status_v1` reports cumulative kernel calls/repacks and
+status 8 for incomplete or invalidated uploads. Graph compute status alone is
+insufficient: failed native execution fills output with NaNs, and the tensor
+status must be checked. Nonfinite input rejection can recover on a later batch.
+
+The isolated [loader control](../native/prism_bitnet_loader_control.cpp) tests
+early/late initialization in fresh processes, chunked loading, 1/2/128-token
+exact direct-kernel parity, one repack, input rejection/recovery, and immutable
+or invalid payload refusal. It runs in the existing shared native control.
+Zero-size loader dummy probes are intentionally refused so this discoverable
+buffer cannot silently take over ordinary PQ2. Two initialized independent
+backend graphs sharing its weight pass alongside ordinary PQ2 graphs, with
+eleven total counted BitNet calls and one repack. This exercises read-only
+steady-state use, not concurrent registration, loading, freeing, or unloading;
+no ThreadSanitizer claim follows. Do not interleave
+the legacy scoped bridge registrations with arbitrary external CPU graphs or
+discovery. No production registry concurrency or complete MiMo load follows.
+
+### Explicit Real-Loader Route
+
+`prism_bitnet_cpu_loader_override_from_gguf_v1(path, revision, abi, overrides**)`
+shares the bounded GGUF reader with standalone import and validates ternary
+codes/scales before CPU registration. Success returns a library-owned, stable,
+null-terminated public `llama_model_tensor_buft_override` array containing only
+`^blk\\.3\\.ffn_down\\.weight$`. Missing/conflicting identity tags, transforms,
+file/layout bounds, and invalid payloads retain the existing statuses; late
+discovery returns 7. Every failure clears the output pointer. Call before CPU
+discovery, use the same unchanged validated file, and retain the library for
+all buffer/CPU users. The factory does not bind or attest a subsequently changed
+or different model file. It still accepts only a single-weight file, not a full
+MiMo artifact. It does not request a new fit or convert the model.
+
+When `PRISM_CONVERTER_PYTHON` is set, the test compiles the actual pinned
+`llama-model-loader.cpp`, support units, and backend registry into a temporary
+loader-only executable linked to the existing CPU/base libraries. Explicit
+source-revision and temporary build-version checks are retained. Real
+`create_tensor`, context allocation, `init_mappings`, and `load_all_data` run
+with `LLAMA_LOAD_MODE_NONE`; `MUL_MAT` then matches the direct grouped kernel
+at one and two tokens with exactly two calls and one repack. An untagged file
+selects ordinary CPU despite the custom buffer being first in its candidate
+list. Exact regex tests reject other layers, prefix/suffix matches, and wildcard
+punctuation. This is actual one-weight loader selection/upload/dispatch, not
+construction of a valid full Qwen3.5 model or architecture prefill.
+
+With `MIMO_PQ2_CODEC_TEST=1`, the same executable also tests a temporary GGUF
+encoding of the hash-checked 4,096 x 12,288 frozen projection. Existing codes
+and FP16 row/group scales are preserved exactly; the test file is deleted in
+`finally`. No new retained candidate, full-model conversion, or held-out
+inference follows. The streamed module still uses its existing owned-handle
+backend, not this loader route. Complete native architecture hosting and native
+error propagation remain separate gates; always inspect tensor status before
+using graph output. The cached CLI bridge and upstream source/build are unchanged.
+
+The bridge runtime controls passed GCC address/undefined-behavior/leak sanitizer
+checks, including mixed graph execution and teardown. Clang 18's sanitizer
+runtime is absent in this container; existing GCC was reused without installs.
+These sanitizer controls do not instrument the cached GGML libraries or the
+temporary real-loader units and do not establish lifecycle race safety.
 
 ## Single-Projection Native Fixture
 

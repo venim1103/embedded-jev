@@ -14,21 +14,26 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-01)
 
-The last tested implementation commit is `cb4fe74` (2026-10-01),
-`feat: import tagged GGUF weight into registered BitNet projection`.
+The last tested implementation commit is `9a1fbfa` (2026-10-01),
+`feat: validate opt-in BitNet dispatch through pinned Prism loader`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
-with a documentation checkpoint at `79608a8`. The assistant made no push
+with documentation checkpoints at `79608a8` and `03b183d`. The latest
+continuation began clean at the user-pushed `03b183d`; `b1f306a` (versioned CPU
+buffer) and `9a1fbfa` (explicit loader route) followed. The assistant made no push
 or branch change. Recheck Git state in each session.
 
 Current gates: **158 default tests passed, 24 optional tests skipped; all seven
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
-handle, two-forward module, and native tagged toy GGUF import enabled (9.18 s).
+handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
+discovery, mixed concurrent graphs, and actual pinned loader selection/upload
+enabled, including the sole full-size frozen projection (22.71 s).
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
-controls were not rerun after the standalone import addition. Ruff, editor
-diagnostics, Pylance syntax validation, and `git diff --check` passed. See the
+controls were not rerun after the later native file/runtime additions. Ruff,
+editor diagnostics, and `git diff --check` passed. GCC ASan/UBSan and leak checks
+passed for the bridge runtime controls; cached GGML is not instrumented. See the
 development guide for flags.
 
 - The complete pinned BF16 snapshot is verified and cached outside Git. The
@@ -75,7 +80,31 @@ development guide for flags.
   transforms, name/type/count/geometry mismatches, malformed payloads, truncation,
   and excess file size are refused. This is standalone one-weight file import,
   not Prism model-loader selection or a MiMo GGUF load. No actual projection
-  was converted to a file and no new saved candidate was retained.
+  was initially converted to a file; the later full-size loader control below
+  uses a transient exact encoding, without retaining another candidate.
+- `prism_bitnet_cpu_runtime_init_v1` exposes a stable `JEV_BITNET_LOADER_V1`
+  buffer through actual early CPU discovery, checks the declared source/ABI and
+  storage layout, is idempotent, and refuses initialization after discovery is
+  cached. Its owned tensor has exact BitNet parity at 1, 2, and 128 tokens with
+  one repack, chunked upload checks, invalid-input recovery, immutable packing,
+  and invalid-payload refusal. Default loader dummy probes are intentionally
+  rejected: ordinary PQ2 must not be automatically reassigned. Library lifetime
+  must cover all CPU users; initialization must precede discovery on one thread.
+  Two independent BitNet backend graphs sharing a weight also pass concurrently
+  with ordinary PQ2 execution, with eleven total calls and one repack. This is
+  initialized, read-only steady-state use, not registry mutation/lifecycle race
+  safety. This new path is not yet used by the streamed module.
+- `prism_bitnet_cpu_loader_override_from_gguf_v1` validates the bounded tagged
+  file and ternary payload before returning exactly one anchored public
+  `tensor_buft_overrides` rule. A temporary executable compiled from the actual
+  pinned loader/support/registry sources verifies `create_tensor`, allocation,
+  `load_all_data`, and two native BitNet `MUL_MAT` calls with one repack. The
+  full 4,096 x 12,288 frozen projection passes this route via a temporary GGUF
+  encoding of its unchanged codes/scales, deleted in `finally`. Untagged PQ2
+  remains ordinary CPU even when this buffer is a candidate. This is genuine
+  one-tensor loader selection/upload/dispatch, not a complete MiMo GGUF/model
+  load or 32-layer native hosting. Factory callers must load the same unchanged
+  validated file and keep the library alive; no full-model policy is authorized.
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
@@ -84,7 +113,7 @@ development guide for flags.
   validation evidence: relative error 0.426 versus RTN 0.406 with one training
   context, and 0.456 with four balanced contexts. No compensated candidate,
   bulk fit, or policy promotion followed.
-- Full MiMo ternary GGUF loading, loader-selected persistent BitNet dispatch,
+- Full MiMo ternary GGUF loading, production registry lifecycle safety,
   whole-model native hosting, calibrated decision quality,
   vision, edge performance, and ARM/RISC-V validation remain open.
 
@@ -1076,10 +1105,15 @@ For a fresh coding session:
   ownership, tagged `create_from_gguf` toy file import, and a Python-hosted
   `prism_ggml_registered` backend. Keep the exact
   one-/two-evaluation, rejection/recovery, full-text, and typed synthetic gates.
-  Next work is CPU buffer discovery/registry lifecycle and one-tensor
-  loader-selected dispatch with an explicit group-128/A8 policy, not another
-  arithmetic-only codec control. The current bridge must not run concurrently
-  with arbitrary Prism graphs or registry mutation. A production loader change
+  Versioned early CPU discovery, per-buffer ownership, and an exact tagged
+  one-tensor public loader override now pass, including real loader upload and
+  full-size frozen-projection dispatch. Preserve default dummy-probe refusal,
+  file identity/lifetime requirements, and the isolated steady-state concurrent
+  graph gate. Next is safe deployment of this runtime/build contract and native
+  architecture/error propagation, not another codec proof. The legacy scoped
+  bridge must not run concurrently with arbitrary Prism graphs or registry
+  mutation. Full-model conversion/loading remains outside the current scope.
+  A production loader change
   needs a versioned runtime/build contract; do not overwrite the immutable
   cached source/library pins or bulk-convert MiMo. Do not claim loader parity.
 4. Keep fitting on calibration only, diagnostics on validation, and held-out

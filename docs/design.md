@@ -259,14 +259,26 @@ retain immutable weight/graph ownership and one validated repack across calls;
 failed-input recovery and idle registry cleanup pass. The Python-hosted
 `prism_ggml_registered` substitution has exact full-text and typed synthetic
 score parity with direct execution, with native production A8 and explicit
-release. Production registry concurrency and loader-selected execution remain
-design work. A bounded native file adapter can now import one explicitly tagged
+release. Those handles do not establish production registry concurrency or
+loader-selected execution. A bounded native file adapter can now import one explicitly tagged
 identity-only PQ2 ternary weight via the pinned GGUF parser into that owned
 handle. Toy file ownership/parity and contract/type/geometry/payload refusal
 pass, but this is not an automatic model-loader policy or complete MiMo GGUF.
 Stock PQ2 execution retains its distinct
 Q8_0/Q8_K contract and is not evidence of BitNet dispatch. See the
 [registered-tensor control](development.md#registered-bitnet-weight-tensor-control).
+
+A subsequent versioned `JEV_BITNET_LOADER_V1` buffer now survives early CPU
+discovery, refuses late initialization, and owns traits per allocated tensor.
+Changing bounded token batches dispatch the genuine grouped kernel with one
+weight repack. It deliberately refuses the loader's zero-size dummy probe to
+avoid implicit ordinary-PQ2 reassignment. A metadata-gated exact public loader
+override now passes actual pinned loader selection/upload and counted BitNet
+dispatch, including a transient unchanged full-size projection encoding.
+Untagged PQ2 remains ordinary CPU. Initialized read-only mixed graph concurrency
+also passes; single-threaded early initialization, validated file identity, and
+library lifetime are explicit caller requirements. Registry/lifecycle race
+safety and complete native model hosting are not established.
 
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed
 execution layout. Report resident packed bytes and scratch separately: expanding

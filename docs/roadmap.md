@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `cb4fe74` implementation checkpoint and the next bounded native
+For the tested `9a1fbfa` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-01).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -238,14 +238,23 @@ and owned create/compute/free handles now retain one upload/repack across
 changed inputs, recover after rejected inputs, and restore the registry.
 The Python-hosted `prism_ggml_registered` backend also has exact 32-layer final
 hidden/score parity and reordered synthetic typed-option parity, with zero
-generation and explicit handle release. Next work is CPU buffer discovery,
-production registry lifecycle, and a one-tensor loader-selection hook with
-explicit group-128/A8 policy. A standalone tagged native GGUF import control
+generation and explicit handle release. Production registry lifecycle and
+full-model native hosting remain open. A standalone tagged native GGUF import control
 now feeds one toy identity weight into the same owned handle, with exact
 counted dispatch after source-file deletion and comprehensive contract refusal.
 It does not select the buffer automatically in Prism's model loader or convert
 the actual saved candidate. Full GGUF/model loading remains open; no new
 representative quality evidence or evaluator promotion follows.
+Versioned early CPU discovery now exposes a stable owned buffer, refuses late
+initialization, and preserves one native repack across 1/2/128-token graphs.
+Default loader dummy probes refuse it, keeping ordinary PQ2 unmodified.
+A metadata-gated exact `tensor_buft_overrides` hook now passes actual pinned
+loader selection/upload and counted BitNet dispatch, including the frozen
+full-size projection through a deleted temporary encoding. Untagged PQ2 keeps
+ordinary CPU selection. Initialized read-only mixed graph concurrency passes;
+registry mutation/lifecycle safety, full-model loading, architecture/error
+integration, and native hosting remain open. The immutable cached build and
+single retained candidate are unchanged.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

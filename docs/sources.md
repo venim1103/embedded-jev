@@ -197,6 +197,24 @@ quantized model. All seven native controls with full-size reuse and module
 coverage passed at `cb4fe74`; full-text/synthetic model gates remain `4efa59b`.
 No full MiMo GGUF was loaded by Prism, and no full converter or native Qwen3.5
 model hook has been validated.
+A versioned early-registration control at `b1f306a` verifies actual CPU
+discovery's one-time list snapshot and late-init refusal. Its stable buffer owns
+per-tensor native traits and passes changing 1/2/128-token grouped-kernel parity
+with one repack. The pinned
+[model loader](https://github.com/PrismML-Eng/llama.cpp/blob/842b1880415d6f508f03b789e5ce70194def7bfd/src/llama-model-loader.cpp)
+probes candidates with a zero-size buffer and a 512-column dummy `MUL_MAT`;
+explicit custom-buffer overrides bypass that probe. The new buffer deliberately
+refuses implicit dummy selection. At `9a1fbfa`, a bounded tagged-file factory
+returns the exact public anchored override; the actual pinned loader, support
+units, and backend registry are compiled into a temporary control linked to the
+unchanged CPU/base libraries. Native `create_tensor` selection and `load_all_data`
+upload lead to exact counted BitNet dispatch for toy and frozen full-size weights.
+The full-size test uses an unchanged temporary GGUF encoding, deleted afterwards;
+no new policy/candidate is retained. Untagged PQ2 remains ordinary CPU despite
+the custom candidate. Initialized mixed-graph concurrency also passes, with no
+registry mutation or lifetime race claim. The seven-control gate passes in
+22.71 s; GCC bridge-only ASan/UBSan/leak checks pass. This is one-tensor loader
+proof, not a complete MiMo/Qwen3.5 model construction or native hosting result.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`
