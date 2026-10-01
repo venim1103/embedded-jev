@@ -388,7 +388,62 @@ static int test_loader_override(const char* path) {
     return 0;
 }
 
+#ifdef JEV_TEST_FULL_RUNTIME
+static int test_vocab_only(const char* path, const char* prompt) {
+    ggml_backend_buffer_type_t buffer_type = nullptr;
+    if (std::strlen(prompt) > 4096 || prism_bitnet_cpu_runtime_init_v1(
+            JEV_PRISM_SOURCE_REVISION, JEV_BITNET_RUNTIME_ABI_V1, &buffer_type) != 0) {
+        return 24;
+    }
+    llama_backend_init();
+    auto params = llama_model_default_params();
+    params.vocab_only = true;
+    params.n_gpu_layers = 0;
+    params.load_mode = LLAMA_LOAD_MODE_NONE;
+    std::unique_ptr<llama_model, decltype(&llama_model_free)> model(
+        llama_model_load_from_file(path, params), llama_model_free);
+    if (!model) {
+        llama_backend_free();
+        return 24;
+    }
+    const auto* vocab = llama_model_get_vocab(model.get());
+    const int32_t count = -llama_tokenize(vocab, prompt, std::strlen(prompt), nullptr, 0, false, true);
+    if (count <= 0 || count > 4096) {
+        return 25;
+    }
+    std::vector<llama_token> tokens(count);
+    if (llama_tokenize(vocab, prompt, std::strlen(prompt), tokens.data(), count, false, true) != count) {
+        return 25;
+    }
+    std::vector<llama_token> labels;
+    for (const char* label : { "A", "B", "C" }) {
+        llama_token token = -1;
+        if (llama_tokenize(vocab, label, 1, &token, 1, false, true) != 1) {
+            return 26;
+        }
+        labels.push_back(token);
+    }
+    std::fputs("{\"vocab_only\":true,\"generated_answer_tokens\":0,\"tokens\":[", stdout);
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        std::printf("%s%d", index ? "," : "", tokens[index]);
+    }
+    std::fputs("],\"labels\":[", stdout);
+    for (std::size_t index = 0; index < labels.size(); ++index) {
+        std::printf("%s%d", index ? "," : "", labels[index]);
+    }
+    std::puts("]}");
+    model.reset();
+    llama_backend_free();
+    return 0;
+}
+#endif
+
 int main(int argc, char** argv) {
+#ifdef JEV_TEST_FULL_RUNTIME
+    if (argc == 4 && std::strcmp(argv[1], "--vocab-only") == 0) {
+        return test_vocab_only(argv[2], argv[3]);
+    }
+#endif
 #ifdef JEV_TEST_REAL_LOADER
     if (argc == 4 && std::strcmp(argv[1], "--real-loader") == 0) {
         try {

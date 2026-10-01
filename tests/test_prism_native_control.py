@@ -155,6 +155,78 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         assert loader_report == ({"late_init_refused": True} if options else
                                  {"discovery_matches": 1, "idempotent_init": True,
                                   "kernel_calls": 11, "weight_repacks": 1, "concurrent_graphs": True})
+    if os.environ.get("MIMO_NATIVE_VOCAB_TEST") == "1":
+        dense_python = os.environ.get("MIMO_DENSE_PYTHON")
+        local_model = os.environ.get("MIMO_LOCAL_DIR")
+        runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+        if not dense_python or not local_model or not runtime_build:
+            pytest.fail("native vocabulary control requires dense Python, local model, and versioned runtime build")
+        runtime_dependencies = native_backend_dependencies(
+            Path(runtime_build) / "bin" / "libprism_group_scale.so", "prism_ggml",
+        )
+        assert runtime_dependencies == dependencies
+        vocab_file = tmp_path / "mimo-vocab-only.gguf"
+        vocab_control = """
+import json
+import runpy
+import sys
+from pathlib import Path
+import safetensors
+import gguf
+from transformers import AutoTokenizer
+original_open = safetensors.safe_open
+class HeaderOnly:
+    def __init__(self, *args, **kwargs):
+        self.source = original_open(*args, **kwargs)
+    def __enter__(self):
+        self.source.__enter__()
+        return self
+    def __exit__(self, *args):
+        return self.source.__exit__(*args)
+    def keys(self):
+        return self.source.keys()
+    def get_tensor(self, *args):
+        raise AssertionError("vocabulary preflight must not load source weights")
+    def get_slice(self, *args):
+        raise AssertionError("vocabulary preflight must not access source weight slices")
+safetensors.safe_open = HeaderOnly
+source, model, destination = sys.argv[1:]
+sys.path.insert(0, source)
+sys.argv = [str(Path(source) / "convert_hf_to_gguf.py"), model, "--vocab-only",
+            "--outtype", "bf16", "--no-nextn", "--outfile", destination]
+runpy.run_path(sys.argv[0], run_name="__main__")
+reader = gguf.GGUFReader(destination)
+assert len(reader.tensors) == 0
+tokenizer = AutoTokenizer.from_pretrained(model, local_files_only=True, trust_remote_code=False)
+prompt = tokenizer.apply_chat_template(
+    [{"role": "user", "content": "Choose A or B. A: inspect the file. B: edit the file."}],
+    tokenize=False, add_generation_prompt=True, enable_thinking=False,
+)
+assert isinstance(prompt, str)
+labels = [tokenizer.encode(label, add_special_tokens=False) for label in ("A", "B", "C")]
+assert all(len(tokens) == 1 for tokens in labels)
+print(json.dumps({"prompt": prompt, "tokens": tokenizer.encode(prompt, add_special_tokens=False),
+                  "labels": [tokens[0] for tokens in labels]}))
+"""
+        try:
+            vocab_write = subprocess.run(
+                [dense_python, "-c", vocab_control, source_dir, local_model, str(vocab_file)],
+                capture_output=True, text=True, timeout=60,
+                env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
+                     "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            assert vocab_write.returncode == 0, vocab_write.stderr
+            vocab_reference = json.loads(vocab_write.stdout)
+            native_vocab = subprocess.run(
+                [str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"), "--vocab-only",
+                 str(vocab_file), vocab_reference["prompt"]], capture_output=True, text=True, timeout=30,
+            )
+            assert native_vocab.returncode == 0, native_vocab.stderr
+            assert json.loads(native_vocab.stdout) == {"vocab_only": True, "generated_answer_tokens": 0,
+                                                     "tokens": vocab_reference["tokens"],
+                                                     "labels": vocab_reference["labels"]}
+        finally:
+            vocab_file.unlink(missing_ok=True)
     arguments = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
                  ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
                  ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float)]
