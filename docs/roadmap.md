@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `a1eac41` implementation checkpoint and the next bounded native
+For the tested `4efa59b` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-01).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -233,10 +233,15 @@ BitNet-derived group-128 A8. A separate registered CPU extra-buffer/tensor
 trait now dispatches `MUL_MAT` through the BitNet-derived grouped kernel with
 native A8, explicit PQ2-to-BitNet repacking, and independent preserved FP16
 row/group scales. Counted one-/two-token dispatch, invalid-payload rejection,
-and exact full-size frozen-projection parity pass. The next bounded step is
-reusing that weight tensor across two graph evaluations with changed inputs
-and verifying cleanup. Persistent/concurrent registry ownership and full GGUF
-loader integration remain open; no new model-quality evidence follows.
+and exact full-size frozen-projection parity pass. Repeated graph evaluation
+and owned create/compute/free handles now retain one upload/repack across
+changed inputs, recover after rejected inputs, and restore the registry.
+The Python-hosted `prism_ggml_registered` backend also has exact 32-layer final
+hidden/score parity and reordered synthetic typed-option parity, with zero
+generation and explicit handle release. Next work is CPU buffer discovery,
+production registry lifecycle, and a one-tensor loader-selection hook with
+explicit group-128/A8 policy. Full GGUF/model loading remains open; no new
+representative quality evidence or evaluator promotion follows.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

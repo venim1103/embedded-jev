@@ -14,18 +14,19 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-01)
 
-The last tested implementation commit is `a1eac41` (2026-10-01),
-`feat: dispatch registered Prism weight tensor through BitNet grouped kernel`.
-This session started with a clean worktree at documentation checkpoint
-`28275e7`, on `main`, one commit ahead of `origin/main` (`6d74ae8`). Only local
-commits followed; no push or branch change. Recheck Git state in each session.
+The last tested implementation commit is `4efa59b` (2026-10-01),
+`feat: stream frozen MiMo projection through registered BitNet tensor`.
+This continuation started clean at `445c8d7`, with `main` and `origin/main`
+matching after the user's push. Local commits `d95ffa4` (repeated graph),
+`e2378e4` (owned handles), and `4efa59b` followed. The assistant made no push
+or branch change. Recheck Git state in each session.
 
 Current gates: **158 default tests passed, 24 optional tests skipped; all seven
-pinned Prism controls passed** with full-size PQ2 decoder/operator and registered
-BitNet dispatch coverage (`MIMO_PQ2_CODEC_TEST=1`). Ruff, editor diagnostics,
-Pylance syntax validation, and `git diff --check` passed. The unchanged streamed
-32-layer/native-A8/signed-Hadamard model controls were not rerun; their last
-recorded full gates remain `6d74ae8` (2026-09-30).
+pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
+handle, two-forward module, 32-layer direct/callback/registered parity, reordered
+synthetic typed-option, and signed-Hadamard model controls enabled. The complete
+optional gate took 138.36 seconds. Ruff, editor diagnostics, Pylance syntax
+validation, and `git diff --check` passed. See the development guide for flags.
 
 - The complete pinned BF16 snapshot is verified and cached outside Git. The
   streamed text-only reference executes all 32 decoder layers and scores
@@ -34,6 +35,9 @@ recorded full gates remain `6d74ae8` (2026-09-30).
   4,096 x 12,288, group size 128, about 13 MB. Saved loading bypasses that BF16
   projection. Direct BitNet-derived AVX2, actual Prism `MAP_CUSTOM2`, and
   native-A8 callback paths reproduce the same final hidden hash and scores.
+  The new `prism_ggml_registered` backend also reproduces them through a native
+  weight tensor/`MUL_MAT` trait, with exactly one counted grouped kernel call,
+  one upload/repack, native A8, and explicit handle release after the layer.
 - Matching signed-Hadamard weight/input rotation (seed 773) passes dense and
   native-reference controls. It is a reversible in-memory experiment, refuses
   the saved identity artifact, and has no saved candidate or quality promotion.
@@ -44,7 +48,12 @@ recorded full gates remain `6d74ae8` (2026-09-30).
   with FP16 activation-scale rounding; our callback uses group-128 A8 instead.
 - A separate scoped `JEV_BITNET_GROUP128` CPU buffer/tensor trait now registers
   a PQ2-storage weight tensor and dispatches `MUL_MAT` through the BitNet-derived
-  grouped kernel, with native group-128 A8 and exactly one counted kernel call.
+  grouped kernel, with native group-128 A8 and one counted call per successful
+  evaluation. One graph/weight tensor now handles two changed input batches
+  with one weight repack; late failures leave the entire caller output intact.
+  Reusable native create/compute/free handles own copied weight bytes, graph,
+  repacked codes, and scales between caller invocations. Two live toy handles,
+  failed-input recovery, fixed token shape, and registry cleanup pass.
   Explicit adjacent/low-bit-first PQ2 bytes are repacked to BitNet's separated,
   high-bit-first lanes; independent FP16 row/group scales are expanded exactly.
   One-/two-token controls and the sole full-size frozen projection match the
@@ -52,6 +61,10 @@ recorded full gates remain `6d74ae8` (2026-09-30).
   inputs, and excess tokens are rejected without changing caller output.
   This is a pinned internal-ABI, single-threaded tensor proof, not a new GGUF
   type, loader integration, persistent registration, or model quality evidence.
+- Registered and direct execution give identical typed IDs, labels, conditional
+  scores, and final hidden hash on the existing reordered synthetic option case,
+  with zero generation. This is an engineering smoke, not calibrated confidence
+  or representative quality. The frozen evaluator still excludes the new mode.
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
@@ -1048,12 +1061,15 @@ For a fresh coding session:
   [native/prism_group_scale.cpp](../native/prism_group_scale.cpp) and its
   [tests](../tests/test_prism_native_control.py), now especially
   `prism_bitnet_registered_tensor_matmul`. The scoped buffer/tensor registration
-  proves BitNet-derived dispatch but rebuilds and repacks for each call. Next,
-  take a bounded reusable-lifetime step: keep one weight tensor across two
-  graph evaluations with changed inputs, count both kernel calls, and verify
-  parity and registration cleanup. Resolve global-registry lifetime/concurrency
-  before a loader hook; the current probe must not run concurrently with
-  arbitrary Prism graphs or registry mutation. Do not claim loader integration.
+  now has reusable `prism_bitnet_registered_projection_create/compute/free`
+  ownership and a Python-hosted `prism_ggml_registered` backend. Keep the exact
+  one-/two-evaluation, rejection/recovery, full-text, and typed synthetic gates.
+  Next work is CPU buffer discovery/registry lifecycle and one-tensor
+  loader-selected dispatch with an explicit group-128/A8 policy, not another
+  arithmetic-only codec control. The current bridge must not run concurrently
+  with arbitrary Prism graphs or registry mutation. A production loader change
+  needs a versioned runtime/build contract; do not overwrite the immutable
+  cached source/library pins or bulk-convert MiMo. Do not claim loader parity.
 4. Keep fitting on calibration only, diagnostics on validation, and held-out
   inference untouched. Do not promote the negative independent-block
   compensation approximation or save another candidate. No full-model

@@ -6,19 +6,19 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `a1eac41` (2026-10-01).
+The last tested implementation checkpoint is `4efa59b` (2026-10-01).
 The [current handover](handover.md#current-checkpoint-2026-10-01) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
 Current results: 158 default tests passed, 24 optional tests skipped, and all
-seven pinned Prism controls passed with full-size PQ2 and registered BitNet
-tensor coverage. Ruff, editor diagnostics, Pylance syntax, and whitespace checks
-passed. The unchanged streamed-model controls were not rerun; their full
-frozen-projection/native-A8/signed-Hadamard gates remain recorded at `6d74ae8`
-(2026-09-30). These are correctness/scope gates, not whole-model quantization
-acceptance, a benchmark, or calibrated confidence.
+seven pinned Prism controls passed with full-size PQ2, repeated/owned native
+weights, two-forward module reuse, 32-layer direct/callback/registered parity,
+reordered synthetic typed decisions, and signed-Hadamard coverage (138.36 s).
+Ruff, editor diagnostics, Pylance syntax, and whitespace checks passed. These
+are correctness/scope gates, not whole-model quantization acceptance, a
+benchmark, representative quality, or calibrated confidence.
 
 Default regression and lint commands, from the workspace root:
 
@@ -28,8 +28,7 @@ ruff check --no-cache embedded_jev tests
 git diff --check
 ```
 
-To replay the earlier streamed-model controls as well as all seven optional
-pinned Prism controls, reuse the existing cache and run:
+To reproduce the full current gate, reuse the existing cache and run:
 
 ```bash
 cache="$HOME/.cache/huggingface/embedded-jev"
@@ -41,6 +40,7 @@ MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
 MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
 MIMO_PROJECTION_ARTIFACT="$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
 MIMO_PRISM_GRAPH_TEST=1 MIMO_ROTATED_GRAPH_TEST=1 MIMO_PQ2_CODEC_TEST=1 \
+MIMO_REGISTERED_MODULE_TEST=1 MIMO_REGISTERED_TYPED_TEST=1 \
 OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py
 ```
@@ -753,6 +753,32 @@ and invalid weight payloads 5. Unsupported A8 rounding also returns 1.
 Failures do not copy graph output to the caller, and rejected payloads/inputs
 make no grouped kernel call. Both arrays use token-major output/input layout.
 
+`prism_bitnet_registered_tensor_matmul_repeated` adds an evaluation count
+(1 or 2) and a weight-repack counter. It uploads and validates the weights
+once, reuses one graph across changed inputs, and repacks only once. Inputs
+are `[evaluations, tokens, groups*128]`, outputs `[evaluations, tokens, rows]`.
+Output publication is transactional: a rejected second input leaves all caller
+outputs unchanged, while counters report the one completed kernel call.
+`prism_bitnet_registered_tensor_registry_size` checks registry restoration.
+
+Reusable native ownership is exposed separately:
+
+- `prism_bitnet_registered_projection_create(pq2, tokens, rows, groups, void**)`
+   copies the storage bytes into its native weight tensor, validates/repackages
+   them once, and returns an opaque handle (null on failure).
+- `prism_bitnet_registered_projection_compute(handle, inputs, output, calls*,
+   repacks*)` reuses that graph/weight tensor at its fixed token/row/group shape.
+   Counters are cumulative; each success adds one kernel call and repacks stay 1.
+   Rejected nonfinite input leaves output unchanged and the handle reusable.
+- `prism_bitnet_registered_projection_free(handle)` releases all owned state;
+   null is allowed. Free each successful handle exactly once using its creating
+   library. Foreign, freed, or concurrently freed pointers are invalid C callers.
+
+Registration is scoped to initialization/compute, not handle lifetime. Idle
+handles leave no global registry entry. Native byte ownership, two live toy
+handles with different weights, rejection/recovery, and cleanup pass, including
+full-size frozen-projection reuse. No weight mutation API is exposed.
+
 One- and two-token controls at widths 256/384, repeated calls, zero groups,
 rejection cases, and the sole saved 4,096 x 12,288 projection match the direct
 BitNet/group-128 A8 reference exactly. To run all seven pinned native controls
@@ -765,7 +791,9 @@ PRISM_GGML_CPU_LIBRARY="$cache/native/prism-build/bin/libggml-cpu.so" \
 BITNET_SOURCE_DIR="$cache/native/bitnet-source" \
 PRISM_CONVERTER_PYTHON="$cache/native/converter-venv/bin/python" \
 MIMO_PROJECTION_ARTIFACT="$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
-MIMO_PQ2_CODEC_TEST=1 OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
+MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+MIMO_PQ2_CODEC_TEST=1 MIMO_REGISTERED_MODULE_TEST=1 \
+OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py
 ```
 
@@ -774,11 +802,39 @@ it now needs the internal include paths in the build command above and the
 exact pinned C++ ABI. Registration is removed on every return and these export
 calls serialize with each other, but the global registry is not synchronized
 with arbitrary Prism graphs or external mutation. Use only an isolated,
-single-threaded probe. Device buffer discovery, persistent weight lifetime,
+single-threaded probe. Device buffer discovery, production registry lifetime,
 GGUF loader selection, full-model hosting, and target-platform parity remain
 unproven. Standard PQ2 bytes, repacked weights, expanded FP32 weight scales,
 and A8 scratch coexist during this control; no compact resident-memory or
 performance claim follows. No new candidate or dataset inference is saved.
+
+The `--native-ffn-backend prism_ggml_registered` streamed backend now uses these
+owned handles for the sole frozen layer-3 FFN-down substitution. It performs
+production-batch A8 in the tensor trait, records native dispatch/packing counts,
+and closes the handle explicitly after the decoder layer (also on failure).
+The module supports repeated forwards only at its initial token shape, rejects
+use after close, and has a weakref cleanup fallback. Two-forward output parity
+passes with Python production A8 forbidden. The frozen paired evaluator does
+not accept this experimental backend yet.
+
+All 32 Python-hosted text layers now yield exactly the same final hidden hash
+and selected logits/conditional scores for direct, both callback paths, and
+registered execution. The existing reordered synthetic A-C case also yields
+identical typed option IDs/labels/scores, with zero generated answer tokens.
+It is an engineering observation only; no validation or held-out dataset was
+scored, no compensation promoted, and no second candidate saved.
+
+To try the registered streamed backend, first rebuild the cached bridge using
+the earlier shared-bridge command with both internal include paths, then run:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
+"$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
+   --layers 32 --projection-artifact "$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
+   --native-ffn-library "$cache/native/prism_group_scale_probe.so" \
+   --native-ffn-backend prism_ggml_registered
+```
 
 ## Single-Projection Native Fixture
 

@@ -174,6 +174,17 @@ The built library exports the required C++ symbols. This is a scoped internal
 ABI proof, not a stable public extension API, persistent/concurrent registration,
 new GGUF type, or loader-selected BitNet execution. The original PQ2 operator
 control above still exercises Prism's distinct Q8_0/Q8_K activation contract.
+Later repeated-evaluation and opaque native handle controls reuse one weight
+tensor/graph with one repack and counted dispatch, verifying copied byte
+ownership, rejection/recovery, two live toy handles, and registry restoration.
+The Python-hosted registered backend has identical 32-layer final hidden hashes
+and selected scores to direct/callback execution. One reordered synthetic
+typed-option case also has exact ID/label/conditional-score parity, with no
+generation; it is not calibration or representative quality. Production batch
+A8 is forbidden in Python by the native-A8 gate, and explicit native handle
+release is checked. Full optional controls, including signed-Hadamard, were
+rerun successfully at `4efa59b`; immutable upstream source/library pins did not
+change. Neither persistent model-loader registration nor model hosting follows.
 No full MiMo GGUF was loaded by Prism, and no full converter or native Qwen3.5
 model hook has been validated.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact

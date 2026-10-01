@@ -254,8 +254,13 @@ independent FP16 row/group scales are expanded exactly, not refitted. Counted
 dispatch and exact direct-kernel parity pass on the sole full-size projection.
 This is buffer/tensor registration, not a new GGUF type or loader integration.
 The scoped internal-ABI probe is single-threaded, with global registration
-removed on return; reusable ownership, registry concurrency, and loader-selected
-execution remain design work. Stock PQ2 execution retains its distinct
+removed after initialization/compute. Native create/compute/free handles now
+retain immutable weight/graph ownership and one validated repack across calls;
+failed-input recovery and idle registry cleanup pass. The Python-hosted
+`prism_ggml_registered` substitution has exact full-text and typed synthetic
+score parity with direct execution, with native production A8 and explicit
+release. Production registry concurrency and loader-selected execution remain
+design work. Stock PQ2 execution retains its distinct
 Q8_0/Q8_K contract and is not evidence of BitNet dispatch. See the
 [registered-tensor control](development.md#registered-bitnet-weight-tensor-control).
 
