@@ -217,6 +217,12 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
                            ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
                            ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_size_t)]
     registered.restype = ctypes.c_int
+    repeated = native.prism_bitnet_registered_tensor_matmul_repeated
+    repeated.argtypes = registered.argtypes[:5] + [ctypes.c_size_t] + registered.argtypes[5:] + [ctypes.POINTER(ctypes.c_size_t)]
+    repeated.restype = ctypes.c_int
+    registry_size = native.prism_bitnet_registered_tensor_registry_size
+    registry_size.argtypes = []
+    registry_size.restype = ctypes.c_size_t
     for groups in (2, 3):
         codes = generator.integers(-1, 2, size=(5, groups, 128), dtype=np.int8)
         fp16_scales = generator.uniform(0.01, 1.0, size=(5, groups)).astype(np.float16)
@@ -239,6 +245,30 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
                               actual.ctypes.data_as(registered.argtypes[-2]), ctypes.byref(calls)) == 0
             assert calls.value == 1
             np.testing.assert_array_equal(actual[:tokens], expected[:tokens])
+        values = np.stack((inputs, -2 * inputs)).astype(np.float32)
+        expected_repeated = np.empty((2, 2, 5), dtype=np.float32)
+        actual_repeated = np.empty_like(expected_repeated)
+        for evaluation in range(2):
+            prepared, input_scales = quantize_a8_per_group(values[evaluation])
+            assert direct(packed.ctypes.data_as(arguments[0]), scales.ctypes.data_as(arguments[1]),
+                          prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+                          2, 5, groups, expected_repeated[evaluation].ctypes.data_as(arguments[-1])) == 0
+        before = registry_size()
+        calls, repacks = ctypes.c_size_t(0), ctypes.c_size_t(0)
+        assert repeated(pq2_blocks.ctypes.data_as(repeated.argtypes[0]), values.ctypes.data_as(repeated.argtypes[1]),
+                        2, 5, groups, 2, actual_repeated.ctypes.data_as(repeated.argtypes[-3]),
+                        ctypes.byref(calls), ctypes.byref(repacks)) == 0
+        assert calls.value == 2 and repacks.value == 1
+        assert registry_size() == before
+        np.testing.assert_array_equal(actual_repeated, expected_repeated)
+        values[1, 0, 0] = np.nan
+        actual_repeated.fill(123)
+        assert repeated(pq2_blocks.ctypes.data_as(repeated.argtypes[0]), values.ctypes.data_as(repeated.argtypes[1]),
+                        2, 5, groups, 2, actual_repeated.ctypes.data_as(repeated.argtypes[-3]),
+                        ctypes.byref(calls), ctypes.byref(repacks)) == 2
+        assert calls.value == 1 and repacks.value == 1
+        assert registry_size() == before
+        np.testing.assert_array_equal(actual_repeated, 123)
 
     valid_blocks = pq2_blocks.copy()
     for invalid_kind in ("plus_two", "negative_scale", "nan_scale", "inf_scale", "nan_input", "token_limit"):
@@ -256,11 +286,13 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
             tokens = 129
         actual.fill(123)
         calls = ctypes.c_size_t(99)
+        before = registry_size()
         status = registered(invalid_blocks.ctypes.data_as(registered.argtypes[0]),
                             invalid_inputs.ctypes.data_as(registered.argtypes[1]), tokens, 5, groups,
                             actual.ctypes.data_as(registered.argtypes[-2]), ctypes.byref(calls))
         assert status == (1 if invalid_kind == "token_limit" else 2 if invalid_kind == "nan_input" else 5)
         assert calls.value == 0
+        assert registry_size() == before
         np.testing.assert_array_equal(actual, 123)
 
     pq2 = native.prism_pq2_tensor_matmul
@@ -326,6 +358,22 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
                           actual.ctypes.data_as(registered.argtypes[-2]), ctypes.byref(calls)) == 0
         assert calls.value == 1
         np.testing.assert_array_equal(actual, expected)
+        values = np.stack((inputs, generator.normal(size=inputs.shape).astype(np.float32)))
+        expected_repeated = np.empty((2, 2, 4096), dtype=np.float32)
+        expected_repeated[0] = expected
+        prepared, input_scales = quantize_a8_per_group(values[1])
+        assert direct(stored_packed.ctypes.data_as(arguments[0]), scales.ctypes.data_as(arguments[1]),
+                      prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+                      2, 4096, 96, expected_repeated[1].ctypes.data_as(arguments[-1])) == 0
+        actual_repeated = np.empty_like(expected_repeated)
+        before = registry_size()
+        calls, repacks = ctypes.c_size_t(0), ctypes.c_size_t(0)
+        assert repeated(pq2_blocks.ctypes.data_as(repeated.argtypes[0]), values.ctypes.data_as(repeated.argtypes[1]),
+                        2, 4096, 96, 2, actual_repeated.ctypes.data_as(repeated.argtypes[-3]),
+                        ctypes.byref(calls), ctypes.byref(repacks)) == 0
+        assert calls.value == 2 and repacks.value == 1
+        assert registry_size() == before
+        np.testing.assert_array_equal(actual_repeated, expected_repeated)
     if os.environ.get("MIMO_PRISM_GRAPH_TEST") == "1":
         interpreter = os.environ.get("MIMO_DENSE_PYTHON")
         local_dir = os.environ.get("MIMO_LOCAL_DIR")

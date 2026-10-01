@@ -80,6 +80,7 @@ struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
     std::size_t rows;
     std::size_t groups;
     std::size_t calls = 0;
+    std::size_t repacks = 0;
     int status = 4;
     std::vector<uint8_t> packed;
     std::vector<float> weight_scales;
@@ -96,6 +97,28 @@ struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
         return n_threads == 1;
     }
 
+    int prepare_weight(const uint8_t* blocks) {
+        std::fill(packed.begin(), packed.end(), 0);
+        for (std::size_t block = 0; block < rows * groups; ++block) {
+            const uint8_t* source = blocks + block * 34;
+            const ggml_fp16_t scale_bits = static_cast<ggml_fp16_t>(source[0] | (source[1] << 8));
+            const float scale = ggml_fp16_to_fp32(scale_bits);
+            if (!std::isfinite(scale) || scale < 0.0f) {
+                return 5;
+            }
+            weight_scales[block] = scale;
+            for (std::size_t column = 0; column < 128; ++column) {
+                const uint8_t code = (source[2 + column / 4] >> (2 * (column % 4))) & 3;
+                if (code == 3) {
+                    return 5;
+                }
+                packed[block * 32 + column % 32] |= code << (6 - 2 * (column / 32));
+            }
+        }
+        ++repacks;
+        return 0;
+    }
+
     bool compute_forward(ggml_compute_params* params, ggml_tensor* op) override {
         if (params->ith != 0) {
             return true;
@@ -104,24 +127,10 @@ struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
             status = 4;
             return true;
         }
-        const auto* blocks = static_cast<const uint8_t*>(op->src[0]->data);
-        std::fill(packed.begin(), packed.end(), 0);
-        for (std::size_t block = 0; block < rows * groups; ++block) {
-            const uint8_t* source = blocks + block * 34;
-            const ggml_fp16_t scale_bits = static_cast<ggml_fp16_t>(source[0] | (source[1] << 8));
-            const float scale = ggml_fp16_to_fp32(scale_bits);
-            if (!std::isfinite(scale) || scale < 0.0f) {
-                status = 5;
+        if (repacks == 0) {
+            status = prepare_weight(static_cast<const uint8_t*>(op->src[0]->data));
+            if (status != 0) {
                 return true;
-            }
-            weight_scales[block] = scale;
-            for (std::size_t column = 0; column < 128; ++column) {
-                const uint8_t code = (source[2 + column / 4] >> (2 * (column % 4))) & 3;
-                if (code == 3) {
-                    status = 5;
-                    return true;
-                }
-                packed[block * 32 + column % 32] |= code << (6 - 2 * (column / 32));
             }
         }
         status = bitnet_group_scale_prepare_a8(
@@ -185,6 +194,8 @@ struct bitnet_buffer_type final : ggml::cpu::extra_buffer_type {
         return supports_op(nullptr, op) ? &traits : nullptr;
     }
 };
+
+std::mutex registration_mutex;
 
 }
 
@@ -309,18 +320,20 @@ extern "C" int prism_bitnet_group_scale_matmul_hadamard128(
     return run_grouped_graph(packed, weight_scales, inputs, nullptr, tokens, rows, groups, output, true, signs);
 }
 
-extern "C" int prism_bitnet_registered_tensor_matmul(
+static int run_registered_tensor_matmul(
     const uint8_t* pq2_blocks, const float* inputs, std::size_t tokens,
-    std::size_t rows, std::size_t groups, float* output, std::size_t* dispatch_calls) {
-    if (!dispatch_calls) {
+    std::size_t rows, std::size_t groups, std::size_t evaluations, float* output,
+    std::size_t* dispatch_calls, std::size_t* weight_repacks) {
+    if (!dispatch_calls || !weight_repacks) {
         return 1;
     }
     *dispatch_calls = 0;
+    *weight_repacks = 0;
     if (!pq2_blocks || !inputs || !output || tokens == 0 || tokens > 128 ||
-        rows == 0 || rows > 4096 || groups == 0 || groups > 96) {
+        rows == 0 || rows > 4096 || groups == 0 || groups > 96 ||
+        evaluations == 0 || evaluations > 2) {
         return 1;
     }
-    static std::mutex registration_mutex;
     const std::lock_guard<std::mutex> lock(registration_mutex);
     bitnet_tensor_traits traits(tokens, rows, groups);
     bitnet_buffer_type registered(traits);
@@ -362,16 +375,45 @@ extern "C" int prism_bitnet_registered_tensor_matmul(
         return 2;
     }
     ggml_backend_tensor_set(weight, pq2_blocks, 0, weight_bytes);
-    ggml_backend_tensor_set(input, inputs, 0, tokens * groups * 128 * sizeof(float));
-    if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
-        return 3;
+    std::vector<float> results(evaluations * tokens * rows);
+    for (std::size_t evaluation = 0; evaluation < evaluations; ++evaluation) {
+        ggml_backend_tensor_set(input, inputs + evaluation * tokens * groups * 128,
+            0, tokens * groups * 128 * sizeof(float));
+        const ggml_status graph_status = ggml_backend_graph_compute(backend.get(), graph);
+        *dispatch_calls = traits.calls;
+        *weight_repacks = traits.repacks;
+        if (graph_status != GGML_STATUS_SUCCESS) {
+            return 3;
+        }
+        if (traits.status != 0 || traits.calls != evaluation + 1 || traits.repacks != 1) {
+            return traits.status != 0 ? traits.status : 4;
+        }
+        ggml_backend_tensor_get(result, results.data() + evaluation * tokens * rows,
+            0, tokens * rows * sizeof(float));
     }
-    *dispatch_calls = traits.calls;
-    if (traits.status != 0 || traits.calls != 1) {
-        return traits.status != 0 ? traits.status : 4;
-    }
-    ggml_backend_tensor_get(result, output, 0, rows * tokens * sizeof(float));
+    std::copy(results.begin(), results.end(), output);
     return 0;
+}
+
+extern "C" int prism_bitnet_registered_tensor_matmul(
+    const uint8_t* pq2_blocks, const float* inputs, std::size_t tokens,
+    std::size_t rows, std::size_t groups, float* output, std::size_t* dispatch_calls) {
+    std::size_t repacks = 0;
+    return run_registered_tensor_matmul(pq2_blocks, inputs, tokens, rows, groups,
+        1, output, dispatch_calls, &repacks);
+}
+
+extern "C" int prism_bitnet_registered_tensor_matmul_repeated(
+    const uint8_t* pq2_blocks, const float* inputs, std::size_t tokens,
+    std::size_t rows, std::size_t groups, std::size_t evaluations, float* output,
+    std::size_t* dispatch_calls, std::size_t* weight_repacks) {
+    return run_registered_tensor_matmul(pq2_blocks, inputs, tokens, rows, groups,
+        evaluations, output, dispatch_calls, weight_repacks);
+}
+
+extern "C" std::size_t prism_bitnet_registered_tensor_registry_size() {
+    const std::lock_guard<std::mutex> lock(registration_mutex);
+    return ggml_backend_cpu_get_extra_buffer_types().size();
 }
 
 extern "C" int prism_pq2_tensor_matmul(
