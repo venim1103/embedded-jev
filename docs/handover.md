@@ -14,19 +14,22 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-01)
 
-The last tested implementation commit is `4efa59b` (2026-10-01),
-`feat: stream frozen MiMo projection through registered BitNet tensor`.
+The last tested implementation commit is `cb4fe74` (2026-10-01),
+`feat: import tagged GGUF weight into registered BitNet projection`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
-`e2378e4` (owned handles), and `4efa59b` followed. The assistant made no push
+`e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
+with a documentation checkpoint at `79608a8`. The assistant made no push
 or branch change. Recheck Git state in each session.
 
 Current gates: **158 default tests passed, 24 optional tests skipped; all seven
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
-handle, two-forward module, 32-layer direct/callback/registered parity, reordered
-synthetic typed-option, and signed-Hadamard model controls enabled. The complete
-optional gate took 138.36 seconds. Ruff, editor diagnostics, Pylance syntax
-validation, and `git diff --check` passed. See the development guide for flags.
+handle, two-forward module, and native tagged toy GGUF import enabled (9.18 s).
+The 32-layer direct/callback/registered, reordered synthetic typed-option, and
+signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
+controls were not rerun after the standalone import addition. Ruff, editor
+diagnostics, Pylance syntax validation, and `git diff --check` passed. See the
+development guide for flags.
 
 - The complete pinned BF16 snapshot is verified and cached outside Git. The
   streamed text-only reference executes all 32 decoder layers and scores
@@ -65,6 +68,14 @@ validation, and `git diff --check` passed. See the development guide for flags.
   scores, and final hidden hash on the existing reordered synthetic option case,
   with zero generation. This is an engineering smoke, not calibrated confidence
   or representative quality. The frozen evaluator still excludes the new mode.
+- Native `prism_bitnet_registered_projection_create_from_gguf` now imports one
+  explicitly tagged, identity-only PQ2 ternary weight through the pinned GGUF
+  parser into the same owned handle. A tiny generated fixture has exact counted
+  BitNet parity after its source file is deleted. Missing/wrong execution tags,
+  transforms, name/type/count/geometry mismatches, malformed payloads, truncation,
+  and excess file size are refused. This is standalone one-weight file import,
+  not Prism model-loader selection or a MiMo GGUF load. No actual projection
+  was converted to a file and no new saved candidate was retained.
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
@@ -1062,7 +1073,8 @@ For a fresh coding session:
   [tests](../tests/test_prism_native_control.py), now especially
   `prism_bitnet_registered_tensor_matmul`. The scoped buffer/tensor registration
   now has reusable `prism_bitnet_registered_projection_create/compute/free`
-  ownership and a Python-hosted `prism_ggml_registered` backend. Keep the exact
+  ownership, tagged `create_from_gguf` toy file import, and a Python-hosted
+  `prism_ggml_registered` backend. Keep the exact
   one-/two-evaluation, rejection/recovery, full-text, and typed synthetic gates.
   Next work is CPU buffer discovery/registry lifecycle and one-tensor
   loader-selected dispatch with an explicit group-128/A8 policy, not another

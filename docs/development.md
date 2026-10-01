@@ -6,7 +6,7 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `4efa59b` (2026-10-01).
+The last tested implementation checkpoint is `cb4fe74` (2026-10-01).
 The [current handover](handover.md#current-checkpoint-2026-10-01) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
@@ -14,8 +14,10 @@ source/model copy just to start a new chat.
 
 Current results: 158 default tests passed, 24 optional tests skipped, and all
 seven pinned Prism controls passed with full-size PQ2, repeated/owned native
-weights, two-forward module reuse, 32-layer direct/callback/registered parity,
-reordered synthetic typed decisions, and signed-Hadamard coverage (138.36 s).
+weights, two-forward module reuse, and tagged toy GGUF import (9.18 s).
+The 32-layer direct/callback/registered, reordered synthetic typed-decision,
+and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
+file-import addition; unchanged model inference was not rerun afterwards.
 Ruff, editor diagnostics, Pylance syntax, and whitespace checks passed. These
 are correctness/scope gates, not whole-model quantization acceptance, a
 benchmark, representative quality, or calibrated confidence.
@@ -835,6 +837,42 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
    --native-ffn-library "$cache/native/prism_group_scale_probe.so" \
    --native-ffn-backend prism_ggml_registered
 ```
+
+### Tagged Single-Tensor GGUF Import
+
+`prism_bitnet_registered_projection_create_from_gguf(path, tokens, void**)`
+uses the pinned native `gguf_init_from_file_ptr` metadata parser on a single
+open file, then creates the existing owned registered projection from its
+validated payload. It is a standalone file-consumption control, not an automatic
+Prism model-loader hook or a complete MiMo artifact. Its explicit contract is:
+
+- GGUF v3, at most 14 MiB, exactly one `GGML_TYPE_PQ2_0` tensor named
+   `blk.3.ffn_down.weight`, with contiguous logical `[width, rows, 1, 1]` geometry.
+- Width is a positive multiple of 128, at most 12,288; rows are 1 through 4,096.
+   Payload sizes/offsets are checked before bounded weight-byte allocation.
+- String metadata `jev.bitnet.execution` must equal
+   `group128-a8-fp32-nearest-even-identity-v1`. This explicitly selects the
+   ternary/FP16 row-group and native-A8 identity contract, not generic PQ2/Q8_K.
+   Missing, differently typed, or conflicting tags are refused. Any
+   `prism.hadamard.*` metadata is refused rather than silently ignored.
+- Existing PQ2 packing and payload checks still apply. Invalid codes/scales
+   return 5; file/metadata/geometry/version/size/read failures return 6; invalid
+   API arguments return 1 and allocation failures 2. Failed creation clears the
+   output handle. Successful creation uses the ordinary compute/free API.
+
+The pinned `gguf-py` writer generates only tiny pytest fixtures. Its uint8 input
+must be shaped `[rows, groups*34]`, not the codec's `[rows, groups, 34]` array:
+the writer expands the last byte axis to a logical quantized width. Native
+inspection caught and corrected an initial `[128,3,5,1]` layout; the correct
+fixture is `[384,5,1,1]` without changing any payload bytes.
+
+Tests verify two counted kernel calls with one repack after deleting the source
+file, exact direct-kernel outputs, registry cleanup, and rejection of contract,
+transform, tensor, payload, truncated-file, and file-size mismatches. They run
+in the shared group-scale control when `PRISM_CONVERTER_PYTHON` is set, including
+both gate commands above. No full-size candidate GGUF is written, no source or
+cached runtime is modified, and no model-quality inference is performed. This
+explicit adapter does not make an ordinary Prism PQ2 model dispatch BitNet.
 
 ## Single-Projection Native Fixture
 

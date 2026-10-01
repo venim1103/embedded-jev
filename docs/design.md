@@ -260,7 +260,11 @@ failed-input recovery and idle registry cleanup pass. The Python-hosted
 `prism_ggml_registered` substitution has exact full-text and typed synthetic
 score parity with direct execution, with native production A8 and explicit
 release. Production registry concurrency and loader-selected execution remain
-design work. Stock PQ2 execution retains its distinct
+design work. A bounded native file adapter can now import one explicitly tagged
+identity-only PQ2 ternary weight via the pinned GGUF parser into that owned
+handle. Toy file ownership/parity and contract/type/geometry/payload refusal
+pass, but this is not an automatic model-loader policy or complete MiMo GGUF.
+Stock PQ2 execution retains its distinct
 Q8_0/Q8_K contract and is not evidence of BitNet dispatch. See the
 [registered-tensor control](development.md#registered-bitnet-weight-tensor-control).
 

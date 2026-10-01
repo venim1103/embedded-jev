@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `4efa59b` implementation checkpoint and the next bounded native
+For the tested `cb4fe74` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-01).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -240,7 +240,11 @@ The Python-hosted `prism_ggml_registered` backend also has exact 32-layer final
 hidden/score parity and reordered synthetic typed-option parity, with zero
 generation and explicit handle release. Next work is CPU buffer discovery,
 production registry lifecycle, and a one-tensor loader-selection hook with
-explicit group-128/A8 policy. Full GGUF/model loading remains open; no new
+explicit group-128/A8 policy. A standalone tagged native GGUF import control
+now feeds one toy identity weight into the same owned handle, with exact
+counted dispatch after source-file deletion and comprehensive contract refusal.
+It does not select the buffer automatically in Prism's model loader or convert
+the actual saved candidate. Full GGUF/model loading remains open; no new
 representative quality evidence or evaluator promotion follows.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a

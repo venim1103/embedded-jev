@@ -185,6 +185,16 @@ A8 is forbidden in Python by the native-A8 gate, and explicit native handle
 release is checked. Full optional controls, including signed-Hadamard, were
 rerun successfully at `4efa59b`; immutable upstream source/library pins did not
 change. Neither persistent model-loader registration nor model hosting follows.
+A subsequent standalone tagged toy weight import uses the pinned native
+[GGUF API](https://github.com/PrismML-Eng/llama.cpp/blob/842b1880415d6f508f03b789e5ce70194def7bfd/ggml/include/gguf.h)
+and [structured writer](https://github.com/PrismML-Eng/llama.cpp/blob/842b1880415d6f508f03b789e5ce70194def7bfd/gguf-py/gguf/gguf_writer.py).
+Native shape getters verified the row-major byte-shape correction; explicit
+identity/group-128/A8 metadata and named one-tensor geometry are required before
+payload import. Counted BitNet parity holds after deleting the toy file, while
+unsupported metadata/layout/payload/file contracts are rejected. This is not
+automatic Prism model-loader dispatch, a complete MiMo GGUF, or a new retained
+quantized model. All seven native controls with full-size reuse and module
+coverage passed at `cb4fe74`; full-text/synthetic model gates remain `4efa59b`.
 No full MiMo GGUF was loaded by Prism, and no full converter or native Qwen3.5
 model hook has been validated.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
