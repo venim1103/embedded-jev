@@ -4,6 +4,52 @@ The first environment is CPU-first so source research, mathematical tests, Pytho
 development, and C++ kernel work do not require an NVIDIA runtime. It is a
 development image, not the eventual minimal edge deployment image.
 
+## Current Checkpoint and Gates
+
+The last tested implementation checkpoint is `6d74ae8` (2026-09-30).
+The [current handover](handover.md#current-checkpoint-2026-10-01) is the
+authoritative resume summary, including external cache paths and the next
+native integration task. Do not recreate environments or download another
+source/model copy just to start a new chat.
+
+Recorded results: 158 default tests passed, 24 optional tests skipped, and all
+seven pinned Prism controls passed with the full frozen-projection, native-A8,
+signed-Hadamard, and PQ2 controls enabled. These are correctness/scope gates,
+not whole-model quantization acceptance, a benchmark, or calibrated confidence.
+The 2026-10-01 handover review did not rerun model experiments.
+
+Default regression and lint commands, from the workspace root:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider
+ruff check --no-cache embedded_jev tests
+git diff --check
+```
+
+To reproduce all seven optional pinned Prism controls when a relevant native
+change requires them, reuse the existing cache and run:
+
+```bash
+cache="$HOME/.cache/huggingface/embedded-jev"
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+PRISM_GGML_CPU_LIBRARY="$cache/native/prism-build/bin/libggml-cpu.so" \
+BITNET_SOURCE_DIR="$cache/native/bitnet-source" \
+PRISM_CONVERTER_PYTHON="$cache/native/converter-venv/bin/python" \
+MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
+MIMO_PROJECTION_ARTIFACT="$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
+MIMO_PRISM_GRAPH_TEST=1 MIMO_ROTATED_GRAPH_TEST=1 MIMO_PQ2_CODEC_TEST=1 \
+OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
+python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py
+```
+
+This compiles a temporary bridge for the tests; it does not save another
+quantization or replace the cached shared bridge used by CLI probes. The
+later GGML-scheduled projection section gives that separate rebuild command.
+The full-size PQ2 `MUL_MAT` control uses two exactly representable input
+columns, not arbitrary model activations or a GGUF-loaded model. The PQ2
+operator is Prism's implementation, not the BitNet-derived callback.
+
 ## What Is Included
 
 - Ubuntu 24.04 devcontainer base and non-root `vscode` development user.

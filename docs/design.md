@@ -1,8 +1,11 @@
 # Embedded Jev Design
 
-Status: proposed architecture, 2026-09-25. The development environment,
-model-free research checks, and pinned metadata/header inventory exist;
-the quantizer and inference service do not.
+Status: proposed architecture, first written 2026-09-25; implementation status
+checked 2026-10-01. Bounded ternary quantizers, the streamed BF16 text reference,
+and one-projection BitNet-derived native integration now exist. A complete
+model-loadable ternary/BitNet runtime and deployment service do not.
+The [current handover](handover.md#current-checkpoint-2026-10-01) records the
+tested implementation checkpoint, cache paths, constraints, and next native task.
 See [docs/research-audit.md](research-audit.md) for evidence and corrections,
 [docs/roadmap.md](roadmap.md) for delivery gates, and
 [docs/sources.md](sources.md) for inspected upstream revisions.

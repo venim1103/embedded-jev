@@ -1,14 +1,93 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-09-28. Phase: Milestone 1 feasibility checks in progress.
+Prepared: 2026-09-25. Updated: 2026-10-01. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**The environment and pinned metadata inventory work. The model pipeline does not
-exist yet.** Do not confuse passing mathematical/header tests with a successfully
-quantized or deployed model.
+**The 32-layer BF16 text reference and one-projection BitNet-derived native
+substitution work. A complete model-loadable ternary/BitNet runtime does not.**
+The current checkpoint below supersedes the bootstrap-era status statements.
+Later sections retain the scope and results of individual historical probes;
+do not read a probe's limitations as the current status of every later path.
+
+## Current Checkpoint (2026-10-01)
+
+The last tested implementation commit is `6d74ae8` (2026-09-30),
+`Verify native PQ2 ternary codec and tensor controls`. At the 2026-10-01
+documentation review, `main` and `origin/main` both pointed to it and the
+worktree was clean. Recheck Git state in each new session; documentation
+commits or user changes may follow this implementation checkpoint.
+
+Recorded gates at that checkpoint: **158 default tests passed, 24 optional
+tests skipped; all seven pinned Prism controls passed** with the full frozen
+projection, native-A8, signed-Hadamard, and PQ2 flags enabled. Ruff, editor
+diagnostics, and `git diff --check` passed. These implementation gates ran on
+2026-09-30; they were not rerun during the documentation-only handover review.
+
+- The complete pinned BF16 snapshot is verified and cached outside Git. The
+  streamed text-only reference executes all 32 decoder layers and scores
+  context-verified selected head rows with **zero generated answer tokens**.
+- Exactly one hash-checked searched-FP16 layer-3 FFN-down fixture is retained:
+  4,096 x 12,288, group size 128, about 13 MB. Saved loading bypasses that BF16
+  projection. Direct BitNet-derived AVX2, actual Prism `MAP_CUSTOM2`, and
+  native-A8 callback paths reproduce the same final hidden hash and scores.
+- Matching signed-Hadamard weight/input rotation (seed 773) passes dense and
+  native-reference controls. It is a reversible in-memory experiment, refuses
+  the saved identity artifact, and has no saved candidate or quality promotion.
+- Separate PQ2_0 conversion preserves every frozen code/FP16 scale exactly;
+  the actual native decoder and PQ2 tensor/`MUL_MAT` controlled outputs pass.
+  This is **Prism PQ2 dispatch, not BitNet dispatch or GGUF loader proof**.
+  Native PQ2 uses Q8_K when input width is divisible by 256, otherwise Q8_0
+  with FP16 activation-scale rounding; our callback uses group-128 A8 instead.
+- Split-aware datasets, calibration-only hashed captures, and frozen paired
+  evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
+  proxy has four cases per split and four training captures. Held-out proxy
+  inference remains untouched; it is not representative agent/tool quality.
+- Independent-block compensation is not full GPTQ and has negative wider
+  validation evidence: relative error 0.426 versus RTN 0.406 with one training
+  context, and 0.456 with four balanced contexts. No compensated candidate,
+  bulk fit, or policy promotion followed.
+- Full MiMo ternary GGUF loading, genuine BitNet dispatch for a registered
+  MiMo weight tensor, whole-model native hosting, calibrated decision quality,
+  vision, edge performance, and ARM/RISC-V validation remain open.
+
+### Reusable Local Paths
+
+All paths below are outside Git under `$HOME/.cache/huggingface/embedded-jev`.
+Check their existence after container/cache changes; do not redownload or
+rebuild the environments merely because the chat history changed.
+
+| Cache-relative path | Purpose |
+| --- | --- |
+| `models/mimo-2367e865d009c13ac81713a2878291d33ab28177` | Complete pinned BF16 source; 17 verified files |
+| `quantized/layer3-ffn-down-rtn-searched-fp16` | The sole retained packed projection fixture |
+| `dense-venv/bin/python` | CPU Torch 2.10.0, Transformers 5.12.1, safetensors 0.7.0 |
+| `native/prism-source` | Prism commit `842b1880415d6f508f03b789e5ce70194def7bfd` |
+| `native/prism-build/bin` | Pinned GGML CPU/base libraries |
+| `native/bitnet-source` | Pinned Microsoft BitNet checkout and llama.cpp submodule |
+| `native/converter-venv/bin/python` | Isolated CPU converter environment; use the pinned `gguf-py` path |
+| `datasets/clinc150-828f809-proxy-seed902` | Attributed public proxy, provenance, and four training captures |
+
+The base interpreter is `/opt/venv/bin/python`; use the terminal for environment
+work, as requested by the user. Set `OMP_NUM_THREADS=4` for dense model probes;
+forcing `OPENBLAS_NUM_THREADS=1` or `MKL_NUM_THREADS=1` previously made them
+dramatically slower. The cached `native/prism_group_scale_probe.so` includes
+the signed-Hadamard path, but its PQ2 export has not been refreshed: the latest
+PQ2 controls compiled a fresh bridge in pytest temporary storage. Rebuild only
+if an intended caller needs that export, using the development guide's command.
+
+### Resume Contract
+
+The user authorized routine bounded experiments, the existing full source
+download, quantization scratch space, and periodic **local commits**. Keep only
+one saved quantized candidate, do not push or create branches, preserve user
+changes, and do not launch subagents without explicit authorization. Do not
+bulk-quantize from these diagnostics or consume held-out data while tuning.
+Do not stop solely because representative domain data is absent if bounded
+runtime work can still proceed. Section 16 gives the next implementation task;
+this handover refresh itself did not restart experiments.
 
 ## 1. User Intent
 
@@ -142,7 +221,7 @@ prerequisites. A WSL/Podman host build and post-create check succeeded on
 2026-09-28, reporting an RTX A3000 Laptop GPU (12,288 MiB, driver 595.95)
 inside the container. The base image contains no GPU Torch; a separate isolated
 GPU venv passed a tiny CUDA matmul (below). Model weights and native BitNet
-remain future work.
+were not exercised by that GPU smoke; later CPU checks used cached weights.
 An optional [CUDA driver probe](../embedded_jev/gpu_probe.py) can now run from
 the already-started GPU container without a rebuild or Torch installation;
 it successfully enumerated one RTX A3000 Laptop GPU at compute capability 8.6
@@ -154,8 +233,9 @@ An optional [GPU Torch compute probe](../embedded_jev/torch_probe.py) has offlin
 fail-closed tests and a 4x4 FP32 CUDA matmul. It passed on the RTX A3000 with
 isolated `torch==2.10.0+cu128` (CUDA 12.8); the base research venv remains
 unchanged. NumPy was not installed in the isolated GPU venv, producing a warning
-but not affecting this pure-Torch smoke. Model loading, quantization quality,
-and BitNet CPU execution remain untested.
+but not affecting this pure-Torch smoke. This GPU-only check does not validate
+model loading, quantization quality, or BitNet CPU execution; later CPU evidence
+is recorded separately below.
 The compatible `torch==2.10.0+cu128` CPython 3.12 Linux wheel is 916,856,347
 bytes by HTTP header, plus dependencies. [docs/development.md](development.md)
 has the opt-in isolated install and run commands. The first GPU-container uv
@@ -166,7 +246,7 @@ WSL `df` does not establish physical free space on the Windows drive containing
 the virtual disk. No Torch package was added to the lightweight research base;
 the separate GPU venv and cache are not a locked full-model environment.
 
-## 5. What Was Actually Verified
+## 5. Initial Environment Validation
 
 The initial checks ran on Linux x86-64 with rootless Podman, Dev Containers CLI
 0.87.0, and Node.js 24.19.0 on the host. This is not evidence for an ARM or RISC-V
@@ -212,7 +292,7 @@ They do **not** cover a GPTQ implementation, full-model loading, tokenizer parit
 native codecs, BitNet kernel dispatch, camera processing, or real decision quality.
 The inventory tests also do not test those behaviors.
 
-## 6. What Is Not Installed or Built
+## 6. Base Environment Scope and Implementation History
 
 The base contains compiler tools and a lightweight numerical Python environment.
 It deliberately does not install Torch, Transformers, datasets, safetensors,
@@ -418,7 +498,7 @@ dependencies:
 | Microsoft BitNet parent | `0b341e582afbf9e1011f24744b554c96a3477eb5` |
 | BitNet llama.cpp gitlink | `390c307752ab78fd8189f359d6954c9ba1be74af` in `isHuangXin/llama.cpp` |
 | SemIf | `23cf1f39fc9534fe81437200959b6dfc7106e45a`, branch `master` |
-| Prism source | Release tag `prism-b10735-842b188`; resolve full commit and binary hash before execution |
+| Prism source | `842b1880415d6f508f03b789e5ce70194def7bfd` (`prism-b10735-842b188`); build-specific library hashes are in the development guide |
 
 Some broader documentation was read on moving branches. The source register
 distinguishes those observations from immutable pins. Pin all selected runtime
@@ -745,15 +825,18 @@ against the exact headers. A versioned JSONL executable is the first proposed
 boundary when fork ABIs differ. Copy transient logits, check errors, and release
 contexts/models explicitly. Do not load incompatible native forks into one process.
 
-## 9. Useful Optimization, Not Yet Implemented
+## 9. Selected-Label Head: Bounded Reader Implemented
 
-For a linear output head, retain only rows corresponding to A-P and compute their
-logits from the exact final normalized hidden state. Sixteen BF16 rows of width
-4,096 occupy 128 KiB. Conditional softmax over those logits is algebraically equal
-to conditioning the full vocabulary distribution on the same labels.
+The Python-hosted streamed reference now reads only the head rows required by
+the context-verified option labels and computes their logits from the exact
+final normalized hidden state. Sixteen BF16 rows of width 4,096 occupy 128 KiB.
+Conditional softmax over those logits is algebraically equal to conditioning
+the full vocabulary distribution on the same labels. The optional full-head
+normalizer remains available as a bounded reference diagnostic.
 
 This could remove most output-head storage/work in a decision-only product.
-It does not remove input embeddings. It requires deliberate loader/graph support;
+It does not remove input embeddings. A native selected-head artifact still
+requires deliberate loader/graph support;
 simply omitting the output tensor can activate tied-embedding fallback and change
 the model. It also removes full-vocabulary perplexity, allowed-label-mass
 diagnostics, and general generation from that artifact. Keep a full-head reference
@@ -787,7 +870,7 @@ Physical safety constraints belong outside the model. Initial sensor integration
 is advisory/log-only, with freshness checks, watchdogs, bounded queues, abstention,
 and deterministic limits. Typed output does not prove safe actuator behavior.
 
-## 11. Milestone 1: Inventory Delivered, Model Work Pending
+## 11. Delivered Inventory and Remaining Native Gate
 
 Run `PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory` to reproduce
 the full sorted JSON inventory and estimates. A live run reconciles the pinned
@@ -834,13 +917,13 @@ Acceptance: deterministic reconciled inventory, explicit unsupported cases, no
 bulk weight download, and a credible memory budget. The current HF API total is
 not a substitute for this implementation.
 
-Next, verify real processor inputs and native tokenizer parity, freeze an owned
-decision fixture, and establish the dense reference. The user authorized the
-pinned BF16 source download on 2026-09-29; measure memory and bound temporary
-copies before a full-model conversion. Then take one actual block
-through rotated dense equivalence and ternary reconstruction, alongside a small
-BitNet group-scale kernel proof. Do not create the entire proposed module tree as
-empty scaffolding or copy the nine numbered scripts from the PDF.
+The processor checks, full pinned BF16 download, streamed dense text reference,
+one-projection native substitution, and bounded rotation/codec controls are now
+complete at the scopes described above. Native MiMo tokenizer/loader parity and
+representative owned decision data remain separate open gates. Continue from
+Section 16 rather than repeating bootstrap or downloading the model again.
+Measure memory and bound temporary copies before full-model conversion; do not
+create an empty module tree or copy the numbered scripts from the original PDF.
 
 ## 12. Questions Before Large Jobs
 
@@ -900,16 +983,10 @@ digests and full build/package provenance before publishing performance results.
 ## 14. Git and Delivery
 
 The bootstrap began on `main` at `3e846bb` (`Initial commit`). The user requested
-local commits, not a push or a new branch. The intended organization is:
-
-1. `chore: add validated CPU research devcontainer`, including the unchanged
-   user-created PDF ignore rule.
-2. `docs: add research audit, design, and engineering handover`, including the
-   executable mathematical audit and README.
-
-Use `git log` to discover the resulting commit IDs; the handover cannot embed its
-own containing commit hash. No push is performed by the bootstrap task. Before
-the user pushes, verify:
+periodic local commits, not a push or a new branch. Implementation through
+`6d74ae8` is committed, and the user has independently pushed checkpoints.
+Use `git log` to identify any later commits; this document cannot embed its own
+containing commit hash. Before committing or handing work back, verify:
 
 ```bash
 git status --short
@@ -917,9 +994,8 @@ git log -2 --oneline
 git diff --check
 ```
 
-The clean-worktree expectation described the earlier bootstrap commits. This
-Milestone 1 continuation leaves its code/documentation edits uncommitted; it
-did not push or change branches. The ignored conversation PDF stays local.
+Do not revert unrelated user work or treat an earlier clean-worktree observation
+as a guarantee about a later session. The ignored conversation PDF stays local.
 Container images, running containers, and cache volumes are not stored by Git
 and must be recreated or reused through the documented environment workflow.
 
@@ -932,8 +1008,9 @@ requires each A-P label to add one distinct non-special token. The sample has
 standalone and nested image/video processor metadata. With approved isolated
 CPU-only Torch 2.10.0, Torchvision 0.25.0, and Pillow 12.1.1, real
 `Qwen3VLProcessor` text inputs matched the tokenizer IDs and mask, with all-zero
-multimodal token types. The external cache totals about 979 MB; no model weights
-have been downloaded. [docs/development.md](development.md) has the commands.
+multimodal token types. That initial metadata-only cache was about 979 MB;
+the complete model snapshot was downloaded later on 2026-09-29.
+[docs/development.md](development.md) has the commands.
 
 The [synthetic fixture](../tests/fixtures/agent_tool_smoke.json) has five
 agent/tool cases: inspect-first with an irrelevant-context perturbation,
@@ -946,13 +1023,32 @@ tokenization parity, or a trained decision service.
 
 ## 16. Restart Brief
 
-For a fresh coding session, the entire immediate objective is:
+For a fresh coding session:
 
-> Read this handover and the linked research/design documents. Confirm the CPU
-> smoke check, nine numerical tests, eight offline inventory tests, and six
-> label/processor tests. Re-run bounded inventory and synthetic fixture checks
-> when appropriate; then obtain a real held-out agent/tool decision fixture,
-> verify native tokenizer parity, and clarify host budgets before model weights.
-> Preserve the genuine BitNet execution requirement and SemIf fixed-label
-> contract. Treat unmeasured quality, hardware performance, and proprietary model
-> claims as unknown. Make the smallest testable implementation step.
+1. Read the current checkpoint above and the native projection/PQ2 sections of
+  [docs/development.md](development.md), then consult design, roadmap, and
+  source pins as needed. Check Git status and existing caches before acting.
+2. Preserve genuine BitNet-derived CPU execution, independent FP16 scales per
+  output row/input group, and typed conditional option scores with zero
+  generated answer tokens. PQ2 storage/dispatch alone does not meet BitNet.
+3. Start with the native PQ2 tensor control in
+  [native/prism_group_scale.cpp](../native/prism_group_scale.cpp) and its
+  [tests](../tests/test_prism_native_control.py). Take the smallest bounded
+  step toward a registered weight tensor that genuinely dispatches the
+  BitNet-derived grouped kernel, with explicit packing and A8 contracts and
+  a discriminating native/reference test. The implementation approach is
+  still open; do not claim that loader integration already exists.
+4. Keep fitting on calibration only, diagnostics on validation, and held-out
+  inference untouched. Do not promote the negative independent-block
+  compensation approximation or save another candidate. No full-model
+  conversion, benchmark, speed, or calibrated confidence claim follows.
+5. Validate each edit locally, update these documents, and make periodic local
+  commits. Continue autonomously within the authorized bounded scope; ask
+  only for a genuine blocker or permission to expand scope. Use the terminal
+  for environments, no subagents, no push, and no branch change.
+
+The default regression command is
+`PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider`.
+The development guide gives the pinned optional native gate and rebuild
+commands. Run relevant gates when implementation changes, not every expensive
+model experiment merely to reconstruct the history.

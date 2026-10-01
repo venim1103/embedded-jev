@@ -1,7 +1,10 @@
 # Source Register
 
-Accessed 2026-09-25. These are primary sources used for the initial audit.
-Source code was inspected; model weights and benchmark suites were not executed.
+Initial audit: 2026-09-25. Updated: 2026-10-01. These primary sources and the
+later scoped experiments below support the
+[current handover](handover.md#current-checkpoint-2026-10-01).
+The initial audit inspected source code without executing model weights or
+benchmark suites; subsequent model/native controls are distinguished below.
 Paper titles/abstracts and linked project documentation establish their scope,
 not a full reproduction of every paper result.
 
@@ -52,6 +55,15 @@ header/index check agreed on 760 tensors and 18,819,627,488 BF16 weight bytes.
 The snapshot does not demonstrate MiMo inference, ternary quality, or BitNet
 model dispatch.
 
+Subsequent CPU controls execute all 32 text decoder layers through the
+[streamed BF16 reference](../embedded_jev/streamed_text.py), validate the
+four-layer prefix against the normal Transformers forward, and score verified
+one-token option labels without generation. One retained layer-3 FFN-down
+projection can replace the dense matmul via the BitNet-derived grouped kernel.
+These Python-hosted controls are not full-model ternary GGUF loading or
+representative decision quality; commands and recorded results are in the
+development guide and handover.
+
 ## Public Intent Proxy
 
 On 2026-09-30, CLINC150 source was pinned at
@@ -72,9 +84,12 @@ Changes: four deterministic cases per original split (seed 902), each with
 its gold intent and three shuffled distractors; OOS excluded; normalized
 duplicate utterances excluded across the selected subsets. These are public
 intent diagnostics, **not** official CLINC150 evaluation or representative
-agent/tool decisions. Model-training contamination is unknown. One validation
-comparison and one training activation capture were executed without fitting;
-the proxy held-out subset remains unscored.
+agent/tool decisions. Model-training contamination is unknown. A frozen
+validation comparison and four training activation captures were executed.
+Later compensation diagnostics fit only training activations and report
+validation metrics without fitting on them. Wider validation worsened versus
+RTN; no new candidate was saved or promoted. The proxy held-out subset remains
+unscored.
 
 ## BitNet
 
@@ -86,7 +101,7 @@ built with Clang 18 on x86-64. Its exported I2_S dot passed direct toy-vector
 tests after explicit group-sum compensation. Subsequently the pinned native
 BitNet control GGUF was SHA-256 verified and prefilled through a built `llama`
 library; a debugger confirmed `llamafile_sgemm_i2s` dispatch. No MiMo model was
-loaded or Qwen3.5 integration validated.
+loaded into that BitNet fork or its Qwen3.5 integration validated.
 
 Control model: [`microsoft/BitNet-b1.58-2B-4T-gguf`](https://huggingface.co/microsoft/BitNet-b1.58-2B-4T-gguf/tree/a1f2f1c765812aa8af3f6eda4a313707064bba15),
 revision `a1f2f1c765812aa8af3f6eda4a313707064bba15`, MIT. The sole
@@ -134,14 +149,20 @@ graph paths have identical selected scores and final hidden hashes. Its
 actual loaded GGML base/CPU library paths and hashes are recorded. This is
 not registered model-loadable tensor/codec evidence or a native whole-model
 inference result.
+A native-A8 callback path also matches the direct and Python-prepared graph
+paths' full-text hidden hashes/scores, with Python production-batch A8 forbidden
+by the optional test. A separate in-memory signed-Hadamard experiment (seed 773)
+checks matching dense weight/input transforms and native sign/FWHT/A8 parity.
+Identity artifacts are refused under that rotated policy; no rotated candidate
+was retained or promoted.
 A pinned PQ2_0 control additionally uses the actual native decoder and
 native tensor/MUL_MAT implementation: the full frozen projection decodes
 exactly after separate byte conversion. Low-bit-first adjacent packing and
 Q8_0/Q8_K activation dispatch were checked in the pinned source. This is
 Prism codec/operator evidence only; it does not establish BitNet tensor
 dispatch or a complete MiMo GGUF load path.
-No MiMo model, converter, native low-bit GGUF tensor, or Qwen3.5 model hook was
-loaded or validated.
+No full MiMo GGUF was loaded by Prism, and no full converter or native Qwen3.5
+model hook has been validated.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`

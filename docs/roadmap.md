@@ -5,6 +5,11 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
+For the tested `6d74ae8` implementation checkpoint and the next bounded native
+task, read the [current handover](handover.md#current-checkpoint-2026-10-01).
+The numbered items below retain the milestone plan, not a list of entirely
+unimplemented features; completed scoped probes are described alongside them.
+
 ## Milestone 0: Research Environment
 
 Status: complete on Linux x86-64 using rootless Podman and Dev Containers CLI.
@@ -27,10 +32,11 @@ before their revisions and intended roles have been selected.
 Status: in progress. The pinned header inventory and byte estimates reconcile;
 the pinned tokenizer and text-only processor agree on prompt IDs and A-P labels.
 A single complete BF16 source snapshot was downloaded and SHA-256 verified on
-2026-09-29; its local headers also reconcile, but no quantized model was kept.
+2026-09-29; its local headers also reconcile, but no full quantized model was kept.
 A synthetic five-case agent/tool fixture verifies option mapping, not model
 quality. Vision inputs, native tokenization parity, a real held-out decision
-fixture, full-vocabulary label mass, and dense decision accuracy remain open.
+fixture, representative calibration, and dense task accuracy remain open.
+Full-vocabulary label mass was measured for the engineering prompt only.
 A CPU-only BF16 text path now runs all 32 layers in sequence and reads only
 selected untied-head rows: on one 22-token non-thinking engineering prompt,
 A/B conditional scores were 0.269/0.731 with zero generated tokens. This is
@@ -50,13 +56,14 @@ and conditional-score deltas with data, kernel, candidate, source, and runtime
 bindings. Synthetic end-to-end parity passes; no policy fitting is performed.
 An attributed pinned CLINC150 four-choice public proxy also exercises the
 workflow with human-labeled source data, preserving original train/validation/
-test roles. One validation comparison and training activation capture pass;
-held-out scoring and fitting have not run. This reduced in-scope proxy does
-not establish official CLINC150 or representative agent/tool quality.
+test roles. A frozen validation comparison and four training activation
+captures pass. Calibration-only local compensation diagnostics have run,
+but no new saved candidate or held-out scoring has followed. This reduced
+in-scope proxy does not establish official CLINC150 or agent/tool quality.
 Calibration-fitted compensation on a four-row/two-group real slice gives
 0.401 validation relative error versus 0.423 for searched RTN, but its much
 larger calibration benefit does not generalize proportionally. Native parity
-passes; no full-width scaling, saved-candidate replacement, or quality gate
+passes; no full-width GPTQ, saved-candidate replacement, or quality gate
 is established by this diagnostic.
 The separately labeled independent-block approximation reaches four complete
 input-width rows without a full Hessian. It gives worse validation error than
@@ -101,7 +108,7 @@ outputs match those stored values. A bounded 256-column GPTQ-style compensated
 traversal, informed by a pinned reviewed implementation, now improves one
 correlated toy reconstruction and passes saved-artifact native parity. Processing
 blocks aligned to scale groups preserve the full-width toy's stored codes/scales.
-This has not been validated on a MiMo decoder block or calibration distribution.
+This is not reviewed full-width GPTQ or proof of decoder-block/task quality.
 A deterministic, 1 MiB-capped toy archive round-trips saved codes, FP16 scales,
 and explicit signed-Hadamard metadata into the native CPU fixture. Full GPTQ
 scaling, native artifact export, and model-quality steps remain open.
@@ -224,8 +231,8 @@ and FP16 scale exactly, and controlled native tensor/MUL_MAT parity passes.
 Its Q8_0/Q8_K activation contract and Prism implementation are distinct from
 BitNet-derived group-128 A8. Full GGUF loader integration and genuine BitNet
 dispatch for a registered weight tensor remain open.
-Running that same graph serially for two 128-value groups and applying distinct
-row/group scales outside the graph returned exact toy outputs. This is a
+An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
+distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The
 same tiny graph also passed two token columns with different dynamic A8 scales
 (+1.0 and -2.0 inputs); position/recurrent state is not involved.

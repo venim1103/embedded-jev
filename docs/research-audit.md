@@ -3,7 +3,11 @@
 Reviewed on 2026-09-25. The supplied 72-page conversation is a statement of
 intent, not a working implementation or reliable benchmark. This audit separates
 source-backed facts, mathematical deductions, and hypotheses requiring experiments.
-No MiMo weights have been downloaded or quantized during this initial audit.
+No MiMo weights were downloaded or quantized during that initial audit.
+Subsequent source downloads, streamed text inference, and bounded native
+integration controls are recorded in the
+[current handover](handover.md#current-checkpoint-2026-10-01). This document's
+original mathematical/source conclusions are not model-quality measurements.
 
 ## Recommendation
 
