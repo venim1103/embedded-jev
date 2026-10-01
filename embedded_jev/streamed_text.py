@@ -5,6 +5,7 @@ import gc
 import hashlib
 import json
 import resource
+import weakref
 from pathlib import Path
 
 import numpy as np
@@ -27,7 +28,7 @@ def native_backend_dependencies(library: Path, backend: str) -> dict:
     """Record actual dynamically loaded GGML dependencies for the graph bridge."""
     if backend == "direct":
         return {}
-    if backend not in ("prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128"):
+    if backend not in ("prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128", "prism_ggml_registered"):
         raise InventoryError("unsupported native FFN-down backend")
     import ctypes
 
@@ -62,6 +63,7 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *,
     )
 
     rotated_backend = backend == "prism_ggml_hadamard128"
+    registered_backend = backend == "prism_ggml_registered"
     signs = None
     original_probe = None
     rotated_probe = None
@@ -98,33 +100,52 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *,
         packed = np.ascontiguousarray(packed)
         origin = "saved_hash_checked_native_fixture"
     weight_scales = np.ascontiguousarray(scales.astype(np.float32))
-    if backend not in ("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128"):
+    if backend not in ("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128", "prism_ggml_registered"):
         raise InventoryError("unsupported native FFN-down backend")
-    native_a8 = backend in ("prism_ggml_f32", "prism_ggml_hadamard128")
+    native_a8 = backend in ("prism_ggml_f32", "prism_ggml_hadamard128", "prism_ggml_registered")
+    pq2_blocks = None
+    if registered_backend:
+        from embedded_jev.prism_codec import pack_ternary_pq2_0
+
+        pq2_blocks = pack_ternary_pq2_0(grouped_codes, scales)
     symbol = (
+        "prism_bitnet_registered_projection_compute" if registered_backend else
         "prism_bitnet_group_scale_matmul_hadamard128" if rotated_backend else
         "prism_bitnet_group_scale_matmul_f32" if native_a8 else
         "prism_bitnet_group_scale_matmul_avx2" if backend == "prism_ggml" else "bitnet_group_scale_matmul_avx2"
     )
     try:
-        function = getattr(ctypes.CDLL(str(library)), symbol)
+        native = ctypes.CDLL(str(library))
+        function = getattr(native, symbol)
+        if registered_backend:
+            create_projection = native.prism_bitnet_registered_projection_create
+            free_projection = native.prism_bitnet_registered_projection_free
     except (OSError, AttributeError) as exc:
         raise InventoryError(f"unable to load native FFN-down backend {backend}: {exc}") from exc
-    function.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float) if native_a8 else ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
-        ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
-        ctypes.POINTER(ctypes.c_float),
-    ]
-    if rotated_backend:
-        function.argtypes = function.argtypes + [ctypes.POINTER(ctypes.c_float)]
+    if registered_backend:
+        create_projection.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t,
+                                     ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p)]
+        create_projection.restype = ctypes.c_int
+        free_projection.argtypes = [ctypes.c_void_p]
+        free_projection.restype = None
+        function.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
+                             ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
+    else:
+        function.argtypes = [
+            ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float) if native_a8 else ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
+            ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_float),
+        ]
+        if rotated_backend:
+            function.argtypes = function.argtypes + [ctypes.POINTER(ctypes.c_float)]
     function.restype = ctypes.c_int
     diagnostics = {
         "calls": 0, "max_native_reference_error": 0.0,
         "packed_bytes": packed.nbytes, "candidate_origin": origin,
         "bf16_projection_materialized": artifact is None,
-        "backend": backend, "graph_op": "map_custom2" if backend != "direct" else None,
-        "activation_preparation": "native_graph_callback" if native_a8 else "python",
+        "backend": backend, "graph_op": "mul_mat" if registered_backend else "map_custom2" if backend != "direct" else None,
+        "activation_preparation": "native_tensor_trait" if registered_backend else "native_graph_callback" if native_a8 else "python",
         "backend_dependencies": native_backend_dependencies(library, backend),
         "transform": {
             "kind": "signed_normalized_hadamard", "block_size": 128, "sign_seed": 773,
@@ -132,9 +153,32 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *,
             "input_transform": "native_signs_then_fwht_then_a8",
         } if rotated_backend else {"kind": "identity"},
     }
+    if registered_backend:
+        diagnostics.update({
+            "native_dispatch_calls": 0, "weight_repacks": 0, "weight_uploads": 0,
+            "native_handle_released": False, "weight_tensor_storage": "pq2_0_ternary_subset",
+            "weight_tensor_bytes": pq2_blocks.nbytes, "kernel": "bitnet_group_scale_matmul_avx2",
+        })
 
     class NativeFFNDown(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self._native_handle = ctypes.c_void_p()
+            self._native_tokens = None
+            self._finalizer = None
+            self._closed = False
+
+        def close(self):
+            if registered_backend:
+                if self._finalizer is not None:
+                    self._finalizer()
+                self._native_handle = ctypes.c_void_p()
+                self._closed = True
+                diagnostics["native_handle_released"] = True
+
         def forward(self, features):
+            if registered_backend and self._closed:
+                raise InventoryError("registered native FFN-down is closed")
             if features.device.type != "cpu" or features.dtype != torch.bfloat16 or features.shape[-1] != 12288:
                 raise InventoryError("native FFN-down received incompatible activations")
             shape = features.shape
@@ -156,15 +200,33 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *,
                 input_pointer = activations.ctypes.data_as(ctypes.POINTER(ctypes.c_int8))
                 scales_pointer = activation_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
             outputs = np.empty((inputs.shape[0], 4096), dtype=np.float32)
-            arguments = [
-                packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
-                weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-                input_pointer, scales_pointer,
-                inputs.shape[0], 4096, 96, outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-            ]
-            if rotated_backend:
-                arguments.append(signs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
-            status = function(*arguments)
+            if registered_backend:
+                if self._native_handle.value and self._native_tokens != inputs.shape[0]:
+                    raise InventoryError("registered native FFN-down token shape changed")
+                if not self._native_handle.value:
+                    status = create_projection(pq2_blocks.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+                                               inputs.shape[0], 4096, 96, ctypes.byref(self._native_handle))
+                    if status != 0:
+                        raise InventoryError(f"registered native FFN-down creation failed with status {status}")
+                    self._native_tokens = inputs.shape[0]
+                    self._finalizer = weakref.finalize(self, free_projection, self._native_handle)
+                    diagnostics["weight_uploads"] += 1
+                calls, repacks = ctypes.c_size_t(0), ctypes.c_size_t(0)
+                status = function(self._native_handle, input_pointer,
+                                  outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                  ctypes.byref(calls), ctypes.byref(repacks))
+                diagnostics["native_dispatch_calls"] = calls.value
+                diagnostics["weight_repacks"] = repacks.value
+            else:
+                arguments = [
+                    packed.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+                    weight_scales.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                    input_pointer, scales_pointer,
+                    inputs.shape[0], 4096, 96, outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                ]
+                if rotated_backend:
+                    arguments.append(signs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+                status = function(*arguments)
             if status != 0 or not np.isfinite(outputs).all():
                 raise InventoryError(f"native FFN-down failed with status {status}")
             reference_inputs = rotate_signed_hadamard(inputs[-1:], signs, 128) if rotated_backend else inputs[-1:]
@@ -337,7 +399,7 @@ def run_streamed_text(
         raise InventoryError("fixture path and case id must be provided together")
     if native_ffn_library is not None and (layers < 4 or not native_ffn_library.is_file()):
         raise InventoryError("native FFN-down requires four layers and an existing library")
-    if native_ffn_backend not in ("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128") or (native_ffn_backend != "direct" and native_ffn_library is None):
+    if native_ffn_backend not in ("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128", "prism_ggml_registered") or (native_ffn_backend != "direct" and native_ffn_library is None):
         raise InventoryError("native graph backend requires a supported mode and native library")
     if native_ffn_backend == "prism_ggml_hadamard128" and projection_artifact is not None:
         raise InventoryError("signed rotation cannot reinterpret an identity projection artifact")
@@ -463,12 +525,16 @@ def run_streamed_text(
         if any(parameter.is_meta or parameter.dtype != torch.bfloat16 for parameter in decoder.parameters()):
             raise InventoryError(f"incomplete BF16 layer {layer_index} materialization")
         layer_mask = linear_mask if plan["layer_types"][layer_index] == "linear_attention" else causal_mask
-        with torch.inference_mode():
-            hidden = decoder(
-                hidden, position_embeddings=position_embeddings,
-                attention_mask=layer_mask, position_ids=text_position_ids,
-                past_key_values=None, use_cache=False,
-            )
+        try:
+            with torch.inference_mode():
+                hidden = decoder(
+                    hidden, position_embeddings=position_embeddings,
+                    attention_mask=layer_mask, position_ids=text_position_ids,
+                    past_key_values=None, use_cache=False,
+                )
+        finally:
+            if layer_index == 3 and native_ffn_backend == "prism_ggml_registered":
+                decoder.mlp.down_proj.close()
         if layer_index == 3:
             hook.remove()
         if not torch.isfinite(hidden).all():
@@ -595,7 +661,7 @@ def main() -> None:
     parser.add_argument("--calibration-output", type=Path)
     parser.add_argument("--case-id")
     parser.add_argument("--native-ffn-library", type=Path)
-    parser.add_argument("--native-ffn-backend", choices=("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128"), default="direct")
+    parser.add_argument("--native-ffn-backend", choices=("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128", "prism_ggml_registered"), default="direct")
     parser.add_argument("--projection-artifact", type=Path)
     parser.add_argument("--full-vocabulary-mass", action="store_true")
     args = parser.parse_args()

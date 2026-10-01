@@ -446,6 +446,59 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         assert registry_size() == before
         np.testing.assert_array_equal(actual_repeated, expected_repeated)
         check_projection_lifetime(pq2_blocks, values, expected_repeated)
+        if os.environ.get("MIMO_REGISTERED_MODULE_TEST") == "1":
+            interpreter = os.environ.get("MIMO_DENSE_PYTHON")
+            if not interpreter:
+                pytest.fail("set MIMO_DENSE_PYTHON for the registered projection module control")
+            module_control = """
+import sys
+from pathlib import Path
+from unittest.mock import patch
+import numpy as np
+import torch
+import embedded_jev.activation as activation
+from embedded_jev.inventory import InventoryError
+from embedded_jev.streamed_text import make_native_ffn_down
+library, artifact = map(Path, sys.argv[1:])
+direct, _ = make_native_ffn_down(None, library, artifact, backend="direct")
+values = torch.from_numpy(np.random.default_rng(178).normal(size=(1, 2, 12288)).astype(np.float32)).to(torch.bfloat16)
+references = [direct(values), direct(-2 * values)]
+original = activation.quantize_a8_per_group
+def reference_only(values, *args, **kwargs):
+    if values.shape != (1, 12288):
+        raise AssertionError("Python prepared A8 for the production token batch")
+    return original(values, *args, **kwargs)
+with patch.object(activation, "quantize_a8_per_group", reference_only):
+    module, report = make_native_ffn_down(None, library, artifact, backend="prism_ggml_registered")
+    try:
+        for index, features in enumerate((values, -2 * values)):
+            torch.testing.assert_close(module(features), references[index], rtol=0, atol=0)
+            assert report["native_dispatch_calls"] == index + 1
+            assert report["weight_uploads"] == report["weight_repacks"] == 1
+        assert report["graph_op"] == "mul_mat"
+        assert report["activation_preparation"] == "native_tensor_trait"
+        assert report["bf16_projection_materialized"] is False
+        try:
+            module(values[:, :1])
+        except InventoryError:
+            pass
+        else:
+            raise AssertionError("registered module silently reused a different token shape")
+    finally:
+        module.close()
+    module.close()
+    assert report["native_handle_released"] is True
+    try:
+        module(values)
+    except InventoryError:
+        pass
+    else:
+        raise AssertionError("closed native projection was reused")
+"""
+            module_result = subprocess.run([interpreter, "-c", module_control, str(binary), artifact],
+                                           capture_output=True, text=True, timeout=60,
+                                           env={**os.environ, "OMP_NUM_THREADS": "4", "PYTHONDONTWRITEBYTECODE": "1"})
+            assert module_result.returncode == 0, module_result.stderr
     if os.environ.get("MIMO_PRISM_GRAPH_TEST") == "1":
         interpreter = os.environ.get("MIMO_DENSE_PYTHON")
         local_dir = os.environ.get("MIMO_LOCAL_DIR")
@@ -455,13 +508,13 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         environment = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
                        "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4"}
         reports = []
-        for backend in ("direct", "prism_ggml", "prism_ggml_f32"):
+        for backend in ("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_registered"):
             command = [
                 interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
                 "--layers", "32", "--native-ffn-library", str(binary), "--native-ffn-backend", backend,
                 "--projection-artifact", artifact,
             ]
-            if backend == "prism_ggml_f32":
+            if backend in ("prism_ggml_f32", "prism_ggml_registered"):
                 guard = """
 import runpy
 from unittest.mock import patch
@@ -482,7 +535,8 @@ with patch.object(activation, "quantize_a8_per_group", reference_only):
             reports.append(json.loads(result.stdout))
         direct_report = reports[0]
         for graph_report in reports[1:]:
-            assert graph_report["native_ffn_down"]["graph_op"] == "map_custom2"
+            registered_backend = graph_report["native_ffn_down"]["backend"] == "prism_ggml_registered"
+            assert graph_report["native_ffn_down"]["graph_op"] == ("mul_mat" if registered_backend else "map_custom2")
             assert graph_report["native_ffn_down"]["backend_dependencies"] == dependencies
             assert graph_report["native_ffn_down"]["bf16_projection_materialized"] is False
             assert graph_report["native_ffn_down"]["max_native_reference_error"] < 1e-4
@@ -492,6 +546,34 @@ with patch.object(activation, "quantize_a8_per_group", reference_only):
             assert graph_report["selected_head"]["options"] == direct_report["selected_head"]["options"]
             assert graph_report["generated_tokens"] == direct_report["generated_tokens"] == 0
         assert reports[2]["native_ffn_down"]["activation_preparation"] == "native_graph_callback"
+        registered_report = reports[3]["native_ffn_down"]
+        assert registered_report["activation_preparation"] == "native_tensor_trait"
+        assert registered_report["native_dispatch_calls"] == 1
+        assert registered_report["weight_uploads"] == registered_report["weight_repacks"] == 1
+        assert registered_report["weight_tensor_bytes"] == 4096 * 96 * 34
+        assert registered_report["native_handle_released"] is True
+        if os.environ.get("MIMO_REGISTERED_TYPED_TEST") == "1":
+            fixture = Path(__file__).parent / "fixtures" / "agent_tool_smoke.json"
+            typed_reports = []
+            for backend in ("direct", "prism_ggml_registered"):
+                typed_result = subprocess.run(
+                    [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
+                     "--layers", "32", "--native-ffn-library", str(binary), "--native-ffn-backend", backend,
+                     "--projection-artifact", artifact, "--fixture", str(fixture),
+                     "--case-id", "edit-reordered-options"],
+                    env=environment, capture_output=True, text=True, timeout=180,
+                )
+                assert typed_result.returncode == 0, typed_result.stderr
+                typed_reports.append(json.loads(typed_result.stdout))
+            assert typed_reports[0]["last_token_sha256"] == typed_reports[1]["last_token_sha256"]
+            assert typed_reports[0]["decision"] == typed_reports[1]["decision"]
+            decision = typed_reports[1]["decision"]
+            assert decision["scope"] == "synthetic_fixture_observation_not_quality_or_calibration"
+            assert [option["id"] for option in decision["options"]] == ["ask", "inspect", "edit"]
+            assert [option["label"] for option in decision["options"]] == ["A", "B", "C"]
+            assert decision["expected_option_id"] == "edit"
+            assert typed_reports[0]["generated_tokens"] == typed_reports[1]["generated_tokens"] == 0
+            assert typed_reports[1]["native_ffn_down"]["native_handle_released"] is True
         if os.environ.get("MIMO_ROTATED_GRAPH_TEST") == "1":
             result = subprocess.run(
                 [interpreter, "-m", "embedded_jev.streamed_text", "--local-dir", local_dir,
