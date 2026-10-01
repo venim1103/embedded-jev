@@ -4,8 +4,10 @@
 #include "ggml.h"
 #include "gguf.h"
 #include "traits.h"
+#include "prism_bitnet_runtime.h"
 
 #include <algorithm>
+#include <limits>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -195,16 +197,205 @@ struct bitnet_buffer_type final : ggml::cpu::extra_buffer_type {
 
 struct bitnet_registration {
     ggml_backend_buffer_type_t type;
+    bool persistent = false;
 
     explicit bitnet_registration(ggml_backend_buffer_type_t buffer_type) : type(buffer_type) {
         ggml_backend_cpu_get_extra_buffer_types().push_back(type);
     }
 
     ~bitnet_registration() {
-        auto& types = ggml_backend_cpu_get_extra_buffer_types();
-        types.erase(std::find(types.begin(), types.end(), type));
+        if (!persistent) {
+            auto& types = ggml_backend_cpu_get_extra_buffer_types();
+            types.erase(std::find(types.begin(), types.end(), type));
+        }
     }
 };
+
+struct bitnet_loader_tensor_v1 final : ggml::cpu::tensor_traits {
+    ggml_tensor* weight;
+    bitnet_tensor_traits kernel;
+    std::mutex mutex;
+    std::size_t uploaded = 0;
+    int load_status = 8;
+    bool sealed = false;
+
+    explicit bitnet_loader_tensor_v1(ggml_tensor* tensor)
+        : weight(tensor), kernel(1, tensor->ne[1], tensor->ne[0] / 128) {
+        kernel.status = load_status;
+    }
+
+    bool work_size(int, const ggml_tensor*, std::size_t& size) override {
+        size = 0;
+        return true;
+    }
+
+    bool compute_forward(ggml_compute_params* params, ggml_tensor* op) override {
+        if (params->ith != 0) {
+            return true;
+        }
+        const std::lock_guard<std::mutex> lock(mutex);
+        kernel.status = load_status;
+        if (load_status == 0) {
+            try {
+                kernel.tokens = op->src[1]->ne[1];
+                kernel.activations.resize(kernel.tokens * kernel.groups * 128);
+                kernel.activation_scales.resize(kernel.tokens * kernel.groups);
+                kernel.compute_forward(params, op);
+            } catch (const std::bad_alloc&) {
+                kernel.status = 2;
+            }
+        }
+        if (kernel.status != 0 && op->data) {
+            std::fill_n(static_cast<float*>(op->data), ggml_nelements(op),
+                std::numeric_limits<float>::quiet_NaN());
+        }
+        return true;
+    }
+};
+
+struct bitnet_loader_storage_v1 {
+    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> storage;
+    std::vector<std::unique_ptr<bitnet_loader_tensor_v1>> tensors;
+
+    explicit bitnet_loader_storage_v1(ggml_backend_buffer_t buffer)
+        : storage(buffer, ggml_backend_buffer_free) {}
+
+    bitnet_loader_tensor_v1* find(const ggml_tensor* tensor) {
+        for (const auto& traits : tensors) {
+            if (traits->weight == tensor) {
+                return traits.get();
+            }
+        }
+        return nullptr;
+    }
+};
+
+struct bitnet_loader_buffer_v1 final : ggml::cpu::extra_buffer_type {
+    ggml_backend_buffer_type type;
+
+    static bool valid_weight(const ggml_tensor* tensor) {
+        return tensor && std::strcmp(ggml_get_name(tensor), "blk.3.ffn_down.weight") == 0 &&
+            tensor->type == GGML_TYPE_PQ2_0 && tensor->ne[0] > 0 && tensor->ne[0] <= 12288 &&
+            tensor->ne[0] % 128 == 0 && tensor->ne[1] > 0 && tensor->ne[1] <= 4096 &&
+            tensor->ne[2] == 1 && tensor->ne[3] == 1 && ggml_is_contiguous(tensor);
+    }
+
+    static bitnet_loader_storage_v1* state(ggml_backend_buffer_t buffer) {
+        return static_cast<bitnet_loader_storage_v1*>(buffer->context);
+    }
+
+    bitnet_loader_buffer_v1() : type(*ggml_backend_cpu_buffer_type()) {
+        type.context = this;
+        type.iface.get_name = [](ggml_backend_buffer_type_t) { return "JEV_BITNET_LOADER_V1"; };
+        type.iface.is_host = [](ggml_backend_buffer_type_t) { return false; };
+        type.iface.alloc_buffer = [](ggml_backend_buffer_type_t buft, std::size_t size) {
+            std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> storage(
+                ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size), ggml_backend_buffer_free);
+            if (!storage) {
+                return static_cast<ggml_backend_buffer_t>(nullptr);
+            }
+            try {
+                auto owner = std::make_unique<bitnet_loader_storage_v1>(storage.get());
+                storage.release();
+                auto iface = owner->storage->iface;
+                iface.free_buffer = [](ggml_backend_buffer_t buffer) { delete state(buffer); };
+                iface.get_base = [](ggml_backend_buffer_t buffer) {
+                    return ggml_backend_buffer_get_base(state(buffer)->storage.get());
+                };
+                iface.init_tensor = [](ggml_backend_buffer_t buffer, ggml_tensor* tensor) {
+                    if (!valid_weight(tensor) || state(buffer)->find(tensor)) {
+                        return GGML_STATUS_FAILED;
+                    }
+                    try {
+                        auto traits = std::make_unique<bitnet_loader_tensor_v1>(tensor);
+                        auto* extra = traits.get();
+                        state(buffer)->tensors.push_back(std::move(traits));
+                        tensor->extra = extra;
+                        return GGML_STATUS_SUCCESS;
+                    } catch (const std::bad_alloc&) {
+                        return GGML_STATUS_ALLOC_FAILED;
+                    }
+                };
+                iface.set_tensor = [](ggml_backend_buffer_t buffer, ggml_tensor* tensor,
+                                      const void* data, std::size_t offset, std::size_t count) {
+                    auto* traits = state(buffer)->find(tensor);
+                    if (!traits) {
+                        return;
+                    }
+                    const std::lock_guard<std::mutex> lock(traits->mutex);
+                    if (traits->sealed || !data || offset != traits->uploaded || count == 0 ||
+                        offset > ggml_nbytes(tensor) || count > ggml_nbytes(tensor) - offset) {
+                        traits->load_status = traits->kernel.status = 8;
+                        traits->sealed = true;
+                        return;
+                    }
+                    std::memcpy(static_cast<uint8_t*>(tensor->data) + offset, data, count);
+                    traits->uploaded += count;
+                    if (traits->uploaded == ggml_nbytes(tensor)) {
+                        traits->sealed = true;
+                        traits->load_status = traits->kernel.prepare_weight(static_cast<const uint8_t*>(tensor->data));
+                    }
+                    traits->kernel.status = traits->load_status;
+                };
+                iface.get_tensor = [](ggml_backend_buffer_t, const ggml_tensor* tensor,
+                                      void* data, std::size_t offset, std::size_t count) {
+                    std::memcpy(data, static_cast<const uint8_t*>(tensor->data) + offset, count);
+                };
+                iface.memset_tensor = [](ggml_backend_buffer_t buffer, ggml_tensor* tensor,
+                                         uint8_t, std::size_t, std::size_t) {
+                    if (auto* traits = state(buffer)->find(tensor)) {
+                        const std::lock_guard<std::mutex> lock(traits->mutex);
+                        traits->load_status = traits->kernel.status = 8;
+                        traits->sealed = true;
+                    }
+                };
+                iface.clear = [](ggml_backend_buffer_t buffer, uint8_t value) {
+                    for (const auto& traits : state(buffer)->tensors) {
+                        const std::lock_guard<std::mutex> lock(traits->mutex);
+                        traits->load_status = traits->kernel.status = 8;
+                        traits->sealed = traits->sealed || traits->uploaded != 0;
+                    }
+                    ggml_backend_buffer_clear(state(buffer)->storage.get(), value);
+                };
+                iface.cpy_tensor = nullptr;
+                iface.set_tensor_2d = nullptr;
+                iface.get_tensor_2d = nullptr;
+                iface.reset = nullptr;
+                auto* buffer = ggml_backend_buffer_init(buft, iface, owner.get(), size);
+                if (buffer) {
+                    owner.release();
+                }
+                return buffer;
+            } catch (const std::bad_alloc&) {
+                return static_cast<ggml_backend_buffer_t>(nullptr);
+            }
+        };
+    }
+
+    bool supports_op(ggml_backend_dev_t, const ggml_tensor* op) override {
+        if (!op || op->op != GGML_OP_MUL_MAT || !valid_weight(op->src[0]) || !op->src[1]) {
+            return false;
+        }
+        const auto* weight = op->src[0];
+        const auto* input = op->src[1];
+        return weight->buffer && weight->buffer->buft == &type &&
+            weight->extra && state(weight->buffer)->find(weight) == weight->extra &&
+            input->ne[1] > 0 && input->ne[1] <= 128 &&
+            input->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32 && input->ne[0] == weight->ne[0] &&
+            op->ne[0] == weight->ne[1] && op->ne[1] == input->ne[1] &&
+            input->ne[2] == 1 && input->ne[3] == 1 && op->ne[2] == 1 && op->ne[3] == 1 &&
+            ggml_is_contiguous(input) && ggml_is_contiguous(op);
+    }
+
+    ggml::cpu::tensor_traits* get_tensor_traits(const ggml_tensor* op) override {
+        return supports_op(nullptr, op) ? state(op->src[0]->buffer)->find(op->src[0]) : nullptr;
+    }
+};
+
+bitnet_loader_buffer_v1& loader_runtime_v1() {
+    static bitnet_loader_buffer_v1 runtime;
+    return runtime;
+}
 
 struct registered_projection {
     bitnet_tensor_traits traits;
@@ -278,6 +469,67 @@ struct registered_projection {
 
 std::mutex registration_mutex;
 
+}
+
+extern "C" int prism_bitnet_cpu_runtime_init_v1(
+    const char* prism_revision, uint32_t abi_version,
+    ggml_backend_buffer_type_t* buffer_type) {
+    static_assert(GGML_BACKEND_API_VERSION == 2);
+    if (!buffer_type) {
+        return 1;
+    }
+    *buffer_type = nullptr;
+    if (!prism_revision || std::strcmp(prism_revision, JEV_PRISM_SOURCE_REVISION) != 0 ||
+        abi_version != JEV_BITNET_RUNTIME_ABI_V1 ||
+        ggml_blck_size(GGML_TYPE_PQ2_0) != 128 || ggml_type_size(GGML_TYPE_PQ2_0) != 34) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(registration_mutex);
+    auto& runtime = loader_runtime_v1();
+    auto& types = ggml_backend_cpu_get_extra_buffer_types();
+    if (std::find(types.begin(), types.end(), &runtime.type) != types.end()) {
+        *buffer_type = &runtime.type;
+        return 0;
+    }
+    try {
+        const auto registry = ggml_backend_cpu_reg();
+        const auto device = ggml_backend_reg_dev_get(registry, 0);
+        const auto discovery = reinterpret_cast<ggml_backend_dev_get_extra_bufts_t>(
+            ggml_backend_reg_get_proc_address(registry, "ggml_backend_dev_get_extra_bufts"));
+        if (!discovery) {
+            return 7;
+        }
+        bitnet_registration registration(&runtime.type);
+        for (auto* candidate = discovery(device); candidate && *candidate; ++candidate) {
+            if (*candidate == &runtime.type) {
+                registration.persistent = true;
+                *buffer_type = &runtime.type;
+                return 0;
+            }
+        }
+        return 7;
+    } catch (const std::bad_alloc&) {
+        return 2;
+    }
+}
+
+extern "C" int prism_bitnet_cpu_tensor_status_v1(
+    const ggml_tensor* weight, std::size_t* dispatch_calls, std::size_t* weight_repacks) {
+    if (!dispatch_calls || !weight_repacks) {
+        return 1;
+    }
+    *dispatch_calls = *weight_repacks = 0;
+    if (!weight || !weight->buffer || weight->buffer->buft != &loader_runtime_v1().type) {
+        return 1;
+    }
+    auto* traits = bitnet_loader_buffer_v1::state(weight->buffer)->find(weight);
+    if (!traits || weight->extra != traits) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(traits->mutex);
+    *dispatch_calls = traits->kernel.calls;
+    *weight_repacks = traits->kernel.repacks;
+    return traits->kernel.status;
 }
 
 extern "C" const char* prism_group_scale_library_path(int index) {

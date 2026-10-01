@@ -137,6 +137,22 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
     assert set(dependencies) == {"ggml_cpu", "ggml_base"}
     assert Path(dependencies["ggml_cpu"]["path"]) == Path(library_name).resolve()
     assert all(len(record["sha256"]) == 64 for record in dependencies.values())
+    loader_control = tmp_path / "prism-bitnet-loader-control"
+    loader_build = subprocess.run(
+        [compiler, "-std=c++17", "-O2", "-I", str(Path(source_dir) / "ggml" / "include"),
+         str(sources / "prism_bitnet_loader_control.cpp"), str(binary),
+         "-L", str(library_dir), f"-Wl,-rpath,{library_dir}", "-lggml-cpu", "-lggml-base",
+         "-o", str(loader_control)],
+        capture_output=True, text=True,
+    )
+    assert loader_build.returncode == 0, loader_build.stderr
+    for options in ([], ["--late"]):
+        loader_run = subprocess.run([str(loader_control), *options], capture_output=True, text=True, timeout=15)
+        assert loader_run.returncode == 0, loader_run.stderr
+        loader_report = json.loads(loader_run.stdout)
+        assert loader_report == ({"late_init_refused": True} if options else
+                                 {"discovery_matches": 1, "idempotent_init": True,
+                                  "kernel_calls": 3, "weight_repacks": 1})
     arguments = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
                  ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
                  ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float)]
