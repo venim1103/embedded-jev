@@ -2,12 +2,15 @@
 #include "ggml-backend.h"
 #include "ggml-cpu.h"
 #include "ggml.h"
+#include "gguf.h"
 #include "traits.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <dlfcn.h>
 #include <memory>
 #include <mutex>
@@ -475,6 +478,69 @@ extern "C" int prism_bitnet_registered_projection_create(
             *handle = projection.release();
         }
         return status;
+    } catch (const std::bad_alloc&) {
+        return 2;
+    }
+}
+
+extern "C" int prism_bitnet_registered_projection_create_from_gguf(
+    const char* path, std::size_t tokens, void** handle) {
+    if (!handle) {
+        return 1;
+    }
+    *handle = nullptr;
+    if (!path || tokens == 0 || tokens > 128) {
+        return 1;
+    }
+    std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"), std::fclose);
+    if (!file || std::fseek(file.get(), 0, SEEK_END) != 0) {
+        return 6;
+    }
+    const long length = std::ftell(file.get());
+    if (length <= 0 || length > 14 * 1024 * 1024 || std::fseek(file.get(), 0, SEEK_SET) != 0) {
+        return 6;
+    }
+    try {
+        gguf_init_params params = { true, nullptr };
+        std::unique_ptr<gguf_context, decltype(&gguf_free)> metadata(
+            gguf_init_from_file_ptr(file.get(), params), gguf_free);
+        if (!metadata || gguf_get_version(metadata.get()) != GGUF_VERSION ||
+            gguf_get_n_tensors(metadata.get()) != 1 ||
+            gguf_get_tensor_type(metadata.get(), 0) != GGML_TYPE_PQ2_0 ||
+            std::strcmp(gguf_get_tensor_name(metadata.get(), 0), "blk.3.ffn_down.weight") != 0) {
+            return 6;
+        }
+        const int64_t policy = gguf_find_key(metadata.get(), "jev.bitnet.execution");
+        if (policy < 0 || gguf_get_kv_type(metadata.get(), policy) != GGUF_TYPE_STRING ||
+            std::strcmp(gguf_get_val_str(metadata.get(), policy), "group128-a8-fp32-nearest-even-identity-v1") != 0) {
+            return 6;
+        }
+        for (int64_t key = 0; key < gguf_get_n_kv(metadata.get()); ++key) {
+            if (std::strncmp(gguf_get_key(metadata.get(), key), "prism.hadamard.", sizeof("prism.hadamard.") - 1) == 0) {
+                return 6;
+            }
+        }
+        const int64_t* shape = gguf_get_tensor_ne(metadata.get(), 0);
+        if (shape[0] <= 0 || shape[0] > 12288 || shape[0] % 128 != 0 ||
+            shape[1] <= 0 || shape[1] > 4096 || shape[2] != 1 || shape[3] != 1) {
+            return 6;
+        }
+        const std::size_t rows = static_cast<std::size_t>(shape[1]);
+        const std::size_t groups = static_cast<std::size_t>(shape[0]) / 128;
+        const std::size_t bytes = rows * groups * 34;
+        const std::size_t file_bytes = static_cast<std::size_t>(length);
+        const std::size_t data_offset = gguf_get_data_offset(metadata.get());
+        const std::size_t tensor_offset = gguf_get_tensor_offset(metadata.get(), 0);
+        if (gguf_get_tensor_size(metadata.get(), 0) != bytes || data_offset > file_bytes ||
+            tensor_offset > file_bytes - data_offset || bytes > file_bytes - data_offset - tensor_offset) {
+            return 6;
+        }
+        std::vector<uint8_t> blocks(bytes);
+        if (std::fseek(file.get(), static_cast<long>(data_offset + tensor_offset), SEEK_SET) != 0 ||
+            std::fread(blocks.data(), 1, bytes, file.get()) != bytes) {
+            return 6;
+        }
+        return prism_bitnet_registered_projection_create(blocks.data(), tokens, rows, groups, handle);
     } catch (const std::bad_alloc&) {
         return 2;
     }

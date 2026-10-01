@@ -366,6 +366,101 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         assert registry_size() == before
         np.testing.assert_array_equal(actual, 123)
 
+    converter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    if converter:
+        import_projection = native.prism_bitnet_registered_projection_create_from_gguf
+        import_projection.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p)]
+        import_projection.restype = ctypes.c_int
+        writer_control = """
+import json
+import sys
+from pathlib import Path
+import gguf
+import numpy as np
+from embedded_jev.prism_codec import pack_ternary_pq2_0
+directory = Path(sys.argv[1])
+generator = np.random.default_rng(291)
+codes = generator.integers(-1, 2, size=(5, 3, 128), dtype=np.int8)
+scales = generator.uniform(0.01, 1, size=(5, 3)).astype(np.float16)
+codes[0, 0] = 0
+scales[0, 0] = 0
+blocks = pack_ternary_pq2_0(codes, scales)
+for kind in ("valid", "missing_contract", "wrong_contract", "contract_type", "wrong_name",
+             "wrong_type", "extra_tensor", "row_limit", "group_limit", "batch_dimension",
+             "bad_code", "bad_scale", "truncated", "file_limit", "transform_metadata"):
+    path = directory / (kind + ".gguf")
+    writer = gguf.GGUFWriter(str(path), "jev-tensor-control")
+    if kind == "contract_type":
+        writer.add_uint32("jev.bitnet.execution", 128)
+    elif kind != "missing_contract":
+        writer.add_string("jev.bitnet.execution", "q8_K" if kind == "wrong_contract"
+                          else "group128-a8-fp32-nearest-even-identity-v1")
+    if kind == "transform_metadata":
+        writer.add_uint32("prism.hadamard.version", 1)
+    payload = blocks.reshape(5, -1).copy()
+    if kind == "bad_code":
+        payload.flat[2] = (int(payload.flat[2]) & ~3) | 3
+    if kind == "bad_scale":
+        payload.reshape(-1, 34)[0, :2] = np.array([np.nan], dtype="<f2").view(np.uint8)
+    if kind == "row_limit":
+        payload = np.zeros((4097, 34), dtype=np.uint8)
+    if kind == "group_limit":
+        payload = np.zeros((1, 97 * 34), dtype=np.uint8)
+    if kind == "batch_dimension":
+        payload = np.stack((payload, payload))
+    name = "other.weight" if kind == "wrong_name" else "blk.3.ffn_down.weight"
+    if kind == "wrong_type":
+        writer.add_tensor(name, np.zeros((5, 384), dtype=np.float32))
+    else:
+        writer.add_tensor(name, payload, raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+    if kind == "extra_tensor":
+        writer.add_tensor("extra.weight", np.zeros((1, 128), dtype=np.float32))
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    if kind in ("truncated", "file_limit"):
+        with path.open("r+b") as source:
+            source.truncate(gguf.GGUFReader(str(path)).data_offset + 1 if kind == "truncated" else 14 * 1024 * 1024 + 1)
+print(json.dumps({"codes": codes.tolist(), "scales": scales.tolist()}))
+"""
+        writer_result = subprocess.run([converter, "-c", writer_control, str(tmp_path)],
+                                       capture_output=True, text=True, timeout=30,
+                                       env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
+                                            "PYTHONDONTWRITEBYTECODE": "1"})
+        assert writer_result.returncode == 0, writer_result.stderr
+        file_reference = json.loads(writer_result.stdout)
+        file_packed = pack_group128_codes(np.asarray(file_reference["codes"], dtype=np.int8))
+        file_scales = np.asarray(file_reference["scales"], dtype=np.float32)
+        valid_path = tmp_path / "valid.gguf"
+        before = registry_size()
+        handle = ctypes.c_void_p()
+        assert import_projection(os.fsencode(valid_path), 2, ctypes.byref(handle)) == 0
+        valid_path.unlink()
+        try:
+            for values in (inputs, -2 * inputs):
+                prepared, input_scales = quantize_a8_per_group(values)
+                assert direct(file_packed.ctypes.data_as(arguments[0]), file_scales.ctypes.data_as(arguments[1]),
+                              prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+                              2, 5, 3, expected.ctypes.data_as(arguments[-1])) == 0
+                assert compute_projection(handle, values.ctypes.data_as(compute_projection.argtypes[1]),
+                                          actual.ctypes.data_as(compute_projection.argtypes[2]),
+                                          ctypes.byref(calls), ctypes.byref(repacks)) == 0
+                np.testing.assert_array_equal(actual, expected)
+                assert repacks.value == 1 and registry_size() == before
+            assert calls.value == 2
+        finally:
+            free_projection(handle)
+        for kind in ("missing_contract", "wrong_contract", "contract_type", "wrong_name", "wrong_type",
+                     "extra_tensor", "row_limit", "group_limit", "batch_dimension", "bad_code",
+                     "bad_scale", "truncated", "file_limit", "missing_file", "transform_metadata"):
+            handle = ctypes.c_void_p(123)
+            status = import_projection(os.fsencode(tmp_path / (kind + ".gguf")), 2, ctypes.byref(handle))
+            assert status == (5 if kind in ("bad_code", "bad_scale") else 6)
+            assert handle.value is None and registry_size() == before
+        assert import_projection(None, 2, ctypes.byref(handle)) == 1
+        assert handle.value is None
+
     pq2 = native.prism_pq2_tensor_matmul
     pq2.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
                     ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float)]
