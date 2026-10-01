@@ -18,6 +18,12 @@ int prism_bitnet_cpu_runtime_init_v1(
 int prism_bitnet_cpu_tensor_status_v1(
     const struct ggml_tensor* weight, size_t* dispatch_calls, size_t* weight_repacks);
 
+struct llama_model_tensor_buft_override;
+
+int prism_bitnet_cpu_loader_override_from_gguf_v1(
+    const char* path, const char* prism_revision, uint32_t abi_version,
+    const struct llama_model_tensor_buft_override** overrides);
+
 #ifdef __cplusplus
 }
 #endif

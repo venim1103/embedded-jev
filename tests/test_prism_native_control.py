@@ -126,6 +126,7 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
          "-I", str(Path(source_dir) / "ggml" / "include"),
          "-I", str(Path(source_dir) / "ggml" / "src"),
          "-I", str(Path(source_dir) / "ggml" / "src" / "ggml-cpu"),
+         "-I", str(Path(source_dir) / "include"),
          str(sources / "prism_group_scale.cpp"), str(sources / "bitnet_group_scale.cpp"),
          "-L", str(library_dir), f"-Wl,-rpath,{library_dir}", "-lggml-cpu", "-lggml-base", "-o", str(binary)],
         check=True, capture_output=True, text=True,
@@ -140,8 +141,9 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
     loader_control = tmp_path / "prism-bitnet-loader-control"
     loader_build = subprocess.run(
         [compiler, "-std=c++17", "-O2", "-I", str(Path(source_dir) / "ggml" / "include"),
+         "-I", str(Path(source_dir) / "include"),
          str(sources / "prism_bitnet_loader_control.cpp"), str(binary),
-         "-L", str(library_dir), f"-Wl,-rpath,{library_dir}", "-lggml-cpu", "-lggml-base",
+         "-L", str(library_dir), f"-Wl,-rpath,{library_dir}", "-pthread", "-lggml-cpu", "-lggml-base",
          "-o", str(loader_control)],
         capture_output=True, text=True,
     )
@@ -152,7 +154,7 @@ def test_pinned_prism_shared_group_scale_graph_matches_direct_kernel(tmp_path):
         loader_report = json.loads(loader_run.stdout)
         assert loader_report == ({"late_init_refused": True} if options else
                                  {"discovery_matches": 1, "idempotent_init": True,
-                                  "kernel_calls": 3, "weight_repacks": 1})
+                                  "kernel_calls": 11, "weight_repacks": 1, "concurrent_graphs": True})
     arguments = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
                  ctypes.POINTER(ctypes.c_int8), ctypes.POINTER(ctypes.c_float),
                  ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_float)]
@@ -449,6 +451,37 @@ print(json.dumps({"codes": codes.tolist(), "scales": scales.tolist()}))
         file_packed = pack_group128_codes(np.asarray(file_reference["codes"], dtype=np.int8))
         file_scales = np.asarray(file_reference["scales"], dtype=np.float32)
         valid_path = tmp_path / "valid.gguf"
+        real_loader_control = tmp_path / "prism-bitnet-real-loader-control"
+        loader_sources = ["llama-model-loader.cpp", "llama-mmap.cpp", "llama-arch.cpp",
+                          "llama-hparams.cpp", "llama-impl.cpp", "llama.cpp"]
+        real_loader_build = subprocess.run(
+            [compiler, "-std=c++17", "-O1", "-ffunction-sections", "-fdata-sections", "-DJEV_TEST_REAL_LOADER=1",
+             "-DGGML_USE_CPU=1", "-I", str(Path(source_dir) / "ggml" / "src"),
+             f'-DLLAMA_VERSION="jev-loader-control-{PRISM_REVISION[:7]}"',
+             "-I", str(Path(source_dir) / "ggml" / "include"), "-I", str(Path(source_dir) / "include"),
+             "-I", str(Path(source_dir) / "src"), str(sources / "prism_bitnet_loader_control.cpp"),
+             *(str(Path(source_dir) / "src" / filename) for filename in loader_sources),
+             str(Path(source_dir) / "ggml" / "src" / "ggml-backend-reg.cpp"), str(binary),
+             "-L", str(library_dir), f"-Wl,-rpath,{library_dir}", "-Wl,--gc-sections", "-pthread",
+             "-lggml-cpu", "-lggml-base", "-o", str(real_loader_control)],
+            capture_output=True, text=True, timeout=180,
+        )
+        assert real_loader_build.returncode == 0, real_loader_build.stderr
+        real_loader_run = subprocess.run(
+            [str(real_loader_control), "--real-loader", str(valid_path), str(tmp_path / "missing_contract.gguf")],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert real_loader_run.returncode == 0, real_loader_run.stderr
+        assert json.loads(real_loader_run.stdout) == {"real_loader_selected": True, "untagged_pq2_unselected": True,
+                                                     "kernel_calls": 2, "weight_repacks": 1}
+        for kind in ("valid", "missing_contract", "wrong_contract", "contract_type", "wrong_name", "wrong_type",
+                     "extra_tensor", "row_limit", "group_limit", "batch_dimension", "bad_code",
+                     "bad_scale", "truncated", "file_limit", "missing_file", "transform_metadata"):
+            override_run = subprocess.run([str(loader_control), "--override", str(tmp_path / (kind + ".gguf"))],
+                                          capture_output=True, text=True, timeout=15)
+            assert override_run.returncode == 0, override_run.stderr
+            expected_status = 0 if kind == "valid" else 5 if kind in ("bad_code", "bad_scale") else 6
+            assert json.loads(override_run.stdout) == {"status": expected_status, "override_ready": kind == "valid"}
         before = registry_size()
         handle = ctypes.c_void_p()
         assert import_projection(os.fsencode(valid_path), 2, ctypes.byref(handle)) == 0
@@ -516,6 +549,41 @@ print(json.dumps({"codes": codes.tolist(), "scales": scales.tolist()}))
         stored_packed, stored_scales, manifest = load_projection_artifact(Path(artifact))
         assert manifest["shape"] == [4096, 12288]
         stored_codes = unpack_group128_codes(stored_packed)
+        if converter:
+            frozen_file = tmp_path / "frozen-loader-parity.gguf"
+            frozen_writer = """
+import sys
+from pathlib import Path
+import gguf
+from embedded_jev.prism_codec import pack_ternary_pq2_0
+from embedded_jev.projection_artifact import load_projection_artifact
+from embedded_jev.ternary import unpack_group128_codes
+packed, scales, manifest = load_projection_artifact(Path(sys.argv[1]))
+assert manifest["shape"] == [4096, 12288]
+blocks = pack_ternary_pq2_0(unpack_group128_codes(packed), scales).reshape(4096, -1)
+writer = gguf.GGUFWriter(sys.argv[2], "jev-tensor-control")
+writer.add_string("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1")
+writer.add_tensor("blk.3.ffn_down.weight", blocks, raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+writer.write_header_to_file()
+writer.write_kv_data_to_file()
+writer.write_tensors_to_file()
+writer.close()
+"""
+            try:
+                frozen_write = subprocess.run([converter, "-c", frozen_writer, artifact, str(frozen_file)],
+                                              capture_output=True, text=True, timeout=30,
+                                              env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
+                                                   "PYTHONDONTWRITEBYTECODE": "1"})
+                assert frozen_write.returncode == 0, frozen_write.stderr
+                frozen_load = subprocess.run(
+                    [str(real_loader_control), "--real-loader", str(frozen_file), str(tmp_path / "missing_contract.gguf")],
+                    capture_output=True, text=True, timeout=30,
+                )
+                assert frozen_load.returncode == 0, frozen_load.stderr
+                assert json.loads(frozen_load.stdout) == {"real_loader_selected": True, "untagged_pq2_unselected": True,
+                                                         "kernel_calls": 2, "weight_repacks": 1}
+            finally:
+                frozen_file.unlink(missing_ok=True)
         pq2_blocks = pack_ternary_pq2_0(stored_codes, stored_scales)
         inputs = np.ones((2, 12288), dtype=np.float32)
         inputs[1] *= -2

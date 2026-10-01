@@ -5,6 +5,7 @@
 #include "gguf.h"
 #include "traits.h"
 #include "prism_bitnet_runtime.h"
+#include "llama.h"
 
 #include <algorithm>
 #include <limits>
@@ -735,13 +736,9 @@ extern "C" int prism_bitnet_registered_projection_create(
     }
 }
 
-extern "C" int prism_bitnet_registered_projection_create_from_gguf(
-    const char* path, std::size_t tokens, void** handle) {
-    if (!handle) {
-        return 1;
-    }
-    *handle = nullptr;
-    if (!path || tokens == 0 || tokens > 128) {
+static int read_projection_gguf(
+    const char* path, std::vector<uint8_t>& blocks, std::size_t& rows, std::size_t& groups) {
+    if (!path) {
         return 1;
     }
     std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"), std::fclose);
@@ -777,8 +774,8 @@ extern "C" int prism_bitnet_registered_projection_create_from_gguf(
             shape[1] <= 0 || shape[1] > 4096 || shape[2] != 1 || shape[3] != 1) {
             return 6;
         }
-        const std::size_t rows = static_cast<std::size_t>(shape[1]);
-        const std::size_t groups = static_cast<std::size_t>(shape[0]) / 128;
+        rows = static_cast<std::size_t>(shape[1]);
+        groups = static_cast<std::size_t>(shape[0]) / 128;
         const std::size_t bytes = rows * groups * 34;
         const std::size_t file_bytes = static_cast<std::size_t>(length);
         const std::size_t data_offset = gguf_get_data_offset(metadata.get());
@@ -787,12 +784,67 @@ extern "C" int prism_bitnet_registered_projection_create_from_gguf(
             tensor_offset > file_bytes - data_offset || bytes > file_bytes - data_offset - tensor_offset) {
             return 6;
         }
-        std::vector<uint8_t> blocks(bytes);
+        blocks.resize(bytes);
         if (std::fseek(file.get(), static_cast<long>(data_offset + tensor_offset), SEEK_SET) != 0 ||
             std::fread(blocks.data(), 1, bytes, file.get()) != bytes) {
             return 6;
         }
-        return prism_bitnet_registered_projection_create(blocks.data(), tokens, rows, groups, handle);
+        return 0;
+    } catch (const std::bad_alloc&) {
+        return 2;
+    }
+}
+
+extern "C" int prism_bitnet_registered_projection_create_from_gguf(
+    const char* path, std::size_t tokens, void** handle) {
+    if (!handle) {
+        return 1;
+    }
+    *handle = nullptr;
+    if (!path || tokens == 0 || tokens > 128) {
+        return 1;
+    }
+    std::vector<uint8_t> blocks;
+    std::size_t rows = 0;
+    std::size_t groups = 0;
+    const int status = read_projection_gguf(path, blocks, rows, groups);
+    return status != 0 ? status : prism_bitnet_registered_projection_create(blocks.data(), tokens, rows, groups, handle);
+}
+
+extern "C" int prism_bitnet_cpu_loader_override_from_gguf_v1(
+    const char* path, const char* prism_revision, uint32_t abi_version,
+    const llama_model_tensor_buft_override** overrides) {
+    if (!overrides) {
+        return 1;
+    }
+    *overrides = nullptr;
+    if (!path || !prism_revision || std::strcmp(prism_revision, JEV_PRISM_SOURCE_REVISION) != 0 ||
+        abi_version != JEV_BITNET_RUNTIME_ABI_V1) {
+        return 1;
+    }
+    try {
+        std::vector<uint8_t> blocks;
+        std::size_t rows = 0;
+        std::size_t groups = 0;
+        int status = read_projection_gguf(path, blocks, rows, groups);
+        if (status != 0) {
+            return status;
+        }
+        bitnet_tensor_traits validator(1, rows, groups);
+        status = validator.prepare_weight(blocks.data());
+        if (status != 0) {
+            return status;
+        }
+        ggml_backend_buffer_type_t buffer_type = nullptr;
+        status = prism_bitnet_cpu_runtime_init_v1(prism_revision, abi_version, &buffer_type);
+        if (status != 0) {
+            return status;
+        }
+        static const llama_model_tensor_buft_override rules[] = {
+            { "^blk\\.3\\.ffn_down\\.weight$", buffer_type }, { nullptr, nullptr }
+        };
+        *overrides = rules;
+        return 0;
     } catch (const std::bad_alloc&) {
         return 2;
     }
