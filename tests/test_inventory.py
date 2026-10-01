@@ -202,6 +202,29 @@ def test_inventory_reconciles_and_estimates_bytes_deterministically():
     )
     assert report["memory_estimates"]["vision_original_bytes"] > 0
     assert report["memory_estimates"]["rotation_sign_upper_bound_bytes_excluded_from_weight_totals"] > 0
+    native_plan = report["native_reference_plan"]
+    assert native_plan["scope"] == "metadata_only_text_reference_no_conversion"
+    assert native_plan["text_tensor_count"] == 14
+    assert native_plan["text_source_weight_bytes"] == (
+        report["totals"]["stored_weight_bytes"] - report["memory_estimates"]["vision_original_bytes"]
+    )
+    assert native_plan["full_vocabulary_weight_bytes"] == 2 * 32 * 1024 * 2
+    assert native_plan["largest_source_tensor_bytes"] == 2048 * 1024 * 2
+    assert native_plan["largest_fp32_tensor_bytes"] == 2048 * 1024 * 4
+    assert native_plan["largest_source_plus_fp32_tensor_bytes"] == 2048 * 1024 * 6
+    assert native_plan["target_generated_answer_tokens"] == 0
+
+
+def test_native_reference_plan_excludes_optional_payloads_without_shrinking_head():
+    metadata, shards = _model_fixture()
+    report = build_inventory(metadata, shards)
+    original = report["native_reference_plan"]
+    tensors = report["tensors"] + [{"category": "optional_mtp", "storage_bytes": 10**12}]
+    plan = inventory._native_reference_plan(tensors)
+    assert plan["text_source_weight_bytes"] == original["text_source_weight_bytes"]
+    assert plan["full_vocabulary_weight_bytes"] == original["full_vocabulary_weight_bytes"]
+    assert plan["largest_source_plus_fp32_tensor_bytes"] == original["largest_source_plus_fp32_tensor_bytes"]
+    assert plan["excluded_source_weight_bytes"]["optional_mtp"] == 10**12
 
 
 def test_local_inventory_reads_bounded_headers_without_weight_payload(tmp_path, monkeypatch):

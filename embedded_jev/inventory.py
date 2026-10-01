@@ -329,6 +329,37 @@ def _q8_bytes(tensor: TensorHeader) -> int:
     return tensor.parameters // 32 * 34
 
 
+def _native_reference_plan(tensors: list[dict]) -> dict:
+    excluded = ("vision", "optional_mtp")
+    text_tensors = [tensor for tensor in tensors if tensor["category"] not in excluded]
+    return {
+        "scope": "metadata_only_text_reference_no_conversion",
+        "text_tensor_count": len(text_tensors),
+        "text_source_weight_bytes": sum(tensor["storage_bytes"] for tensor in text_tensors),
+        "text_all_fp32_weight_bytes": sum(tensor["parameters"] * 4 for tensor in text_tensors),
+        "full_vocabulary_weight_bytes": sum(
+            tensor["storage_bytes"] for tensor in text_tensors
+            if tensor["category"] in ("input_embedding", "output_head")
+        ),
+        "largest_source_tensor_bytes": max(tensor["storage_bytes"] for tensor in text_tensors),
+        "largest_fp32_tensor_bytes": max(tensor["parameters"] * 4 for tensor in text_tensors),
+        "largest_source_plus_fp32_tensor_bytes": max(
+            tensor["storage_bytes"] + tensor["parameters"] * 4 for tensor in text_tensors
+        ),
+        "excluded_source_weight_bytes": {
+            category: sum(tensor["storage_bytes"] for tensor in tensors if tensor["category"] == category)
+            for category in excluded
+        },
+        "target_generated_answer_tokens": 0,
+        "unresolved_costs": [
+            "converter_dtype_transforms_and_gguf_metadata_alignment",
+            "encoded_output_copies_and_lazy_converter_peak_rss",
+            "native_kv_recurrent_convolution_graph_and_allocator_storage",
+            "runtime_build_scratch_and_filesystem_reserve",
+        ],
+    }
+
+
 def _open_bounded(name: str, *, start: int | None = None, length: int = 0) -> tuple[bytes, int | None]:
     headers = {"Accept-Encoding": "identity"}
     if start is not None:
@@ -662,6 +693,7 @@ def build_inventory(
             "eligible_projection_storage_bytes": eligible_bytes,
             "retained_bytes_by_dtype": retained_by_dtype,
         },
+        "native_reference_plan": _native_reference_plan(tensors),
         "memory_estimates": {
             "weights_only_bytes": {
                 "original": weight_bytes,
