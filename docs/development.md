@@ -6,17 +6,19 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `6d74ae8` (2026-09-30).
+The last tested implementation checkpoint is `a1eac41` (2026-10-01).
 The [current handover](handover.md#current-checkpoint-2026-10-01) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
-Recorded results: 158 default tests passed, 24 optional tests skipped, and all
-seven pinned Prism controls passed with the full frozen-projection, native-A8,
-signed-Hadamard, and PQ2 controls enabled. These are correctness/scope gates,
-not whole-model quantization acceptance, a benchmark, or calibrated confidence.
-The 2026-10-01 handover review did not rerun model experiments.
+Current results: 158 default tests passed, 24 optional tests skipped, and all
+seven pinned Prism controls passed with full-size PQ2 and registered BitNet
+tensor coverage. Ruff, editor diagnostics, Pylance syntax, and whitespace checks
+passed. The unchanged streamed-model controls were not rerun; their full
+frozen-projection/native-A8/signed-Hadamard gates remain recorded at `6d74ae8`
+(2026-09-30). These are correctness/scope gates, not whole-model quantization
+acceptance, a benchmark, or calibrated confidence.
 
 Default regression and lint commands, from the workspace root:
 
@@ -26,8 +28,8 @@ ruff check --no-cache embedded_jev tests
 git diff --check
 ```
 
-To reproduce all seven optional pinned Prism controls when a relevant native
-change requires them, reuse the existing cache and run:
+To replay the earlier streamed-model controls as well as all seven optional
+pinned Prism controls, reuse the existing cache and run:
 
 ```bash
 cache="$HOME/.cache/huggingface/embedded-jev"
@@ -625,6 +627,8 @@ directly. Build the bounded shared bridge outside Git:
 native="$cache/native"
 clang++-18 -std=c++17 -O2 -mavx2 -shared -fPIC \
    -I "$native/prism-source/ggml/include" \
+   -I "$native/prism-source/ggml/src" \
+   -I "$native/prism-source/ggml/src/ggml-cpu" \
    native/prism_group_scale.cpp native/bitnet_group_scale.cpp \
    -L "$native/prism-build/bin" -Wl,-rpath,"$native/prism-build/bin" \
    -lggml-cpu -lggml-base -o "$native/prism_group_scale_probe.so"
@@ -722,6 +726,59 @@ projection decoder and controlled native tensor operation. No converted
 representation is written, no full GGUF or loader parity is established,
 and this control uses Prism's PQ2 implementation, **not BitNet dispatch**.
 It is a storage/operator compatibility step, not the ternary decision engine.
+
+## Registered BitNet Weight Tensor Control
+
+The separate `prism_bitnet_registered_tensor_matmul` export registers a scoped
+`JEV_BITNET_GROUP128` CPU extra-buffer type. Its weight buffer initializes
+`tensor->extra` with the BitNet tensor trait; the CPU backend recognizes the
+buffer and dispatches a real `GGML_OP_MUL_MAT` through that trait, not
+`MAP_CUSTOM2` or the ordinary Prism PQ2 dot. A dispatch counter must report
+exactly one invocation of `bitnet_group_scale_matmul_avx2` on success.
+
+Storage is deliberately still `GGML_TYPE_PQ2_0`: each row/input-group block has
+a little-endian FP16 scale and 32 adjacent, low-bit-first code bytes. Only
+codes 0/1/2 (ternary -1/0/+1) are accepted; PQ2's +2 code, negative scales,
+and nonfinite scales are rejected. Native execution explicitly repacks to
+BitNet's four separated high-bit-first lanes and expands each independent
+FP16 scale exactly to FP32. No scale is refitted. FP32 inputs use native
+per-token/group-128 A8, nearest-even rounding, clipping to [-127,127], FP32
+max-abs/127 scales, and scale 1 for zero groups. This is not Q8_0 or Q8_K.
+
+The export takes PQ2 bytes, FP32 inputs, token/row/group counts, FP32 output,
+and a `size_t*` dispatch counter. Bounds remain 128 tokens, 4,096 output rows,
+and 96 input groups. It returns 0 on success; bad arguments return 1,
+allocation/nonfinite-input failures 2, graph failures 3, dispatch mismatches 4,
+and invalid weight payloads 5. Unsupported A8 rounding also returns 1.
+Failures do not copy graph output to the caller, and rejected payloads/inputs
+make no grouped kernel call. Both arrays use token-major output/input layout.
+
+One- and two-token controls at widths 256/384, repeated calls, zero groups,
+rejection cases, and the sole saved 4,096 x 12,288 projection match the direct
+BitNet/group-128 A8 reference exactly. To run all seven pinned native controls
+with full-size coverage but without another streamed-model forward:
+
+```bash
+cache="$HOME/.cache/huggingface/embedded-jev"
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+PRISM_GGML_CPU_LIBRARY="$cache/native/prism-build/bin/libggml-cpu.so" \
+BITNET_SOURCE_DIR="$cache/native/bitnet-source" \
+PRISM_CONVERTER_PYTHON="$cache/native/converter-venv/bin/python" \
+MIMO_PROJECTION_ARTIFACT="$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
+MIMO_PQ2_CODEC_TEST=1 OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
+python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py
+```
+
+This compiles a temporary bridge; the cached CLI bridge is unchanged. Rebuilding
+it now needs the internal include paths in the build command above and the
+exact pinned C++ ABI. Registration is removed on every return and these export
+calls serialize with each other, but the global registry is not synchronized
+with arbitrary Prism graphs or external mutation. Use only an isolated,
+single-threaded probe. Device buffer discovery, persistent weight lifetime,
+GGUF loader selection, full-model hosting, and target-platform parity remain
+unproven. Standard PQ2 bytes, repacked weights, expanded FP32 weight scales,
+and A8 scratch coexist during this control; no compact resident-memory or
+performance claim follows. No new candidate or dataset inference is saved.
 
 ## Single-Projection Native Fixture
 

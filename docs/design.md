@@ -247,6 +247,18 @@ I2_S-style W2A8 path against a TL/T-MAC-derived path, including preprocessing.
 The group-scale adaptation must compute and rescale group partial sums correctly.
 The inspected I2_S tensor-global scale cannot be reused unchanged.
 
+A bounded pinned-Prism control now attaches a BitNet tensor trait through a
+registered CPU weight-buffer type and executes `MUL_MAT` with native group-128
+A8. Its PQ2 ternary storage is explicitly repacked to the BitNet lane contract;
+independent FP16 row/group scales are expanded exactly, not refitted. Counted
+dispatch and exact direct-kernel parity pass on the sole full-size projection.
+This is buffer/tensor registration, not a new GGUF type or loader integration.
+The scoped internal-ABI probe is single-threaded, with global registration
+removed on return; reusable ownership, registry concurrency, and loader-selected
+execution remain design work. Stock PQ2 execution retains its distinct
+Q8_0/Q8_K contract and is not evidence of BitNet dispatch. See the
+[registered-tensor control](development.md#registered-bitnet-weight-tensor-control).
+
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed
 execution layout. Report resident packed bytes and scratch separately: expanding
 trits to two bits at load time changes RAM and bandwidth, even without FP16

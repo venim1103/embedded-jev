@@ -161,6 +161,19 @@ exactly after separate byte conversion. Low-bit-first adjacent packing and
 Q8_0/Q8_K activation dispatch were checked in the pinned source. This is
 Prism codec/operator evidence only; it does not establish BitNet tensor
 dispatch or a complete MiMo GGUF load path.
+A separate registered CPU buffer/tensor-trait control now executes `MUL_MAT`
+through the BitNet-derived grouped kernel after explicit PQ2 ternary repacking
+and native group-128 A8. Counted dispatch matches the direct kernel exactly
+for one-/two-token toy inputs and the sole full-size frozen projection. Its
+registration/dispatch API was verified against pinned
+[CPU traits](https://github.com/PrismML-Eng/llama.cpp/blob/842b1880415d6f508f03b789e5ce70194def7bfd/ggml/src/ggml-cpu/traits.h),
+[trait dispatch](https://github.com/PrismML-Eng/llama.cpp/blob/842b1880415d6f508f03b789e5ce70194def7bfd/ggml/src/ggml-cpu/traits.cpp),
+[CPU backend](https://github.com/PrismML-Eng/llama.cpp/blob/842b1880415d6f508f03b789e5ce70194def7bfd/ggml/src/ggml-cpu/ggml-cpu.cpp), and
+[buffer ABI](https://github.com/PrismML-Eng/llama.cpp/blob/842b1880415d6f508f03b789e5ce70194def7bfd/ggml/src/ggml-backend-impl.h).
+The built library exports the required C++ symbols. This is a scoped internal
+ABI proof, not a stable public extension API, persistent/concurrent registration,
+new GGUF type, or loader-selected BitNet execution. The original PQ2 operator
+control above still exercises Prism's distinct Q8_0/Q8_K activation contract.
 No full MiMo GGUF was loaded by Prism, and no full converter or native Qwen3.5
 model hook has been validated.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact

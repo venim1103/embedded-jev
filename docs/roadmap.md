@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `6d74ae8` implementation checkpoint and the next bounded native
+For the tested `a1eac41` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-01).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -229,8 +229,14 @@ artifact or quality-policy promotion is established.
 Separate pinned PQ2_0 codec conversion preserves every frozen ternary value
 and FP16 scale exactly, and controlled native tensor/MUL_MAT parity passes.
 Its Q8_0/Q8_K activation contract and Prism implementation are distinct from
-BitNet-derived group-128 A8. Full GGUF loader integration and genuine BitNet
-dispatch for a registered weight tensor remain open.
+BitNet-derived group-128 A8. A separate registered CPU extra-buffer/tensor
+trait now dispatches `MUL_MAT` through the BitNet-derived grouped kernel with
+native A8, explicit PQ2-to-BitNet repacking, and independent preserved FP16
+row/group scales. Counted one-/two-token dispatch, invalid-payload rejection,
+and exact full-size frozen-projection parity pass. The next bounded step is
+reusing that weight tensor across two graph evaluations with changed inputs
+and verifying cleanup. Persistent/concurrent registry ownership and full GGUF
+loader integration remain open; no new model-quality evidence follows.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

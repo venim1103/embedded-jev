@@ -14,17 +14,18 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-01)
 
-The last tested implementation commit is `6d74ae8` (2026-09-30),
-`Verify native PQ2 ternary codec and tensor controls`. At the 2026-10-01
-documentation review, `main` and `origin/main` both pointed to it and the
-worktree was clean. Recheck Git state in each new session; documentation
-commits or user changes may follow this implementation checkpoint.
+The last tested implementation commit is `a1eac41` (2026-10-01),
+`feat: dispatch registered Prism weight tensor through BitNet grouped kernel`.
+This session started with a clean worktree at documentation checkpoint
+`28275e7`, on `main`, one commit ahead of `origin/main` (`6d74ae8`). Only local
+commits followed; no push or branch change. Recheck Git state in each session.
 
-Recorded gates at that checkpoint: **158 default tests passed, 24 optional
-tests skipped; all seven pinned Prism controls passed** with the full frozen
-projection, native-A8, signed-Hadamard, and PQ2 flags enabled. Ruff, editor
-diagnostics, and `git diff --check` passed. These implementation gates ran on
-2026-09-30; they were not rerun during the documentation-only handover review.
+Current gates: **158 default tests passed, 24 optional tests skipped; all seven
+pinned Prism controls passed** with full-size PQ2 decoder/operator and registered
+BitNet dispatch coverage (`MIMO_PQ2_CODEC_TEST=1`). Ruff, editor diagnostics,
+Pylance syntax validation, and `git diff --check` passed. The unchanged streamed
+32-layer/native-A8/signed-Hadamard model controls were not rerun; their last
+recorded full gates remain `6d74ae8` (2026-09-30).
 
 - The complete pinned BF16 snapshot is verified and cached outside Git. The
   streamed text-only reference executes all 32 decoder layers and scores
@@ -41,6 +42,16 @@ diagnostics, and `git diff --check` passed. These implementation gates ran on
   This is **Prism PQ2 dispatch, not BitNet dispatch or GGUF loader proof**.
   Native PQ2 uses Q8_K when input width is divisible by 256, otherwise Q8_0
   with FP16 activation-scale rounding; our callback uses group-128 A8 instead.
+- A separate scoped `JEV_BITNET_GROUP128` CPU buffer/tensor trait now registers
+  a PQ2-storage weight tensor and dispatches `MUL_MAT` through the BitNet-derived
+  grouped kernel, with native group-128 A8 and exactly one counted kernel call.
+  Explicit adjacent/low-bit-first PQ2 bytes are repacked to BitNet's separated,
+  high-bit-first lanes; independent FP16 row/group scales are expanded exactly.
+  One-/two-token controls and the sole full-size frozen projection match the
+  direct kernel exactly. Invalid +2 codes, negative/nonfinite scales, nonfinite
+  inputs, and excess tokens are rejected without changing caller output.
+  This is a pinned internal-ABI, single-threaded tensor proof, not a new GGUF
+  type, loader integration, persistent registration, or model quality evidence.
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
@@ -49,8 +60,8 @@ diagnostics, and `git diff --check` passed. These implementation gates ran on
   validation evidence: relative error 0.426 versus RTN 0.406 with one training
   context, and 0.456 with four balanced contexts. No compensated candidate,
   bulk fit, or policy promotion followed.
-- Full MiMo ternary GGUF loading, genuine BitNet dispatch for a registered
-  MiMo weight tensor, whole-model native hosting, calibrated decision quality,
+- Full MiMo ternary GGUF loading, loader-selected persistent BitNet dispatch,
+  whole-model native hosting, calibrated decision quality,
   vision, edge performance, and ARM/RISC-V validation remain open.
 
 ### Reusable Local Paths
@@ -74,9 +85,10 @@ The base interpreter is `/opt/venv/bin/python`; use the terminal for environment
 work, as requested by the user. Set `OMP_NUM_THREADS=4` for dense model probes;
 forcing `OPENBLAS_NUM_THREADS=1` or `MKL_NUM_THREADS=1` previously made them
 dramatically slower. The cached `native/prism_group_scale_probe.so` includes
-the signed-Hadamard path, but its PQ2 export has not been refreshed: the latest
-PQ2 controls compiled a fresh bridge in pytest temporary storage. Rebuild only
-if an intended caller needs that export, using the development guide's command.
+the signed-Hadamard path, but its PQ2 and registered-tensor exports have not been
+refreshed: these controls compiled a fresh bridge in pytest temporary storage.
+Rebuild only if an intended caller needs those exports, using the development
+guide's command, including the two pinned internal-header include paths.
 
 ### Resume Contract
 
@@ -86,8 +98,9 @@ one saved quantized candidate, do not push or create branches, preserve user
 changes, and do not launch subagents without explicit authorization. Do not
 bulk-quantize from these diagnostics or consume held-out data while tuning.
 Do not stop solely because representative domain data is absent if bounded
-runtime work can still proceed. Section 16 gives the next implementation task;
-this handover refresh itself did not restart experiments.
+runtime work can still proceed. Section 16 gives the next implementation task.
+The registered-tensor step did not fit a policy, create another saved candidate,
+run validation/held-out inference, or promote compensation.
 
 ## 1. User Intent
 
@@ -1033,11 +1046,14 @@ For a fresh coding session:
   generated answer tokens. PQ2 storage/dispatch alone does not meet BitNet.
 3. Start with the native PQ2 tensor control in
   [native/prism_group_scale.cpp](../native/prism_group_scale.cpp) and its
-  [tests](../tests/test_prism_native_control.py). Take the smallest bounded
-  step toward a registered weight tensor that genuinely dispatches the
-  BitNet-derived grouped kernel, with explicit packing and A8 contracts and
-  a discriminating native/reference test. The implementation approach is
-  still open; do not claim that loader integration already exists.
+  [tests](../tests/test_prism_native_control.py), now especially
+  `prism_bitnet_registered_tensor_matmul`. The scoped buffer/tensor registration
+  proves BitNet-derived dispatch but rebuilds and repacks for each call. Next,
+  take a bounded reusable-lifetime step: keep one weight tensor across two
+  graph evaluations with changed inputs, count both kernel calls, and verify
+  parity and registration cleanup. Resolve global-registry lifetime/concurrency
+  before a loader hook; the current probe must not run concurrently with
+  arbitrary Prism graphs or registry mutation. Do not claim loader integration.
 4. Keep fitting on calibration only, diagnostics on validation, and held-out
   inference untouched. Do not promote the negative independent-block
   compensation approximation or save another candidate. No full-model
