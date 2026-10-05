@@ -6,7 +6,7 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `50a943b` (2026-10-05), following
+The last tested implementation checkpoint is `27cfd63` (2026-10-05), following
 the isolated runtime/vocabulary preflight and metadata-only resource planner.
 The [current handover](handover.md#current-checkpoint-2026-10-05) is the
 authoritative resume summary, including external cache paths and the next
@@ -18,7 +18,7 @@ nine pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
 including the full-size frozen projection and guarded vocabulary-only native
-tokenizer preflight and dense/BitNet synthetic model prefill (35.28 s).
+tokenizer preflight and dense/BitNet synthetic model prefill (35.30 s).
 The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
@@ -1082,6 +1082,8 @@ and one weight repack per model load, including context reuse. Hybrid position
 bounds report the intersection of KV/recurrent retained ranges: `[2,2]` here,
 and an empty range immediately after reset. Malformed +2 codes, negative/NaN
 FP16 scales, NaN head weights, and unknown modes must fail without stdout scores.
+Unknown command flags and missing/extra arguments are also rejected before CPU
+discovery, rather than falling through to an unrelated successful default report.
 Model/context/backend cleanup is scoped; files are removed even on failure.
 The existing converter-name gate also uses bounded local headers when
 `MIMO_LOCAL_DIR` is set, avoiding unnecessary HTTPS after restart.
@@ -1097,7 +1099,7 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
 ```
 
 Both parameterized cases pass, including eight successful native invocations and
-six refusal checks. No nonzero recurrent/attention-reference parity, native MiMo
+fourteen refusal checks. No nonzero recurrent/attention-reference parity, native MiMo
 weight loading, full-model file policy, quality, or target benchmark follows.
 
 ### Staged Approval Gates

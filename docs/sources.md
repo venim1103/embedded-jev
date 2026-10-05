@@ -234,7 +234,9 @@ NumPy arithmetic, preserving two FP16 groups per output row. The test-only exact
 override has one repack and one counted dispatch per decode; full/chunked/reset
 and reordered typed-slot controls pass without answer generation. Corrupt codes,
 invalid scales, nonfinite head weights, and unknown modes emit no score report.
-All nine native controls pass in 35.28 s, plus two packaged CTests. The pinned
+At `27cfd63`, invalid control arguments are rejected before discovery instead of
+returning the default control's unrelated success report. All nine native controls
+pass in 35.30 s, plus two packaged CTests. The pinned
 hybrid retained-position range is the intersection of KV/recurrent ranges;
 GGUF omits empty BPE merge lists, so the toy vocabulary supplies a valid merge.
 The converter name-map check now reuses bounded cached headers when available.

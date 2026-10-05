@@ -14,8 +14,8 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-05)
 
-The last tested implementation commit is `50a943b` (2026-10-05),
-`feat: exercise BitNet in native hybrid model prefill`.
+The last tested implementation commit is `27cfd63` (2026-10-05),
+`fix: reject invalid native control arguments`, following BitNet model prefill at `50a943b`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -29,6 +29,8 @@ After reboot, the caches and packaged runtime remained intact. This continuation
 started at the user-pushed `1a7b08a`, preserving the untracked user `.vscode/`
 directory. `64c5b1f` added synthetic native prefill and cached converter-index
 validation; `50a943b` added nonzero BitNet FFN execution inside that model.
+`27cfd63` rejects unknown, missing, and extra control arguments before discovery,
+instead of silently returning the unrelated default control's successful report.
 
 Current gates: **159 default tests passed, 26 optional tests skipped; all nine
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
@@ -36,7 +38,7 @@ handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
 enabled, including the sole full-size frozen projection, packaged dependency
 provenance, guarded vocabulary-only native tokenizer parity, and synthetic
-dense/BitNet hybrid model prefill (35.28 s).
+dense/BitNet hybrid model prefill (35.30 s).
 The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model

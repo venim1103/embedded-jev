@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `50a943b` implementation checkpoint and the next bounded native
+For the tested `27cfd63` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-05).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
