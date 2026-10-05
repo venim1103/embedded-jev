@@ -616,6 +616,10 @@ int main(int argc, char** argv) {
         return test_loader_override(argv[2]);
     }
     const bool late = argc == 2 && std::strcmp(argv[1], "--late") == 0;
+    if (argc != 1 && !late) {
+        std::fputs("unrecognized native control arguments\n", stderr);
+        return 2;
+    }
     ggml_backend_reg_t registry = ggml_backend_cpu_reg();
     ggml_backend_dev_t device = ggml_backend_reg_dev_get(registry, 0);
     auto discovery = reinterpret_cast<ggml_backend_dev_get_extra_bufts_t>(

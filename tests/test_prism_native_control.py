@@ -154,6 +154,11 @@ print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
         rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                    command, str(model_file), "unknown"], capture_output=True, text=True, timeout=30)
         assert rejected.returncode == 32 and rejected.stdout == ""
+        for arguments in ([command], [command, str(model_file), "full", "extra"],
+                          ["--unknown"], ["--vocab-only", str(model_file)]):
+            rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                       *arguments], capture_output=True, text=True, timeout=30)
+            assert rejected.returncode == 2 and rejected.stdout == ""
         corruptions = (
             ("bitnet_invalid_code", "bitnet_negative_scale", "bitnet_nonfinite_scale")
             if backend == "bitnet" else ("dense_nan",)
