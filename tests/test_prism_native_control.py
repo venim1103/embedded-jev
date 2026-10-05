@@ -13,7 +13,8 @@ PRISM_REVISION = "842b1880415d6f508f03b789e5ce70194def7bfd"
 BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
 
 
-def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_path):
+@pytest.mark.parametrize("backend", ["dense", "bitnet"])
+def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_path, backend):
     import numpy as np
 
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
@@ -30,8 +31,8 @@ import gguf
 import numpy as np
 writer = gguf.GGUFWriter(sys.argv[1], "qwen35")
 for key, value in {
-    "context_length": 256, "embedding_length": 32, "block_count": 2,
-    "feed_forward_length": 64, "attention.head_count": 4, "attention.head_count_kv": 2,
+    "context_length": 256, "embedding_length": 32, "block_count": 4,
+    "feed_forward_length": 256, "attention.head_count": 4, "attention.head_count_kv": 2,
     "attention.key_length": 8, "attention.value_length": 8, "rope.dimension_count": 8,
     "ssm.conv_kernel": 3, "ssm.inner_size": 32, "ssm.state_size": 8,
     "ssm.time_step_rank": 4, "ssm.group_count": 2, "full_attention_interval": 2,
@@ -52,53 +53,121 @@ writer.add_add_bos_token(False)
 generator = np.random.default_rng(1407)
 embedding = generator.normal(0, 0.2, (64, 32)).astype(np.float32)
 head = generator.normal(0, 0.1, (64, 32)).astype(np.float32)
+if sys.argv[2] == "dense_nan":
+    head[11, 0] = np.nan
 writer.add_tensor("token_embd.weight", embedding)
 writer.add_tensor("output.weight", head)
 writer.add_tensor("output_norm.weight", np.ones(32, dtype=np.float32))
-for name, shape in {
-    "attn_q.weight": (64, 32), "attn_k.weight": (16, 32), "attn_v.weight": (16, 32),
-    "attn_output.weight": (32, 32), "ffn_gate.weight": (64, 32),
-    "ffn_up.weight": (64, 32), "ffn_down.weight": (32, 64),
-}.items():
-    writer.add_tensor("blk.1." + name, np.zeros(shape, dtype=np.float32))
-for name, width in {"attn_norm.weight": 32, "post_attention_norm.weight": 32,
-                    "attn_q_norm.weight": 8, "attn_k_norm.weight": 8}.items():
-    writer.add_tensor("blk.1." + name, np.ones(width, dtype=np.float32))
-for name, shape in {
-    "attn_qkv.weight": (64, 32), "attn_gate.weight": (32, 32), "ssm_conv1d.weight": (64, 3),
-    "ssm_beta.weight": (4, 32), "ssm_alpha.weight": (4, 32), "ssm_out.weight": (32, 32),
-    "ffn_gate.weight": (64, 32), "ffn_up.weight": (64, 32), "ffn_down.weight": (32, 64),
-}.items():
-    writer.add_tensor("blk.0." + name, np.zeros(shape, dtype=np.float32))
-for name, width in {"attn_norm.weight": 32, "post_attention_norm.weight": 32, "ssm_norm.weight": 8}.items():
-    writer.add_tensor("blk.0." + name, np.ones(width, dtype=np.float32))
-writer.add_tensor("blk.0.ssm_dt.bias", np.zeros(4, dtype=np.float32))
-writer.add_tensor("blk.0.ssm_a", -np.ones(4, dtype=np.float32))
+codes = ((np.arange(32 * 256).reshape(32, 256) * 7) % 3 - 1).astype(np.int8)
+scales = ((np.arange(64).reshape(32, 2) % 7 + 1) / 256).astype(np.float16)
+gate = np.zeros((256, 32), dtype=np.float32)
+gate[:, 0] = 0.25
+up = np.zeros((256, 32), dtype=np.float32)
+up[np.arange(256), (np.arange(256) * 7) % 32] = np.repeat([0.125, 0.375], 128)
+for layer in range(4):
+    prefix = "blk." + str(layer) + "."
+    writer.add_tensor(prefix + "attn_norm.weight", np.ones(32, dtype=np.float32))
+    writer.add_tensor(prefix + "post_attention_norm.weight", np.ones(32, dtype=np.float32))
+    if layer % 2:
+        for name, shape in {"attn_q.weight": (64, 32), "attn_k.weight": (16, 32),
+                            "attn_v.weight": (16, 32), "attn_output.weight": (32, 32)}.items():
+            writer.add_tensor(prefix + name, np.zeros(shape, dtype=np.float32))
+        writer.add_tensor(prefix + "attn_q_norm.weight", np.ones(8, dtype=np.float32))
+        writer.add_tensor(prefix + "attn_k_norm.weight", np.ones(8, dtype=np.float32))
+    else:
+        for name, shape in {
+            "attn_qkv.weight": (64, 32), "attn_gate.weight": (32, 32), "ssm_conv1d.weight": (64, 3),
+            "ssm_beta.weight": (4, 32), "ssm_alpha.weight": (4, 32), "ssm_out.weight": (32, 32),
+        }.items():
+            writer.add_tensor(prefix + name, np.zeros(shape, dtype=np.float32))
+        writer.add_tensor(prefix + "ssm_norm.weight", np.ones(8, dtype=np.float32))
+        writer.add_tensor(prefix + "ssm_dt.bias", np.zeros(4, dtype=np.float32))
+        writer.add_tensor(prefix + "ssm_a", -np.ones(4, dtype=np.float32))
+    writer.add_tensor(prefix + "ffn_gate.weight", gate if layer == 3 else np.zeros_like(gate))
+    writer.add_tensor(prefix + "ffn_up.weight", up if layer == 3 else np.zeros_like(up))
+    if layer != 3:
+        writer.add_tensor(prefix + "ffn_down.weight", np.zeros((32, 256), dtype=np.float32))
+    elif sys.argv[2].startswith("bitnet"):
+        fields = (codes.reshape(32, 2, 32, 4) + 1).astype(np.uint8)
+        if sys.argv[2] == "bitnet_invalid_code":
+            fields[0, 0, 0, 0] = 3
+        elif sys.argv[2] == "bitnet_negative_scale":
+            scales[0, 0] = -1
+        elif sys.argv[2] == "bitnet_nonfinite_scale":
+            scales[0, 0] = np.nan
+        payload = np.bitwise_or.reduce(fields << (2 * np.arange(4, dtype=np.uint8)), axis=-1)
+        encoded = np.concatenate((scales.view(np.uint8).reshape(32, 2, 2), payload), axis=-1)
+        writer.add_tensor(prefix + "ffn_down.weight", encoded.reshape(32, 68),
+                          raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+    else:
+        writer.add_tensor(prefix + "ffn_down.weight", codes.astype(np.float32) * np.repeat(scales, 128, axis=1))
 writer.write_header_to_file()
 writer.write_kv_data_to_file()
 writer.write_tensors_to_file()
 writer.close()
-hidden = embedding[7]
+if sys.argv[2] not in ("dense", "bitnet"):
+    sys.exit(0)
+hidden = embedding[7].copy()
+normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
+gated = gate @ normalized
+activation = (gated / (np.float32(1) + np.exp(-gated))) * (up @ normalized)
+if sys.argv[2] == "bitnet":
+    groups = activation.reshape(2, 128)
+    activation_scales = np.max(np.abs(groups), axis=1) / np.float32(127)
+    activation_scales[activation_scales == 0] = 1
+    quantized = np.clip(np.rint(groups / activation_scales[:, None]), -127, 127).astype(np.int32)
+    partials = np.sum(codes.reshape(32, 2, 128).astype(np.int32) * quantized[None], axis=-1)
+    hidden += np.sum(partials.astype(np.float32) * scales.astype(np.float32) * activation_scales, axis=1)
+else:
+    hidden += (codes.astype(np.float32) * np.repeat(scales, 128, axis=1)) @ activation
 hidden = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
 print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
 """
     try:
-        writer = subprocess.run([converter, "-c", writer_code, str(model_file)], capture_output=True, text=True,
+        writer = subprocess.run([converter, "-c", writer_code, str(model_file), backend], capture_output=True, text=True,
                                 timeout=30, env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
                                                 "PYTHONDONTWRITEBYTECODE": "1"})
         assert writer.returncode == 0, writer.stderr
         expected = json.loads(writer.stdout)
-        control = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-                                  "--prefill-control", str(model_file)], capture_output=True, text=True, timeout=30)
-        assert control.returncode == 0, control.stderr
-        report = json.loads(control.stdout)
-        assert report["prefilled_tokens"] == 3 and report["generated_answer_tokens"] == 0
-        assert report["option_token_ids"] == [11, 17, 23]
-        np.testing.assert_allclose(report["logits"], expected["logits"], rtol=2e-5, atol=2e-5)
-        logits = np.asarray(expected["logits"], dtype=np.float64)
-        scores = np.exp(logits - logits.max())
-        scores /= scores.sum()
-        np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+        for mode in ("full", "chunked", "reset", "reordered"):
+            control = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                      "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control",
+                                      str(model_file), mode], capture_output=True, text=True, timeout=30)
+            assert control.returncode == 0, control.stderr
+            report = json.loads(control.stdout)
+            assert report["prefilled_tokens"] == 3 and report["generated_answer_tokens"] == 0
+            assert report["backend"] == backend and report["mode"] == mode
+            calls = 2 if mode in ("chunked", "reset") else 1
+            assert report["prefill_calls"] == calls
+            assert report["bitnet_dispatch_calls"] == (calls if backend == "bitnet" else 0)
+            assert report["weight_repacks"] == (backend == "bitnet")
+            assert report["memory_position_min"] == report["memory_position_max"] == 2
+            order = [2, 0, 1] if mode == "reordered" else [0, 1, 2]
+            assert report["option_ids"] == [(["inspect", "edit", "ask"][index]) for index in order]
+            assert report["option_token_ids"] == [([11, 17, 23][index]) for index in order]
+            logits = np.asarray(expected["logits"], dtype=np.float64)[order]
+            np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
+            scores = np.exp(logits - logits.max())
+            scores /= scores.sum()
+            np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+        command = "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control"
+        rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                   command, str(model_file), "unknown"], capture_output=True, text=True, timeout=30)
+        assert rejected.returncode == 32 and rejected.stdout == ""
+        corruptions = (
+            ("bitnet_invalid_code", "bitnet_negative_scale", "bitnet_nonfinite_scale")
+            if backend == "bitnet" else ("dense_nan",)
+        )
+        for corruption in corruptions:
+            writer = subprocess.run([converter, "-c", writer_code, str(model_file), corruption],
+                                    capture_output=True, text=True, timeout=30,
+                                    env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
+                                         "PYTHONDONTWRITEBYTECODE": "1"})
+            assert writer.returncode == 0, writer.stderr
+            rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                       command, str(model_file)], capture_output=True, text=True, timeout=30)
+            assert rejected.returncode in (27, 30), rejected.stderr
+            assert rejected.stdout == ""
     finally:
         model_file.unlink(missing_ok=True)
 
