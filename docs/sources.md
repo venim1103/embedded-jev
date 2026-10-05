@@ -1,8 +1,8 @@
 # Source Register
 
-Initial audit: 2026-09-25. Updated: 2026-10-01. These primary sources and the
+Initial audit: 2026-09-25. Updated: 2026-10-05. These primary sources and the
 later scoped experiments below support the
-[current handover](handover.md#current-checkpoint-2026-10-01).
+[current handover](handover.md#current-checkpoint-2026-10-05).
 The initial audit inspected source code without executing model weights or
 benchmark suites; subsequent model/native controls are distinguished below.
 Paper titles/abstracts and linked project documentation establish their scope,
@@ -227,6 +227,20 @@ the packaged build passes two CTests; this proves neither full architecture
 prefill nor dense/ternary task quality. Resource planning at `ecfcff5` uses only
 reconciled source headers; observed RAM/disk and known FP32 converter staging
 are distinguished from unmeasured final GGUF and native allocations.
+At `50a943b`, the same pinned model builder and hybrid-memory implementation
+load and prefill a temporary four-layer synthetic Qwen3.5 GGUF through public
+native APIs. Nonzero layer-3 dense and BitNet/A8 FFN final logits match independent
+NumPy arithmetic, preserving two FP16 groups per output row. The test-only exact
+override has one repack and one counted dispatch per decode; full/chunked/reset
+and reordered typed-slot controls pass without answer generation. Corrupt codes,
+invalid scales, nonfinite head weights, and unknown modes emit no score report.
+All nine native controls pass in 35.28 s, plus two packaged CTests. The pinned
+hybrid retained-position range is the intersection of KV/recurrent ranges;
+GGUF omits empty BPE merge lists, so the toy vocabulary supplies a valid merge.
+The converter name-map check now reuses bounded cached headers when available.
+This is synthetic compatibility/arithmetic evidence, not native MiMo loading,
+nonzero recurrent/attention correctness, a production full-model override policy,
+representative quality, or a benchmark. No MiMo weights were converted here.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`

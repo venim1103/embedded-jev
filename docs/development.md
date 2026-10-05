@@ -6,19 +6,20 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `3c4fa81` (2026-10-01), following
-the metadata-only resource planner at `ecfcff5`.
-The [current handover](handover.md#current-checkpoint-2026-10-01) is the
+The last tested implementation checkpoint is `50a943b` (2026-10-05), following
+the isolated runtime/vocabulary preflight and metadata-only resource planner.
+The [current handover](handover.md#current-checkpoint-2026-10-05) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
-Current results: 159 default tests passed, 24 optional tests skipped, and all
-seven pinned Prism controls passed with full-size PQ2, repeated/owned native
+Current results: 159 default tests passed, 26 optional tests skipped, and all
+nine pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
 including the full-size frozen projection and guarded vocabulary-only native
-tokenizer preflight (41.59 s). The separate full runtime build passes two CTests.
+tokenizer preflight and dense/BitNet synthetic model prefill (35.28 s).
+The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
 native file/runtime additions; unchanged model inference was not rerun afterwards.
@@ -35,7 +36,8 @@ ruff check --no-cache embedded_jev tests
 git diff --check
 ```
 
-To reproduce the full current gate, reuse the existing cache and run:
+To reproduce the earlier full-text gate together with current native controls,
+reuse the existing cache and run:
 
 ```bash
 cache="$HOME/.cache/huggingface/embedded-jev"
@@ -48,6 +50,8 @@ MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
 MIMO_PROJECTION_ARTIFACT="$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
 MIMO_PRISM_GRAPH_TEST=1 MIMO_ROTATED_GRAPH_TEST=1 MIMO_PQ2_CODEC_TEST=1 \
 MIMO_REGISTERED_MODULE_TEST=1 MIMO_REGISTERED_TYPED_TEST=1 \
+MIMO_NATIVE_VOCAB_TEST=1 \
+MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
 OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py
 ```
@@ -1047,11 +1051,62 @@ MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
 MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
 ```
 
+### Bounded Synthetic Native Prefill
+
+The existing optional native test writes one temporary four-layer Qwen3.5 GGUF
+using the cached lightweight GGUF environment. It has two recurrent and two
+full-attention layers, width 32, FFN width 256, and a 64-entry toy BPE vocabulary.
+Attention outputs are zero; layer 3 has nonzero gate/up/down arithmetic. The
+dense case stores the down projection in F32; the BitNet case stores its exact
+ternary codes and two independent FP16 scales per output row as PQ2 bytes.
+This is synthetic test data, not another fitted/retained candidate or source
+MiMo conversion. No source model weights are opened for this fixture.
+
+`--prefill-control` and test-only `--prefill-bitnet-control` load the model through
+the real public API, use one CPU thread and at most 128 batch/ubatch tokens, and
+prefill numeric tokens `[3,5,7]` without sampling or an answer decode. The pinned
+context rounds its 128 requested context slots to 256. The BitNet control uses an
+explicit exact layer-3 override, a 1 MiB file cap, and four-layer/32 x 256 geometry
+checks. It does not use or relax the public one-tensor metadata-gated factory.
+Its internal model-tensor accessor is a pinned test dependency, not a public API.
+
+Independent NumPy RMS/SiLU/FFN/head math checks final logits; the BitNet reference
+uses nearest-even group-128 A8 and integer group partials with exact stored FP16
+scales. Typed IDs `inspect/edit/ask` map to synthetic numeric slots `11/17/23`.
+These are not genuine MiMo label tokens or task-quality evidence. Selected-label
+softmax is conditional on these options, not calibrated confidence.
+
+Each fixture checks full, split 1+2-token, reset-after-another-prompt, and reordered
+option execution. BitNet has one counted kernel dispatch per successful decode
+and one weight repack per model load, including context reuse. Hybrid position
+bounds report the intersection of KV/recurrent retained ranges: `[2,2]` here,
+and an empty range immediately after reset. Malformed +2 codes, negative/NaN
+FP16 scales, NaN head weights, and unknown modes must fail without stdout scores.
+Model/context/backend cleanup is scoped; files are removed even on failure.
+The existing converter-name gate also uses bounded local headers when
+`MIMO_LOCAL_DIR` is set, avoiding unnecessary HTTPS after restart.
+
+After the versioned build above, reproduce just this bounded control with:
+
+```bash
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+PRISM_CONVERTER_PYTHON="$cache/native/converter-venv/bin/python" \
+MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
+   tests/test_prism_native_control.py -k tiny_qwen35_native_prefill
+```
+
+Both parameterized cases pass, including eight successful native invocations and
+six refusal checks. No nonzero recurrent/attention-reference parity, native MiMo
+weight loading, full-model file policy, quality, or target benchmark follows.
+
 ### Staged Approval Gates
 
 1. **Completed, no weight conversion:** reconciled header budgets, isolated full
    runtime build, dependency provenance, guarded vocabulary-only conversion,
    real native/HF prompt and label parity, and existing one-tensor BitNet proofs.
+   Separate synthetic native hybrid prefill, nonzero BitNet FFN arithmetic,
+   chunk/reset state, typed order, and no-score rejection controls also pass.
 2. **Requires separate bulk-conversion approval:** create one text-only BF16
    native reference from the existing snapshot, retaining full embedding/head,
    excluding vision/MTP, leaving the sole ternary candidate unchanged. Use lazy

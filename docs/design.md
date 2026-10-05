@@ -1,10 +1,10 @@
 # Embedded Jev Design
 
 Status: proposed architecture, first written 2026-09-25; implementation status
-checked 2026-10-01. Bounded ternary quantizers, the streamed BF16 text reference,
+checked 2026-10-05. Bounded ternary quantizers, the streamed BF16 text reference,
 and one-projection BitNet-derived native integration now exist. A complete
 model-loadable ternary/BitNet runtime and deployment service do not.
-The [current handover](handover.md#current-checkpoint-2026-10-01) records the
+The [current handover](handover.md#current-checkpoint-2026-10-05) records the
 tested implementation checkpoint, cache paths, constraints, and next native task.
 See [docs/research-audit.md](research-audit.md) for evidence and corrections,
 [docs/roadmap.md](roadmap.md) for delivery gates, and
@@ -290,6 +290,15 @@ native cache/scratch remain additional costs. The next architecture gate is an
 approved text-only dense native reference, then the existing single-projection
 BitNet payload; whole-model ternary conversion is not implied. See the
 [staged plan](development.md#native-hosting-preflight-and-conversion-plan).
+
+A bounded synthetic four-layer native Qwen3.5 model now also loads and prefills
+through public llama APIs, with a nonzero BitNet-derived layer-3 FFN projection.
+Two independent FP16 row/group scales and native A8 reproduce independent
+reference logits and reordered typed conditional scores, without generation.
+Chunked prefill and cleared-context reuse retain one repack and one kernel call
+per decode; invalid weight data produces no scores. This is a tiny test-only
+override, not the production one-tensor factory, real MiMo hosting, meaningful
+label/tokenizer parity, nonzero recurrent correctness, or task-quality evidence.
 
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed
 execution layout. Report resident packed bytes and scratch separately: expanding

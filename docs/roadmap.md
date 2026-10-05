@@ -5,8 +5,8 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `3c4fa81` implementation checkpoint and the next bounded native
-task, read the [current handover](handover.md#current-checkpoint-2026-10-01).
+For the tested `50a943b` implementation checkpoint and the next bounded native
+task, read the [current handover](handover.md#current-checkpoint-2026-10-05).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
 
@@ -264,6 +264,14 @@ not certify native fit. The staged resource/conversion plan is in
 Bulk text-only BF16 reference conversion still needs separate approval, before
 actual architecture prefill and one-projection integration; full-model ternary,
 held-out inference, and quality promotion remain blocked.
+A temporary four-layer synthetic Qwen3.5 model now covers native architecture
+construction and zero-generation prefill with a nonzero BitNet FFN at layer 3.
+Independent dense/A8 final-logit references, reordered typed options, chunked
+prefill, context clearing/reuse, counted calls/one repack, and malformed-weight
+refusal pass. The override is explicitly test-only and does not expand the
+one-tensor production factory. This reduces bounded architecture/dispatch risk;
+real MiMo weights, nonzero recurrent/attention parity, full-model validated file
+policy, and representative quality remain separate gates.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

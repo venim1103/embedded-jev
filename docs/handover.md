@@ -1,6 +1,6 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-01. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-05. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
@@ -12,10 +12,10 @@ The current checkpoint below supersedes the bootstrap-era status statements.
 Later sections retain the scope and results of individual historical probes;
 do not read a probe's limitations as the current status of every later path.
 
-## Current Checkpoint (2026-10-01)
+## Current Checkpoint (2026-10-05)
 
-The last tested implementation commit is `3c4fa81` (2026-10-01),
-`build: package pinned Prism runtime and guarded vocabulary preflight`.
+The last tested implementation commit is `50a943b` (2026-10-05),
+`feat: exercise BitNet in native hybrid model prefill`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -25,13 +25,18 @@ buffer) and `9a1fbfa` (explicit loader route) followed. The assistant made no pu
 or branch change. The resource-plan continuation started clean at `c390c0d`,
 adding `ecfcff5` (header-only native budgets) and `3c4fa81` (full runtime build
 and no-weight tokenizer preflight). Recheck Git state in each session.
+After reboot, the caches and packaged runtime remained intact. This continuation
+started at the user-pushed `1a7b08a`, preserving the untracked user `.vscode/`
+directory. `64c5b1f` added synthetic native prefill and cached converter-index
+validation; `50a943b` added nonzero BitNet FFN execution inside that model.
 
-Current gates: **159 default tests passed, 24 optional tests skipped; all seven
+Current gates: **159 default tests passed, 26 optional tests skipped; all nine
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
 handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
 enabled, including the sole full-size frozen projection, packaged dependency
-provenance, and guarded vocabulary-only native tokenizer parity (41.59 s).
+provenance, guarded vocabulary-only native tokenizer parity, and synthetic
+dense/BitNet hybrid model prefill (35.28 s).
 The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
@@ -123,6 +128,23 @@ development guide for flags.
   and A/B/C token IDs match HF with zero generation and source-weight access
   forbidden. The existing dense environment supplies the full converter CLI;
   no installs, source duplication, or cached library overwrite followed.
+- A temporary four-layer Qwen3.5 model now exercises actual public native model
+  loading, CPU context construction, and prompt-only `llama_decode`. Two recurrent
+  and two full-attention layers have zero attention outputs; a nonzero layer-3
+  FFN has a 32 x 256 down projection with two independent FP16 groups per row.
+  Dense FP32 and packed BitNet/A8 final logits match independent NumPy references
+  within 2e-5. Fixed synthetic typed IDs and numeric option-token IDs remain
+  correctly paired after reordering, with stable conditional softmax and zero
+  generated answer tokens. Full/chunked/reset executions check actual hybrid
+  memory positions, one BitNet call per decode, and one repack per model load.
+  Illegal +2 codes, negative/nonfinite scales, nonfinite head weights, and unknown
+  modes return no score report. Files are removed in `finally`.
+  The BitNet route is a test-only explicit override, capped at 1 MiB and exact
+  four-layer/32 x 256 geometry; it does not call or expand the public one-tensor
+  factory. This proves synthetic architecture/dispatch compatibility, not real
+  MiMo weight loading, meaningful tokenizer labels, nonzero recurrent arithmetic,
+  native MiMo parity, model quality, or a retained candidate. See the
+  [synthetic native gate](development.md#bounded-synthetic-native-prefill).
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
@@ -1129,7 +1151,12 @@ For a fresh coding session:
   full-size frozen-projection dispatch. Preserve default dummy-probe refusal,
   file identity/lifetime requirements, and the isolated steady-state concurrent
   graph gate. The separate full-runtime build and guarded vocabulary-only native
-  tokenization now pass. Read the staged
+  tokenization now pass. The separate bounded synthetic hybrid model also passes
+  genuine nonzero BitNet FFN prefill, typed order, chunk/reset, and rejection gates;
+  start its next local control in
+  [native/prism_bitnet_loader_control.cpp](../native/prism_bitnet_loader_control.cpp)
+  and the existing optional test. Its test-only override must not become an
+  unvalidated full-model loader policy. Read the staged
   [native hosting plan](development.md#native-hosting-preflight-and-conversion-plan)
   before further work: bulk text-only BF16 conversion needs separate approval,
   followed by bounded real-architecture prefill and native error propagation.
