@@ -217,6 +217,7 @@ struct bitnet_loader_tensor_v1 final : ggml::cpu::tensor_traits {
     bitnet_tensor_traits kernel;
     std::mutex mutex;
     std::size_t uploaded = 0;
+    std::size_t last_input_tokens = 0;
     int load_status = 8;
     bool sealed = false;
 
@@ -238,7 +239,8 @@ struct bitnet_loader_tensor_v1 final : ggml::cpu::tensor_traits {
         kernel.status = load_status;
         if (load_status == 0) {
             try {
-                kernel.tokens = op->src[1]->ne[1];
+                last_input_tokens = op->src[1]->ne[1];
+                kernel.tokens = last_input_tokens;
                 kernel.activations.resize(kernel.tokens * kernel.groups * 128);
                 kernel.activation_scales.resize(kernel.tokens * kernel.groups);
                 kernel.compute_forward(params, op);
@@ -530,6 +532,24 @@ extern "C" int prism_bitnet_cpu_tensor_status_v1(
     const std::lock_guard<std::mutex> lock(traits->mutex);
     *dispatch_calls = traits->kernel.calls;
     *weight_repacks = traits->kernel.repacks;
+    return traits->kernel.status;
+}
+
+extern "C" int prism_bitnet_cpu_tensor_last_input_tokens_v1(
+    const ggml_tensor* weight, std::size_t* input_tokens) {
+    if (!input_tokens) {
+        return 1;
+    }
+    *input_tokens = 0;
+    if (!weight || !weight->buffer || weight->buffer->buft != &loader_runtime_v1().type) {
+        return 1;
+    }
+    auto* traits = bitnet_loader_buffer_v1::state(weight->buffer)->find(weight);
+    if (!traits || weight->extra != traits) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(traits->mutex);
+    *input_tokens = traits->last_input_tokens;
     return traits->kernel.status;
 }
 

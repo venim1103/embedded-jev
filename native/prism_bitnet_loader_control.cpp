@@ -124,15 +124,24 @@ static int test_weight_execution(ggml_backend_dev_t device, ggml_backend_buffer_
     }
     std::size_t calls = 0;
     std::size_t repacks = 0;
-    if (prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 8 || calls != 0 || repacks != 0) {
+    std::size_t last_input_tokens = 99;
+    if (prism_bitnet_cpu_tensor_last_input_tokens_v1(nullptr, &last_input_tokens) != 1 || last_input_tokens != 0 ||
+            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, nullptr) != 1 ||
+            prism_bitnet_cpu_tensor_last_input_tokens_v1(probe_input, &last_input_tokens) != 1 || last_input_tokens != 0) {
+        return 7;
+    }
+    if (prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 8 || calls != 0 || repacks != 0 ||
+            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 8 || last_input_tokens != 0) {
         return 7;
     }
     ggml_backend_tensor_set(weight, blocks.data(), 0, bytes / 2);
-    if (prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 8 || repacks != 0) {
+    if (prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 8 || repacks != 0 ||
+            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 8 || last_input_tokens != 0) {
         return 7;
     }
     ggml_backend_tensor_set(weight, blocks.data() + bytes / 2, bytes / 2, bytes - bytes / 2);
-    if (prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 0 || calls != 0 || repacks != 1) {
+    if (prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 0 || calls != 0 || repacks != 1 ||
+            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0 || last_input_tokens != 0) {
         return 7;
     }
     std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
@@ -170,7 +179,8 @@ static int test_weight_execution(ggml_backend_dev_t device, ggml_backend_buffer_
         }
         ggml_backend_tensor_set(input, values.data(), 0, values.size() * sizeof(float));
         if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS ||
-            prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 0 || repacks != 1) {
+                prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 0 || repacks != 1 ||
+                prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0 || last_input_tokens != tokens) {
             return 10;
         }
         ggml_backend_tensor_get(result, output.data(), 0, output.size() * sizeof(float));
@@ -183,7 +193,8 @@ static int test_weight_execution(ggml_backend_dev_t device, ggml_backend_buffer_
             values[0] = std::numeric_limits<float>::quiet_NaN();
             ggml_backend_tensor_set(input, values.data(), 0, values.size() * sizeof(float));
             if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS ||
-                prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 2 || calls != previous_calls) {
+                    prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 2 || calls != previous_calls ||
+                    prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 2 || last_input_tokens != tokens) {
                 return 12;
             }
             ggml_backend_tensor_get(result, output.data(), 0, output.size() * sizeof(float));
@@ -404,9 +415,10 @@ static int test_prefill_control(
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
     const bool parallel = std::strcmp(mode, "parallel") == 0;
+    const bool maximum_batch = std::strcmp(mode, "maximum") == 0;
         const bool kernel_error = use_bitnet && std::strcmp(mode, "kernel-error") == 0;
         const bool kernel_recovery = use_bitnet && std::strcmp(mode, "kernel-recovery") == 0;
-        if (!chunked && !reset && !reordered && !parallel && !kernel_error && !kernel_recovery &&
+        if (!chunked && !reset && !reordered && !parallel && !maximum_batch && !kernel_error && !kernel_recovery &&
             std::strcmp(mode, "full") != 0) {
         return 32;
     }
@@ -442,10 +454,12 @@ static int test_prefill_control(
     const ggml_tensor* weight = use_bitnet ? model->get_tensor("blk.3.ffn_down.weight") : nullptr;
     std::size_t dispatch_calls = 0;
     std::size_t weight_repacks = 0;
+    std::size_t last_input_tokens = 0;
     if (use_bitnet && (!weight || model->hparams.n_layer() != 4 ||
             weight->ne[0] != 256 || weight->ne[1] != 32 ||
             prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks) != 0 ||
-            dispatch_calls != 0 || weight_repacks != 1)) {
+            dispatch_calls != 0 || weight_repacks != 1 ||
+            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0 || last_input_tokens != 0)) {
         return 30;
     }
     const auto* vocab = llama_model_get_vocab(model.get());
@@ -454,6 +468,9 @@ static int test_prefill_control(
         return 27;
     }
     std::vector<llama_token> tokens = { 3, 5, 7 };
+    if (maximum_batch) {
+        tokens.assign(128, 2);
+    }
     std::vector<llama_token> option_tokens = { 11, 17, 23 };
     if (prompt) {
         const int32_t count = -llama_tokenize(vocab, prompt, std::strlen(prompt), nullptr, 0, false, true);
@@ -520,6 +537,8 @@ static int test_prefill_control(
         kernel_error_status = prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks);
         const float* failed_logits = llama_get_logits_ith(context.get(), -1);
         if (decode_status != 0 || kernel_error_status <= 0 || dispatch_calls != 0 || weight_repacks != 1 ||
+            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != kernel_error_status ||
+            last_input_tokens != rejected.size() ||
                 !failed_logits || std::all_of(failed_logits, failed_logits + vocab_size,
                     [](float value) { return std::isfinite(value); })) {
             return 33;
@@ -600,7 +619,8 @@ static int test_prefill_control(
         return 29;
     }
     if (use_bitnet && (prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks) != 0 ||
-            dispatch_calls != prefill_calls || weight_repacks != 1)) {
+            dispatch_calls != prefill_calls || weight_repacks != 1 ||
+            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0)) {
         return 30;
     }
     struct control_option {
@@ -658,9 +678,9 @@ static int test_prefill_control(
     }
     std::printf("],\"backend\":\"%s\",\"mode\":\"%s\",\"prefill_calls\":%zu,"
             "\"bitnet_dispatch_calls\":%zu,\"weight_repacks\":%zu,\"memory_position_min\":%d,\"memory_position_max\":%d,"
-            "\"rejected_prefill_calls\":%zu,\"kernel_error_status\":%d}\n",
+            "\"rejected_prefill_calls\":%zu,\"kernel_error_status\":%d,\"bitnet_last_input_tokens\":%zu}\n",
         use_bitnet ? "bitnet" : "dense", mode, prefill_calls, dispatch_calls, weight_repacks,
-        position_min, position_max, rejected_prefill_calls, kernel_error_status);
+        position_min, position_max, rejected_prefill_calls, kernel_error_status, last_input_tokens);
     return 0;
 }
 

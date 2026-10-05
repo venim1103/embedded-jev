@@ -213,7 +213,7 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                                                 "PYTHONDONTWRITEBYTECODE": "1"})
         assert writer.returncode == 0, writer.stderr
         expected = json.loads(writer.stdout)
-        modes = ("full", "chunked", "reset", "reordered", "parallel")
+        modes = ("full", "chunked", "reset", "reordered", "parallel", "maximum")
         if backend == "bitnet":
             modes += ("kernel-recovery",)
         for mode in modes:
@@ -222,8 +222,9 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                                       str(model_file), mode], capture_output=True, text=True, timeout=30)
             assert control.returncode == 0, control.stderr
             report = json.loads(control.stdout)
-            assert report["prefilled_tokens"] == 3 and report["generated_answer_tokens"] == 0
-            assert report["input_tokens"] == [3, 5, 7]
+            token_ids = [2] * 128 if mode == "maximum" else [3, 5, 7]
+            assert report["prefilled_tokens"] == len(token_ids) and report["generated_answer_tokens"] == 0
+            assert report["input_tokens"] == token_ids
             assert report["backend"] == backend and report["mode"] == mode
             calls = 3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1
             assert report["prefill_calls"] == calls
@@ -231,12 +232,14 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
             assert report["kernel_error_status"] == (1 if mode == "kernel-recovery" else 0)
             assert report["bitnet_dispatch_calls"] == (calls if backend == "bitnet" else 0)
             assert report["weight_repacks"] == (backend == "bitnet")
-            assert report["memory_position_min"] == report["memory_position_max"] == 2
+            input_count = 2 if mode == "chunked" else len(token_ids)
+            assert report["bitnet_last_input_tokens"] == (input_count if backend == "bitnet" else 0)
+            assert report["memory_position_min"] == report["memory_position_max"] == len(token_ids) - 1
             order = [2, 0, 1] if mode == "reordered" else [0, 1, 2]
             assert report["option_ids"] == [(["inspect", "edit", "ask"][index]) for index in order]
             assert report["option_token_ids"] == [([11, 17, 23][index]) for index in order]
             assert report["option_labels"] == [(["A", "B", "C"][index]) for index in order]
-            logits = np.asarray(expected["logits"], dtype=np.float64)[order]
+            logits = np.asarray(expected["maximum_logits" if mode == "maximum" else "logits"], dtype=np.float64)[order]
             np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
             scores = np.exp(logits - logits.max())
             scores /= scores.sum()
