@@ -207,7 +207,10 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": referenc
                                                 "PYTHONDONTWRITEBYTECODE": "1"})
         assert writer.returncode == 0, writer.stderr
         expected = json.loads(writer.stdout)
-        for mode in ("full", "chunked", "reset", "reordered", "parallel"):
+        modes = ("full", "chunked", "reset", "reordered", "parallel")
+        if backend == "bitnet":
+            modes += ("kernel-recovery",)
+        for mode in modes:
             control = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                       "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control",
                                       str(model_file), mode], capture_output=True, text=True, timeout=30)
@@ -217,6 +220,8 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": referenc
             assert report["backend"] == backend and report["mode"] == mode
             calls = 3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1
             assert report["prefill_calls"] == calls
+            assert report["rejected_prefill_calls"] == (mode == "kernel-recovery")
+            assert report["kernel_error_status"] == (1 if mode == "kernel-recovery" else 0)
             assert report["bitnet_dispatch_calls"] == (calls if backend == "bitnet" else 0)
             assert report["weight_repacks"] == (backend == "bitnet")
             assert report["memory_position_min"] == report["memory_position_max"] == 2
@@ -235,6 +240,10 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": referenc
             else:
                 assert report["peer_logits"] == []
         command = "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control"
+        if backend == "bitnet":
+            rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                       command, str(model_file), "kernel-error"], capture_output=True, text=True, timeout=30)
+            assert rejected.returncode == 29 and rejected.stdout == "", rejected.stderr
         rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                    command, str(model_file), "unknown"], capture_output=True, text=True, timeout=30)
         assert rejected.returncode == 32 and rejected.stdout == ""

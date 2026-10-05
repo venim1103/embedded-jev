@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cfenv>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -398,7 +399,10 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
     const bool parallel = std::strcmp(mode, "parallel") == 0;
-    if (!chunked && !reset && !reordered && !parallel && std::strcmp(mode, "full") != 0) {
+        const bool kernel_error = use_bitnet && std::strcmp(mode, "kernel-error") == 0;
+        const bool kernel_recovery = use_bitnet && std::strcmp(mode, "kernel-recovery") == 0;
+        if (!chunked && !reset && !reordered && !parallel && !kernel_error && !kernel_recovery &&
+            std::strcmp(mode, "full") != 0) {
         return 32;
     }
     ggml_backend_buffer_type_t buffer_type = nullptr;
@@ -461,6 +465,37 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     }
     const auto memory = llama_get_memory(context.get());
     std::size_t prefill_calls = 0;
+    std::size_t rejected_prefill_calls = 0;
+    int kernel_error_status = 0;
+    if (kernel_error || kernel_recovery) {
+        struct rounding_guard {
+            int saved = std::fegetround();
+            ~rounding_guard() { std::fesetround(saved); }
+        } rounding;
+        if (rounding.saved != FE_TONEAREST || std::fesetround(FE_UPWARD) != 0) {
+            return 33;
+        }
+        std::vector<llama_token> rejected = { 3, 5, 7 };
+        const int decode_status = llama_decode(context.get(), llama_batch_get_one(rejected.data(), rejected.size()));
+        if (std::fesetround(rounding.saved) != 0) {
+            return 33;
+        }
+        kernel_error_status = prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks);
+        const float* failed_logits = llama_get_logits_ith(context.get(), -1);
+        if (decode_status != 0 || kernel_error_status <= 0 || dispatch_calls != 0 || weight_repacks != 1 ||
+                !failed_logits || std::all_of(failed_logits, failed_logits + vocab_size,
+                    [](float value) { return std::isfinite(value); })) {
+            return 33;
+        }
+        ++rejected_prefill_calls;
+        if (kernel_error) {
+            return 29;
+        }
+        llama_memory_clear(memory, true);
+        if (llama_memory_seq_pos_min(memory, 0) != -1 || llama_memory_seq_pos_max(memory, 0) != -1) {
+            return 31;
+        }
+    }
     std::unique_ptr<llama_context, decltype(&llama_free)> peer(nullptr, llama_free);
     if (parallel) {
         peer.reset(llama_init_from_model(model.get(), context_params));
@@ -574,9 +609,10 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
         }
     }
     std::printf("],\"backend\":\"%s\",\"mode\":\"%s\",\"prefill_calls\":%zu,"
-            "\"bitnet_dispatch_calls\":%zu,\"weight_repacks\":%zu,\"memory_position_min\":%d,\"memory_position_max\":%d}\n",
+            "\"bitnet_dispatch_calls\":%zu,\"weight_repacks\":%zu,\"memory_position_min\":%d,\"memory_position_max\":%d,"
+            "\"rejected_prefill_calls\":%zu,\"kernel_error_status\":%d}\n",
         use_bitnet ? "bitnet" : "dense", mode, prefill_calls, dispatch_calls, weight_repacks,
-        position_min, position_max);
+        position_min, position_max, rejected_prefill_calls, kernel_error_status);
     return 0;
 }
 
