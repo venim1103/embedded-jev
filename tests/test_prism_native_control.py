@@ -316,6 +316,109 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
         model_file.unlink(missing_ok=True)
 
 
+def test_pinned_prism_mimo_bf16_native_prompt_prefill_without_generation():
+    import numpy as np
+
+    model_file = os.environ.get("MIMO_NATIVE_REFERENCE_GGUF")
+    if not model_file:
+        pytest.skip("requires a separately approved temporary text-only BF16 reference; never converts weights")
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    dense_python = os.environ.get("MIMO_DENSE_PYTHON")
+    local_model = os.environ.get("MIMO_LOCAL_DIR")
+    runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+    if not all((source_dir, dense_python, local_model, runtime_build)):
+        pytest.fail("real native reference requires pinned source, dense environment, source snapshot, and runtime")
+    assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    assert Path(model_file).is_file() and 17_907_606_528 < Path(model_file).stat().st_size < 19 * 1024**3
+    fixture = Path(__file__).parent / "fixtures" / "agent_tool_smoke.json"
+    reference_code = """
+import hashlib
+import json
+import sys
+from pathlib import Path
+import gguf
+import torch
+from safetensors import safe_open
+from transformers import AutoTokenizer
+from embedded_jev.label_probe import decision_case_messages, load_decision_fixture, probe_label_boundary
+model_file, local_model, fixture_path = sys.argv[1:]
+snapshot = Path(local_model)
+reader = gguf.GGUFReader(model_file)
+tensors = {tensor.name: tensor for tensor in reader.tensors}
+assert len(tensors) == 427
+assert reader.fields["general.architecture"].contents() == "qwen35"
+assert reader.fields["qwen35.block_count"].contents() == 32
+assert not any("vision" in name or "mmproj" in name or "nextn" in name or "mtp" in name for name in tensors)
+assert set(tensor.tensor_type for tensor in tensors.values()) == {gguf.GGMLQuantizationType.BF16, gguf.GGMLQuantizationType.F32}
+assert tensors["blk.3.ffn_down.weight"].shape.tolist() == [12288, 4096]
+assert tensors["blk.3.ffn_down.weight"].tensor_type == gguf.GGMLQuantizationType.BF16
+fixture, digest = load_decision_fixture(Path(fixture_path))
+case = next(case for case in fixture["cases"] if case["id"] == "inspect-before-answer")
+messages = decision_case_messages(case)
+tokenizer = AutoTokenizer.from_pretrained(snapshot, local_files_only=True, trust_remote_code=False)
+boundary = probe_label_boundary(tokenizer, messages, ("A", "B", "C"))
+prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+tokens = tokenizer.encode(prompt, add_special_tokens=False)
+labels = list(boundary["label_token_ids"].values())
+assert 0 < len(tokens) <= 128
+weight_map = json.loads((snapshot / "model.safetensors.index.json").read_text())["weight_map"]
+for converted_name, source_name, selected_rows in (
+    ("token_embd.weight", "model.language_model.embed_tokens.weight", sorted(set(tokens))),
+    ("output.weight", "lm_head.weight", labels),
+):
+    converted = tensors[converted_name]
+    assert converted.shape.tolist() == [4096, 248320]
+    assert converted.tensor_type == gguf.GGMLQuantizationType.BF16
+    with safe_open(snapshot / weight_map[source_name], framework="pt", device="cpu") as source:
+        source_rows = source.get_slice(source_name)
+        for token_id in selected_rows:
+            row = source_rows[token_id]
+            assert row.dtype == torch.bfloat16
+            original = row.contiguous().view(torch.int16).numpy().tobytes()
+            assert hashlib.sha256(converted.data[token_id].tobytes()).digest() == hashlib.sha256(original).digest()
+print(json.dumps({"prompt": prompt, "tokens": tokens, "labels": labels,
+                  "option_ids": [option["id"] for option in case["options"]],
+                  "prompt_sha256": boundary["prompt_sha256"], "fixture_sha256": digest}))
+"""
+    reference = subprocess.run(
+        [dense_python, "-c", reference_code, model_file, local_model, str(fixture)],
+        capture_output=True, text=True, timeout=120,
+        env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
+             "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert reference.returncode == 0, reference.stderr
+    expected = json.loads(reference.stdout)
+    native_environment = dict(os.environ)
+    native_environment.pop("OMP_NUM_THREADS", None)
+    try:
+        control = subprocess.run(
+            [str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+             "--prefill-text-control", model_file, expected["prompt"]],
+            capture_output=True, text=True, timeout=600, env=native_environment,
+        )
+    except subprocess.TimeoutExpired as failure:
+        diagnostics = failure.stderr or ""
+        if isinstance(diagnostics, bytes):
+            diagnostics = diagnostics.decode("utf-8", errors="replace")
+        pytest.fail(f"native prefill exceeded 600 seconds; stderr tail: {diagnostics[-6000:]}")
+    assert control.returncode == 0, control.stderr[-6000:]
+    report = json.loads(control.stdout)
+    assert report["input_tokens"] == expected["tokens"]
+    assert report["prefilled_tokens"] == len(expected["tokens"])
+    assert report["option_ids"] == expected["option_ids"]
+    assert report["option_labels"] == ["A", "B", "C"] and report["option_token_ids"] == expected["labels"]
+    assert report["generated_answer_tokens"] == report["bitnet_dispatch_calls"] == report["weight_repacks"] == 0
+    assert report["bitnet_last_input_tokens"] == report["rejected_prefill_calls"] == report["kernel_error_status"] == 0
+    assert report["backend"] == "dense" and report["mode"] == "full" and report["prefill_calls"] == 1
+    assert report["memory_position_min"] == report["memory_position_max"] == len(expected["tokens"]) - 1
+    logits = np.asarray(report["logits"], dtype=np.float64)
+    scores = np.asarray(report["conditional_scores"], dtype=np.float64)
+    assert logits.shape == scores.shape == (3,) and np.isfinite(logits).all() and np.isfinite(scores).all()
+    probabilities = np.exp(logits - logits.max())
+    probabilities /= probabilities.sum()
+    np.testing.assert_allclose(scores, probabilities, rtol=1e-12, atol=1e-12)
+
+
 def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     library_name = os.environ.get("PRISM_GGML_CPU_LIBRARY")
