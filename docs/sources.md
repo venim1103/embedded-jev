@@ -243,6 +243,19 @@ The converter name-map check now reuses bounded cached headers when available.
 This is synthetic compatibility/arithmetic evidence, not native MiMo loading,
 nonzero recurrent/attention correctness, a production full-model override policy,
 representative quality, or a benchmark. No MiMo weights were converted here.
+At `cf16046`, eight dense/BitNet x recurrent x attention fixture cases extend
+that native gate. Independent causal-convolution/gated-delta references use fixed
+half decay/beta; grouped-query attention uses one rotary plane and explicit FP16
+KV rounding. Material nonzero output changes, full/chunked/reset parity, and two
+initialized shared-model contexts with independent three-/six-token histories
+pass. Unsupported rounding proves decode success can coexist with BitNet status
+1 and NaN logits; score refusal and same-context reset/recovery pass with no new
+repack. The per-weight scratch/compute mutex is inspected and retained. All
+15 native controls pass in 45.19 s, plus two packaged CTests; the default suite
+is 159 passed/32 skipped. This is bounded arithmetic/state/error evidence, not
+general head/gate/multimodal correctness, lifecycle-race safety, native MiMo
+hosting, quality, or a benchmark. Cached upstream sources/libraries and the sole
+retained candidate remain unchanged.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`

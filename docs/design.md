@@ -296,9 +296,15 @@ through public llama APIs, with a nonzero BitNet-derived layer-3 FFN projection.
 Two independent FP16 row/group scales and native A8 reproduce independent
 reference logits and reordered typed conditional scores, without generation.
 Chunked prefill and cleared-context reuse retain one repack and one kernel call
-per decode; invalid weight data produces no scores. This is a tiny test-only
+per successful decode; invalid weight data produces no scores. Independent
+small fixed-gate recurrent and single-plane attention references now also pass
+with explicit FP16 KV caches. Two initialized contexts sharing immutable weights
+preserve separate prefix histories on separate threads. Failed kernel status/NaN
+logits are refused even when native decode succeeds; context reset and restored
+rounding recover correct scores without repacking. This is a tiny test-only
 override, not the production one-tensor factory, real MiMo hosting, meaningful
-label/tokenizer parity, nonzero recurrent correctness, or task-quality evidence.
+label/tokenizer parity, general recurrent/attention or lifecycle-race safety,
+or task-quality evidence.
 
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed
 execution layout. Report resident packed bytes and scratch separately: expanding

@@ -14,8 +14,8 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-05)
 
-The last tested implementation commit is `27cfd63` (2026-10-05),
-`fix: reject invalid native control arguments`, following BitNet model prefill at `50a943b`.
+The last tested implementation commit is `cf16046` (2026-10-05),
+`test: verify native BitNet model failure and recovery`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -31,14 +31,19 @@ directory. `64c5b1f` added synthetic native prefill and cached converter-index
 validation; `50a943b` added nonzero BitNet FFN execution inside that model.
 `27cfd63` rejects unknown, missing, and extra control arguments before discovery,
 instead of silently returning the unrelated default control's successful report.
+The next continuation started at `44fc7df`, still preserving user `.vscode/`.
+`6cba251` added nonzero recurrent arithmetic, `14aac4f` added nonzero attention
+and explicit FP16 KV caches, `5fff700` checked initialized shared-model contexts,
+and `cf16046` added runtime-kernel failure/refusal/recovery controls. No push or
+branch change followed.
 
-Current gates: **159 default tests passed, 26 optional tests skipped; all nine
+Current gates: **159 default tests passed, 32 optional tests skipped; all fifteen
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
 handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
 enabled, including the sole full-size frozen projection, packaged dependency
 provenance, guarded vocabulary-only native tokenizer parity, and synthetic
-dense/BitNet hybrid model prefill (35.30 s).
+dense/BitNet hybrid model prefill (45.19 s).
 The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
@@ -131,21 +136,34 @@ development guide for flags.
   forbidden. The existing dense environment supplies the full converter CLI;
   no installs, source duplication, or cached library overwrite followed.
 - A temporary four-layer Qwen3.5 model now exercises actual public native model
-  loading, CPU context construction, and prompt-only `llama_decode`. Two recurrent
-  and two full-attention layers have zero attention outputs; a nonzero layer-3
+  loading, CPU context construction, and prompt-only `llama_decode`. Eight cases
+  cross dense/BitNet FFNs with zero/nonzero recurrent and attention outputs.
+  Layer 0 exercises causal convolution and gated-delta state with fixed half
+  decay/beta; layer 1 exercises grouped-query attention with one rotary plane
+  and explicit FP16 KV caches. Both enabled paths must change hidden values
+  materially; token-by-token NumPy references check their prefix dependence.
+  The other recurrent/attention outputs remain zero. A nonzero layer-3
   FFN has a 32 x 256 down projection with two independent FP16 groups per row.
   Dense FP32 and packed BitNet/A8 final logits match independent NumPy references
   within 2e-5. Fixed synthetic typed IDs and numeric option-token IDs remain
   correctly paired after reordering, with stable conditional softmax and zero
   generated answer tokens. Full/chunked/reset executions check actual hybrid
-  memory positions, one BitNet call per decode, and one repack per model load.
+  memory positions, one BitNet call per successful decode, and one repack per model load.
+  Two initialized contexts sharing one model run on separate threads with
+  different effective histories; both independent references pass, with three
+  successful BitNet calls and one repack. Loading/initialization/freeing is not
+  concurrent, and this is not a registry/lifecycle race guarantee or speed claim.
+  Unsupported rounding after loading yields failed tensor status and NaN logits
+  even though `llama_decode` succeeds, with no counted kernel call. That path
+  emits no scores; restoring rounding and clearing state recovers the reference
+  on the same model/context with one successful call and no additional repack.
   Illegal +2 codes, negative/nonfinite scales, nonfinite head weights, and unknown
   modes return no score report. Files are removed in `finally`.
   The BitNet route is a test-only explicit override, capped at 1 MiB and exact
   four-layer/32 x 256 geometry; it does not call or expand the public one-tensor
   factory. This proves synthetic architecture/dispatch compatibility, not real
-  MiMo weight loading, meaningful tokenizer labels, nonzero recurrent arithmetic,
-  native MiMo parity, model quality, or a retained candidate. See the
+  MiMo weight loading, meaningful tokenizer labels, general gate/head/rotary
+  correctness, native MiMo parity, model quality, or a retained candidate. See the
   [synthetic native gate](development.md#bounded-synthetic-native-prefill).
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
@@ -1154,7 +1172,8 @@ For a fresh coding session:
   file identity/lifetime requirements, and the isolated steady-state concurrent
   graph gate. The separate full-runtime build and guarded vocabulary-only native
   tokenization now pass. The separate bounded synthetic hybrid model also passes
-  genuine nonzero BitNet FFN prefill, typed order, chunk/reset, and rejection gates;
+  genuine nonzero BitNet FFN/recurrent/attention prefill, typed order, chunk/reset,
+  initialized shared-context isolation, and runtime failure/recovery gates;
   start its next local control in
   [native/prism_bitnet_loader_control.cpp](../native/prism_bitnet_loader_control.cpp)
   and the existing optional test. Its test-only override must not become an

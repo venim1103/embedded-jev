@@ -6,19 +6,19 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `27cfd63` (2026-10-05), following
+The last tested implementation checkpoint is `cf16046` (2026-10-05), following
 the isolated runtime/vocabulary preflight and metadata-only resource planner.
 The [current handover](handover.md#current-checkpoint-2026-10-05) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
-Current results: 159 default tests passed, 26 optional tests skipped, and all
-nine pinned Prism controls passed with full-size PQ2, repeated/owned native
+Current results: 159 default tests passed, 32 optional tests skipped, and all
+fifteen pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
 including the full-size frozen projection and guarded vocabulary-only native
-tokenizer preflight and dense/BitNet synthetic model prefill (35.30 s).
+tokenizer preflight and dense/BitNet synthetic model prefill (45.19 s).
 The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
@@ -1056,7 +1056,12 @@ MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
 The existing optional native test writes one temporary four-layer Qwen3.5 GGUF
 using the cached lightweight GGUF environment. It has two recurrent and two
 full-attention layers, width 32, FFN width 256, and a 64-entry toy BPE vocabulary.
-Attention outputs are zero; layer 3 has nonzero gate/up/down arithmetic. The
+Eight cases cross dense/BitNet FFNs and zero/nonzero recurrent and attention
+outputs. Layer 0 optionally exercises causal convolution, Q/K L2 normalization,
+gated-delta state with beta/decay fixed at one half, and gated RMS normalization.
+Layer 1 optionally exercises grouped-query causal attention with one nonzero
+rotary plane and FP16 KV rounding. The other attention/recurrent outputs remain
+zero; layer 3 has nonzero gate/up/down arithmetic. The
 dense case stores the down projection in F32; the BitNet case stores its exact
 ternary codes and two independent FP16 scales per output row as PQ2 bytes.
 This is synthetic test data, not another fitted/retained candidate or source
@@ -1070,20 +1075,39 @@ explicit exact layer-3 override, a 1 MiB file cap, and four-layer/32 x 256 geome
 checks. It does not use or relax the public one-tensor metadata-gated factory.
 Its internal model-tensor accessor is a pinned test dependency, not a public API.
 
-Independent NumPy RMS/SiLU/FFN/head math checks final logits; the BitNet reference
+Independent token-by-token NumPy convolution/state and causal-attention math,
+plus RMS/SiLU/FFN/head math, checks final logits; the BitNet reference
 uses nearest-even group-128 A8 and integer group partials with exact stored FP16
 scales. Typed IDs `inspect/edit/ask` map to synthetic numeric slots `11/17/23`.
 These are not genuine MiMo label tokens or task-quality evidence. Selected-label
 softmax is conditional on these options, not calibrated confidence.
 
 Each fixture checks full, split 1+2-token, reset-after-another-prompt, and reordered
-option execution. BitNet has one counted kernel dispatch per successful decode
-and one weight repack per model load, including context reuse. Hybrid position
+option execution. Nonzero state/output changes are explicitly required, so these
+are not zero-output state controls. BitNet has one counted kernel dispatch per
+successful decode and one weight repack per model load, including context reuse.
+Hybrid position
 bounds report the intersection of KV/recurrent retained ranges: `[2,2]` here,
 and an empty range immediately after reset. Malformed +2 codes, negative/NaN
 FP16 scales, NaN head weights, and unknown modes must fail without stdout scores.
 Unknown command flags and missing/extra arguments are also rejected before CPU
 discovery, rather than falling through to an unrelated successful default report.
+The `parallel` mode creates both contexts before concurrent execution. One is
+primed with `[4,9,19]`; it then consumes `[3,5,7]` on a worker thread while the
+fresh context consumes `[3,5,7]`. Independent three-/six-token references check
+both selected logits; nonzero-state cases must yield different selected logits
+between the histories. There are three successful BitNet calls and one shared repack.
+The per-weight mutex serializes its scratch/compute use; this is initialized
+steady-state context isolation, not simultaneous registry/loading/free/unload
+safety or a parallel-speedup claim.
+
+BitNet-only `kernel-error` temporarily selects unsupported upward rounding after
+loading. The test requires `llama_decode` success but tensor status 1, NaN logits,
+zero counted kernel calls, one repack, and no stdout score report. In
+`kernel-recovery`, scoped rounding is restored and all context memory is cleared;
+the same model/context then reproduces reference scores with one successful
+dispatch and no extra repack. Rejected decode attempts are reported separately.
+GGML graph/decode success must never replace tensor-status and finite-logit checks.
 Model/context/backend cleanup is scoped; files are removed even on failure.
 The existing converter-name gate also uses bounded local headers when
 `MIMO_LOCAL_DIR` is set, avoiding unnecessary HTTPS after restart.
@@ -1098,9 +1122,10 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
    tests/test_prism_native_control.py -k tiny_qwen35_native_prefill
 ```
 
-Both parameterized cases pass, including eight successful native invocations and
-fourteen refusal checks. No nonzero recurrent/attention-reference parity, native MiMo
-weight loading, full-model file policy, quality, or target benchmark follows.
+All eight parameterized cases pass, including 44 successful native invocations
+and 60 refusal checks. These are controlled fixed-gate/head/rotary fixtures, not
+general recurrent/attention correctness, native MiMo weight loading, a full-model
+file policy, quality, or a target benchmark.
 
 ### Staged Approval Gates
 
@@ -1108,7 +1133,8 @@ weight loading, full-model file policy, quality, or target benchmark follows.
    runtime build, dependency provenance, guarded vocabulary-only conversion,
    real native/HF prompt and label parity, and existing one-tensor BitNet proofs.
    Separate synthetic native hybrid prefill, nonzero BitNet FFN arithmetic,
-   chunk/reset state, typed order, and no-score rejection controls also pass.
+   nonzero recurrent/attention state, chunk/reset, typed order, initialized
+   shared-context isolation, and runtime error/refusal/recovery controls also pass.
 2. **Requires separate bulk-conversion approval:** create one text-only BF16
    native reference from the existing snapshot, retaining full embedding/head,
    excluding vision/MTP, leaving the sole ternary candidate unchanged. Use lazy

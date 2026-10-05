@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `27cfd63` implementation checkpoint and the next bounded native
+For the tested `cf16046` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-05).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -269,9 +269,12 @@ construction and zero-generation prefill with a nonzero BitNet FFN at layer 3.
 Independent dense/A8 final-logit references, reordered typed options, chunked
 prefill, context clearing/reuse, counted calls/one repack, and malformed-weight
 refusal pass. The override is explicitly test-only and does not expand the
-one-tensor production factory. This reduces bounded architecture/dispatch risk;
-real MiMo weights, nonzero recurrent/attention parity, full-model validated file
-policy, and representative quality remain separate gates.
+one-tensor production factory. This reduces bounded architecture/dispatch risk.
+Nonzero fixed-gate recurrent and single-rotary-plane attention references now
+also pass, with explicit FP16 KV caches, initialized shared-model context
+isolation, and failed-kernel/no-score recovery. Real MiMo weights, general
+gate/head/rotary coverage, registry/lifecycle race safety, full-model validated
+file policy, and representative quality remain separate gates.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The
