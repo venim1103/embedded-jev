@@ -129,74 +129,76 @@ writer.write_tensors_to_file()
 writer.close()
 if sys.argv[2] not in ("dense", "bitnet"):
     sys.exit(0)
-sequence = embedding[[3, 5, 7]].copy()
-hidden = sequence[-1].copy()
-if sys.argv[3] == "nonzero":
-    history = np.zeros((3, 64), dtype=np.float32)
-    state = np.zeros((4, 8, 8), dtype=np.float32)
-    for index, token in enumerate((3, 5, 7)):
-        current = embedding[token]
-        normalized = current / np.sqrt(np.mean(current * current) + np.float32(1e-5))
-        history[:-1] = history[1:]
-        history[-1] = recurrent_qkv @ normalized
-        convolved = np.sum(history * convolution.T, axis=0)
-        convolved = convolved / (np.float32(1) + np.exp(-convolved))
-        query = convolved[:16].reshape(2, 8)
-        key = convolved[16:32].reshape(2, 8)
-        query /= np.maximum(np.sqrt(np.sum(query * query, axis=1, keepdims=True)), np.float32(1e-5))
-        key /= np.maximum(np.sqrt(np.sum(key * key, axis=1, keepdims=True)), np.float32(1e-5))
-        query = np.tile(query, (2, 1)) / np.sqrt(np.float32(8))
-        key = np.tile(key, (2, 1))
-        value = convolved[32:].reshape(4, 8)
-        state *= np.float32(0.5)
-        predicted = np.einsum("hij,hj->hi", state, key)
-        delta = (value - predicted) * np.float32(0.5)
-        state += delta[:, :, None] * key[:, None, :]
-        output = np.einsum("hij,hj->hi", state, query)
-        output /= np.sqrt(np.mean(output * output, axis=1, keepdims=True) + np.float32(1e-5))
-        gating = recurrent_gate @ normalized
-        output = output.reshape(32) * (gating / (np.float32(1) + np.exp(-gating)))
-        hidden = current + recurrent_out @ output
-        sequence[index] = hidden
-    assert np.linalg.norm(hidden - embedding[7]) > 0.01
-if sys.argv[4] == "nonzero":
-    normalized = sequence / np.sqrt(np.mean(sequence * sequence, axis=1, keepdims=True) + np.float32(1e-5))
-    query = (normalized @ attention_query.T)[:, np.arange(4) * 16]
-    query /= np.sqrt(query * query / np.float32(8) + np.float32(1e-5))
-    key = (normalized @ attention_key.T)[:, np.arange(2) * 8]
-    key /= np.sqrt(key * key / np.float32(8) + np.float32(1e-5))
-    positions = np.arange(3, dtype=np.float32)
-    key_cosine = (key * np.cos(positions[:, None])).astype(np.float16).astype(np.float32)
-    key_sine = (key * np.sin(positions[:, None])).astype(np.float16).astype(np.float32)
-    value = (normalized @ attention_value.T).astype(np.float16).astype(np.float32).reshape(3, 2, 8)
-    original = sequence.copy()
-    for index in range(3):
-        output = np.zeros((4, 8), dtype=np.float32)
-        for head_index in range(4):
-            key_head = head_index // 2
-            cosine = query[index, head_index] * np.cos(positions[index])
-            sine = query[index, head_index] * np.sin(positions[index])
-            scores = (cosine * key_cosine[:index + 1, key_head] + sine * key_sine[:index + 1, key_head]) / np.sqrt(np.float32(8))
-            scores = np.exp(scores - np.max(scores))
-            scores /= np.sum(scores)
-            output[head_index] = np.sum(value[:index + 1, key_head] * scores[:, None], axis=0)
-        sequence[index] += attention_out @ (output.reshape(32) * np.float32(0.5))
-    assert np.linalg.norm(sequence - original) > 0.01
-    hidden = sequence[-1]
-normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
-gated = gate @ normalized
-activation = (gated / (np.float32(1) + np.exp(-gated))) * (up @ normalized)
-if sys.argv[2] == "bitnet":
-    groups = activation.reshape(2, 128)
-    activation_scales = np.max(np.abs(groups), axis=1) / np.float32(127)
-    activation_scales[activation_scales == 0] = 1
-    quantized = np.clip(np.rint(groups / activation_scales[:, None]), -127, 127).astype(np.int32)
-    partials = np.sum(codes.reshape(32, 2, 128).astype(np.int32) * quantized[None], axis=-1)
-    hidden += np.sum(partials.astype(np.float32) * scales.astype(np.float32) * activation_scales, axis=1)
-else:
-    hidden += (codes.astype(np.float32) * np.repeat(scales, 128, axis=1)) @ activation
-hidden = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
-print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
+def reference_logits(token_ids):
+    sequence = embedding[token_ids].copy()
+    hidden = sequence[-1].copy()
+    if sys.argv[3] == "nonzero":
+        history = np.zeros((3, 64), dtype=np.float32)
+        state = np.zeros((4, 8, 8), dtype=np.float32)
+        for index, token in enumerate(token_ids):
+            current = embedding[token]
+            normalized = current / np.sqrt(np.mean(current * current) + np.float32(1e-5))
+            history[:-1] = history[1:]
+            history[-1] = recurrent_qkv @ normalized
+            convolved = np.sum(history * convolution.T, axis=0)
+            convolved = convolved / (np.float32(1) + np.exp(-convolved))
+            query = convolved[:16].reshape(2, 8)
+            key = convolved[16:32].reshape(2, 8)
+            query /= np.maximum(np.sqrt(np.sum(query * query, axis=1, keepdims=True)), np.float32(1e-5))
+            key /= np.maximum(np.sqrt(np.sum(key * key, axis=1, keepdims=True)), np.float32(1e-5))
+            query = np.tile(query, (2, 1)) / np.sqrt(np.float32(8))
+            key = np.tile(key, (2, 1))
+            value = convolved[32:].reshape(4, 8)
+            state *= np.float32(0.5)
+            predicted = np.einsum("hij,hj->hi", state, key)
+            delta = (value - predicted) * np.float32(0.5)
+            state += delta[:, :, None] * key[:, None, :]
+            output = np.einsum("hij,hj->hi", state, query)
+            output /= np.sqrt(np.mean(output * output, axis=1, keepdims=True) + np.float32(1e-5))
+            gating = recurrent_gate @ normalized
+            output = output.reshape(32) * (gating / (np.float32(1) + np.exp(-gating)))
+            hidden = current + recurrent_out @ output
+            sequence[index] = hidden
+        assert np.linalg.norm(hidden - embedding[token_ids[-1]]) > 0.01
+    if sys.argv[4] == "nonzero":
+        normalized = sequence / np.sqrt(np.mean(sequence * sequence, axis=1, keepdims=True) + np.float32(1e-5))
+        query = (normalized @ attention_query.T)[:, np.arange(4) * 16]
+        query /= np.sqrt(query * query / np.float32(8) + np.float32(1e-5))
+        key = (normalized @ attention_key.T)[:, np.arange(2) * 8]
+        key /= np.sqrt(key * key / np.float32(8) + np.float32(1e-5))
+        positions = np.arange(len(token_ids), dtype=np.float32)
+        key_cosine = (key * np.cos(positions[:, None])).astype(np.float16).astype(np.float32)
+        key_sine = (key * np.sin(positions[:, None])).astype(np.float16).astype(np.float32)
+        value = (normalized @ attention_value.T).astype(np.float16).astype(np.float32).reshape(len(token_ids), 2, 8)
+        original = sequence.copy()
+        for index in range(len(token_ids)):
+            output = np.zeros((4, 8), dtype=np.float32)
+            for head_index in range(4):
+                key_head = head_index // 2
+                cosine = query[index, head_index] * np.cos(positions[index])
+                sine = query[index, head_index] * np.sin(positions[index])
+                scores = (cosine * key_cosine[:index + 1, key_head] + sine * key_sine[:index + 1, key_head]) / np.sqrt(np.float32(8))
+                scores = np.exp(scores - np.max(scores))
+                scores /= np.sum(scores)
+                output[head_index] = np.sum(value[:index + 1, key_head] * scores[:, None], axis=0)
+            sequence[index] += attention_out @ (output.reshape(32) * np.float32(0.5))
+        assert np.linalg.norm(sequence - original) > 0.01
+        hidden = sequence[-1]
+    normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
+    gated = gate @ normalized
+    activation = (gated / (np.float32(1) + np.exp(-gated))) * (up @ normalized)
+    if sys.argv[2] == "bitnet":
+        groups = activation.reshape(2, 128)
+        activation_scales = np.max(np.abs(groups), axis=1) / np.float32(127)
+        activation_scales[activation_scales == 0] = 1
+        quantized = np.clip(np.rint(groups / activation_scales[:, None]), -127, 127).astype(np.int32)
+        partials = np.sum(codes.reshape(32, 2, 128).astype(np.int32) * quantized[None], axis=-1)
+        hidden += np.sum(partials.astype(np.float32) * scales.astype(np.float32) * activation_scales, axis=1)
+    else:
+        hidden += (codes.astype(np.float32) * np.repeat(scales, 128, axis=1)) @ activation
+    hidden = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
+    return (head[[11, 17, 23]] @ hidden).tolist()
+print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": reference_logits([4, 9, 19, 3, 5, 7])}))
 """
     try:
         writer = subprocess.run([converter, "-c", writer_code, str(model_file), backend,
@@ -205,7 +207,7 @@ print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
                                                 "PYTHONDONTWRITEBYTECODE": "1"})
         assert writer.returncode == 0, writer.stderr
         expected = json.loads(writer.stdout)
-        for mode in ("full", "chunked", "reset", "reordered"):
+        for mode in ("full", "chunked", "reset", "reordered", "parallel"):
             control = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                       "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control",
                                       str(model_file), mode], capture_output=True, text=True, timeout=30)
@@ -213,7 +215,7 @@ print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
             report = json.loads(control.stdout)
             assert report["prefilled_tokens"] == 3 and report["generated_answer_tokens"] == 0
             assert report["backend"] == backend and report["mode"] == mode
-            calls = 2 if mode in ("chunked", "reset") else 1
+            calls = 3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1
             assert report["prefill_calls"] == calls
             assert report["bitnet_dispatch_calls"] == (calls if backend == "bitnet" else 0)
             assert report["weight_repacks"] == (backend == "bitnet")
@@ -226,6 +228,12 @@ print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
             scores = np.exp(logits - logits.max())
             scores /= scores.sum()
             np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+            if mode == "parallel":
+                np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
+                if recurrent or attention:
+                    assert not np.allclose(expected["peer_logits"], expected["logits"], rtol=1e-4, atol=1e-4)
+            else:
+                assert report["peer_logits"] == []
         command = "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control"
         rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                    command, str(model_file), "unknown"], capture_output=True, text=True, timeout=30)

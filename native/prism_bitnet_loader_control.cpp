@@ -397,7 +397,8 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     const bool chunked = std::strcmp(mode, "chunked") == 0;
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
-    if (!chunked && !reset && !reordered && std::strcmp(mode, "full") != 0) {
+    const bool parallel = std::strcmp(mode, "parallel") == 0;
+    if (!chunked && !reset && !reordered && !parallel && std::strcmp(mode, "full") != 0) {
         return 32;
     }
     ggml_backend_buffer_type_t buffer_type = nullptr;
@@ -460,6 +461,18 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     }
     const auto memory = llama_get_memory(context.get());
     std::size_t prefill_calls = 0;
+    std::unique_ptr<llama_context, decltype(&llama_free)> peer(nullptr, llama_free);
+    if (parallel) {
+        peer.reset(llama_init_from_model(model.get(), context_params));
+        if (!peer) {
+            return 28;
+        }
+        std::vector<llama_token> prefix = { 4, 9, 19 };
+        if (llama_decode(peer.get(), llama_batch_get_one(prefix.data(), prefix.size())) != 0) {
+            return 29;
+        }
+        ++prefill_calls;
+    }
     if (reset) {
         std::vector<llama_token> warmup = { 4, 9, 19 };
         if (llama_decode(context.get(), llama_batch_get_one(warmup.data(), warmup.size())) != 0) {
@@ -472,6 +485,13 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
         }
     }
     std::vector<llama_token> tokens = { 3, 5, 7 };
+    std::vector<llama_token> peer_tokens = tokens;
+    std::future<int> peer_result;
+    if (parallel) {
+        peer_result = std::async(std::launch::async, [&] {
+            return llama_decode(peer.get(), llama_batch_get_one(peer_tokens.data(), peer_tokens.size()));
+        });
+    }
     if (chunked) {
         if (llama_decode(context.get(), llama_batch_get_one(tokens.data(), 1)) != 0) {
             return 29;
@@ -483,6 +503,16 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
         return 29;
     }
     ++prefill_calls;
+    if (parallel) {
+        if (peer_result.get() != 0) {
+            return 29;
+        }
+        ++prefill_calls;
+        const auto peer_memory = llama_get_memory(peer.get());
+        if (llama_memory_seq_pos_min(peer_memory, 0) != 5 || llama_memory_seq_pos_max(peer_memory, 0) != 5) {
+            return 31;
+        }
+    }
     const auto position_min = llama_memory_seq_pos_min(memory, 0);
     const auto position_max = llama_memory_seq_pos_max(memory, 0);
     if (position_min != 2 || position_max != 2) {
@@ -490,6 +520,11 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     }
     const float* logits = llama_get_logits_ith(context.get(), -1);
     if (!logits || !std::all_of(logits, logits + vocab_size, [](float value) { return std::isfinite(value); })) {
+        return 29;
+    }
+    const float* peer_logits = parallel ? llama_get_logits_ith(peer.get(), -1) : nullptr;
+    if (parallel && (!peer_logits ||
+            !std::all_of(peer_logits, peer_logits + vocab_size, [](float value) { return std::isfinite(value); }))) {
         return 29;
     }
     if (use_bitnet && (prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks) != 0 ||
@@ -531,6 +566,12 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     std::fputs("],\"conditional_scores\":[", stdout);
     for (std::size_t index = 0; index < scores.size(); ++index) {
         std::printf("%s%.17g", index ? "," : "", scores[index] / denominator);
+    }
+    std::fputs("],\"peer_logits\":[", stdout);
+    if (parallel) {
+        for (std::size_t index = 0; index < options.size(); ++index) {
+            std::printf("%s%.17g", index ? "," : "", static_cast<double>(peer_logits[options[index].token]));
+        }
     }
     std::printf("],\"backend\":\"%s\",\"mode\":\"%s\",\"prefill_calls\":%zu,"
             "\"bitnet_dispatch_calls\":%zu,\"weight_repacks\":%zu,\"memory_position_min\":%d,\"memory_position_max\":%d}\n",
