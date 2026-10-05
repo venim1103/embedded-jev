@@ -13,6 +13,96 @@ PRISM_REVISION = "842b1880415d6f508f03b789e5ce70194def7bfd"
 BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
 
 
+def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_path):
+    import numpy as np
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    converter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+    if not source_dir or not converter or not runtime_build:
+        pytest.skip("requires pinned source, GGUF environment, and versioned full runtime build")
+    assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    model_file = tmp_path / "tiny-qwen35-prefill.gguf"
+    writer_code = """
+import json
+import sys
+import gguf
+import numpy as np
+writer = gguf.GGUFWriter(sys.argv[1], "qwen35")
+for key, value in {
+    "context_length": 256, "embedding_length": 32, "block_count": 2,
+    "feed_forward_length": 64, "attention.head_count": 4, "attention.head_count_kv": 2,
+    "attention.key_length": 8, "attention.value_length": 8, "rope.dimension_count": 8,
+    "ssm.conv_kernel": 3, "ssm.inner_size": 32, "ssm.state_size": 8,
+    "ssm.time_step_rank": 4, "ssm.group_count": 2, "full_attention_interval": 2,
+}.items():
+    writer.add_uint32("qwen35." + key, value)
+writer.add_float32("qwen35.attention.layer_norm_rms_epsilon", 1e-5)
+writer.add_float32("qwen35.rope.freq_base", 10000)
+writer.add_array("qwen35.rope.dimension_sections", [2, 1, 1, 0])
+writer.add_tokenizer_model("gpt2")
+writer.add_tokenizer_pre("qwen2")
+vocabulary = ["token_" + str(index) for index in range(64)]
+vocabulary[2:5] = ["a", "b", "ab"]
+writer.add_token_list(vocabulary)
+writer.add_token_merges(["a b"])
+writer.add_bos_token_id(0)
+writer.add_eos_token_id(1)
+writer.add_add_bos_token(False)
+generator = np.random.default_rng(1407)
+embedding = generator.normal(0, 0.2, (64, 32)).astype(np.float32)
+head = generator.normal(0, 0.1, (64, 32)).astype(np.float32)
+writer.add_tensor("token_embd.weight", embedding)
+writer.add_tensor("output.weight", head)
+writer.add_tensor("output_norm.weight", np.ones(32, dtype=np.float32))
+for name, shape in {
+    "attn_q.weight": (64, 32), "attn_k.weight": (16, 32), "attn_v.weight": (16, 32),
+    "attn_output.weight": (32, 32), "ffn_gate.weight": (64, 32),
+    "ffn_up.weight": (64, 32), "ffn_down.weight": (32, 64),
+}.items():
+    writer.add_tensor("blk.1." + name, np.zeros(shape, dtype=np.float32))
+for name, width in {"attn_norm.weight": 32, "post_attention_norm.weight": 32,
+                    "attn_q_norm.weight": 8, "attn_k_norm.weight": 8}.items():
+    writer.add_tensor("blk.1." + name, np.ones(width, dtype=np.float32))
+for name, shape in {
+    "attn_qkv.weight": (64, 32), "attn_gate.weight": (32, 32), "ssm_conv1d.weight": (64, 3),
+    "ssm_beta.weight": (4, 32), "ssm_alpha.weight": (4, 32), "ssm_out.weight": (32, 32),
+    "ffn_gate.weight": (64, 32), "ffn_up.weight": (64, 32), "ffn_down.weight": (32, 64),
+}.items():
+    writer.add_tensor("blk.0." + name, np.zeros(shape, dtype=np.float32))
+for name, width in {"attn_norm.weight": 32, "post_attention_norm.weight": 32, "ssm_norm.weight": 8}.items():
+    writer.add_tensor("blk.0." + name, np.ones(width, dtype=np.float32))
+writer.add_tensor("blk.0.ssm_dt.bias", np.zeros(4, dtype=np.float32))
+writer.add_tensor("blk.0.ssm_a", -np.ones(4, dtype=np.float32))
+writer.write_header_to_file()
+writer.write_kv_data_to_file()
+writer.write_tensors_to_file()
+writer.close()
+hidden = embedding[7]
+hidden = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
+print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
+"""
+    try:
+        writer = subprocess.run([converter, "-c", writer_code, str(model_file)], capture_output=True, text=True,
+                                timeout=30, env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
+                                                "PYTHONDONTWRITEBYTECODE": "1"})
+        assert writer.returncode == 0, writer.stderr
+        expected = json.loads(writer.stdout)
+        control = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                  "--prefill-control", str(model_file)], capture_output=True, text=True, timeout=30)
+        assert control.returncode == 0, control.stderr
+        report = json.loads(control.stdout)
+        assert report["prefilled_tokens"] == 3 and report["generated_answer_tokens"] == 0
+        assert report["option_token_ids"] == [11, 17, 23]
+        np.testing.assert_allclose(report["logits"], expected["logits"], rtol=2e-5, atol=2e-5)
+        logits = np.asarray(expected["logits"], dtype=np.float64)
+        scores = np.exp(logits - logits.max())
+        scores /= scores.sum()
+        np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+    finally:
+        model_file.unlink(missing_ok=True)
+
+
 def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     library_name = os.environ.get("PRISM_GGML_CPU_LIBRARY")
@@ -984,9 +1074,14 @@ print(json.dumps(results))
         [None, None, None],
     ]
 
-    from embedded_jev.inventory import _json_object, _open_bounded
+    from embedded_jev.inventory import _json_object, _open_bounded, read_local_headers
 
-    index_bytes, _ = _open_bounded("model.safetensors.index.json")
+    local_dir = os.environ.get("MIMO_LOCAL_DIR")
+    if local_dir:
+        metadata, _ = read_local_headers(Path(local_dir))
+        index_bytes = metadata["model.safetensors.index.json"]
+    else:
+        index_bytes, _ = _open_bounded("model.safetensors.index.json")
     names = sorted(_json_object(index_bytes, "model.safetensors.index.json")["weight_map"])
     assert len(names) == 760
     all_results = subprocess.run(

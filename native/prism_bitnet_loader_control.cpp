@@ -389,6 +389,76 @@ static int test_loader_override(const char* path) {
 }
 
 #ifdef JEV_TEST_FULL_RUNTIME
+static int test_prefill_control(const char* path) {
+    ggml_backend_buffer_type_t buffer_type = nullptr;
+    if (prism_bitnet_cpu_runtime_init_v1(
+            JEV_PRISM_SOURCE_REVISION, JEV_BITNET_RUNTIME_ABI_V1, &buffer_type) != 0) {
+        return 27;
+    }
+    llama_backend_init();
+    auto params = llama_model_default_params();
+    params.n_gpu_layers = 0;
+    params.load_mode = LLAMA_LOAD_MODE_NONE;
+    params.check_tensors = true;
+    std::unique_ptr<llama_model, decltype(&llama_model_free)> model(
+        llama_model_load_from_file(path, params), llama_model_free);
+    if (!model) {
+        return 27;
+    }
+    const auto* vocab = llama_model_get_vocab(model.get());
+    const int32_t vocab_size = llama_vocab_n_tokens(vocab);
+    if (vocab_size < 24) {
+        return 27;
+    }
+    auto context_params = llama_context_default_params();
+    context_params.n_ctx = 128;
+    context_params.n_batch = 128;
+    context_params.n_ubatch = 128;
+    context_params.n_seq_max = 1;
+    context_params.n_threads = 1;
+    context_params.n_threads_batch = 1;
+    context_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    std::unique_ptr<llama_context, decltype(&llama_free)> context(
+        llama_init_from_model(model.get(), context_params), llama_free);
+    if (!context) {
+        return 28;
+    }
+    std::vector<llama_token> tokens = { 3, 5, 7 };
+    if (llama_decode(context.get(), llama_batch_get_one(tokens.data(), tokens.size())) != 0) {
+        return 29;
+    }
+    const float* logits = llama_get_logits_ith(context.get(), -1);
+    if (!logits || !std::all_of(logits, logits + vocab_size, [](float value) { return std::isfinite(value); })) {
+        return 29;
+    }
+    const std::vector<llama_token> labels = { 11, 17, 23 };
+    std::vector<double> selected;
+    for (const auto label : labels) {
+        selected.push_back(logits[label]);
+    }
+    const double maximum = *std::max_element(selected.begin(), selected.end());
+    std::vector<double> scores;
+    double denominator = 0;
+    for (const auto value : selected) {
+        scores.push_back(std::exp(value - maximum));
+        denominator += scores.back();
+    }
+    std::printf("{\"prefilled_tokens\":%zu,\"generated_answer_tokens\":0,\"option_token_ids\":[11,17,23],\"logits\":[",
+        tokens.size());
+    for (std::size_t index = 0; index < selected.size(); ++index) {
+        std::printf("%s%.17g", index ? "," : "", selected[index]);
+    }
+    std::fputs("],\"conditional_scores\":[", stdout);
+    for (std::size_t index = 0; index < scores.size(); ++index) {
+        std::printf("%s%.17g", index ? "," : "", scores[index] / denominator);
+    }
+    std::puts("]}");
+    context.reset();
+    model.reset();
+    llama_backend_free();
+    return 0;
+}
+
 static int test_vocab_only(const char* path, const char* prompt) {
     ggml_backend_buffer_type_t buffer_type = nullptr;
     if (std::strlen(prompt) > 4096 || prism_bitnet_cpu_runtime_init_v1(
@@ -440,6 +510,9 @@ static int test_vocab_only(const char* path, const char* prompt) {
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_FULL_RUNTIME
+    if (argc == 3 && std::strcmp(argv[1], "--prefill-control") == 0) {
+        return test_prefill_control(argv[2]);
+    }
     if (argc == 4 && std::strcmp(argv[1], "--vocab-only") == 0) {
         return test_vocab_only(argv[2], argv[3]);
     }
