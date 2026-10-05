@@ -14,8 +14,8 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-05)
 
-The last tested implementation commit is `cf16046` (2026-10-05),
-`test: verify native BitNet model failure and recovery`.
+The last tested implementation commit is `ecc6cbd` (2026-10-05),
+`test: verify actual BitNet model batch sizes through 128 tokens`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -34,8 +34,10 @@ instead of silently returning the unrelated default control's successful report.
 The next continuation started at `44fc7df`, still preserving user `.vscode/`.
 `6cba251` added nonzero recurrent arithmetic, `14aac4f` added nonzero attention
 and explicit FP16 KV caches, `5fff700` checked initialized shared-model contexts,
-and `cf16046` added runtime-kernel failure/refusal/recovery controls. No push or
-branch change followed.
+and `cf16046` added runtime-kernel failure/refusal/recovery controls.
+`76cc0b2` added contextual tokenizer-verified prompt scoring; `ecc6cbd` measures
+actual BitNet input batches and checks 128-token model prefill. No push or branch
+change followed.
 
 Current gates: **159 default tests passed, 32 optional tests skipped; all fifteen
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
@@ -43,7 +45,7 @@ handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
 enabled, including the sole full-size frozen projection, packaged dependency
 provenance, guarded vocabulary-only native tokenizer parity, and synthetic
-dense/BitNet hybrid model prefill (45.19 s).
+dense/BitNet hybrid model prefill (43.26 s).
 The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
@@ -149,6 +151,12 @@ development guide for flags.
   correctly paired after reordering, with stable conditional softmax and zero
   generated answer tokens. Full/chunked/reset executions check actual hybrid
   memory positions, one BitNet call per successful decode, and one repack per model load.
+  The additive `prism_bitnet_cpu_tensor_last_input_tokens_v1` diagnostic measures
+  actual projection batches: three rows for full prefill, two for the final chunk,
+  and 128 for the maximum-batch control. Final-layer masking does not reduce
+  these tested batches to one row; prompt length alone was not used as evidence.
+  The diagnostic is zero before computation, records attempted batches even on
+  kernel failure, returns tensor status, and uses the existing per-weight mutex.
   Two initialized contexts sharing one model run on separate threads with
   different effective histories; both independent references pass, with three
   successful BitNet calls and one repack. Loading/initialization/freeing is not
@@ -159,10 +167,16 @@ development guide for flags.
   on the same model/context with one successful call and no additional repack.
   Illegal +2 codes, negative/nonfinite scales, nonfinite head weights, and unknown
   modes return no score report. Files are removed in `finally`.
+  Dense `--prefill-text-control` tokenizes an already-rendered prompt and A/B/C,
+  requiring distinct single-token labels and unchanged prompt token prefixes
+  when each label is appended. Two- and 128-token toy prompts match independent
+  references; empty/oversized prompts and contextual BPE merges are refused.
+  It does not apply a chat template or choose a thinking policy. All eight cases
+  cover 60 successful native invocations and 76 refusal checks.
   The BitNet route is a test-only explicit override, capped at 1 MiB and exact
   four-layer/32 x 256 geometry; it does not call or expand the public one-tensor
   factory. This proves synthetic architecture/dispatch compatibility, not real
-  MiMo weight loading, meaningful tokenizer labels, general gate/head/rotary
+  MiMo weight loading, real-model contextual label scores, general gate/head/rotary
   correctness, native MiMo parity, model quality, or a retained candidate. See the
   [synthetic native gate](development.md#bounded-synthetic-native-prefill).
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
@@ -1173,7 +1187,8 @@ For a fresh coding session:
   graph gate. The separate full-runtime build and guarded vocabulary-only native
   tokenization now pass. The separate bounded synthetic hybrid model also passes
   genuine nonzero BitNet FFN/recurrent/attention prefill, typed order, chunk/reset,
-  initialized shared-context isolation, and runtime failure/recovery gates;
+  initialized shared-context isolation, runtime failure/recovery, measured
+  128-token BitNet batches, and dense contextual prompt/label scoring gates;
   start its next local control in
   [native/prism_bitnet_loader_control.cpp](../native/prism_bitnet_loader_control.cpp)
   and the existing optional test. Its test-only override must not become an

@@ -256,6 +256,17 @@ is 159 passed/32 skipped. This is bounded arithmetic/state/error evidence, not
 general head/gate/multimodal correctness, lifecycle-race safety, native MiMo
 hosting, quality, or a benchmark. Cached upstream sources/libraries and the sole
 retained candidate remain unchanged.
+At `76cc0b2`, dense native text prefill tokenizes an already-rendered prompt and
+requires distinct single-token A/B/C labels with prefix-preserving contextual
+tokenization. Two-/128-token toy prompts match independent scores; invalid
+lengths and contextual BPE merges are refused without generation. At `ecc6cbd`,
+the stable BitNet tensor exposes a mutex-protected last-attempted-input diagnostic,
+preserving existing ABI-v1 signatures and status semantics. Actual three-/two-/128-row
+projection batches pass, including 128-token model prefill with nonzero recurrent
+and attention paths; final-layer masking does not reduce these controls to one
+row. All 15 native controls pass in 43.26 s, plus two CTests and 159 default tests
+with 32 optional skips. These are synthetic arithmetic/runtime/tokenizer checks,
+not native MiMo weight loading, calibrated confidence, or quality evidence.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`

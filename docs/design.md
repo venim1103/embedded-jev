@@ -301,9 +301,14 @@ small fixed-gate recurrent and single-plane attention references now also pass
 with explicit FP16 KV caches. Two initialized contexts sharing immutable weights
 preserve separate prefix histories on separate threads. Failed kernel status/NaN
 logits are refused even when native decode succeeds; context reset and restored
-rounding recover correct scores without repacking. This is a tiny test-only
+rounding recover correct scores without repacking. At `ecc6cbd`, a per-weight
+diagnostic verifies actual three-/two-/128-row BitNet batches, including the
+maximum model prefill; these are not inferred from prompt length. Dense native
+text scoring also verifies distinct single-token A/B/C labels and unchanged
+prompt token prefixes under label concatenation, without sampling or template
+selection. These checks use synthetic weights/vocabulary. This is a tiny test-only
 override, not the production one-tensor factory, real MiMo hosting, meaningful
-label/tokenizer parity, general recurrent/attention or lifecycle-race safety,
+real-model label scores, general recurrent/attention or lifecycle-race safety,
 or task-quality evidence.
 
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed

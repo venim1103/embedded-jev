@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `cf16046` implementation checkpoint and the next bounded native
+For the tested `ecc6cbd` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-05).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -275,6 +275,10 @@ also pass, with explicit FP16 KV caches, initialized shared-model context
 isolation, and failed-kernel/no-score recovery. Real MiMo weights, general
 gate/head/rotary coverage, registry/lifecycle race safety, full-model validated
 file policy, and representative quality remain separate gates.
+At `ecc6cbd`, measured BitNet input dimensions also verify full/chunked and
+128-token maximum model batches. Dense native prompt scoring validates contextual
+A/B/C token boundaries against the toy tokenizer and independent references,
+with no answer generation. This does not lift the bulk-conversion approval gate.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

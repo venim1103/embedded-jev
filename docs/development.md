@@ -6,7 +6,7 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `cf16046` (2026-10-05), following
+The last tested implementation checkpoint is `ecc6cbd` (2026-10-05), following
 the isolated runtime/vocabulary preflight and metadata-only resource planner.
 The [current handover](handover.md#current-checkpoint-2026-10-05) is the
 authoritative resume summary, including external cache paths and the next
@@ -18,7 +18,7 @@ fifteen pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
 including the full-size frozen projection and guarded vocabulary-only native
-tokenizer preflight and dense/BitNet synthetic model prefill (45.19 s).
+tokenizer preflight and dense/BitNet synthetic model prefill (43.26 s).
 The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
@@ -977,7 +977,8 @@ PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory \
    | jq '.native_reference_plan'
 ```
 
-Observed on 2026-10-01, before the vocabulary-only preflight:
+Source planning was checked on 2026-10-01, before the vocabulary-only preflight;
+host RAM/swap/disk rows were refreshed on 2026-10-05:
 
 | Quantity | Bytes | Interpretation |
 | --- | ---: | --- |
@@ -990,9 +991,10 @@ Observed on 2026-10-01, before the vocabulary-only preflight:
 | Largest source plus FP32 copy | 6,102,712,320 | 5.684 GiB, before encoded output and other allocations |
 | Above plus BF16 encoded output | 8,136,949,760 | 7.578 GiB illustrative concurrent-copy budget, not measured peak |
 | All text values in FP32 | 35,815,213,056 | Do not assume an eager/all-FP32 conversion fits |
-| Host available RAM | 22,345,261,056 | 20.811 GiB, time-sensitive; not a target-device budget |
+| Host total RAM | 31,541,739,520 | Host observation, not a target-device budget |
+| Host available RAM | 23,374,372,864 | About 21.8 GiB, time-sensitive; recheck before conversion |
 | Host swap / currently used | 8,589,934,592 / 0 | Swap is not working-memory acceptance evidence |
-| Cache filesystem available | 336,891,891,712 | 313.755 GiB, time-sensitive; recheck before conversion |
+| Cache filesystem available | 326,808,473,600 | About 304 GiB, time-sensitive; recheck before conversion |
 
 The cgroup memory limit read `max`; host availability still applies. Pinned
 converter `prepare_tensors` routes source BF16 through FP32 and forces vectors,
@@ -1069,7 +1071,8 @@ MiMo conversion. No source model weights are opened for this fixture.
 
 `--prefill-control` and test-only `--prefill-bitnet-control` load the model through
 the real public API, use one CPU thread and at most 128 batch/ubatch tokens, and
-prefill numeric tokens `[3,5,7]` without sampling or an answer decode. The pinned
+prefill numeric tokens `[3,5,7]`, or 128 copies of token 2 in `maximum` mode,
+without sampling or an answer decode. The pinned
 context rounds its 128 requested context slots to 256. The BitNet control uses an
 explicit exact layer-3 override, a 1 MiB file cap, and four-layer/32 x 256 geometry
 checks. It does not use or relax the public one-tensor metadata-gated factory.
@@ -1082,13 +1085,31 @@ scales. Typed IDs `inspect/edit/ask` map to synthetic numeric slots `11/17/23`.
 These are not genuine MiMo label tokens or task-quality evidence. Selected-label
 softmax is conditional on these options, not calibrated confidence.
 
+Dense `--prefill-text-control <gguf> <prompt>` accepts an already-rendered prompt
+of 1..4096 bytes and 1..128 tokens. It tokenizes A/B/C into distinct single-token
+labels, then requires each appended label to preserve the prompt token prefix
+and add exactly that label token. The toy prompt `aba` yields `[4,2]`; 128 copies
+of `a` yield 128 copies of token 2. Both match independent reference scores.
+Empty/oversized prompts and a fixture where appending A changes BPE tokenization
+are refused without scores. No sampler, chat-template rendering, or thinking
+policy is selected; real MiMo weights are not tested by this synthetic path.
+
 Each fixture checks full, split 1+2-token, reset-after-another-prompt, and reordered
 option execution. Nonzero state/output changes are explicitly required, so these
 are not zero-output state controls. BitNet has one counted kernel dispatch per
 successful decode and one weight repack per model load, including context reuse.
 Hybrid position
-bounds report the intersection of KV/recurrent retained ranges: `[2,2]` here,
-and an empty range immediately after reset. Malformed +2 codes, negative/NaN
+bounds report the intersection of KV/recurrent retained ranges: `[2,2]` for
+three-token prefill, `[127,127]` for the maximum batch, and an empty range
+immediately after reset. The additive ABI-v1
+`prism_bitnet_cpu_tensor_last_input_tokens_v1` diagnostic measures three input
+rows for full/reset/reordered execution, two for the final chunk, and 128 for
+`maximum`. These are actual BitNet tensor dimensions, not prompt-length inference;
+final-layer output masking does not reduce these controls to one projected row.
+It returns current tensor status and the last attempted batch, including failed
+input preparation; zero means no compute attempt yet. Reads use the existing
+mutex, require a live owned tensor, and do not certify lifecycle-race safety.
+Malformed +2 codes, negative/NaN
 FP16 scales, NaN head weights, and unknown modes must fail without stdout scores.
 Unknown command flags and missing/extra arguments are also rejected before CPU
 discovery, rather than falling through to an unrelated successful default report.
@@ -1122,8 +1143,8 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
    tests/test_prism_native_control.py -k tiny_qwen35_native_prefill
 ```
 
-All eight parameterized cases pass, including 44 successful native invocations
-and 60 refusal checks. These are controlled fixed-gate/head/rotary fixtures, not
+All eight parameterized cases pass, including 60 successful native invocations
+and 76 refusal checks. These are controlled fixed-gate/head/rotary fixtures, not
 general recurrent/attention correctness, native MiMo weight loading, a full-model
 file policy, quality, or a target benchmark.
 
@@ -1134,7 +1155,8 @@ file policy, quality, or a target benchmark.
    real native/HF prompt and label parity, and existing one-tensor BitNet proofs.
    Separate synthetic native hybrid prefill, nonzero BitNet FFN arithmetic,
    nonzero recurrent/attention state, chunk/reset, typed order, initialized
-   shared-context isolation, and runtime error/refusal/recovery controls also pass.
+   shared-context isolation, runtime error/refusal/recovery, measured 128-token
+   BitNet batches, and dense contextual prompt/label scoring controls also pass.
 2. **Requires separate bulk-conversion approval:** create one text-only BF16
    native reference from the existing snapshot, retaining full embedding/head,
    excluding vision/MTP, leaving the sole ternary candidate unchanged. Use lazy
