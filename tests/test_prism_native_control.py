@@ -14,7 +14,8 @@ BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
 
 
 @pytest.mark.parametrize("backend", ["dense", "bitnet"])
-def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_path, backend):
+@pytest.mark.parametrize("recurrent", [False, True])
+def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_path, backend, recurrent):
     import numpy as np
 
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
@@ -64,6 +65,11 @@ gate = np.zeros((256, 32), dtype=np.float32)
 gate[:, 0] = 0.25
 up = np.zeros((256, 32), dtype=np.float32)
 up[np.arange(256), (np.arange(256) * 7) % 32] = np.repeat([0.125, 0.375], 128)
+recurrent_qkv = np.zeros((64, 32), dtype=np.float32)
+recurrent_qkv[np.arange(64), np.arange(64) % 32] = 0.25
+recurrent_gate = np.eye(32, dtype=np.float32) * np.float32(0.5)
+recurrent_out = np.eye(32, dtype=np.float32) * np.float32(0.125)
+convolution = np.tile(np.array([0.125, 0.25, 1], dtype=np.float32), (64, 1))
 for layer in range(4):
     prefix = "blk." + str(layer) + "."
     writer.add_tensor(prefix + "attn_norm.weight", np.ones(32, dtype=np.float32))
@@ -79,7 +85,11 @@ for layer in range(4):
             "attn_qkv.weight": (64, 32), "attn_gate.weight": (32, 32), "ssm_conv1d.weight": (64, 3),
             "ssm_beta.weight": (4, 32), "ssm_alpha.weight": (4, 32), "ssm_out.weight": (32, 32),
         }.items():
-            writer.add_tensor(prefix + name, np.zeros(shape, dtype=np.float32))
+            values = np.zeros(shape, dtype=np.float32)
+            if layer == 0 and sys.argv[3] == "nonzero":
+                values = {"attn_qkv.weight": recurrent_qkv, "attn_gate.weight": recurrent_gate,
+                          "ssm_conv1d.weight": convolution, "ssm_out.weight": recurrent_out}.get(name, values)
+            writer.add_tensor(prefix + name, values)
         writer.add_tensor(prefix + "ssm_norm.weight", np.ones(8, dtype=np.float32))
         writer.add_tensor(prefix + "ssm_dt.bias", np.zeros(4, dtype=np.float32))
         writer.add_tensor(prefix + "ssm_a", -np.ones(4, dtype=np.float32))
@@ -108,6 +118,33 @@ writer.close()
 if sys.argv[2] not in ("dense", "bitnet"):
     sys.exit(0)
 hidden = embedding[7].copy()
+if sys.argv[3] == "nonzero":
+    history = np.zeros((3, 64), dtype=np.float32)
+    state = np.zeros((4, 8, 8), dtype=np.float32)
+    for token in (3, 5, 7):
+        current = embedding[token]
+        normalized = current / np.sqrt(np.mean(current * current) + np.float32(1e-5))
+        history[:-1] = history[1:]
+        history[-1] = recurrent_qkv @ normalized
+        convolved = np.sum(history * convolution.T, axis=0)
+        convolved = convolved / (np.float32(1) + np.exp(-convolved))
+        query = convolved[:16].reshape(2, 8)
+        key = convolved[16:32].reshape(2, 8)
+        query /= np.maximum(np.sqrt(np.sum(query * query, axis=1, keepdims=True)), np.float32(1e-5))
+        key /= np.maximum(np.sqrt(np.sum(key * key, axis=1, keepdims=True)), np.float32(1e-5))
+        query = np.tile(query, (2, 1)) / np.sqrt(np.float32(8))
+        key = np.tile(key, (2, 1))
+        value = convolved[32:].reshape(4, 8)
+        state *= np.float32(0.5)
+        predicted = np.einsum("hij,hj->hi", state, key)
+        delta = (value - predicted) * np.float32(0.5)
+        state += delta[:, :, None] * key[:, None, :]
+        output = np.einsum("hij,hj->hi", state, query)
+        output /= np.sqrt(np.mean(output * output, axis=1, keepdims=True) + np.float32(1e-5))
+        gating = recurrent_gate @ normalized
+        output = output.reshape(32) * (gating / (np.float32(1) + np.exp(-gating)))
+        hidden = current + recurrent_out @ output
+    assert np.linalg.norm(hidden - embedding[7]) > 0.01
 normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
 gated = gate @ normalized
 activation = (gated / (np.float32(1) + np.exp(-gated))) * (up @ normalized)
@@ -124,7 +161,8 @@ hidden = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
 print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
 """
     try:
-        writer = subprocess.run([converter, "-c", writer_code, str(model_file), backend], capture_output=True, text=True,
+        writer = subprocess.run([converter, "-c", writer_code, str(model_file), backend,
+                     "nonzero" if recurrent else "zero"], capture_output=True, text=True,
                                 timeout=30, env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
                                                 "PYTHONDONTWRITEBYTECODE": "1"})
         assert writer.returncode == 0, writer.stderr
@@ -164,7 +202,8 @@ print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
             if backend == "bitnet" else ("dense_nan",)
         )
         for corruption in corruptions:
-            writer = subprocess.run([converter, "-c", writer_code, str(model_file), corruption],
+            writer = subprocess.run([converter, "-c", writer_code, str(model_file), corruption,
+                                     "nonzero" if recurrent else "zero"],
                                     capture_output=True, text=True, timeout=30,
                                     env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
                                          "PYTHONDONTWRITEBYTECODE": "1"})
