@@ -20,6 +20,7 @@
 #include <limits>
 #include <memory>
 #include <regex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -394,7 +395,11 @@ static int test_loader_override(const char* path) {
 }
 
 #ifdef JEV_TEST_FULL_RUNTIME
-static int test_prefill_control(const char* path, bool use_bitnet = false, const char* mode = "full") {
+static int test_prefill_control(
+        const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr) {
+    if (prompt && (std::strlen(prompt) == 0 || std::strlen(prompt) > 4096 || std::strcmp(mode, "full") != 0)) {
+        return 34;
+    }
     const bool chunked = std::strcmp(mode, "chunked") == 0;
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
@@ -447,6 +452,38 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     const int32_t vocab_size = llama_vocab_n_tokens(vocab);
     if (vocab_size < 24) {
         return 27;
+    }
+    std::vector<llama_token> tokens = { 3, 5, 7 };
+    std::vector<llama_token> option_tokens = { 11, 17, 23 };
+    if (prompt) {
+        const int32_t count = -llama_tokenize(vocab, prompt, std::strlen(prompt), nullptr, 0, false, true);
+        if (count <= 0 || count > 128) {
+            return 34;
+        }
+        tokens.resize(count);
+        if (llama_tokenize(vocab, prompt, std::strlen(prompt), tokens.data(), count, false, true) != count) {
+            return 34;
+        }
+        std::size_t index = 0;
+        for (const char* label : { "A", "B", "C" }) {
+            if (llama_tokenize(vocab, label, 1, &option_tokens[index], 1, false, true) != 1 ||
+                    option_tokens[index] < 0 || option_tokens[index] >= vocab_size) {
+                return 34;
+            }
+            const std::string extended = std::string(prompt) + label;
+            std::vector<llama_token> extended_tokens(count + 1);
+            if (llama_tokenize(vocab, extended.data(), extended.size(), extended_tokens.data(),
+                    extended_tokens.size(), false, true) != count + 1 ||
+                    !std::equal(tokens.begin(), tokens.end(), extended_tokens.begin()) ||
+                    extended_tokens.back() != option_tokens[index]) {
+                return 34;
+            }
+            ++index;
+        }
+        if (option_tokens[0] == option_tokens[1] || option_tokens[0] == option_tokens[2] ||
+                option_tokens[1] == option_tokens[2]) {
+            return 34;
+        }
     }
     auto context_params = llama_context_default_params();
     context_params.n_ctx = 128;
@@ -519,7 +556,6 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
             return 31;
         }
     }
-    std::vector<llama_token> tokens = { 3, 5, 7 };
     std::vector<llama_token> peer_tokens = tokens;
     std::future<int> peer_result;
     if (parallel) {
@@ -550,7 +586,8 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     }
     const auto position_min = llama_memory_seq_pos_min(memory, 0);
     const auto position_max = llama_memory_seq_pos_max(memory, 0);
-    if (position_min != 2 || position_max != 2) {
+    const auto expected_position = static_cast<llama_pos>(tokens.size() - 1);
+    if (position_min != expected_position || position_max != expected_position) {
         return 31;
     }
     const float* logits = llama_get_logits_ith(context.get(), -1);
@@ -568,9 +605,12 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     }
     struct control_option {
         const char* id;
+        const char* label;
         llama_token token;
     };
-    std::vector<control_option> options = { { "inspect", 11 }, { "edit", 17 }, { "ask", 23 } };
+    std::vector<control_option> options = {
+        { "inspect", "A", option_tokens[0] }, { "edit", "B", option_tokens[1] }, { "ask", "C", option_tokens[2] },
+    };
     if (reordered) {
         std::rotate(options.begin(), options.begin() + 2, options.end());
     }
@@ -585,14 +625,22 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
         scores.push_back(std::exp(value - maximum));
         denominator += scores.back();
     }
-    std::printf("{\"prefilled_tokens\":%zu,\"generated_answer_tokens\":0,\"option_ids\":[",
+    std::printf("{\"prefilled_tokens\":%zu,\"generated_answer_tokens\":0,\"input_tokens\":[",
         tokens.size());
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        std::printf("%s%d", index ? "," : "", tokens[index]);
+    }
+    std::fputs("],\"option_ids\":[", stdout);
     for (std::size_t index = 0; index < options.size(); ++index) {
         std::printf("%s\"%s\"", index ? "," : "", options[index].id);
     }
     std::fputs("],\"option_token_ids\":[", stdout);
     for (std::size_t index = 0; index < options.size(); ++index) {
         std::printf("%s%d", index ? "," : "", options[index].token);
+    }
+    std::fputs("],\"option_labels\":[", stdout);
+    for (std::size_t index = 0; index < options.size(); ++index) {
+        std::printf("%s\"%s\"", index ? "," : "", options[index].label);
     }
     std::fputs("],\"logits\":[", stdout);
     for (std::size_t index = 0; index < selected.size(); ++index) {
@@ -667,6 +715,9 @@ static int test_vocab_only(const char* path, const char* prompt) {
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_FULL_RUNTIME
+    if (argc == 4 && std::strcmp(argv[1], "--prefill-text-control") == 0) {
+        return test_prefill_control(argv[2], false, "full", argv[3]);
+    }
     if ((argc == 3 || argc == 4) && std::strcmp(argv[1], "--prefill-bitnet-control") == 0) {
         return test_prefill_control(argv[2], true, argc == 4 ? argv[3] : "full");
     }

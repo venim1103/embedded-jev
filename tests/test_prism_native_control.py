@@ -47,8 +47,11 @@ writer.add_tokenizer_model("gpt2")
 writer.add_tokenizer_pre("qwen2")
 vocabulary = ["token_" + str(index) for index in range(64)]
 vocabulary[2:5] = ["a", "b", "ab"]
+vocabulary[11], vocabulary[17], vocabulary[23] = "A", "B", "C"
+if sys.argv[2] == "dense_context_merge":
+    vocabulary[24] = "aA"
 writer.add_token_list(vocabulary)
-writer.add_token_merges(["a b"])
+writer.add_token_merges(["a b", "a A"] if sys.argv[2] == "dense_context_merge" else ["a b"])
 writer.add_bos_token_id(0)
 writer.add_eos_token_id(1)
 writer.add_add_bos_token(False)
@@ -198,7 +201,10 @@ def reference_logits(token_ids):
         hidden += (codes.astype(np.float32) * np.repeat(scales, 128, axis=1)) @ activation
     hidden = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
     return (head[[11, 17, 23]] @ hidden).tolist()
-print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": reference_logits([4, 9, 19, 3, 5, 7])}))
+print(json.dumps({"logits": reference_logits([3, 5, 7]),
+                  "peer_logits": reference_logits([4, 9, 19, 3, 5, 7]),
+                  "text_logits": reference_logits([4, 2]),
+                  "maximum_logits": reference_logits([2] * 128)}))
 """
     try:
         writer = subprocess.run([converter, "-c", writer_code, str(model_file), backend,
@@ -217,6 +223,7 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": referenc
             assert control.returncode == 0, control.stderr
             report = json.loads(control.stdout)
             assert report["prefilled_tokens"] == 3 and report["generated_answer_tokens"] == 0
+            assert report["input_tokens"] == [3, 5, 7]
             assert report["backend"] == backend and report["mode"] == mode
             calls = 3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1
             assert report["prefill_calls"] == calls
@@ -228,6 +235,7 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": referenc
             order = [2, 0, 1] if mode == "reordered" else [0, 1, 2]
             assert report["option_ids"] == [(["inspect", "edit", "ask"][index]) for index in order]
             assert report["option_token_ids"] == [([11, 17, 23][index]) for index in order]
+            assert report["option_labels"] == [(["A", "B", "C"][index]) for index in order]
             logits = np.asarray(expected["logits"], dtype=np.float64)[order]
             np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
             scores = np.exp(logits - logits.max())
@@ -240,6 +248,29 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": referenc
             else:
                 assert report["peer_logits"] == []
         command = "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control"
+        if backend == "dense":
+            for prompt, token_ids, expected_key in (("aba", [4, 2], "text_logits"),
+                                                    ("a" * 128, [2] * 128, "maximum_logits")):
+                text_control = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                               "--prefill-text-control", str(model_file), prompt],
+                                              capture_output=True, text=True, timeout=30)
+                assert text_control.returncode == 0, text_control.stderr
+                report = json.loads(text_control.stdout)
+                assert report["input_tokens"] == token_ids and report["prefilled_tokens"] == len(token_ids)
+                assert report["generated_answer_tokens"] == report["bitnet_dispatch_calls"] == report["weight_repacks"] == 0
+                assert report["option_ids"] == ["inspect", "edit", "ask"]
+                assert report["option_labels"] == ["A", "B", "C"] and report["option_token_ids"] == [11, 17, 23]
+                assert report["memory_position_min"] == report["memory_position_max"] == len(token_ids) - 1
+                np.testing.assert_allclose(report["logits"], expected[expected_key], rtol=2e-5, atol=2e-5)
+                logits = np.asarray(expected[expected_key], dtype=np.float64)
+                scores = np.exp(logits - logits.max())
+                scores /= scores.sum()
+                np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+            for prompt in ("", "a" * 129, "a" * 4097):
+                rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                           "--prefill-text-control", str(model_file), prompt],
+                                          capture_output=True, text=True, timeout=30)
+                assert rejected.returncode == 34 and rejected.stdout == "", rejected.stderr
         if backend == "bitnet":
             rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                        command, str(model_file), "kernel-error"], capture_output=True, text=True, timeout=30)
@@ -267,6 +298,17 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]), "peer_logits": referenc
                                        command, str(model_file)], capture_output=True, text=True, timeout=30)
             assert rejected.returncode in (27, 30), rejected.stderr
             assert rejected.stdout == ""
+            if backend == "dense":
+                writer = subprocess.run([converter, "-c", writer_code, str(model_file), "dense_context_merge",
+                                         "nonzero" if recurrent else "zero", "nonzero" if attention else "zero"],
+                                        capture_output=True, text=True, timeout=30,
+                                        env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
+                                             "PYTHONDONTWRITEBYTECODE": "1"})
+                assert writer.returncode == 0, writer.stderr
+                rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                           "--prefill-text-control", str(model_file), "aba"],
+                                          capture_output=True, text=True, timeout=30)
+                assert rejected.returncode == 34 and rejected.stdout == "", rejected.stderr
     finally:
         model_file.unlink(missing_ok=True)
 
