@@ -451,6 +451,8 @@ static int test_prefill_control(const char* path, bool use_bitnet = false, const
     context_params.n_threads = 1;
     context_params.n_threads_batch = 1;
     context_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    context_params.type_k = GGML_TYPE_F16;
+    context_params.type_v = GGML_TYPE_F16;
     std::unique_ptr<llama_context, decltype(&llama_free)> context(
         llama_init_from_model(model.get(), context_params), llama_free);
     if (!context) {

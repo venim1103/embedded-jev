@@ -15,7 +15,8 @@ BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
 
 @pytest.mark.parametrize("backend", ["dense", "bitnet"])
 @pytest.mark.parametrize("recurrent", [False, True])
-def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_path, backend, recurrent):
+@pytest.mark.parametrize("attention", [False, True])
+def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_path, backend, recurrent, attention):
     import numpy as np
 
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
@@ -70,6 +71,13 @@ recurrent_qkv[np.arange(64), np.arange(64) % 32] = 0.25
 recurrent_gate = np.eye(32, dtype=np.float32) * np.float32(0.5)
 recurrent_out = np.eye(32, dtype=np.float32) * np.float32(0.125)
 convolution = np.tile(np.array([0.125, 0.25, 1], dtype=np.float32), (64, 1))
+attention_query = np.zeros((64, 32), dtype=np.float32)
+attention_query[np.arange(4) * 16, np.arange(4)] = 0.25
+attention_key = np.zeros((16, 32), dtype=np.float32)
+attention_key[np.arange(2) * 8, np.arange(2) + 4] = 0.25
+attention_value = np.zeros((16, 32), dtype=np.float32)
+attention_value[np.arange(16), np.arange(16) + 3] = 0.375
+attention_out = np.eye(32, dtype=np.float32) * np.float32(0.125)
 for layer in range(4):
     prefix = "blk." + str(layer) + "."
     writer.add_tensor(prefix + "attn_norm.weight", np.ones(32, dtype=np.float32))
@@ -77,7 +85,11 @@ for layer in range(4):
     if layer % 2:
         for name, shape in {"attn_q.weight": (64, 32), "attn_k.weight": (16, 32),
                             "attn_v.weight": (16, 32), "attn_output.weight": (32, 32)}.items():
-            writer.add_tensor(prefix + name, np.zeros(shape, dtype=np.float32))
+            values = np.zeros(shape, dtype=np.float32)
+            if layer == 1 and sys.argv[4] == "nonzero":
+                values = {"attn_q.weight": attention_query, "attn_k.weight": attention_key,
+                          "attn_v.weight": attention_value, "attn_output.weight": attention_out}[name]
+            writer.add_tensor(prefix + name, values)
         writer.add_tensor(prefix + "attn_q_norm.weight", np.ones(8, dtype=np.float32))
         writer.add_tensor(prefix + "attn_k_norm.weight", np.ones(8, dtype=np.float32))
     else:
@@ -117,11 +129,12 @@ writer.write_tensors_to_file()
 writer.close()
 if sys.argv[2] not in ("dense", "bitnet"):
     sys.exit(0)
-hidden = embedding[7].copy()
+sequence = embedding[[3, 5, 7]].copy()
+hidden = sequence[-1].copy()
 if sys.argv[3] == "nonzero":
     history = np.zeros((3, 64), dtype=np.float32)
     state = np.zeros((4, 8, 8), dtype=np.float32)
-    for token in (3, 5, 7):
+    for index, token in enumerate((3, 5, 7)):
         current = embedding[token]
         normalized = current / np.sqrt(np.mean(current * current) + np.float32(1e-5))
         history[:-1] = history[1:]
@@ -144,7 +157,32 @@ if sys.argv[3] == "nonzero":
         gating = recurrent_gate @ normalized
         output = output.reshape(32) * (gating / (np.float32(1) + np.exp(-gating)))
         hidden = current + recurrent_out @ output
+        sequence[index] = hidden
     assert np.linalg.norm(hidden - embedding[7]) > 0.01
+if sys.argv[4] == "nonzero":
+    normalized = sequence / np.sqrt(np.mean(sequence * sequence, axis=1, keepdims=True) + np.float32(1e-5))
+    query = (normalized @ attention_query.T)[:, np.arange(4) * 16]
+    query /= np.sqrt(query * query / np.float32(8) + np.float32(1e-5))
+    key = (normalized @ attention_key.T)[:, np.arange(2) * 8]
+    key /= np.sqrt(key * key / np.float32(8) + np.float32(1e-5))
+    positions = np.arange(3, dtype=np.float32)
+    key_cosine = (key * np.cos(positions[:, None])).astype(np.float16).astype(np.float32)
+    key_sine = (key * np.sin(positions[:, None])).astype(np.float16).astype(np.float32)
+    value = (normalized @ attention_value.T).astype(np.float16).astype(np.float32).reshape(3, 2, 8)
+    original = sequence.copy()
+    for index in range(3):
+        output = np.zeros((4, 8), dtype=np.float32)
+        for head_index in range(4):
+            key_head = head_index // 2
+            cosine = query[index, head_index] * np.cos(positions[index])
+            sine = query[index, head_index] * np.sin(positions[index])
+            scores = (cosine * key_cosine[:index + 1, key_head] + sine * key_sine[:index + 1, key_head]) / np.sqrt(np.float32(8))
+            scores = np.exp(scores - np.max(scores))
+            scores /= np.sum(scores)
+            output[head_index] = np.sum(value[:index + 1, key_head] * scores[:, None], axis=0)
+        sequence[index] += attention_out @ (output.reshape(32) * np.float32(0.5))
+    assert np.linalg.norm(sequence - original) > 0.01
+    hidden = sequence[-1]
 normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
 gated = gate @ normalized
 activation = (gated / (np.float32(1) + np.exp(-gated))) * (up @ normalized)
@@ -162,7 +200,7 @@ print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
 """
     try:
         writer = subprocess.run([converter, "-c", writer_code, str(model_file), backend,
-                     "nonzero" if recurrent else "zero"], capture_output=True, text=True,
+                                 "nonzero" if recurrent else "zero", "nonzero" if attention else "zero"], capture_output=True, text=True,
                                 timeout=30, env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
                                                 "PYTHONDONTWRITEBYTECODE": "1"})
         assert writer.returncode == 0, writer.stderr
@@ -203,7 +241,7 @@ print(json.dumps({"logits": (head[[11, 17, 23]] @ hidden).tolist()}))
         )
         for corruption in corruptions:
             writer = subprocess.run([converter, "-c", writer_code, str(model_file), corruption,
-                                     "nonzero" if recurrent else "zero"],
+                                     "nonzero" if recurrent else "zero", "nonzero" if attention else "zero"],
                                     capture_output=True, text=True, timeout=30,
                                     env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
                                          "PYTHONDONTWRITEBYTECODE": "1"})
