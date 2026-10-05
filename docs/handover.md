@@ -14,8 +14,8 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-05)
 
-The last tested implementation commit is `ecc6cbd` (2026-10-05),
-`test: verify actual BitNet model batch sizes through 128 tokens`.
+The last tested implementation commit is `462dc12` (2026-10-05),
+`test: gate real MiMo native BF16 prompt prefill`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -38,14 +38,21 @@ and `cf16046` added runtime-kernel failure/refusal/recovery controls.
 `76cc0b2` added contextual tokenizer-verified prompt scoring; `ecc6cbd` measures
 actual BitNet input batches and checks 128-token model prefill. No push or branch
 change followed.
+The user then approved one temporary text-only BF16 GGUF and bounded native
+prefill. `462dc12` adds its opt-in real-model contract regression. Conversion,
+direct native prefill, streamed comparison, and cleanup completed; no additional
+bulk conversion or full-model BitNet policy was authorized.
 
-Current gates: **159 default tests passed, 32 optional tests skipped; all fifteen
+Current gates: **159 default tests passed, 33 optional tests skipped; all fifteen
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
 handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
 enabled, including the sole full-size frozen projection, packaged dependency
 provenance, guarded vocabulary-only native tokenizer parity, and synthetic
-dense/BitNet hybrid model prefill (43.26 s).
+dense/BitNet hybrid model prefill (61.35 s). The separate opt-in real MiMo BF16
+native prefill regression passed in 586.50 s, after an initial 600-second timeout
+and native environment matching. That large-memory test was skipped in the
+fifteen-control invocation, rather than run concurrently or reconvert weights.
 The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
@@ -179,6 +186,25 @@ development guide for flags.
   MiMo weight loading, real-model contextual label scores, general gate/head/rotary
   correctness, native MiMo parity, model quality, or a retained candidate. See the
   [synthetic native gate](development.md#bounded-synthetic-native-prefill).
+- One explicitly approved temporary text-only BF16 GGUF now proves real MiMo
+  dense native load/context/80-token prefill through all 32 text layers, with
+  finite full-vocabulary logits, typed A/B/C IDs 32/33/34, and zero answer tokens.
+  It contained 427 tensors (250 BF16, 177 F32), 17,920,693,472 file bytes, both
+  full vocabulary matrices, and no vision/MTP. Conversion used lazy disk spill:
+  5m40.42s, peak RSS 10,266,840 KiB. Direct one-thread native load/prefill took
+  4m37.03s, peak RSS 17,667,176 KiB, with retained memory position `[79,79]`.
+  Independent identical-prompt streamed BF16 scores have maximum logit gap
+  0.09715080261230469 and conditional-score gap 0.0005860534409651841. Exact
+  parity and a broader acceptance tolerance remain open. Native F32 graph
+  outputs versus streamed BF16 hidden states are a concrete precision difference,
+  not full attribution. Process swap counters were zero, but host swap use grew;
+  these are observations, not edge fit/performance or calibrated quality evidence.
+  The opt-in regression checks metadata and exact selected embedding/head rows
+  without performing conversion itself. The GGUF and temporary spill directory
+  have been deleted; 156 KiB of reports remain outside Git. Candidate hashes,
+  source/library pins, and the production one-tensor override are unchanged.
+  This is **dense hosting, not native MiMo BitNet dispatch**. See the
+  [measured reference](development.md#approved-dense-native-reference).
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
@@ -1195,7 +1221,10 @@ For a fresh coding session:
   unvalidated full-model loader policy. Read the staged
   [native hosting plan](development.md#native-hosting-preflight-and-conversion-plan)
   before further work: bulk text-only BF16 conversion needs separate approval,
-  followed by bounded real-architecture prefill and native error propagation.
+  except for the completed one-shot reference above. Real dense hosting and an
+  identical-prompt comparison now pass; numerical acceptance and a complete-model
+  one-projection BitNet file policy remain separate gates. The temporary dense
+  reference has been removed; do not recreate it without approval.
   The legacy scoped
   bridge must not run concurrently with arbitrary Prism graphs or registry
   mutation. Full-model conversion/loading remains outside the current scope.

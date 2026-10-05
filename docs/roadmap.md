@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `ecc6cbd` implementation checkpoint and the next bounded native
+For the tested `462dc12` implementation checkpoint and the next bounded native
 task, read the [current handover](handover.md#current-checkpoint-2026-10-05).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -261,9 +261,10 @@ vocabulary-only native/HF prompt/label parity pass. Header-only planning derives
 the 427-text-tensor 16.678 GiB source floor and explicit staging bases; it does
 not certify native fit. The staged resource/conversion plan is in
 [development](development.md#native-hosting-preflight-and-conversion-plan).
-Bulk text-only BF16 reference conversion still needs separate approval, before
-actual architecture prefill and one-projection integration; full-model ternary,
-held-out inference, and quality promotion remain blocked.
+One separately approved text-only BF16 reference has now been converted and
+removed after real dense architecture prefill. Further bulk conversion and the
+complete-model one-projection BitNet file policy remain separate approval gates;
+full-model ternary, held-out inference, and quality promotion remain blocked.
 A temporary four-layer synthetic Qwen3.5 model now covers native architecture
 construction and zero-generation prefill with a nonzero BitNet FFN at layer 3.
 Independent dense/A8 final-logit references, reordered typed options, chunked
@@ -279,6 +280,14 @@ At `ecc6cbd`, measured BitNet input dimensions also verify full/chunked and
 128-token maximum model batches. Dense native prompt scoring validates contextual
 A/B/C token boundaries against the toy tokenizer and independent references,
 with no answer generation. This does not lift the bulk-conversion approval gate.
+At `462dc12`, the approved temporary reference proves real 32-layer MiMo dense
+load/context/80-token prefill, finite logits, exact token/typed-label mapping, and
+zero answer generation. Its opt-in regression verifies selected source row bytes
+and native state/score contracts; it never converts weights. Identical-prompt
+streamed BF16 comparison is not exact (maximum logit gap 0.09715080261230469);
+precision acceptance remains open. Measured resources and cleanup are recorded
+in [development](development.md#approved-dense-native-reference). This is not
+complete-model BitNet dispatch or quality acceptance.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

@@ -267,6 +267,22 @@ and attention paths; final-layer masking does not reduce these controls to one
 row. All 15 native controls pass in 43.26 s, plus two CTests and 159 default tests
 with 32 optional skips. These are synthetic arithmetic/runtime/tokenizer checks,
 not native MiMo weight loading, calibrated confidence, or quality evidence.
+At `462dc12`, one explicitly approved offline lazy/disk-spill text-only BF16
+conversion of the pinned MiMo snapshot produced 427 tensors (250 BF16, 177 F32),
+17,920,693,472 file bytes, both full vocabulary matrices, and no vision/MTP.
+Selected embedding/head rows preserve source BF16 bytes. The actual native public
+load/context/80-token prefill returns finite logits and typed A/B/C IDs 32/33/34,
+with zero answer generation. Conversion/native peak RSS observations were
+10,266,840/17,667,176 KiB. An identical-prompt 32-layer streamed BF16 reference
+has maximum selected-logit/conditional-score gaps 0.09715080261230469 /
+0.0005860534409651841; exact parity is not claimed. Pinned GGML embedding gathers
+and matrix products return F32, unlike streamed BF16 hidden values; this is
+precision evidence, not full attribution of the discrepancy. The opt-in real
+regression passed separately in 586.50 s after an initial timeout; existing
+15 native controls passed in 61.35 s, 159 default tests passed/33 skipped, and
+two CTests passed. The temporary GGUF/spill directory were deleted, leaving
+small reports only. No full-model BitNet policy, new candidate, held-out score,
+calibrated confidence, or benchmark follows.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`

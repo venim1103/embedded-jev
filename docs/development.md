@@ -6,19 +6,23 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `ecc6cbd` (2026-10-05), following
+The last tested implementation checkpoint is `462dc12` (2026-10-05), following
 the isolated runtime/vocabulary preflight and metadata-only resource planner.
 The [current handover](handover.md#current-checkpoint-2026-10-05) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
-Current results: 159 default tests passed, 32 optional tests skipped, and all
+Current results: 159 default tests passed, 33 optional tests skipped, and all
 fifteen pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
 including the full-size frozen projection and guarded vocabulary-only native
-tokenizer preflight and dense/BitNet synthetic model prefill (43.26 s).
+tokenizer preflight and dense/BitNet synthetic model prefill (61.35 s).
+The separate opt-in real MiMo BF16 native prefill regression passed in 586.50 s;
+it was skipped in the fifteen-control invocation because its reference file
+was not supplied there. One approved temporary dense reference has now loaded
+and prefilled all 32 real text layers; the GGUF has been deleted afterward.
 The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
@@ -1148,6 +1152,90 @@ and 76 refusal checks. These are controlled fixed-gate/head/rotary fixtures, not
 general recurrent/attention correctness, native MiMo weight loading, a full-model
 file policy, quality, or a target benchmark.
 
+### Approved Dense Native Reference
+
+On 2026-10-05 the user approved one temporary text-only BF16 GGUF from the
+existing pinned snapshot, bounded CPU prefill at at most 128 tokens, zero answer
+generation, memory measurement, and cleanup. This does not authorize additional
+bulk conversions, a retained quantized candidate, held-out scoring, or a
+full-model BitNet file policy. Offline conversion reused the existing dense
+environment and pinned converter with `--outtype bf16 --no-nextn --use-temp-file`;
+lazy evaluation remained enabled. The writer's spill file lived in the same
+temporary cache directory as the output. Sources and cached CPU/base libraries
+were not changed.
+
+| Observed Quantity | Result |
+| --- | ---: |
+| GGUF file bytes | 17,920,693,472 |
+| Tensor payload bytes | 17,909,729,280 |
+| BF16 tensors / payload bytes | 250 / 17,905,483,776 |
+| F32 tensors / payload bytes | 177 / 4,245,504 |
+| Text layers / tensors | 32 / 427 |
+| Embedding and output shapes | Both 248,320 x 4,096 |
+| Conversion elapsed / peak RSS | 5m40.42s / 10,266,840 KiB |
+| Direct native load plus prefill elapsed / peak RSS | 4m37.03s / 17,667,176 KiB |
+| Streamed BF16 reference elapsed / peak RSS | 50.98s / 1,018,188 KiB |
+
+The temporary GGUF SHA-256 is
+`8e34f1b5156e0844d8c3dbf7023ff0d67b7b54e4f6b9f4460160f86bb8fa076e`.
+The pinned parser verifies no vision/MTP tensors and BF16/F32-only storage.
+Selected prompt embedding rows and A/B/C output rows preserve their source BF16
+bytes. These selected-row checks are not an all-tensor transformation audit.
+Process measurements recorded zero swaps, but host swap use increased later;
+this is not a swap-free host guarantee. Times are observations, not a target
+benchmark or a fair cross-runtime speed comparison.
+
+The existing `--prefill-text-control` loaded the real MiMo text architecture and
+prefilled the `inspect-before-answer` engineering fixture: 80 tokens, A/B/C IDs
+32/33/34, typed options `inspect/edit/ask`, finite full-vocabulary logits, and
+zero generated answer tokens. Hybrid retained positions were `[79,79]`.
+Requested context 128 was rounded to 256; batch/ubatch remained 128, CPU threads
+one, KV F16 (8 MiB), and recurrent state F32 (50.25 MiB). Compute storage was
+128.38 MiB. The prompt SHA-256 was
+`e4692b6224d74f3e5d5b729573580401b6b9a36d7541624596dc1e9a50502572`.
+
+| Label | Native Logit | Streamed BF16 Logit | Native Conditional Score |
+| --- | ---: | ---: | ---: |
+| A | 21.367546081542969 | 21.431333541870117 | 0.9705953960369732 |
+| B | 15.470935821533203 | 15.568086624145508 | 0.002667920776189328 |
+| C | 17.775672912597656 | 17.858489990234375 | 0.02673668318683748 |
+
+Identical prompt hashes and token IDs were checked. Maximum selected-logit and
+conditional-score absolute gaps were 0.09715080261230469 and
+0.0005860534409651841. Both chose the same option; exact parity is not established,
+and these observations are not a newly accepted tolerance or calibrated quality.
+The pinned `ggml_get_rows`/`ggml_mul_mat` return F32, while streamed hidden values
+are BF16; native KV/recurrent precisions also differ. Those are concrete precision
+differences, not a complete attribution of the gap.
+
+At `462dc12`, the real-reference regression is opt-in through
+`MIMO_NATIVE_REFERENCE_GGUF`; it never converts or deletes weights. Its first
+600-second run timed out despite the successful direct command. The
+environment-matched rerun passed in 586.50 s, including metadata and exact
+selected-row checks. Native subprocess execution strips the Python-reference
+`OMP_NUM_THREADS` setting, retaining the explicit GGML one-thread context and
+600-second timeout diagnostics. Resource variability and observed host memory
+pressure prevent attributing the earlier timeout solely to OMP or treating the
+passing duration as a speed guarantee. Run this large-memory test serially.
+No full-model BitNet dispatch follows from this dense reference.
+
+The temporary GGUF and writer/compiler spill directory were deleted after the
+checks. Only 156 KiB of generated logs/JSON/timing reports remain outside Git at
+`$cache/native/mimo-bf16-reference-report-20261005-vjwvUZ`. The sole retained
+ternary candidate's two hashes are unchanged. Reproduction requires separate
+approval for another temporary conversion; no test performs one automatically.
+While an approved reference is present, run the focused check with:
+
+```bash
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
+MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
+MIMO_NATIVE_REFERENCE_GGUF="/path/to/approved-temporary-reference.gguf" \
+OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
+   tests/test_prism_native_control.py -k mimo_bf16_native_prompt_prefill
+```
+
 ### Staged Approval Gates
 
 1. **Completed, no weight conversion:** reconciled header budgets, isolated full
@@ -1157,18 +1245,20 @@ file policy, quality, or a target benchmark.
    nonzero recurrent/attention state, chunk/reset, typed order, initialized
    shared-context isolation, runtime error/refusal/recovery, measured 128-token
    BitNet batches, and dense contextual prompt/label scoring controls also pass.
-2. **Requires separate bulk-conversion approval:** create one text-only BF16
-   native reference from the existing snapshot, retaining full embedding/head,
-   excluding vision/MTP, leaving the sole ternary candidate unchanged. Use lazy
-   conversion, not `--no-lazy`; plan a temporary output/cleanup path, refresh
-   RAM/disk, measure actual peak/dtypes/bytes, and keep a filesystem/RAM reserve.
-   The lazy CLI and `--use-temp-file` are available, but their combination,
-   split policy, and peak resource behavior are not certified by this preflight.
-3. **After reference acceptance:** load the real architecture, create a bounded
-   native context, prefill without sampling/generation, and compare against the
-   existing engineering reference. Diagnose backend precision/graph differences
-   before claiming exact parity or selecting numerical tolerances. Record memory,
-   finite logits, recurrent/cache state, label mapping, and conditional scores.
+2. **Approved one-shot conversion completed:** one text-only BF16 native
+   reference from the existing snapshot retained the full embedding/head and
+   excluded vision/MTP. Lazy conversion plus disk spill completed with actual
+   peak/dtypes/bytes recorded above; the sole ternary candidate is unchanged.
+   Further bulk conversion still needs separate approval. The temporary GGUF
+   and spill directory have been deleted; only small measurement reports remain.
+3. **Initial dense hosting completed, parity acceptance open:** real-architecture
+   load/context/80-token prefill, finite logits, recurrent/cache state, label
+   mapping, and zero generation pass directly. Identical-prompt streamed BF16
+   comparison has the nonzero gaps above. Diagnose precision/graph differences
+   before claiming exact parity or choosing broader acceptance tolerances. The
+   environment-matched opt-in regression passes metadata, exact selected-source
+   rows, native token/state/score contracts, and zero generation, not a new
+   cross-runtime tolerance or BitNet full-model policy.
 4. **Then one projection only:** extend the versioned file policy to a complete
    model while binding the exact layer-3 identity payload and preserving every
    stored code/FP16 scale. The current factory deliberately requires a one-tensor

@@ -286,9 +286,13 @@ and public native load match HF's rendered prompt and label token IDs without
 reading source weights or generating tokens. Header-only native-reference
 resource planning preserves both full vocabulary matrices and excludes vision
 and optional MTP; the source-dtype floor is 16.678 GiB. Converter staging and
-native cache/scratch remain additional costs. The next architecture gate is an
-approved text-only dense native reference, then the existing single-projection
-BitNet payload; whole-model ternary conversion is not implied. See the
+native cache/scratch remain additional costs. At `462dc12`, one approved temporary
+text-only BF16 reference loaded and prefilled all 32 real MiMo text layers on an
+80-token engineering fixture, with typed labels and zero generation. The native
+versus streamed BF16 maximum logit gap was 0.09715080261230469; exact numerical
+acceptance remains open. The temporary GGUF was deleted afterward. A complete-model
+policy for the existing single-projection BitNet payload remains a separate gate;
+whole-model ternary conversion is not implied. See the
 [staged plan](development.md#native-hosting-preflight-and-conversion-plan).
 
 A bounded synthetic four-layer native Qwen3.5 model now also loads and prefills
@@ -310,6 +314,14 @@ selection. These checks use synthetic weights/vocabulary. This is a tiny test-on
 override, not the production one-tensor factory, real MiMo hosting, meaningful
 real-model label scores, general recurrent/attention or lifecycle-race safety,
 or task-quality evidence.
+
+The real dense reference contained 427 BF16/F32 text tensors and both vocabulary
+matrices, with selected embedding/head source bytes checked exactly. Native
+prefill used explicit F16 KV/F32 recurrent state; pinned embedding gathers and
+matrix products return F32 rather than the streamed BF16 hidden dtype. These
+precision differences do not fully explain the measured gap or establish a
+general parity tolerance. The opt-in real-model test does not convert weights,
+and dense hosting does not attest BitNet dispatch or calibrated confidence.
 
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed
 execution layout. Report resident packed bytes and scratch separately: expanding
