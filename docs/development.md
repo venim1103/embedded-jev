@@ -1339,6 +1339,13 @@ Maximum selected-logit and conditional-score absolute gaps were
 parity, new tolerance, representative quality, or calibrated confidence follows.
 Different precision and thread configurations also prevent a speed comparison.
 
+A saved-report-only check rounds streamed logits to BF16: `[21.5, 15.375, 17.875]`.
+Its maximum rounding gap is 0.05588722229003906, matching the recorded head
+diagnostic, but native residuals remain approximately `[-0.02111435, 0.07962990,
+-0.01926422]`. Head-output rounding alone does not make these logits equal.
+Native intermediate activations were not retained; isolating earlier divergence
+requires another separately approved temporary-model diagnostic, not refitting.
+
 `--prefill-model-bitnet-control <model> <projection> <rendered-prompt> [mode]`
 accepts only `full`, `kernel-error`, and `kernel-recovery` for real prompts.
 Unsupported upward rounding on the actual 80-token prompt gives decode status 0
