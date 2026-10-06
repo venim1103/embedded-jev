@@ -6,7 +6,7 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `6e8386c` (2026-10-06), following
+The last tested implementation checkpoint is `5b7e559` (2026-10-06), following
 the complete-model policy, real one-projection run, and bounded precision traces.
 The [current handover](handover.md#current-checkpoint-2026-10-06) is the
 authoritative resume summary, including external cache paths and the next
@@ -24,7 +24,8 @@ regression passed in 221.62 s; its error/recovery cases passed in 733.45 s combi
 The five real-model cases were skipped in the sixteen-control invocation because
 their separately approved files were not supplied there. The prior dense-only
 regression passed at `462dc12`. The earlier dense and mixed temporary models were deleted;
-the separately approved precision run is described below.
+the separately approved precision trace regression passed in 746.54 s at
+`5b7e559`, and its model, spill and raw captures are also deleted. Details follow below.
 The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
@@ -1474,6 +1475,19 @@ checks and retain only small reports. No refitting, new candidate, compensation
 promotion, held-out scoring or full-model ternary conversion follows from this
 diagnostic. Further model conversion still needs approval; conditional option
 scores are not calibrated confidence or representative quality evidence.
+
+At `5b7e559`, the real opt-in trace regression passed in 746.54 s (12m27.58s
+including test startup), peak process RSS 17,611,040 KiB. It verifies exact
+frozen artifact/reference/model bytes, selected source embedding/head rows,
+prompt token and label IDs, finite stage geometry, dispatch/state contracts,
+and zero generation. This gate does not accept native/streamed numerical parity.
+Cleanup is verified: the entire approved `native/mimo-precision.GiDmcd` scratch,
+including both GGUFs, converter/compiler spill, failed/successful raw traces and
+regression captures, was deleted. Only 27 small reports (240 KiB allocated) remain
+outside Git at `$cache/native/mimo-precision-report-20261006-GiDmcd`.
+Both original candidate hashes and both pinned tracked source worktrees are
+unchanged. No installation, refitting, held-out inference, push or branch change
+was performed. Another model conversion requires separate approval.
 
 ## Single-Projection Native Fixture
 

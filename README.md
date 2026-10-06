@@ -26,7 +26,7 @@ BitNet control checkpoint was loaded and prefilled without answer generation.
 Its A-C labels can be scored directly from final-position logits, but it is not
 a substitute for MiMo or evidence of decision quality or edge speed.
 
-The last tested implementation checkpoint is `6e8386c` (2026-10-06): the frozen
+The last tested implementation checkpoint is `5b7e559` (2026-10-06): the frozen
 BitNet-derived projection runs inside real native 32-layer MiMo with counted
 dispatch, preserved FP16 group scales, typed conditional scores, and zero answer
 generation. Its approved temporary model was deleted; whole-model ternary export

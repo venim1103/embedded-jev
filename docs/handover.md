@@ -14,8 +14,8 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-06)
 
-The last tested implementation commit is `6e8386c` (2026-10-06),
-`feat: diagnose BF16 dense RHS rounding separately from BitNet A8`.
+The last tested implementation commit is `5b7e559` (2026-10-06),
+`test: bound full-model trace regression by observed runtime`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -54,6 +54,8 @@ The user then approved one more temporary mixed model solely for precision
 diagnostics, without refitting or held-out inference. `63e8b4c` adds bounded
 native/streamed traces, `2bc3ce0` compares validated trace stages, and `6e8386c`
 adds a fixture-only BF16-RHS experiment based on the pinned CPU trait.
+`5b7e559` gates the real trace with a bounded 1,200-second native limit; other
+real cases keep 600 seconds. The approved diagnostic and cleanup are complete.
 The user's push was observed through `63e8b4c`; the assistant made no push.
 
 Current gates: **162 default tests passed, 38 optional tests skipped; all sixteen
@@ -67,6 +69,8 @@ The real one-BitNet prefill regression passed separately in 221.62 s; its two
 real kernel controls passed in 733.45 s combined. All five real-model cases
 were skipped in the sixteen-control invocation, avoiding another large model
 load or conversion. The prior dense-only regression passed at `462dc12`.
+The real trace case passed separately in 746.54 s at `5b7e559`, peak RSS
+17,611,040 KiB; its temporary files and all raw activations are deleted.
 The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
@@ -243,7 +247,12 @@ development guide for flags.
   error is 3.6182e-7. BF16-RHS rounding improves early agreement, not every later
   metric. Same-native-state BF16-RHS head replay has at most 1.9074e-6 logit error.
   Exact runtime parity remains open, with no accepted tolerance or quality
-  claim. See the [precision diagnostic](development.md#bounded-prefill-precision-diagnostic).
+  claim. Its real trace regression passes source-row/payload/token/stage contracts.
+  All GGUFs, spill and raw captures under `native/mimo-precision.GiDmcd` are deleted;
+  only 27 small reports (240 KiB) remain in
+  `native/mimo-precision-report-20261006-GiDmcd` under the cache. Candidate hashes
+  and pinned tracked source worktrees are unchanged. Further conversion needs
+  approval. See the [precision diagnostic](development.md#bounded-prefill-precision-diagnostic).
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy

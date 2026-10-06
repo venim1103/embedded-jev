@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `6e8386c` implementation checkpoint and remaining native gates,
+For the tested `5b7e559` implementation checkpoint and remaining native gates,
 read the [current handover](handover.md#current-checkpoint-2026-10-06).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
