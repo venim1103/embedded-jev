@@ -455,14 +455,14 @@ def run_streamed_text(
     precision_trace_directory: Path | None = None,
 ) -> dict:
     """Execute at most one source-verified decoder layer at a time on CPU."""
-    if compute_dtype not in ("bf16", "fp32"):
+    if compute_dtype not in ("bf16", "fp32", "ggml_bf16_rhs"):
         raise InventoryError("unsupported streamed computation dtype")
     if (compute_dtype != "bf16" or precision_trace_directory is not None) and (
         fixture_path is None or dataset_path is not None or calibration_output is not None
         or activation_observer is not None or layers < 4
     ):
         raise InventoryError("precision diagnostics require a synthetic fixture and at least four layers")
-    if compute_dtype == "fp32" and (native_ffn_library is None or projection_artifact is None):
+    if compute_dtype != "bf16" and (native_ffn_library is None or projection_artifact is None):
         raise InventoryError("FP32 diagnostics require the existing frozen native projection")
     if precision_trace_directory is not None and precision_trace_directory.exists():
         raise InventoryError("precision trace destination already exists")
@@ -526,6 +526,9 @@ def run_streamed_text(
             values.tofile(output)
         trace_records.append({"name": name, "shape": list(values.shape)})
         trace_bytes += values.nbytes
+
+    def round_linear_input(_module, arguments):
+        return (arguments[0].to(torch.bfloat16).float(), *arguments[1:])
 
     metadata, headers = read_local_headers(directory)
     plan = plan_streamed_text(metadata, headers, layers=layers)
@@ -618,7 +621,8 @@ def run_streamed_text(
             if native_ffn_library is not None:
                 decoder.mlp.down_proj, native_diagnostics = make_native_ffn_down(
                     None if projection_artifact is not None else decoder.mlp.down_proj.weight,
-                    native_ffn_library, projection_artifact, backend=native_ffn_backend, compute_dtype=compute_dtype,
+                    native_ffn_library, projection_artifact, backend=native_ffn_backend,
+                    compute_dtype="bf16" if compute_dtype == "bf16" else "fp32",
                 )
 
             def capture_ffn_input(_module, args):
@@ -632,6 +636,10 @@ def run_streamed_text(
                 )
         if any(parameter.is_meta or parameter.dtype != torch_dtype for parameter in decoder.parameters()):
             raise InventoryError(f"incomplete {compute_dtype} layer {layer_index} materialization")
+        if compute_dtype == "ggml_bf16_rhs":
+            for module in decoder.modules():
+                if isinstance(module, torch.nn.Linear):
+                    module.register_forward_pre_hook(round_linear_input)
         layer_mask = linear_mask if plan["layer_types"][layer_index] == "linear_attention" else causal_mask
         try:
             with torch.inference_mode():
@@ -723,8 +731,11 @@ def run_streamed_text(
         }
     if layers == config.text_config.num_hidden_layers:
         selected = {label: boundary["label_token_ids"][label] for label in LABELS[:label_count]}
+        head_input = hidden[0, -1]
+        if compute_dtype == "ggml_bf16_rhs":
+            head_input = head_input.to(torch.bfloat16).float()
         scored = score_selected_head(
-            directory, metadata, headers, hidden[0, -1].float().numpy(), selected,
+            directory, metadata, headers, head_input.float().numpy(), selected,
         )
         shard = weight_map["lm_head.weight"]
         with safe_open(directory / shard, framework="pt", device="cpu") as source:
@@ -736,7 +747,7 @@ def run_streamed_text(
             for label, row in zip(selected, head_rows, strict=True)
         ):
             raise InventoryError("selected LM-head rows disagree with safetensors")
-        torch_logits = torch.nn.functional.linear(hidden[0, -1].unsqueeze(0), head_rows.to(dtype=torch_dtype))[0].float()
+        torch_logits = torch.nn.functional.linear(head_input.unsqueeze(0), head_rows.to(dtype=torch_dtype))[0].float()
         scored_logits = torch.tensor(
             [scored["options"][label]["logit"] for label in selected], dtype=torch.float32,
         )
@@ -749,7 +760,7 @@ def run_streamed_text(
         summary["selected_head"] = scored
         if full_vocabulary_mass:
             summary["vocabulary_mass"] = stream_full_vocabulary_mass(
-                directory, metadata, headers, hidden[0, -1].float().numpy(), scored,
+                directory, metadata, headers, head_input.float().numpy(), scored,
             )
             scored["full_vocabulary_mass"] = summary["vocabulary_mass"]["selected_label_mass"]
         if fixture_case is not None:
@@ -788,7 +799,7 @@ def main() -> None:
     parser.add_argument("--native-ffn-backend", choices=("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128", "prism_ggml_registered"), default="direct")
     parser.add_argument("--projection-artifact", type=Path)
     parser.add_argument("--full-vocabulary-mass", action="store_true")
-    parser.add_argument("--compute-dtype", choices=("bf16", "fp32"), default="bf16")
+    parser.add_argument("--compute-dtype", choices=("bf16", "fp32", "ggml_bf16_rhs"), default="bf16")
     parser.add_argument("--precision-trace-directory", type=Path)
     args = parser.parse_args()
     print(json.dumps(run_streamed_text(
