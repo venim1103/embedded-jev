@@ -409,19 +409,20 @@ static int test_loader_override(const char* path) {
 static int test_prefill_control(
     const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr,
     const char* projection_path = nullptr) {
-    if (prompt && (std::strlen(prompt) == 0 || std::strlen(prompt) > 4096 || std::strcmp(mode, "full") != 0)) {
-        return 34;
-    }
     const bool chunked = std::strcmp(mode, "chunked") == 0;
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
     const bool parallel = std::strcmp(mode, "parallel") == 0;
     const bool maximum_batch = std::strcmp(mode, "maximum") == 0;
-        const bool kernel_error = use_bitnet && std::strcmp(mode, "kernel-error") == 0;
-        const bool kernel_recovery = use_bitnet && std::strcmp(mode, "kernel-recovery") == 0;
-        if (!chunked && !reset && !reordered && !parallel && !maximum_batch && !kernel_error && !kernel_recovery &&
+    const bool kernel_error = use_bitnet && std::strcmp(mode, "kernel-error") == 0;
+    const bool kernel_recovery = use_bitnet && std::strcmp(mode, "kernel-recovery") == 0;
+    if (!chunked && !reset && !reordered && !parallel && !maximum_batch && !kernel_error && !kernel_recovery &&
             std::strcmp(mode, "full") != 0) {
         return 32;
+    }
+    if (prompt && (std::strlen(prompt) == 0 || std::strlen(prompt) > 4096 ||
+            (std::strcmp(mode, "full") != 0 && !(projection_path && (kernel_error || kernel_recovery))))) {
+        return 34;
     }
     ggml_backend_buffer_type_t buffer_type = nullptr;
     if (prism_bitnet_cpu_runtime_init_v1(
@@ -538,7 +539,7 @@ static int test_prefill_control(
         if (rounding.saved != FE_TONEAREST || std::fesetround(FE_UPWARD) != 0) {
             return 33;
         }
-        std::vector<llama_token> rejected = { 3, 5, 7 };
+        std::vector<llama_token> rejected = tokens;
         const int decode_status = llama_decode(context.get(), llama_batch_get_one(rejected.data(), rejected.size()));
         if (std::fesetround(rounding.saved) != 0) {
             return 33;
@@ -744,8 +745,8 @@ static int test_vocab_only(const char* path, const char* prompt) {
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_FULL_RUNTIME
-    if (argc == 5 && std::strcmp(argv[1], "--prefill-model-bitnet-control") == 0) {
-        return test_prefill_control(argv[2], true, "full", argv[4], argv[3]);
+    if ((argc == 5 || argc == 6) && std::strcmp(argv[1], "--prefill-model-bitnet-control") == 0) {
+        return test_prefill_control(argv[2], true, argc == 6 ? argv[5] : "full", argv[4], argv[3]);
     }
     if (argc == 4 && std::strcmp(argv[1], "--prefill-text-control") == 0) {
         return test_prefill_control(argv[2], false, "full", argv[3]);

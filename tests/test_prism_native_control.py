@@ -406,14 +406,29 @@ for kind in ("valid", "wrong_tag", "wrong_revision", "wrong_arch", "wrong_layers
     legacy.restype = ctypes.c_int
     assert legacy(os.fsencode(tmp_path / "valid.gguf"), PRISM_REVISION.encode(), 1, ctypes.byref(overrides)) == 6
     assert overrides.value is None
+    control = str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control")
+    arguments = ["--prefill-model-bitnet-control", str(tmp_path / "wrong_tag.gguf"),
+                 str(tmp_path / "projection.gguf"), "a"]
+    for options, status in ((arguments, 27), (arguments[:-1], 2),
+                            ([*arguments, "full", "extra"], 2),
+                            ([*arguments, "unknown"], 32), ([*arguments, "chunked"], 34)):
+        rejected = subprocess.run([control, *options], capture_output=True, text=True, timeout=15)
+        assert rejected.returncode == status and rejected.stdout == "", rejected.stderr
 
 
-def test_pinned_prism_mimo_bf16_native_prompt_prefill_without_generation():
+@pytest.mark.parametrize("use_bitnet,mode", [(False, "full"), (True, "full"),
+                                         (True, "kernel-error"), (True, "kernel-recovery")],
+                         ids=["dense-bf16", "one-bitnet", "one-bitnet-kernel-error", "one-bitnet-kernel-recovery"])
+def test_pinned_prism_mimo_bf16_native_prompt_prefill_without_generation(use_bitnet, mode):
     import numpy as np
 
-    model_file = os.environ.get("MIMO_NATIVE_REFERENCE_GGUF")
+    model_file = os.environ.get("MIMO_NATIVE_BITNET_GGUF" if use_bitnet else "MIMO_NATIVE_REFERENCE_GGUF")
     if not model_file:
-        pytest.skip("requires a separately approved temporary text-only BF16 reference; never converts weights")
+        pytest.skip("requires a separately approved temporary text-only model; never converts weights")
+    projection_file = os.environ.get("MIMO_NATIVE_BITNET_PROJECTION_GGUF", "")
+    artifact = os.environ.get("MIMO_PROJECTION_ARTIFACT", "")
+    if use_bitnet and not all((projection_file, artifact)):
+        pytest.fail("one-BitNet reference requires the tagged projection GGUF and frozen artifact")
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     dense_python = os.environ.get("MIMO_DENSE_PYTHON")
     local_model = os.environ.get("MIMO_LOCAL_DIR")
@@ -421,7 +436,8 @@ def test_pinned_prism_mimo_bf16_native_prompt_prefill_without_generation():
     if not all((source_dir, dense_python, local_model, runtime_build)):
         pytest.fail("real native reference requires pinned source, dense environment, source snapshot, and runtime")
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
-    assert Path(model_file).is_file() and 17_907_606_528 < Path(model_file).stat().st_size < 19 * 1024**3
+    source_floor = 17_820_312_576 if use_bitnet else 17_907_606_528
+    assert Path(model_file).is_file() and source_floor < Path(model_file).stat().st_size < 19 * 1024**3
     fixture = Path(__file__).parent / "fixtures" / "agent_tool_smoke.json"
     reference_code = """
 import hashlib
@@ -433,7 +449,7 @@ import torch
 from safetensors import safe_open
 from transformers import AutoTokenizer
 from embedded_jev.label_probe import decision_case_messages, load_decision_fixture, probe_label_boundary
-model_file, local_model, fixture_path = sys.argv[1:]
+model_file, local_model, fixture_path, projection_file, artifact, use_bitnet = sys.argv[1:]
 snapshot = Path(local_model)
 reader = gguf.GGUFReader(model_file)
 tensors = {tensor.name: tensor for tensor in reader.tensors}
@@ -441,9 +457,26 @@ assert len(tensors) == 427
 assert reader.fields["general.architecture"].contents() == "qwen35"
 assert reader.fields["qwen35.block_count"].contents() == 32
 assert not any("vision" in name or "mmproj" in name or "nextn" in name or "mtp" in name for name in tensors)
-assert set(tensor.tensor_type for tensor in tensors.values()) == {gguf.GGMLQuantizationType.BF16, gguf.GGMLQuantizationType.F32}
 assert tensors["blk.3.ffn_down.weight"].shape.tolist() == [12288, 4096]
-assert tensors["blk.3.ffn_down.weight"].tensor_type == gguf.GGMLQuantizationType.BF16
+if use_bitnet == "1":
+    import numpy as np
+    from embedded_jev.prism_codec import pack_ternary_pq2_0
+    from embedded_jev.projection_artifact import load_projection_artifact
+    from embedded_jev.ternary import unpack_group128_codes
+    packed, scales, manifest = load_projection_artifact(Path(artifact))
+    expected = pack_ternary_pq2_0(unpack_group128_codes(packed), scales).reshape(4096, -1)
+    projection = gguf.GGUFReader(projection_file)
+    assert len(projection.tensors) == 1
+    for target in (tensors["blk.3.ffn_down.weight"], projection.tensors[0]):
+        assert target.name == "blk.3.ffn_down.weight" and target.tensor_type == gguf.GGMLQuantizationType.PQ2_0
+        np.testing.assert_array_equal(target.data, expected)
+    assert reader.fields["jev.model.source_revision"].contents() == manifest["revision"]
+    assert reader.fields["jev.bitnet.model"].contents() == "mimo-qwen35-layer3-ffn-down-v1"
+    assert all(tensor.tensor_type in (gguf.GGMLQuantizationType.BF16, gguf.GGMLQuantizationType.F32)
+               for name, tensor in tensors.items() if name != "blk.3.ffn_down.weight")
+else:
+    assert set(tensor.tensor_type for tensor in tensors.values()) == {gguf.GGMLQuantizationType.BF16, gguf.GGMLQuantizationType.F32}
+    assert tensors["blk.3.ffn_down.weight"].tensor_type == gguf.GGMLQuantizationType.BF16
 fixture, digest = load_decision_fixture(Path(fixture_path))
 case = next(case for case in fixture["cases"] if case["id"] == "inspect-before-answer")
 messages = decision_case_messages(case)
@@ -473,7 +506,8 @@ print(json.dumps({"prompt": prompt, "tokens": tokens, "labels": labels,
                   "prompt_sha256": boundary["prompt_sha256"], "fixture_sha256": digest}))
 """
     reference = subprocess.run(
-        [dense_python, "-c", reference_code, model_file, local_model, str(fixture)],
+        [dense_python, "-c", reference_code, model_file, local_model, str(fixture),
+         projection_file, artifact, "1" if use_bitnet else "0"],
         capture_output=True, text=True, timeout=120,
         env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
              "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "PYTHONDONTWRITEBYTECODE": "1"},
@@ -482,10 +516,12 @@ print(json.dumps({"prompt": prompt, "tokens": tokens, "labels": labels,
     expected = json.loads(reference.stdout)
     native_environment = dict(os.environ)
     native_environment.pop("OMP_NUM_THREADS", None)
+    arguments = (["--prefill-model-bitnet-control", model_file, projection_file] if use_bitnet
+                 else ["--prefill-text-control", model_file])
     try:
         control = subprocess.run(
             [str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-             "--prefill-text-control", model_file, expected["prompt"]],
+             *arguments, expected["prompt"], *([mode] if use_bitnet else [])],
             capture_output=True, text=True, timeout=600, env=native_environment,
         )
     except subprocess.TimeoutExpired as failure:
@@ -493,15 +529,22 @@ print(json.dumps({"prompt": prompt, "tokens": tokens, "labels": labels,
         if isinstance(diagnostics, bytes):
             diagnostics = diagnostics.decode("utf-8", errors="replace")
         pytest.fail(f"native prefill exceeded 600 seconds; stderr tail: {diagnostics[-6000:]}")
+    if mode == "kernel-error":
+        assert control.returncode == 29 and control.stdout == "", control.stderr[-6000:]
+        return
     assert control.returncode == 0, control.stderr[-6000:]
     report = json.loads(control.stdout)
     assert report["input_tokens"] == expected["tokens"]
     assert report["prefilled_tokens"] == len(expected["tokens"])
     assert report["option_ids"] == expected["option_ids"]
     assert report["option_labels"] == ["A", "B", "C"] and report["option_token_ids"] == expected["labels"]
-    assert report["generated_answer_tokens"] == report["bitnet_dispatch_calls"] == report["weight_repacks"] == 0
-    assert report["bitnet_last_input_tokens"] == report["rejected_prefill_calls"] == report["kernel_error_status"] == 0
-    assert report["backend"] == "dense" and report["mode"] == "full" and report["prefill_calls"] == 1
+    assert report["generated_answer_tokens"] == 0
+    assert report["rejected_prefill_calls"] == int(mode == "kernel-recovery")
+    assert report["kernel_error_status"] == int(mode == "kernel-recovery")
+    assert report["bitnet_dispatch_calls"] == report["weight_repacks"] == int(use_bitnet)
+    assert report["bitnet_last_input_tokens"] == (len(expected["tokens"]) if use_bitnet else 0)
+    assert report["backend"] == ("bitnet" if use_bitnet else "dense")
+    assert report["mode"] == mode and report["prefill_calls"] == 1
     assert report["memory_position_min"] == report["memory_position_max"] == len(expected["tokens"]) - 1
     logits = np.asarray(report["logits"], dtype=np.float64)
     scores = np.asarray(report["conditional_scores"], dtype=np.float64)
