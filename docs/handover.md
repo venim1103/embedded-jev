@@ -1,21 +1,21 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-05. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-06. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**The 32-layer BF16 text reference and one-projection BitNet-derived native
-substitution work. A complete model-loadable ternary/BitNet runtime does not.**
+**The frozen BitNet-derived FFN now runs inside real native 32-layer MiMo,
+with zero generated answer tokens. Whole-model ternary export remains open.**
 The current checkpoint below supersedes the bootstrap-era status statements.
 Later sections retain the scope and results of individual historical probes;
 do not read a probe's limitations as the current status of every later path.
 
-## Current Checkpoint (2026-10-05)
+## Current Checkpoint (2026-10-06)
 
-The last tested implementation commit is `462dc12` (2026-10-05),
-`test: gate real MiMo native BF16 prompt prefill`.
+The last tested implementation commit is `669ed7b` (2026-10-06),
+`test: gate real MiMo BitNet prefill and kernel recovery`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -41,18 +41,26 @@ change followed.
 The user then approved one temporary text-only BF16 GGUF and bounded native
 prefill. `462dc12` adds its opt-in real-model contract regression. Conversion,
 direct native prefill, streamed comparison, and cleanup completed; no additional
-bulk conversion or full-model BitNet policy was authorized.
+bulk conversion or full-model BitNet policy was authorized at that checkpoint.
+The October 6 continuation began at user-pushed `ed5fea0`. The user approved one
+new temporary complete model containing the existing frozen layer-3 projection.
+`dda784a` adds declared complete-model policy plus exact target-byte binding;
+`669ed7b` adds real prefill, no-score kernel refusal, and cleared-context recovery
+regressions. Conversion, measurements, comparison, and deletion are complete.
+No refitting, new retained candidate, held-out inference, push, or branch change
+followed; the user `.vscode/` remains untouched.
 
-Current gates: **159 default tests passed, 33 optional tests skipped; all fifteen
+Current gates: **159 default tests passed, 37 optional tests skipped; all sixteen
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
 handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
 enabled, including the sole full-size frozen projection, packaged dependency
 provenance, guarded vocabulary-only native tokenizer parity, and synthetic
-dense/BitNet hybrid model prefill (61.35 s). The separate opt-in real MiMo BF16
-native prefill regression passed in 586.50 s, after an initial 600-second timeout
-and native environment matching. That large-memory test was skipped in the
-fifteen-control invocation, rather than run concurrently or reconvert weights.
+dense/BitNet hybrid model prefill plus model-policy/CLI refusals (69.48 s).
+The real one-BitNet prefill regression passed separately in 221.62 s; its two
+real kernel controls passed in 733.45 s combined. All four real-model cases
+were skipped in the sixteen-control invocation, avoiding another large model
+load or conversion. The prior dense-only regression passed at `462dc12`.
 The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
@@ -205,6 +213,22 @@ development guide for flags.
   source/library pins, and the production one-tensor override are unchanged.
   This is **dense hosting, not native MiMo BitNet dispatch**. See the
   [measured reference](development.md#approved-dense-native-reference).
+- The separately approved October 6 mixed model now proves **real native MiMo
+  with one BitNet-derived projection**: 427 tensors, 249 BF16/177 F32/1 PQ2,
+  17,833,399,744 file bytes, exact frozen codes/FP16 scales, full vocabulary,
+  and no vision/MTP. The additive complete-model policy leaves the old one-tensor
+  factory unchanged. It validates declarations and exact target identity, not
+  every source tensor or architecture completeness; load the same unchanged
+  files and retain the library. The native loader checks actual structure.
+  On the same 80-token fixture, one counted dispatch/one repack/80 actual input
+  rows yield finite typed scores and zero answer tokens. Native peak RSS was
+  17,605,340 KiB. Real no-score kernel refusal and cleared-context recovery pass.
+  Native/streamed maximum logit/conditional gaps are 0.06760978698730469 and
+  0.0009491202828953993, not exact parity or a new tolerance/quality claim.
+  Both temporary GGUFs and spill files were deleted; only 160 KiB of reports
+  remain at `native/mimo-one-bitnet-report-20261006-WHaMyP` under the cache.
+  The sole candidate hashes are unchanged. Further conversion needs approval.
+  See the [one-projection run](development.md#approved-single-projection-native-model).
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
@@ -214,7 +238,7 @@ development guide for flags.
   context, and 0.456 with four balanced contexts. No compensated candidate,
   bulk fit, or policy promotion followed.
 - Full MiMo ternary GGUF loading, production registry lifecycle safety,
-  whole-model native hosting, calibrated decision quality,
+  deployment-grade native services, calibrated decision quality,
   vision, edge performance, and ARM/RISC-V validation remain open.
 
 ### Reusable Local Paths
@@ -1220,14 +1244,17 @@ For a fresh coding session:
   and the existing optional test. Its test-only override must not become an
   unvalidated full-model loader policy. Read the staged
   [native hosting plan](development.md#native-hosting-preflight-and-conversion-plan)
-  before further work: bulk text-only BF16 conversion needs separate approval,
-  except for the completed one-shot reference above. Real dense hosting and an
-  identical-prompt comparison now pass; numerical acceptance and a complete-model
-  one-projection BitNet file policy remain separate gates. The temporary dense
-  reference has been removed; do not recreate it without approval.
+  before further work. The approved dense and one-projection native experiments
+  are complete, including exact target-byte policy, actual 80-row BitNet dispatch,
+  no-score failure, and cleared-context recovery. Both temporary models are
+  deleted; do not recreate them without approval. Numerical acceptance remains
+  open: first diagnose native/streamed precision differences before choosing
+  tolerances or claiming exact parity. Source-row spot checks and declared tags
+  do not authenticate every transformed weight. Preserve the old one-tensor
+  factory, file identity/lifetime contract, and native loader structure checks.
   The legacy scoped
   bridge must not run concurrently with arbitrary Prism graphs or registry
-  mutation. Full-model conversion/loading remains outside the current scope.
+  mutation. Further bulk conversion and whole-model ternary remain outside scope.
   A production loader change
   needs a versioned runtime/build contract; do not overwrite the immutable
   cached source/library pins or bulk-convert MiMo. Do not claim loader parity.

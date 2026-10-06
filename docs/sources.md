@@ -1,8 +1,8 @@
 # Source Register
 
-Initial audit: 2026-09-25. Updated: 2026-10-05. These primary sources and the
+Initial audit: 2026-09-25. Updated: 2026-10-06. These primary sources and the
 later scoped experiments below support the
-[current handover](handover.md#current-checkpoint-2026-10-05).
+[current handover](handover.md#current-checkpoint-2026-10-06).
 The initial audit inspected source code without executing model weights or
 benchmark suites; subsequent model/native controls are distinguished below.
 Paper titles/abstracts and linked project documentation establish their scope,
@@ -283,6 +283,22 @@ regression passed separately in 586.50 s after an initial timeout; existing
 two CTests passed. The temporary GGUF/spill directory were deleted, leaving
 small reports only. No full-model BitNet policy, new candidate, held-out score,
 calibrated confidence, or benchmark follows.
+At `dda784a`/`669ed7b`, the separately approved complete-model control binds the
+exact frozen layer-3 PQ2 bytes to a tagged reference and preserves BF16/F32
+elsewhere. Declared tags, bounded ranges, full vocabulary, and one target are
+validated; these declarations do not authenticate every source tensor or prove
+architecture completeness. The native loader checks structure. Real MiMo
+80-token prefill measures one BitNet dispatch, one repack, and 80 input rows,
+with typed A/B/C scores and zero generation. Exact artifact/reference/model
+bytes and selected original embedding/head rows pass. Actual-prompt unsupported
+rounding proves decode success with tensor status 1/nonfinite logits; no-score
+refusal and cleared-context recovery pass. Sixteen existing native controls,
+three separate real BitNet cases, 159 default tests, and two CTests pass. The
+native/streamed frozen-projection maximum logit/conditional gaps are
+0.06760978698730469 / 0.0009491202828953993. Both temporary GGUFs/spill are
+deleted; only 160 KiB reports remain and candidate hashes are unchanged. This is
+one-projection arithmetic/runtime evidence, not exact parity, whole-model ternary
+quality, calibrated confidence, a benchmark, or lifecycle/file-race safety.
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`

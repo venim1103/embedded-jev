@@ -5,8 +5,8 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `462dc12` implementation checkpoint and the next bounded native
-task, read the [current handover](handover.md#current-checkpoint-2026-10-05).
+For the tested `669ed7b` implementation checkpoint and remaining native gates,
+read the [current handover](handover.md#current-checkpoint-2026-10-06).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
 
@@ -261,10 +261,11 @@ vocabulary-only native/HF prompt/label parity pass. Header-only planning derives
 the 427-text-tensor 16.678 GiB source floor and explicit staging bases; it does
 not certify native fit. The staged resource/conversion plan is in
 [development](development.md#native-hosting-preflight-and-conversion-plan).
-One separately approved text-only BF16 reference has now been converted and
-removed after real dense architecture prefill. Further bulk conversion and the
-complete-model one-projection BitNet file policy remain separate approval gates;
-full-model ternary, held-out inference, and quality promotion remain blocked.
+Separately approved dense and one-projection native references have now been
+converted and removed after real architecture prefill. The additive complete-model
+policy binds the exact frozen target while preserving dense storage elsewhere.
+Further bulk conversion still needs approval; whole-model ternary, held-out
+inference, and quality promotion remain blocked.
 A temporary four-layer synthetic Qwen3.5 model now covers native architecture
 construction and zero-generation prefill with a nonzero BitNet FFN at layer 3.
 Independent dense/A8 final-logit references, reordered typed options, chunked
@@ -287,7 +288,18 @@ and native state/score contracts; it never converts weights. Identical-prompt
 streamed BF16 comparison is not exact (maximum logit gap 0.09715080261230469);
 precision acceptance remains open. Measured resources and cleanup are recorded
 in [development](development.md#approved-dense-native-reference). This is not
-complete-model BitNet dispatch or quality acceptance.
+complete-model BitNet dispatch or quality acceptance at that checkpoint.
+At `669ed7b`, one newly approved temporary mixed model proves real 32-layer MiMo
+prefill with one frozen BitNet-derived FFN: exact stored codes/FP16 scales, one
+counted dispatch/repack, 80 actual input rows, typed options, and zero answer
+generation. Declared policy and exact target identity pass; full-source
+authentication, production lifecycle safety, and numerical acceptance remain
+open. Real no-score kernel refusal and cleared-context recovery pass. The
+native/streamed maximum selected-logit gap is 0.06760978698730469, not exact
+parity or a quality gate. Both GGUFs/spill are deleted, candidate hashes unchanged.
+Further conversion requires approval; the
+[one-projection measurements](development.md#approved-single-projection-native-model)
+do not authorize full-model ternary or held-out scoring.
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

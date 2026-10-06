@@ -6,7 +6,7 @@ source-backed facts, mathematical deductions, and hypotheses requiring experimen
 No MiMo weights were downloaded or quantized during that initial audit.
 Subsequent source downloads, streamed text inference, and bounded native
 integration controls are recorded in the
-[current handover](handover.md#current-checkpoint-2026-10-05). This document's
+[current handover](handover.md#current-checkpoint-2026-10-06). This document's
 original mathematical/source conclusions are not model-quality measurements.
 
 ## Recommendation

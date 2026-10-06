@@ -1,10 +1,10 @@
 # Embedded Jev Design
 
 Status: proposed architecture, first written 2026-09-25; implementation status
-checked 2026-10-05. Bounded ternary quantizers, the streamed BF16 text reference,
-and one-projection BitNet-derived native integration now exist. A complete
-model-loadable ternary/BitNet runtime and deployment service do not.
-The [current handover](handover.md#current-checkpoint-2026-10-05) records the
+checked 2026-10-06. Bounded ternary quantizers, the streamed BF16 text reference,
+and a frozen BitNet-derived FFN inside real native MiMo now exist. Whole-model
+ternary export and deployment services remain open.
+The [current handover](handover.md#current-checkpoint-2026-10-06) records the
 tested implementation checkpoint, cache paths, constraints, and next native task.
 See [docs/research-audit.md](research-audit.md) for evidence and corrections,
 [docs/roadmap.md](roadmap.md) for delivery gates, and
@@ -290,9 +290,19 @@ native cache/scratch remain additional costs. At `462dc12`, one approved tempora
 text-only BF16 reference loaded and prefilled all 32 real MiMo text layers on an
 80-token engineering fixture, with typed labels and zero generation. The native
 versus streamed BF16 maximum logit gap was 0.09715080261230469; exact numerical
-acceptance remains open. The temporary GGUF was deleted afterward. A complete-model
-policy for the existing single-projection BitNet payload remains a separate gate;
-whole-model ternary conversion is not implied. See the
+acceptance remains open. The temporary GGUF was deleted afterward. At `669ed7b`,
+the separately approved mixed model also loads and prefills the same prompt with
+one counted BitNet dispatch, one repack, and 80 measured input rows. The additive
+complete-model policy binds exact frozen target bytes against a tagged reference,
+keeps both BF16 vocabulary matrices, and refuses other quantized tensors or
+Hadamard metadata. It is declared-policy/target validation, not all-source
+authentication or a complete architecture check. The native loader checks
+structure; callers retain library lifetime and load the same unchanged files.
+Real no-score kernel refusal and cleared-context recovery pass. Native/streamed
+selected-logit and conditional-score gaps are 0.06760978698730469 and
+0.0009491202828953993, not exact parity or quality acceptance. Both temporary
+files and spill were deleted; the sole retained candidate is unchanged.
+Whole-model ternary conversion is not implied. See the
 [staged plan](development.md#native-hosting-preflight-and-conversion-plan).
 
 A bounded synthetic four-layer native Qwen3.5 model now also loads and prefills

@@ -6,23 +6,24 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `462dc12` (2026-10-05), following
-the isolated runtime/vocabulary preflight and metadata-only resource planner.
-The [current handover](handover.md#current-checkpoint-2026-10-05) is the
+The last tested implementation checkpoint is `669ed7b` (2026-10-06), following
+`dda784a`'s exact-payload complete-model policy and the approved one-projection run.
+The [current handover](handover.md#current-checkpoint-2026-10-06) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
-Current results: 159 default tests passed, 33 optional tests skipped, and all
-fifteen pinned Prism controls passed with full-size PQ2, repeated/owned native
+Current results: 159 default tests passed, 37 optional tests skipped, and all
+sixteen pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
 including the full-size frozen projection and guarded vocabulary-only native
-tokenizer preflight and dense/BitNet synthetic model prefill (61.35 s).
-The separate opt-in real MiMo BF16 native prefill regression passed in 586.50 s;
-it was skipped in the fifteen-control invocation because its reference file
-was not supplied there. One approved temporary dense reference has now loaded
-and prefilled all 32 real text layers; the GGUF has been deleted afterward.
+tokenizer preflight, dense/BitNet synthetic model prefill, and complete-model
+policy/CLI refusals (69.48 s). Separately, the approved real one-BitNet prefill
+regression passed in 221.62 s; its error/recovery cases passed in 733.45 s combined.
+The four real-model cases were skipped in the sixteen-control invocation because
+their separately approved files were not supplied there. The prior dense-only
+regression passed at `462dc12`. Both approved temporary models are now deleted.
 The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
@@ -1259,17 +1260,118 @@ OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovi
    environment-matched opt-in regression passes metadata, exact selected-source
    rows, native token/state/score contracts, and zero generation, not a new
    cross-runtime tolerance or BitNet full-model policy.
-4. **Then one projection only:** extend the versioned file policy to a complete
-   model while binding the exact layer-3 identity payload and preserving every
-   stored code/FP16 scale. The current factory deliberately requires a one-tensor
-   file and cannot be applied unchanged to a 427-tensor model. Integrate native
-   error propagation, single-thread/batch bounds, library lifetime, and counted
-   BitNet dispatch; do not substitute stock PQ2/Q8_K as BitNet evidence.
+4. **Approved one-projection hosting completed:** the additive complete-model
+   factory binds exact layer-3 identity bytes against the tagged reference while
+   leaving the original one-tensor factory unchanged. Real 32-layer native
+   prefill, measured 80-row BitNet dispatch, no-score kernel refusal, and cleared
+   same-context recovery pass. The temporary mixed model and projection encoding
+   are deleted. This is one frozen projection, not full-model ternary export;
+   further conversion needs approval, and numerical acceptance remains open.
 5. **Still not authorized:** full-model ternary conversion, compensation
    promotion, another fitted/retained quantized candidate, held-out inference,
    calibrated confidence, vision, or deployment benchmarks. Broader quantization
    requires separate resource, arithmetic, runtime, and representative quality
    gates. A successful dense native reference is not ternary quality evidence.
+
+### Approved Single-Projection Native Model
+
+On 2026-10-06 the user approved one temporary complete text model containing the
+existing frozen layer-3 FFN-down projection, bounded CPU prefill, measurement,
+and deletion. Offline lazy conversion reused the same source snapshot, pinned
+converter, and dense environment with `--outtype bf16 --no-nextn --use-temp-file`.
+An in-memory `GGUFWriter.add_tensor` hook substituted only
+`blk.3.ffn_down.weight` using `pack_ternary_pq2_0`; every ternary code and FP16
+row/group scale was preserved. No fitting or cached source edits occurred.
+
+The additive `prism_bitnet_cpu_model_override_from_gguf_v1` requires GGUF v3,
+427 tensors, `qwen35` with 32 layers/4096 hidden/12288 FFN dimensions, both full
+BF16 vocabulary matrices, BF16/F32 for every other tensor, bounded nonoverlapping
+payload ranges, and at most 19 GiB. Required string metadata is:
+
+```text
+jev.model.source_revision = 2367e865d009c13ac81713a2878291d33ab28177
+jev.bitnet.model = mimo-qwen35-layer3-ffn-down-v1
+jev.bitnet.execution = group128-a8-fp32-nearest-even-identity-v1
+```
+
+The sole PQ2 target must be 4096 x 12288 and match every byte of the separately
+validated, at most 14 MiB, tagged one-tensor reference. `prism.hadamard.*` is
+refused. The returned rule is the same anchored layer-3 override as before;
+the legacy one-tensor factory still refuses complete models. Sparse fixtures
+cover bad tags/revisions/geometry/types, changed bytes, transforms, extra tensors,
+truncation, and no-score CLI refusal. Their scalar placeholders test declared
+policy, not a loadable MiMo architecture. This factory does not authenticate all
+source tensors or prove architecture completeness: the native loader checks
+structure, and the caller must load these same unchanged files and retain the
+library. It is not a hostile-file parser or a file-race/lifecycle guarantee.
+
+Before this run, host RAM was 31,541,751,808 bytes with 23,175,872,512 available,
+swap was 8,589,934,592 bytes unused, cache disk free space was 317,043,560,448
+bytes, and `memory.max` was `max`. These are time-sensitive observations,
+not peak-fit or target-device guarantees.
+
+| Observed Quantity | Result |
+| --- | ---: |
+| Mixed GGUF file / payload bytes | 17,833,399,744 / 17,822,435,328 |
+| BF16 / F32 / PQ2 tensor counts | 249 / 177 / 1 |
+| Exact projection payload bytes | 13,369,344 |
+| Conversion elapsed / peak RSS | 4m36.31s / 10,291,588 KiB |
+| Direct native load plus prefill elapsed / peak RSS | 1m45.14s / 17,605,340 KiB |
+| Streamed frozen-projection reference elapsed / peak RSS | 34.77s / 1,161,756 KiB |
+
+The deleted model SHA-256 was
+`e88e873825fc30167ab1c9ae3f54fbc7cb0bf6550132c12ca7b574b3c4c4db81`.
+Both full 248320 x 4096 vocabulary matrices remain; vision/MTP are excluded.
+The same `inspect-before-answer` prompt hash recorded above yielded 80 tokens,
+A/B/C IDs 32/33/34, typed `inspect/edit/ask`, retained positions `[79,79]`, and
+zero generated answer tokens. The actual BitNet tensor reported **one successful
+dispatch, one repack, and 80 input rows**, not a count inferred from prompt length.
+The one-thread/batch128/KV F16 controls and finite entire-vocabulary check remain.
+
+| Label | Native Logit | Streamed Frozen-Projection Logit | Native Conditional Score |
+| --- | ---: | ---: | ---: |
+| A | 21.478885650634766 | 21.474821090698242 | 0.97170605857764214 |
+| B | 15.454629898071289 | 15.387020111083984 | 0.0023508985041923954 |
+| C | 17.855735778808594 | 17.81911277770996 | 0.025943042918165567 |
+
+Maximum selected-logit and conditional-score absolute gaps were
+0.06760978698730469 and 0.0009491202828953993. Both chose `inspect`; no exact
+parity, new tolerance, representative quality, or calibrated confidence follows.
+Different precision and thread configurations also prevent a speed comparison.
+
+`--prefill-model-bitnet-control <model> <projection> <rendered-prompt> [mode]`
+accepts only `full`, `kernel-error`, and `kernel-recovery` for real prompts.
+Unsupported upward rounding on the actual 80-token prompt gives decode status 0
+but tensor status 1, nonfinite logits, zero successful calls, and one repack;
+`kernel-error` returns 29 with no stdout. Restored rounding and cleared context
+then recover finite typed scores with one successful call, one repack, and 80
+actual input rows. Real recovery asserts this contract, not exact recovered/full
+logit equality; synthetic recovery still checks independent reference logits.
+The two real error/recovery regressions passed in 733.45 s combined, peak RSS
+17,606,288 KiB, with a 600-second native limit per case. Large jobs run serially;
+observed process swaps were zero, not a host or target-device guarantee.
+
+While a separately approved model exists, the existing opt-in regression never
+converts or deletes it and verifies exact artifact/reference/model payloads,
+selected source embedding/head rows, tokenizer boundaries, dispatch, and scores:
+
+```bash
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
+MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
+MIMO_PROJECTION_ARTIFACT="$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
+MIMO_NATIVE_BITNET_GGUF="/path/to/approved-temporary-model.gguf" \
+MIMO_NATIVE_BITNET_PROJECTION_GGUF="/path/to/tagged-frozen-projection.gguf" \
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
+   tests/test_prism_native_control.py -k 'mimo_bf16_native_prompt_prefill and one-bitnet'
+```
+
+Cleanup is verified: both GGUFs and all spill files under
+`$cache/native/mimo-one-bitnet.WHaMyP` were deleted. Only 160 KiB of generated
+reports remain at `$cache/native/mimo-one-bitnet-report-20261006-WHaMyP`.
+The original sole candidate hashes, source pins, and cached CPU/base libraries
+are unchanged. Further model conversion still requires separate approval.
 
 ## Single-Projection Native Fixture
 

@@ -26,10 +26,12 @@ BitNet control checkpoint was loaded and prefilled without answer generation.
 Its A-C labels can be scored directly from final-position logits, but it is not
 a substitute for MiMo or evidence of decision quality or edge speed.
 
-The last tested implementation checkpoint is `6d74ae8` (2026-09-30): native
-A8 and matching signed-Hadamard controls pass, as do exact PQ2_0 conversion
-and controlled native tensor execution. PQ2 dispatch is not BitNet dispatch.
-Read the [current handover](docs/handover.md#current-checkpoint-2026-10-05)
+The last tested implementation checkpoint is `669ed7b` (2026-10-06): the frozen
+BitNet-derived projection runs inside real native 32-layer MiMo with counted
+dispatch, preserved FP16 group scales, typed conditional scores, and zero answer
+generation. Its approved temporary model was deleted; whole-model ternary export
+and exact native/streamed parity remain open. PQ2 alone is not BitNet dispatch.
+Read the [current handover](docs/handover.md#current-checkpoint-2026-10-06)
 for recorded gates, reusable caches, constraints, and the next native task.
 
 ## Get Started
