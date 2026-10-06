@@ -406,9 +406,94 @@ static int test_loader_override(const char* path) {
 }
 
 #ifdef JEV_TEST_FULL_RUNTIME
+struct prefill_trace {
+    struct record {
+        std::string name;
+        std::size_t tokens;
+        std::size_t width;
+    };
+    std::filesystem::path directory;
+    std::vector<record> records;
+    std::size_t bytes = 0;
+    bool failed = false;
+
+    bool save(const std::string& name, ggml_tensor* tensor) {
+        if (tensor->type != GGML_TYPE_F32 || tensor->ne[0] < 1 || tensor->ne[0] > 12288 ||
+            tensor->ne[1] < 1 || tensor->ne[1] > 128 || tensor->ne[2] != 1 || tensor->ne[3] != 1 ||
+            tensor->nb[0] != sizeof(float) || records.size() >= 36 ||
+            std::any_of(records.begin(), records.end(), [&](const record& entry) { return entry.name == name; })) {
+            return false;
+        }
+        const auto width = static_cast<std::size_t>(tensor->ne[0]);
+        const auto tokens = static_cast<std::size_t>(tensor->ne[1]);
+        const auto size = tokens * width * sizeof(float);
+        if (size > 96 * 1024 * 1024 - bytes) {
+            return false;
+        }
+        std::vector<float> values(tokens * width);
+        for (std::size_t token = 0; token < tokens; ++token) {
+            ggml_backend_tensor_get(tensor, values.data() + token * width, token * tensor->nb[1], width * sizeof(float));
+        }
+        if (!std::all_of(values.begin(), values.end(), [](float value) { return std::isfinite(value); })) {
+            return false;
+        }
+        std::unique_ptr<FILE, decltype(&std::fclose)> output(
+            std::fopen((directory / (name + ".f32")).c_str(), "wbx"), std::fclose);
+        if (!output || std::fwrite(values.data(), sizeof(float), values.size(), output.get()) != values.size() ||
+            std::fflush(output.get()) != 0) {
+            return false;
+        }
+        records.push_back({ name, tokens, width });
+        bytes += size;
+        return true;
+    }
+
+    static bool callback(ggml_tensor* tensor, bool ask, void* data) {
+        auto& trace = *static_cast<prefill_trace*>(data);
+        try {
+            const std::string name = ggml_get_name(tensor);
+            static const std::regex layer_name("l_out-([0-9]|[12][0-9]|3[01])");
+            const bool projection = tensor->op == GGML_OP_MUL_MAT && tensor->src[0] &&
+                std::strcmp(ggml_get_name(tensor->src[0]), "blk.3.ffn_down.weight") == 0;
+            const bool selected = projection || name == "model.input_embed" ||
+                name == "result_norm" || std::regex_match(name, layer_name);
+            if (ask || !selected) {
+                return selected || !ask;
+            }
+            const bool saved = projection ?
+                trace.save("ffn_input", tensor->src[1]) && trace.save("ffn_output", tensor) :
+                trace.save(name == "result_norm" ? "final_norm" : name, tensor);
+            trace.failed = trace.failed || !saved;
+            return saved;
+        } catch (const std::exception&) {
+            trace.failed = true;
+            return false;
+        }
+    }
+
+    bool finish(std::size_t layers) const {
+        if (failed || records.size() != layers + 4) {
+            return false;
+        }
+        std::unique_ptr<FILE, decltype(&std::fclose)> output(
+            std::fopen((directory / "manifest.json").c_str(), "wx"), std::fclose);
+        if (!output) {
+            return false;
+        }
+        std::fputs("{\"format\":\"jev-prefill-f32-trace-v1\",\"dtype\":\"float32\",\"byte_order\":\"little\",\"tensors\":[", output.get());
+        for (std::size_t index = 0; index < records.size(); ++index) {
+            const auto& entry = records[index];
+            std::fprintf(output.get(), "%s{\"name\":\"%s\",\"shape\":[%zu,%zu]}",
+                index ? "," : "", entry.name.c_str(), entry.tokens, entry.width);
+        }
+        std::fputs("]}\n", output.get());
+        return std::fflush(output.get()) == 0 && std::ferror(output.get()) == 0;
+    }
+};
+
 static int test_prefill_control(
     const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr,
-    const char* projection_path = nullptr) {
+    const char* projection_path = nullptr, const char* trace_path = nullptr) {
     const bool chunked = std::strcmp(mode, "chunked") == 0;
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
@@ -423,6 +508,16 @@ static int test_prefill_control(
     if (prompt && (std::strlen(prompt) == 0 || std::strlen(prompt) > 4096 ||
             (std::strcmp(mode, "full") != 0 && !(projection_path && (kernel_error || kernel_recovery))))) {
         return 34;
+    }
+    prefill_trace trace;
+    if (trace_path) {
+        const uint32_t endian = 1;
+        std::error_code error;
+        trace.directory = trace_path;
+        if (std::strcmp(mode, "full") != 0 || *reinterpret_cast<const uint8_t*>(&endian) != 1 ||
+            !std::filesystem::create_directory(trace.directory, error) || error) {
+            return 35;
+        }
     }
     ggml_backend_buffer_type_t buffer_type = nullptr;
     if (prism_bitnet_cpu_runtime_init_v1(
@@ -522,6 +617,10 @@ static int test_prefill_control(
     context_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
     context_params.type_k = GGML_TYPE_F16;
     context_params.type_v = GGML_TYPE_F16;
+    if (trace_path) {
+        context_params.cb_eval = prefill_trace::callback;
+        context_params.cb_eval_user_data = &trace;
+    }
     std::unique_ptr<llama_context, decltype(&llama_free)> context(
         llama_init_from_model(model.get(), context_params), llama_free);
     if (!context) {
@@ -632,6 +731,9 @@ static int test_prefill_control(
             dispatch_calls != prefill_calls || weight_repacks != 1 ||
             prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0)) {
         return 30;
+    }
+    if (trace_path && !trace.finish(model->hparams.n_layer())) {
+        return 35;
     }
     struct control_option {
         const char* id;
@@ -745,6 +847,14 @@ static int test_vocab_only(const char* path, const char* prompt) {
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_FULL_RUNTIME
+    if (argc == 6 && std::strcmp(argv[1], "--prefill-model-bitnet-trace-control") == 0) {
+        return test_prefill_control(argv[2], true, "full", argv[4], argv[3], argv[5]);
+    }
+    if (argc == 4 && (std::strcmp(argv[1], "--prefill-bitnet-trace-control") == 0 ||
+            std::strcmp(argv[1], "--prefill-trace-control") == 0)) {
+        return test_prefill_control(argv[2], std::strcmp(argv[1], "--prefill-bitnet-trace-control") == 0,
+            "full", nullptr, nullptr, argv[3]);
+    }
     if ((argc == 5 || argc == 6) && std::strcmp(argv[1], "--prefill-model-bitnet-control") == 0) {
         return test_prefill_control(argv[2], true, argc == 6 ? argv[5] : "full", argv[4], argv[3]);
     }

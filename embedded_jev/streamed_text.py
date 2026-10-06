@@ -50,8 +50,12 @@ def native_backend_dependencies(library: Path, backend: str) -> dict:
         raise InventoryError(f"unable to identify native graph dependencies: {exc}") from exc
 
 
-def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *, backend: str = "direct"):
+def make_native_ffn_down(
+    weight, library: Path, artifact: Path | None = None, *, backend: str = "direct", compute_dtype: str = "bf16",
+):
     """Substitute one in-memory group-128 BitNet-derived AVX2 projection."""
+    if compute_dtype not in ("bf16", "fp32") or (compute_dtype == "fp32" and artifact is None):
+        raise InventoryError("FP32 native FFN diagnostics require an existing frozen projection")
     import ctypes
 
     import torch
@@ -179,7 +183,8 @@ def make_native_ffn_down(weight, library: Path, artifact: Path | None = None, *,
         def forward(self, features):
             if registered_backend and self._closed:
                 raise InventoryError("registered native FFN-down is closed")
-            if features.device.type != "cpu" or features.dtype != torch.bfloat16 or features.shape[-1] != 12288:
+            expected_dtype = torch.bfloat16 if compute_dtype == "bf16" else torch.float32
+            if features.device.type != "cpu" or features.dtype != expected_dtype or features.shape[-1] != 12288:
                 raise InventoryError("native FFN-down received incompatible activations")
             shape = features.shape
             inputs = np.ascontiguousarray(features.detach().float().numpy().reshape(-1, 12288))
@@ -385,8 +390,21 @@ def run_streamed_text(
     calibration_output: Path | None = None,
     activation_observer=None,
     native_ffn_backend: str = "direct",
+    compute_dtype: str = "bf16",
+    precision_trace_directory: Path | None = None,
 ) -> dict:
-    """Execute at most one verified BF16 decoder layer at a time on CPU."""
+    """Execute at most one source-verified decoder layer at a time on CPU."""
+    if compute_dtype not in ("bf16", "fp32"):
+        raise InventoryError("unsupported streamed computation dtype")
+    if (compute_dtype != "bf16" or precision_trace_directory is not None) and (
+        fixture_path is None or dataset_path is not None or calibration_output is not None
+        or activation_observer is not None or layers < 4
+    ):
+        raise InventoryError("precision diagnostics require a synthetic fixture and at least four layers")
+    if compute_dtype == "fp32" and (native_ffn_library is None or projection_artifact is None):
+        raise InventoryError("FP32 diagnostics require the existing frozen native projection")
+    if precision_trace_directory is not None and precision_trace_directory.exists():
+        raise InventoryError("precision trace destination already exists")
     if label_count is not None and (type(label_count) is not int or not 2 <= label_count <= len(LABELS)):
         raise InventoryError("selected label count must be between 2 and 16")
     if dataset_path is not None and fixture_path is not None:
@@ -425,6 +443,28 @@ def run_streamed_text(
     from transformers.models.qwen3_5.modeling_qwen3_5 import (
         Qwen3_5TextModel, create_causal_mask,
     )
+
+    torch_dtype = torch.bfloat16 if compute_dtype == "bf16" else torch.float32
+    trace_records = []
+    trace_bytes = 0
+    if precision_trace_directory is not None:
+        precision_trace_directory.mkdir()
+
+    def trace_stage(name, tensor):
+        nonlocal trace_bytes
+        if precision_trace_directory is None:
+            return
+        values = np.ascontiguousarray(tensor.detach().float().cpu().numpy().reshape(-1, tensor.shape[-1]), dtype="<f4")
+        if (
+            values.shape[0] > 128 or values.shape[1] > 12288 or not np.isfinite(values).all()
+            or len(trace_records) >= 36 or trace_bytes + values.nbytes > 96 * 1024 * 1024
+            or any(record["name"] == name for record in trace_records)
+        ):
+            raise InventoryError("precision trace exceeds bounded finite tensor contract")
+        with (precision_trace_directory / (name + ".f32")).open("xb") as output:
+            values.tofile(output)
+        trace_records.append({"name": name, "shape": list(values.shape)})
+        trace_bytes += values.nbytes
 
     metadata, headers = read_local_headers(directory)
     plan = plan_streamed_text(metadata, headers, layers=layers)
@@ -479,12 +519,14 @@ def run_streamed_text(
                     if value.dtype != torch.bfloat16 or tuple(value.shape) != tuple(parameters[target_name].shape):
                         raise InventoryError(f"streamed BF16 tensor shape mismatch: {name}")
                     set_module_tensor_to_device(
-                        model, target_name, "cpu", value=value, dtype=torch.bfloat16,
+                        model, target_name, "cpu", value=value,
+                        dtype=torch.bfloat16 if target_name == "embed_tokens.weight" else torch_dtype,
                     )
 
     materialize([plan["embedding_name"]])
     with torch.inference_mode():
-        hidden = model.embed_tokens(input_ids)
+        hidden = model.embed_tokens(input_ids).to(dtype=torch_dtype)
+    trace_stage("model.input_embed", hidden)
     model.embed_tokens = torch.nn.Identity()
     gc.collect()
     attention_mask = torch.ones_like(input_ids)
@@ -515,15 +557,20 @@ def run_streamed_text(
             if native_ffn_library is not None:
                 decoder.mlp.down_proj, native_diagnostics = make_native_ffn_down(
                     None if projection_artifact is not None else decoder.mlp.down_proj.weight,
-                    native_ffn_library, projection_artifact, backend=native_ffn_backend,
+                    native_ffn_library, projection_artifact, backend=native_ffn_backend, compute_dtype=compute_dtype,
                 )
 
             def capture_ffn_input(_module, args):
                 captured.append(args[0].detach().float().cpu().clone())
+                trace_stage("ffn_input", captured[-1])
 
             hook = decoder.mlp.down_proj.register_forward_pre_hook(capture_ffn_input)
-        if any(parameter.is_meta or parameter.dtype != torch.bfloat16 for parameter in decoder.parameters()):
-            raise InventoryError(f"incomplete BF16 layer {layer_index} materialization")
+            if precision_trace_directory is not None:
+                output_hook = decoder.mlp.down_proj.register_forward_hook(
+                    lambda _module, _args, output: trace_stage("ffn_output", output),
+                )
+        if any(parameter.is_meta or parameter.dtype != torch_dtype for parameter in decoder.parameters()):
+            raise InventoryError(f"incomplete {compute_dtype} layer {layer_index} materialization")
         layer_mask = linear_mask if plan["layer_types"][layer_index] == "linear_attention" else causal_mask
         try:
             with torch.inference_mode():
@@ -537,8 +584,11 @@ def run_streamed_text(
                 decoder.mlp.down_proj.close()
         if layer_index == 3:
             hook.remove()
+            if precision_trace_directory is not None:
+                output_hook.remove()
         if not torch.isfinite(hidden).all():
             raise InventoryError(f"nonfinite streamed text layer {layer_index}")
+        trace_stage(f"l_out-{layer_index}", hidden)
         model.layers[layer_index] = torch.nn.Identity()
         del decoder
         gc.collect()
@@ -548,6 +598,7 @@ def run_streamed_text(
         hidden = model.norm(hidden)
     if not torch.isfinite(hidden).all():
         raise InventoryError("nonfinite streamed final norm")
+    trace_stage("final_norm", hidden[:, -1:])
     summary = {
         "model": plan["model"],
         "revision": plan["revision"],
@@ -555,6 +606,7 @@ def run_streamed_text(
         "tokens": input_ids.shape[1],
         "output_shape": list(hidden.shape),
         "output_dtype": str(hidden.dtype),
+        "compute_dtype": compute_dtype,
         "last_token_sha256": hashlib.sha256(hidden[0, -1].float().numpy().tobytes()).hexdigest(),
         "prompt_sha256": boundary["prompt_sha256"],
         "generated_tokens": 0,
@@ -563,6 +615,14 @@ def run_streamed_text(
         "peak_process_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         "purpose": "streamed_text_layers_not_model_logits_or_quality",
     }
+    if precision_trace_directory is not None:
+        if len(trace_records) != layers + 4:
+            raise InventoryError("missing precision trace stages")
+        with (precision_trace_directory / "manifest.json").open("x") as output:
+            json.dump({"format": "jev-prefill-f32-trace-v1", "dtype": "float32", "byte_order": "little",
+                       "tensors": trace_records}, output)
+        summary["precision_trace"] = {"tensors": len(trace_records), "bytes": trace_bytes,
+                                      "scope": "synthetic_fixture_precision_diagnostic_not_calibration"}
     if fixture_case is not None:
         case_metadata = {
             "case_id": case_id,
@@ -615,13 +675,16 @@ def run_streamed_text(
             for label, row in zip(selected, head_rows, strict=True)
         ):
             raise InventoryError("selected LM-head rows disagree with safetensors")
-        torch_logits = torch.nn.functional.linear(hidden[0, -1].unsqueeze(0), head_rows)[0].float()
+        torch_logits = torch.nn.functional.linear(hidden[0, -1].unsqueeze(0), head_rows.to(dtype=torch_dtype))[0].float()
         scored_logits = torch.tensor(
             [scored["options"][label]["logit"] for label in selected], dtype=torch.float32,
         )
-        if not torch.allclose(torch_logits, scored_logits.to(torch.bfloat16).float(), rtol=0.01, atol=0.125):
-            raise InventoryError("selected FP32 logits disagree with BF16 head rounding")
-        scored["max_fp32_to_bf16_logit_gap"] = float(torch.max(torch.abs(torch_logits - scored_logits)))
+        if not torch.allclose(torch_logits, scored_logits.to(torch_dtype).float(),
+                              rtol=0.01 if compute_dtype == "bf16" else 1e-4,
+                              atol=0.125 if compute_dtype == "bf16" else 1e-4):
+            raise InventoryError("selected reader logits disagree with Torch head computation")
+        gap_name = "max_fp32_to_bf16_logit_gap" if compute_dtype == "bf16" else "max_selected_reader_to_torch_logit_gap"
+        scored[gap_name] = float(torch.max(torch.abs(torch_logits - scored_logits)))
         summary["selected_head"] = scored
         if full_vocabulary_mass:
             summary["vocabulary_mass"] = stream_full_vocabulary_mass(
@@ -664,6 +727,8 @@ def main() -> None:
     parser.add_argument("--native-ffn-backend", choices=("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128", "prism_ggml_registered"), default="direct")
     parser.add_argument("--projection-artifact", type=Path)
     parser.add_argument("--full-vocabulary-mass", action="store_true")
+    parser.add_argument("--compute-dtype", choices=("bf16", "fp32"), default="bf16")
+    parser.add_argument("--precision-trace-directory", type=Path)
     args = parser.parse_args()
     print(json.dumps(run_streamed_text(
         args.local_dir, layers=args.layers, prompt=args.prompt, label_count=args.label_count,
@@ -675,6 +740,7 @@ def main() -> None:
         split=args.split,
         calibration_output=args.calibration_output,
         native_ffn_backend=args.native_ffn_backend,
+        compute_dtype=args.compute_dtype, precision_trace_directory=args.precision_trace_directory,
     ), sort_keys=True))
 
 

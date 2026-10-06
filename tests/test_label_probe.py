@@ -362,6 +362,33 @@ def test_streamed_capture_refuses_validation_and_held_out_before_model_import(tm
         )
 
 
+def test_streamed_precision_diagnostics_refuse_unsafe_scope_before_model_import(tmp_path):
+    from embedded_jev.inventory import InventoryError
+    from embedded_jev.streamed_text import make_native_ffn_down, run_streamed_text
+
+    for dtype in ("fp32", "fp16"):
+        with pytest.raises(InventoryError, match="existing frozen projection"):
+            make_native_ffn_down(None, tmp_path / "native.so", compute_dtype=dtype)
+    with pytest.raises(InventoryError, match="unsupported streamed computation dtype"):
+        run_streamed_text(None, prompt="unused", compute_dtype="fp16")
+    for split in ("calibration", "validation", "held_out"):
+        with pytest.raises(InventoryError, match="synthetic fixture"):
+            run_streamed_text(None, prompt="unused", dataset_path=tmp_path / "decisions.json",
+                              split=split, case_id="example", precision_trace_directory=tmp_path / "trace")
+    for options in ({"layers": 3}, {"calibration_output": tmp_path / "capture"},
+                    {"activation_observer": lambda values: None}):
+        with pytest.raises(InventoryError, match="synthetic fixture"):
+            run_streamed_text(None, prompt="unused", fixture_path=tmp_path / "fixture.json", case_id="example",
+                              precision_trace_directory=tmp_path / "trace", **options)
+    with pytest.raises(InventoryError, match="existing frozen native projection"):
+        run_streamed_text(None, prompt="unused", fixture_path=tmp_path / "fixture.json", case_id="example",
+                          compute_dtype="fp32")
+    with pytest.raises(InventoryError, match="destination already exists"):
+        run_streamed_text(None, prompt="unused", fixture_path=tmp_path / "fixture.json", case_id="example",
+                          precision_trace_directory=tmp_path)
+    assert not (tmp_path / "trace").exists()
+
+
 @pytest.mark.parametrize("defect", ["version", "split", "shape", "size", "pickle"])
 def test_calibration_capture_rejects_unsafe_manifest_or_arrays(tmp_path, defect):
     import hashlib

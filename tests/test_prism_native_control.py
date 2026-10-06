@@ -222,6 +222,8 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                                       str(model_file), mode], capture_output=True, text=True, timeout=30)
             assert control.returncode == 0, control.stderr
             report = json.loads(control.stdout)
+            if mode == "full":
+                untraced_report = report
             token_ids = [2] * 128 if mode == "maximum" else [3, 5, 7]
             assert report["prefilled_tokens"] == len(token_ids) and report["generated_answer_tokens"] == 0
             assert report["input_tokens"] == token_ids
@@ -251,6 +253,27 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
             else:
                 assert report["peer_logits"] == []
         command = "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control"
+        trace_path = tmp_path / "trace"
+        trace_command = "--prefill-bitnet-trace-control" if backend == "bitnet" else "--prefill-trace-control"
+        traced = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                 trace_command, str(model_file), str(trace_path)],
+                                capture_output=True, text=True, timeout=30)
+        assert traced.returncode == 0, traced.stderr
+        trace = json.loads((trace_path / "manifest.json").read_text())
+        assert trace["format"] == "jev-prefill-f32-trace-v1" and trace["byte_order"] == "little"
+        assert trace["dtype"] == "float32" and len(trace["tensors"]) == 8
+        shapes = {tensor["name"]: tensor["shape"] for tensor in trace["tensors"]}
+        assert shapes == {"model.input_embed": [3, 32], "ffn_input": [3, 256], "ffn_output": [3, 32],
+                  "final_norm": [1, 32], **{f"l_out-{layer}": [3, 32] for layer in range(4)}}
+        for tensor in trace["tensors"]:
+            values = np.fromfile(trace_path / (tensor["name"] + ".f32"), dtype="<f4")
+            assert values.size == np.prod(tensor["shape"]) and np.isfinite(values).all()
+        np.testing.assert_allclose(json.loads(traced.stdout)["logits"], expected["logits"], rtol=2e-5, atol=2e-5)
+        assert json.loads(traced.stdout) == untraced_report
+        refused = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                  trace_command, str(model_file), str(trace_path)],
+                                 capture_output=True, text=True, timeout=30)
+        assert refused.returncode == 35 and refused.stdout == ""
         if backend == "dense":
             for prompt, token_ids, expected_key in (("aba", [4, 2], "text_logits"),
                                                     ("a" * 128, [2] * 128, "maximum_logits")):
@@ -417,9 +440,10 @@ for kind in ("valid", "wrong_tag", "wrong_revision", "wrong_arch", "wrong_layers
 
 
 @pytest.mark.parametrize("use_bitnet,mode", [(False, "full"), (True, "full"),
-                                         (True, "kernel-error"), (True, "kernel-recovery")],
-                         ids=["dense-bf16", "one-bitnet", "one-bitnet-kernel-error", "one-bitnet-kernel-recovery"])
-def test_pinned_prism_mimo_bf16_native_prompt_prefill_without_generation(use_bitnet, mode):
+                                 (True, "kernel-error"), (True, "kernel-recovery"), (True, "trace")],
+                    ids=["dense-bf16", "one-bitnet", "one-bitnet-kernel-error", "one-bitnet-kernel-recovery",
+                        "one-bitnet-trace"])
+def test_pinned_prism_mimo_bf16_native_prompt_prefill_without_generation(use_bitnet, mode, tmp_path):
     import numpy as np
 
     model_file = os.environ.get("MIMO_NATIVE_BITNET_GGUF" if use_bitnet else "MIMO_NATIVE_REFERENCE_GGUF")
@@ -518,10 +542,13 @@ print(json.dumps({"prompt": prompt, "tokens": tokens, "labels": labels,
     native_environment.pop("OMP_NUM_THREADS", None)
     arguments = (["--prefill-model-bitnet-control", model_file, projection_file] if use_bitnet
                  else ["--prefill-text-control", model_file])
+    arguments += [expected["prompt"], *([mode] if use_bitnet else [])]
+    if mode == "trace":
+        arguments = ["--prefill-model-bitnet-trace-control", model_file, projection_file,
+                     expected["prompt"], str(tmp_path / "trace")]
     try:
         control = subprocess.run(
-            [str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-             *arguments, expected["prompt"], *([mode] if use_bitnet else [])],
+            [str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"), *arguments],
             capture_output=True, text=True, timeout=600, env=native_environment,
         )
     except subprocess.TimeoutExpired as failure:
@@ -544,7 +571,7 @@ print(json.dumps({"prompt": prompt, "tokens": tokens, "labels": labels,
     assert report["bitnet_dispatch_calls"] == report["weight_repacks"] == int(use_bitnet)
     assert report["bitnet_last_input_tokens"] == (len(expected["tokens"]) if use_bitnet else 0)
     assert report["backend"] == ("bitnet" if use_bitnet else "dense")
-    assert report["mode"] == mode and report["prefill_calls"] == 1
+    assert report["mode"] == ("full" if mode == "trace" else mode) and report["prefill_calls"] == 1
     assert report["memory_position_min"] == report["memory_position_max"] == len(expected["tokens"]) - 1
     logits = np.asarray(report["logits"], dtype=np.float64)
     scores = np.asarray(report["conditional_scores"], dtype=np.float64)
@@ -552,6 +579,18 @@ print(json.dumps({"prompt": prompt, "tokens": tokens, "labels": labels,
     probabilities = np.exp(logits - logits.max())
     probabilities /= probabilities.sum()
     np.testing.assert_allclose(scores, probabilities, rtol=1e-12, atol=1e-12)
+    if mode == "trace":
+        trace = json.loads((tmp_path / "trace" / "manifest.json").read_text())
+        assert trace["format"] == "jev-prefill-f32-trace-v1" and trace["byte_order"] == "little"
+        assert trace["dtype"] == "float32" and len(trace["tensors"]) == 36
+        shapes = {tensor["name"]: tensor["shape"] for tensor in trace["tensors"]}
+        assert shapes == {"model.input_embed": [len(expected["tokens"]), 4096],
+                          "ffn_input": [len(expected["tokens"]), 12288],
+                          "ffn_output": [len(expected["tokens"]), 4096], "final_norm": [1, 4096],
+                          **{f"l_out-{layer}": [len(expected["tokens"]), 4096] for layer in range(32)}}
+        for tensor in trace["tensors"]:
+            values = np.fromfile(tmp_path / "trace" / (tensor["name"] + ".f32"), dtype="<f4")
+            assert values.size == np.prod(tensor["shape"]) and np.isfinite(values).all()
 
 
 def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
