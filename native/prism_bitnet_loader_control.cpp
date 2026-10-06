@@ -407,7 +407,8 @@ static int test_loader_override(const char* path) {
 
 #ifdef JEV_TEST_FULL_RUNTIME
 static int test_prefill_control(
-        const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr) {
+    const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr,
+    const char* projection_path = nullptr) {
     if (prompt && (std::strlen(prompt) == 0 || std::strlen(prompt) > 4096 || std::strcmp(mode, "full") != 0)) {
         return 34;
     }
@@ -439,12 +440,20 @@ static int test_prefill_control(
         { "^blk\\.3\\.ffn_down\\.weight$", buffer_type }, { nullptr, nullptr },
     };
     if (use_bitnet) {
-        std::error_code error;
-        const auto file_size = std::filesystem::file_size(path, error);
-        if (error || file_size > 1024 * 1024) {
-            return 27;
+        if (projection_path) {
+            if (prism_bitnet_cpu_model_override_from_gguf_v1(
+                    path, projection_path, JEV_PRISM_SOURCE_REVISION, JEV_BITNET_RUNTIME_ABI_V1,
+                    &params.tensor_buft_overrides) != 0) {
+                return 27;
+            }
+        } else {
+            std::error_code error;
+            const auto file_size = std::filesystem::file_size(path, error);
+            if (error || file_size > 1024 * 1024) {
+                return 27;
+            }
+            params.tensor_buft_overrides = overrides;
         }
-        params.tensor_buft_overrides = overrides;
     }
     std::unique_ptr<llama_model, decltype(&llama_model_free)> model(
         llama_model_load_from_file(path, params), llama_model_free);
@@ -455,8 +464,8 @@ static int test_prefill_control(
     std::size_t dispatch_calls = 0;
     std::size_t weight_repacks = 0;
     std::size_t last_input_tokens = 0;
-    if (use_bitnet && (!weight || model->hparams.n_layer() != 4 ||
-            weight->ne[0] != 256 || weight->ne[1] != 32 ||
+        if (use_bitnet && (!weight || model->hparams.n_layer() != (projection_path ? 32 : 4) ||
+            weight->ne[0] != (projection_path ? 12288 : 256) || weight->ne[1] != (projection_path ? 4096 : 32) ||
             prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks) != 0 ||
             dispatch_calls != 0 || weight_repacks != 1 ||
             prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0 || last_input_tokens != 0)) {
@@ -735,6 +744,9 @@ static int test_vocab_only(const char* path, const char* prompt) {
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_FULL_RUNTIME
+    if (argc == 5 && std::strcmp(argv[1], "--prefill-model-bitnet-control") == 0) {
+        return test_prefill_control(argv[2], true, "full", argv[4], argv[3]);
+    }
     if (argc == 4 && std::strcmp(argv[1], "--prefill-text-control") == 0) {
         return test_prefill_control(argv[2], false, "full", argv[3]);
     }

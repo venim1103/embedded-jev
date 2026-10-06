@@ -870,6 +870,131 @@ extern "C" int prism_bitnet_cpu_loader_override_from_gguf_v1(
     }
 }
 
+extern "C" int prism_bitnet_cpu_model_override_from_gguf_v1(
+    const char* model_path, const char* projection_path,
+    const char* prism_revision, uint32_t abi_version,
+    const llama_model_tensor_buft_override** overrides) {
+    if (!overrides) {
+        return 1;
+    }
+    *overrides = nullptr;
+    if (!model_path || !projection_path || !prism_revision ||
+        std::strcmp(prism_revision, JEV_PRISM_SOURCE_REVISION) != 0 || abi_version != JEV_BITNET_RUNTIME_ABI_V1) {
+        return 1;
+    }
+    try {
+        std::vector<uint8_t> reference;
+        std::size_t rows = 0;
+        std::size_t groups = 0;
+        int status = read_projection_gguf(projection_path, reference, rows, groups);
+        if (status != 0 || rows != 4096 || groups != 96) {
+            return status != 0 ? status : 6;
+        }
+        bitnet_tensor_traits validator(1, rows, groups);
+        if ((status = validator.prepare_weight(reference.data())) != 0) {
+            return status;
+        }
+        std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(model_path, "rb"), std::fclose);
+        if (!file || std::fseek(file.get(), 0, SEEK_END) != 0) {
+            return 6;
+        }
+        const long length = std::ftell(file.get());
+        if (length <= 0 || static_cast<uint64_t>(length) > 19ULL * 1024 * 1024 * 1024 ||
+            std::fseek(file.get(), 0, SEEK_SET) != 0) {
+            return 6;
+        }
+        gguf_init_params params = { true, nullptr };
+        std::unique_ptr<gguf_context, decltype(&gguf_free)> metadata(
+            gguf_init_from_file_ptr(file.get(), params), gguf_free);
+        if (!metadata || gguf_get_version(metadata.get()) != GGUF_VERSION || gguf_get_n_tensors(metadata.get()) != 427) {
+            return 6;
+        }
+        for (const auto& requirement : {
+                std::make_pair("general.architecture", "qwen35"),
+                std::make_pair("jev.model.source_revision", "2367e865d009c13ac81713a2878291d33ab28177"),
+                std::make_pair("jev.bitnet.model", "mimo-qwen35-layer3-ffn-down-v1"),
+                std::make_pair("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1") }) {
+            const auto key = gguf_find_key(metadata.get(), requirement.first);
+            if (key < 0 || gguf_get_kv_type(metadata.get(), key) != GGUF_TYPE_STRING ||
+                std::strcmp(gguf_get_val_str(metadata.get(), key), requirement.second) != 0) {
+                return 6;
+            }
+        }
+        for (const auto& requirement : {
+                std::make_pair("qwen35.block_count", 32U),
+                std::make_pair("qwen35.embedding_length", 4096U),
+                std::make_pair("qwen35.feed_forward_length", 12288U) }) {
+            const auto key = gguf_find_key(metadata.get(), requirement.first);
+            if (key < 0 || gguf_get_kv_type(metadata.get(), key) != GGUF_TYPE_UINT32 ||
+                gguf_get_val_u32(metadata.get(), key) != requirement.second) {
+                return 6;
+            }
+        }
+        for (int64_t key = 0; key < gguf_get_n_kv(metadata.get()); ++key) {
+            if (std::strncmp(gguf_get_key(metadata.get(), key), "prism.hadamard.", sizeof("prism.hadamard.") - 1) == 0) {
+                return 6;
+            }
+        }
+        const auto target = gguf_find_tensor(metadata.get(), "blk.3.ffn_down.weight");
+        if (target < 0 || gguf_get_tensor_type(metadata.get(), target) != GGML_TYPE_PQ2_0) {
+            return 6;
+        }
+        const auto* shape = gguf_get_tensor_ne(metadata.get(), target);
+        if (shape[0] != 12288 || shape[1] != 4096 || shape[2] != 1 || shape[3] != 1) {
+            return 6;
+        }
+        const auto data_offset = gguf_get_data_offset(metadata.get());
+        const auto file_bytes = static_cast<std::size_t>(length);
+        if (data_offset > file_bytes) {
+            return 6;
+        }
+        std::vector<std::pair<std::size_t, std::size_t>> ranges;
+        for (int64_t tensor = 0; tensor < gguf_get_n_tensors(metadata.get()); ++tensor) {
+            const auto type = gguf_get_tensor_type(metadata.get(), tensor);
+            const char* name = gguf_get_tensor_name(metadata.get(), tensor);
+            if ((tensor != target && type != GGML_TYPE_BF16 && type != GGML_TYPE_F32) ||
+                (std::strncmp(name, "blk.", 4) != 0 && std::strcmp(name, "token_embd.weight") != 0 &&
+                    std::strcmp(name, "output.weight") != 0 && std::strcmp(name, "output_norm.weight") != 0)) {
+                return 6;
+            }
+            const auto offset = gguf_get_tensor_offset(metadata.get(), tensor);
+            const auto bytes = gguf_get_tensor_size(metadata.get(), tensor);
+            if (offset > file_bytes - data_offset || bytes > file_bytes - data_offset - offset) {
+                return 6;
+            }
+            ranges.emplace_back(offset, offset + bytes);
+        }
+        std::sort(ranges.begin(), ranges.end());
+        for (std::size_t index = 1; index < ranges.size(); ++index) {
+            if (ranges[index].first < ranges[index - 1].second) {
+                return 6;
+            }
+        }
+        for (const char* name : { "token_embd.weight", "output.weight" }) {
+            const auto tensor = gguf_find_tensor(metadata.get(), name);
+            if (tensor < 0 || gguf_get_tensor_type(metadata.get(), tensor) != GGML_TYPE_BF16) {
+                return 6;
+            }
+            const auto* vocabulary_shape = gguf_get_tensor_ne(metadata.get(), tensor);
+            if (vocabulary_shape[0] != 4096 || vocabulary_shape[1] != 248320 ||
+                vocabulary_shape[2] != 1 || vocabulary_shape[3] != 1) {
+                return 6;
+            }
+        }
+        std::vector<uint8_t> actual(reference.size());
+        const auto offset = gguf_get_tensor_offset(metadata.get(), target);
+        if (gguf_get_tensor_size(metadata.get(), target) != actual.size() ||
+            std::fseek(file.get(), static_cast<long>(data_offset + offset), SEEK_SET) != 0 ||
+            std::fread(actual.data(), 1, actual.size(), file.get()) != actual.size() || actual != reference) {
+            return 6;
+        }
+        return prism_bitnet_cpu_loader_override_from_gguf_v1(
+            projection_path, prism_revision, abi_version, overrides);
+    } catch (const std::bad_alloc&) {
+        return 2;
+    }
+}
+
 extern "C" int prism_bitnet_registered_projection_compute(
     void* handle, const float* inputs, float* output,
     std::size_t* dispatch_calls, std::size_t* weight_repacks) {

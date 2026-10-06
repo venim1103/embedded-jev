@@ -27,6 +27,11 @@ int prism_bitnet_cpu_loader_override_from_gguf_v1(
     const char* path, const char* prism_revision, uint32_t abi_version,
     const struct llama_model_tensor_buft_override** overrides);
 
+int prism_bitnet_cpu_model_override_from_gguf_v1(
+    const char* model_path, const char* projection_path,
+    const char* prism_revision, uint32_t abi_version,
+    const struct llama_model_tensor_buft_override** overrides);
+
 #ifdef __cplusplus
 }
 #endif

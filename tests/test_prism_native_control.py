@@ -316,6 +316,98 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
         model_file.unlink(missing_ok=True)
 
 
+def test_pinned_prism_complete_model_policy_binds_exact_projection(tmp_path):
+    import ctypes
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    converter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+    if not all((source_dir, converter, runtime_build)):
+        pytest.skip("requires pinned GGUF environment and full runtime; no real model conversion")
+    writer_code = """
+import sys
+from pathlib import Path
+import gguf
+import numpy as np
+directory = Path(sys.argv[1])
+payload = np.zeros((4096, 96 * 34), dtype=np.uint8)
+payload.reshape(-1, 34)[:, 1] = 60
+projection = gguf.GGUFWriter(directory / "projection.gguf", "jev-tensor-control")
+projection.add_string("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1")
+projection.add_tensor("blk.3.ffn_down.weight", payload, raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+projection.write_header_to_file()
+projection.write_kv_data_to_file()
+projection.write_tensors_to_file()
+projection.close()
+for kind in ("valid", "wrong_tag", "wrong_revision", "wrong_arch", "wrong_layers", "other_pq2",
+             "wrong_vocabulary", "payload_mismatch", "transform", "extra_tensor", "truncated"):
+    writer = gguf.GGUFWriter(directory / (kind + ".gguf"), "qwen35" if kind != "wrong_arch" else "qwen3")
+    writer.add_string("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1")
+    writer.add_string("jev.bitnet.model", "wrong" if kind == "wrong_tag" else "mimo-qwen35-layer3-ffn-down-v1")
+    writer.add_string("jev.model.source_revision", "wrong" if kind == "wrong_revision" else "2367e865d009c13ac81713a2878291d33ab28177")
+    writer.add_uint32("qwen35.block_count", 4 if kind == "wrong_layers" else 32)
+    writer.add_uint32("qwen35.embedding_length", 4096)
+    writer.add_uint32("qwen35.feed_forward_length", 12288)
+    if kind == "transform":
+        writer.add_uint32("prism.hadamard.version", 1)
+    for name in ("token_embd.weight", "output.weight"):
+        shape = (248319 if kind == "wrong_vocabulary" else 248320, 4096)
+        writer.add_tensor_info(name, shape, np.dtype("uint16"), int(np.prod(shape)) * 2,
+                               raw_dtype=gguf.GGMLQuantizationType.BF16)
+    writer.add_tensor("blk.3.ffn_down.weight", payload, raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+    for index in range(424 + (kind == "extra_tensor")):
+        if index == 0 and kind == "other_pq2":
+            writer.add_tensor("blk.0.control.weight", np.zeros((1, 34), dtype=np.uint8),
+                              raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+        else:
+            writer.add_tensor("blk.0.control_" + str(index) + ".weight", np.zeros(1, dtype=np.float32))
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_ti_data_to_file()
+    output = writer.fout[0]
+    writer.write_padding(output, output.tell())
+    data_offset = output.tell()
+    tensor_infos = list(writer.tensors[0].values())
+    total_bytes = sum(gguf.GGUFWriter.ggml_pad(info.nbytes, writer.data_alignment) for info in tensor_infos)
+    output.truncate(data_offset + total_bytes)
+    target_offset = sum(gguf.GGUFWriter.ggml_pad(info.nbytes, writer.data_alignment) for info in tensor_infos[:2])
+    output.seek(data_offset + target_offset)
+    encoded = payload.copy()
+    if kind == "payload_mismatch":
+        encoded.flat[2] = 1
+    output.write(encoded.tobytes())
+    if kind == "truncated":
+        output.truncate(data_offset + target_offset + 1)
+    writer.close()
+"""
+    writer = subprocess.run(
+        [converter, "-c", writer_code, str(tmp_path)], capture_output=True, text=True, timeout=60,
+        env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"), "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert writer.returncode == 0, writer.stderr
+    native = ctypes.CDLL(str(Path(runtime_build) / "bin" / "libprism_group_scale.so"))
+    model_policy = native.prism_bitnet_cpu_model_override_from_gguf_v1
+    model_policy.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint32,
+                            ctypes.POINTER(ctypes.c_void_p)]
+    model_policy.restype = ctypes.c_int
+    projection = os.fsencode(tmp_path / "projection.gguf")
+    for kind in ("wrong_tag", "wrong_revision", "wrong_arch", "wrong_layers", "other_pq2",
+                 "wrong_vocabulary", "payload_mismatch", "transform", "extra_tensor", "truncated"):
+        overrides = ctypes.c_void_p(123)
+        assert model_policy(os.fsencode(tmp_path / (kind + ".gguf")), projection,
+                            PRISM_REVISION.encode(), 1, ctypes.byref(overrides)) == 6
+        assert overrides.value is None
+    overrides = ctypes.c_void_p()
+    assert model_policy(os.fsencode(tmp_path / "valid.gguf"), projection, PRISM_REVISION.encode(),
+                        1, ctypes.byref(overrides)) == 0
+    assert overrides.value is not None
+    legacy = native.prism_bitnet_cpu_loader_override_from_gguf_v1
+    legacy.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
+    legacy.restype = ctypes.c_int
+    assert legacy(os.fsencode(tmp_path / "valid.gguf"), PRISM_REVISION.encode(), 1, ctypes.byref(overrides)) == 6
+    assert overrides.value is None
+
+
 def test_pinned_prism_mimo_bf16_native_prompt_prefill_without_generation():
     import numpy as np
 
