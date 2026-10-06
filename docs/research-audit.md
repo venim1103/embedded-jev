@@ -9,6 +9,12 @@ integration controls are recorded in the
 [current handover](handover.md#current-checkpoint-2026-10-06). This document's
 original mathematical/source conclusions are not model-quality measurements.
 
+The later [bounded precision diagnostic](development.md#bounded-prefill-precision-diagnostic)
+matches embeddings exactly, first diverges at layer 0, and reproduces the frozen
+projection bit-for-bit when replayed on identical native inputs. BF16-RHS operand
+rounding explains part of the measured difference, not the complete runtime gap;
+no cross-runtime tolerance, calibration or quality acceptance follows.
+
 ## Recommendation
 
 Pursue **MiMo ternary quantization + genuine BitNet-derived CPU execution +

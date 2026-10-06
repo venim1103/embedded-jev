@@ -333,6 +333,14 @@ precision differences do not fully explain the measured gap or establish a
 general parity tolerance. The opt-in real-model test does not convert weights,
 and dense hosting does not attest BitNet dispatch or calibrated confidence.
 
+Bounded trace diagnostics now separate these concerns: identical embeddings first
+diverge at layer 0, before the frozen layer-3 projection; native-input replay of
+that projection is bit-for-bit exact. The pinned BF16 CPU matmul uses BF16 RHS
+operands despite F32 graph outputs. Fixture-only F32-state/BF16-RHS experiments
+improve some agreement without matching all recurrent/attention/cache/reduction
+contracts. Trace metrics are not acceptance tolerances or calibration artifacts.
+See the [precision diagnostic](development.md#bounded-prefill-precision-diagnostic).
+
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed
 execution layout. Report resident packed bytes and scratch separately: expanding
 trits to two bits at load time changes RAM and bandwidth, even without FP16

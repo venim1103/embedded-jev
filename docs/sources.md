@@ -299,6 +299,15 @@ native/streamed frozen-projection maximum logit/conditional gaps are
 deleted; only 160 KiB reports remain and candidate hashes are unchanged. This is
 one-projection arithmetic/runtime evidence, not exact parity, whole-model ternary
 quality, calibrated confidence, a benchmark, or lifecycle/file-race safety.
+The later `63e8b4c`/`2bc3ce0`/`6e8386c` precision controls use bounded native and
+streamed raw F32 traces of the same engineering prompt. Embeddings match; first
+divergence precedes the frozen FFN at layer 0, while native-input FFN replay is
+bit-for-bit exact. In the pinned `ggml/src/ggml-cpu/ggml-cpu.c`, the BF16 CPU trait
+sets `vec_dot_type = GGML_TYPE_BF16` and converts F32 RHS inputs through
+`ggml_cpu_fp32_to_bf16`. This is operand-precision evidence, not proof that F32
+graph outputs imply all-F32 matmul or that the limited BF16-RHS experiment matches
+every native operation. See the
+[trace contract and measurements](development.md#bounded-prefill-precision-diagnostic).
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`

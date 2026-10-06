@@ -6,24 +6,25 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `669ed7b` (2026-10-06), following
-`dda784a`'s exact-payload complete-model policy and the approved one-projection run.
+The last tested implementation checkpoint is `6e8386c` (2026-10-06), following
+the complete-model policy, real one-projection run, and bounded precision traces.
 The [current handover](handover.md#current-checkpoint-2026-10-06) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
-Current results: 159 default tests passed, 37 optional tests skipped, and all
+Current results: 162 default tests passed, 38 optional tests skipped, and all
 sixteen pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
 including the full-size frozen projection and guarded vocabulary-only native
 tokenizer preflight, dense/BitNet synthetic model prefill, and complete-model
-policy/CLI refusals (69.48 s). Separately, the approved real one-BitNet prefill
+policy/CLI refusals plus trace equivalence (83.22 s). Separately, the approved real one-BitNet prefill
 regression passed in 221.62 s; its error/recovery cases passed in 733.45 s combined.
-The four real-model cases were skipped in the sixteen-control invocation because
+The five real-model cases were skipped in the sixteen-control invocation because
 their separately approved files were not supplied there. The prior dense-only
-regression passed at `462dc12`. Both approved temporary models are now deleted.
+regression passed at `462dc12`. The earlier dense and mixed temporary models were deleted;
+the separately approved precision run is described below.
 The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
@@ -1379,6 +1380,100 @@ Cleanup is verified: both GGUFs and all spill files under
 reports remain at `$cache/native/mimo-one-bitnet-report-20261006-WHaMyP`.
 The original sole candidate hashes, source pins, and cached CPU/base libraries
 are unchanged. Further model conversion still requires separate approval.
+
+## Bounded Prefill Precision Diagnostic
+
+At `63e8b4c`/`2bc3ce0`/`6e8386c`, test-only native callbacks and the streamed
+reference capture input embeddings, each decoder output, layer-3 FFN input/output,
+and the selected final-normalized row. Each complete trace has 36 tensors and
+48,513,024 bytes for the same 80-token `inspect-before-answer` fixture. Raw files
+are finite little-endian F32, with exclusive creation and no destination reuse;
+the capture caps are 128 tokens, width 12,288, 36 records, and 96 MiB.
+`compare_precision_traces` checks a bounded manifest, controlled stage names,
+contiguous layers, geometry, exact raw sizes and finiteness before reporting
+F64 error metrics one stage at a time. Manifests alone do not attest prompt or
+weight identity; bind those separately. This is not a calibration-data format.
+
+The user approved one temporary conversion using the existing snapshot and sole
+frozen artifact. It produced exactly the previous mixed-model SHA-256
+`e88e873825fc30167ab1c9ae3f54fbc7cb0bf6550132c12ca7b574b3c4c4db81`,
+17,833,399,744 bytes, in 10m10.81s with peak RSS 10,226,068 KiB.
+The native traced run took 11m57.75s, peak RSS 17,608,600 KiB, and reproduced
+the entire earlier native score report exactly, including logits
+21.478885650634766, 15.454629898071289,
+17.855735778808594. One successful dispatch, one repack, 80 actual input rows,
+typed options, and zero generated tokens were preserved. These timings are
+resource observations, not a speed comparison or target-device guarantee.
+
+Default streamed BF16 remains unchanged. `fp32` promotes decoder weights/state
+while preserving exact source BF16 values and the frozen projection. The pinned
+CPU `ggml-cpu.c` BF16 trait instead selects BF16 dot operands and converts F32
+right-hand activations. `ggml_bf16_rhs` therefore keeps F32 state/outputs but
+rounds dense `torch.nn.Linear` inputs and the selected head input through BF16;
+the custom BitNet projection still receives F32 for its own group-128 A8 rule.
+It does not reproduce all native recurrent, attention, KV or reduction behavior.
+Both nondefault modes require the frozen native artifact. All diagnostic modes
+require a synthetic fixture and at least four layers; dataset, calibration and
+activation-observer use is refused before model import.
+
+All three references match embeddings exactly and first diverge at `l_out-0`,
+before the frozen layer-3 projection. Representative measured RMSE values are:
+
+| Stage | Streamed BF16 | Streamed FP32 | BF16-RHS Experiment |
+| --- | ---: | ---: | ---: |
+| Layer 0 output | 0.000319831 | 0.0000776813 | 0.0000103885 |
+| Layer 3 FFN input | 0.000491040 | 0.000180698 | 0.000140436 |
+| Layer 3 FFN output | 0.000845521 | 0.000483064 | 0.000428691 |
+| Selected final norm | 0.0448547 | 0.0176708 | 0.0202983 |
+
+BF16-RHS improves early agreement but not every later metric. Its selected logits
+are 21.483444213867188, 15.45882797241211, 17.85195541381836; final logit equality
+is not achieved. Its run took 1m11.44s, peak RSS 1,695,068 KiB. The original BF16
+and FP32 traces took 40.43s/41.69s with peaks 1,163,700/1,696,908 KiB.
+Replaying the saved projection on the captured native F32 input is bit-for-bit
+equal to the captured native graph output. The existing independent integer/
+group-scale reference reports maximum error 3.618173636255051e-7. Thus this
+measured upstream divergence is separate from frozen-projection arithmetic;
+it does not establish full-runtime equivalence or a new acceptance tolerance.
+
+The selected source-head replay from the same captured native final norm also
+isolates operand rounding: unrounded F32 inputs differ from native by at most
+0.003826141357421875, while BF16-rounded inputs differ by only
+1.9073486328125e-6 (one F32 ULP for A; B/C exact). This verifies the measured
+head boundary, not equality of different decoder states or a general tolerance.
+
+With a separately approved model already present, native trace mode is:
+
+```bash
+"$cache/native/jev-prism-runtime-v1-build/bin/prism_bitnet_loader_control" \
+   --prefill-model-bitnet-trace-control "$approved_model" "$tagged_projection" \
+   "$rendered_prompt" "$new_native_trace_directory"
+```
+
+The model, projection and rendered prompt contracts remain those of the ordinary
+one-BitNet route. Its score-report schema is unchanged; a failed trace produces no
+scores. The real opt-in trace regression has a 1,200-second native limit, based
+on the observed traced duration; other real prefill cases remain at 600 seconds.
+The test never converts weights. Run large-memory jobs serially.
+For the source-streamed engineering reference, use a fresh trace directory:
+
+```bash
+OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
+"$cache/dense-venv/bin/python" -m embedded_jev.streamed_text \
+   --local-dir "$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
+   --layers 32 --fixture tests/fixtures/agent_tool_smoke.json \
+   --case-id inspect-before-answer \
+   --native-ffn-library "$cache/native/jev-prism-runtime-v1-build/bin/libprism_group_scale.so" \
+   --projection-artifact "$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
+   --compute-dtype ggml_bf16_rhs --precision-trace-directory "$new_streamed_trace_directory"
+```
+
+Use `bf16` or `fp32` for the other diagnostic comparisons. Raw traces, both
+temporary GGUFs and converter spill are disposable: remove them after the approved
+checks and retain only small reports. No refitting, new candidate, compensation
+promotion, held-out scoring or full-model ternary conversion follows from this
+diagnostic. Further model conversion still needs approval; conditional option
+scores are not calibrated confidence or representative quality evidence.
 
 ## Single-Projection Native Fixture
 

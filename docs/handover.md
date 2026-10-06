@@ -14,8 +14,8 @@ do not read a probe's limitations as the current status of every later path.
 
 ## Current Checkpoint (2026-10-06)
 
-The last tested implementation commit is `669ed7b` (2026-10-06),
-`test: gate real MiMo BitNet prefill and kernel recovery`.
+The last tested implementation commit is `6e8386c` (2026-10-06),
+`feat: diagnose BF16 dense RHS rounding separately from BitNet A8`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -50,15 +50,21 @@ regressions. Conversion, measurements, comparison, and deletion are complete.
 No refitting, new retained candidate, held-out inference, push, or branch change
 followed; the user `.vscode/` remains untouched.
 
-Current gates: **159 default tests passed, 37 optional tests skipped; all sixteen
+The user then approved one more temporary mixed model solely for precision
+diagnostics, without refitting or held-out inference. `63e8b4c` adds bounded
+native/streamed traces, `2bc3ce0` compares validated trace stages, and `6e8386c`
+adds a fixture-only BF16-RHS experiment based on the pinned CPU trait.
+The user's push was observed through `63e8b4c`; the assistant made no push.
+
+Current gates: **162 default tests passed, 38 optional tests skipped; all sixteen
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
 handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
 enabled, including the sole full-size frozen projection, packaged dependency
 provenance, guarded vocabulary-only native tokenizer parity, and synthetic
-dense/BitNet hybrid model prefill plus model-policy/CLI refusals (69.48 s).
+dense/BitNet hybrid model prefill plus model-policy/CLI refusals (83.22 s).
 The real one-BitNet prefill regression passed separately in 221.62 s; its two
-real kernel controls passed in 733.45 s combined. All four real-model cases
+real kernel controls passed in 733.45 s combined. All five real-model cases
 were skipped in the sixteen-control invocation, avoiding another large model
 load or conversion. The prior dense-only regression passed at `462dc12`.
 The isolated full llama build also passes two CTests.
@@ -229,6 +235,15 @@ development guide for flags.
   remain at `native/mimo-one-bitnet-report-20261006-WHaMyP` under the cache.
   The sole candidate hashes are unchanged. Further conversion needs approval.
   See the [one-projection run](development.md#approved-single-projection-native-model).
+- The separately approved precision model has the exact same whole-file hash as
+  that mixed model. Its native 80-token trace preserves the earlier score report
+  exactly, with one dispatch/repack and zero generation. All three streamed
+  modes match embeddings and first diverge at `l_out-0`, before the frozen FFN.
+  Native-input projection replay is bit-for-bit exact; its independent reference
+  error is 3.6182e-7. BF16-RHS rounding improves early agreement, not every later
+  metric. Same-native-state BF16-RHS head replay has at most 1.9074e-6 logit error.
+  Exact runtime parity remains open, with no accepted tolerance or quality
+  claim. See the [precision diagnostic](development.md#bounded-prefill-precision-diagnostic).
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy

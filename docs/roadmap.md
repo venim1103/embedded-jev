@@ -5,7 +5,7 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `669ed7b` implementation checkpoint and remaining native gates,
+For the tested `6e8386c` implementation checkpoint and remaining native gates,
 read the [current handover](handover.md#current-checkpoint-2026-10-06).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
@@ -300,6 +300,13 @@ parity or a quality gate. Both GGUFs/spill are deleted, candidate hashes unchang
 Further conversion requires approval; the
 [one-projection measurements](development.md#approved-single-projection-native-model)
 do not authorize full-model ternary or held-out scoring.
+The approved precision diagnostic now localizes first divergence to layer 0,
+before the frozen projection, whose native-input replay is bit-for-bit exact.
+F32-state and BF16-RHS experiments reduce some errors but do not close runtime
+parity or justify an acceptance tolerance. The next numerical step must isolate
+the remaining native/reference operation contracts, not refit this candidate or
+score held-out data. See the
+[trace measurements](development.md#bounded-prefill-precision-diagnostic).
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

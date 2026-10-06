@@ -11,7 +11,7 @@ targets follow only after native validation.
 **Status:** The CPU research environment, bounded inventory, and text-only
 tokenizer/processor checks work on the pinned model metadata. A small synthetic
 agent/tool fixture checks prompt and option-label mapping, not decision accuracy.
-Full-model quantization and model-loadable BitNet dispatch remain open. Pinned
+Full-model ternary quantization remains open. Pinned
 MiMo text layers now stream in BF16 and produce no-generation A/B conditional
 scores from selected output-head rows. A bounded synthetic agent/tool fixture
 also returns typed option IDs with A-C conditional scores; these are not
@@ -26,11 +26,14 @@ BitNet control checkpoint was loaded and prefilled without answer generation.
 Its A-C labels can be scored directly from final-position logits, but it is not
 a substitute for MiMo or evidence of decision quality or edge speed.
 
-The last tested implementation checkpoint is `669ed7b` (2026-10-06): the frozen
+The last tested implementation checkpoint is `6e8386c` (2026-10-06): the frozen
 BitNet-derived projection runs inside real native 32-layer MiMo with counted
 dispatch, preserved FP16 group scales, typed conditional scores, and zero answer
 generation. Its approved temporary model was deleted; whole-model ternary export
 and exact native/streamed parity remain open. PQ2 alone is not BitNet dispatch.
+Bounded precision traces first diverge at layer 0, before the frozen projection;
+replaying that projection on identical native inputs is bit-for-bit exact.
+Fixture-only precision experiments are diagnostics, not quality acceptance.
 Read the [current handover](docs/handover.md#current-checkpoint-2026-10-06)
 for recorded gates, reusable caches, constraints, and the next native task.
 
