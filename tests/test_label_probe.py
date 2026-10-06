@@ -389,6 +389,44 @@ def test_streamed_precision_diagnostics_refuse_unsafe_scope_before_model_import(
     assert not (tmp_path / "trace").exists()
 
 
+def test_precision_trace_comparison_is_bounded_and_reports_observed_errors(tmp_path):
+    import numpy as np
+
+    from embedded_jev.inventory import InventoryError
+    from embedded_jev.streamed_text import compare_precision_traces
+
+    records = [{"name": name, "shape": shape} for name, shape in {
+        "model.input_embed": [3, 32], "l_out-0": [3, 32], "l_out-1": [3, 32], "l_out-2": [3, 32],
+        "ffn_input": [3, 256], "ffn_output": [3, 32], "l_out-3": [3, 32], "final_norm": [1, 32],
+    }.items()]
+    for name in ("left", "right"):
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / "manifest.json").write_text(json.dumps({
+            "format": "jev-prefill-f32-trace-v1", "dtype": "float32", "byte_order": "little", "tensors": records,
+        }))
+        for record in records:
+            np.ones(record["shape"], dtype="<f4").tofile(directory / (record["name"] + ".f32"))
+    left, right = tmp_path / "left", tmp_path / "right"
+    assert compare_precision_traces(left, right)["first_nonidentical_stage"] is None
+    values = np.ones((3, 32), dtype="<f4")
+    values[-1, 0] = 3
+    values.tofile(left / "l_out-0.f32")
+    report = compare_precision_traces(left, right)
+    assert report["first_nonidentical_stage"] == "l_out-0"
+    stage = next(stage for stage in report["stages"] if stage["name"] == "l_out-0")
+    assert stage["max_abs_error"] == stage["last_token_max_abs_error"] == 2
+    assert stage["rmse"] == pytest.approx(2 / np.sqrt(96))
+    assert stage["relative_rmse"] == stage["rmse"]
+    values[0, 0] = np.nan
+    values.tofile(left / "l_out-0.f32")
+    with pytest.raises(InventoryError, match="nonfinite"):
+        compare_precision_traces(left, right)
+    (left / "l_out-0.f32").write_bytes(b"short")
+    with pytest.raises(InventoryError, match="size"):
+        compare_precision_traces(left, right)
+
+
 @pytest.mark.parametrize("defect", ["version", "split", "shape", "size", "pickle"])
 def test_calibration_capture_rejects_unsafe_manifest_or_arrays(tmp_path, defect):
     import hashlib

@@ -4,6 +4,7 @@ import argparse
 import gc
 import hashlib
 import json
+import re
 import resource
 import weakref
 from pathlib import Path
@@ -377,6 +378,66 @@ def stream_full_vocabulary_mass(directory: Path, metadata_files, shard_headers, 
         "selected_label_mass": selected_mass,
         "scope": "diagnostic_full_vocabulary_mass_not_confidence_calibration",
     }
+
+
+def compare_precision_traces(left_directory: Path, right_directory: Path) -> dict:
+    """Compare bounded diagnostic captures; callers must separately bind prompt and weights."""
+    def read_trace(directory):
+        manifest_path = directory / "manifest.json"
+        if manifest_path.stat().st_size > 16 * 1024:
+            raise InventoryError("precision trace manifest exceeds budget")
+        manifest = _json_object(manifest_path.read_bytes(), "precision trace manifest")
+        if (
+            set(manifest) != {"format", "dtype", "byte_order", "tensors"}
+            or manifest["format"] != "jev-prefill-f32-trace-v1" or manifest["dtype"] != "float32"
+            or manifest["byte_order"] != "little" or not isinstance(manifest["tensors"], list)
+            or not 8 <= len(manifest["tensors"]) <= 36
+        ):
+            raise InventoryError("unsupported precision trace manifest")
+        records = {}
+        total_bytes = 0
+        for record in manifest["tensors"]:
+            if not isinstance(record, dict) or set(record) != {"name", "shape"}:
+                raise InventoryError("invalid precision trace record")
+            name, shape = record["name"], record["shape"]
+            if (
+                not isinstance(name, str) or name in records
+                or (name not in ("model.input_embed", "ffn_input", "ffn_output", "final_norm")
+                    and re.fullmatch(r"l_out-([0-9]|[12][0-9]|3[01])", name) is None)
+                or not isinstance(shape, list) or len(shape) != 2
+                or any(type(value) is not int for value in shape)
+                or not 1 <= shape[0] <= 128 or not 1 <= shape[1] <= 12288
+            ):
+                raise InventoryError("invalid precision trace name or shape")
+            size = shape[0] * shape[1] * 4
+            total_bytes += size
+            if total_bytes > 96 * 1024 * 1024 or (directory / (name + ".f32")).stat().st_size != size:
+                raise InventoryError("precision trace size exceeds contract")
+            records[name] = shape
+        expected = {"model.input_embed", "ffn_input", "ffn_output", "final_norm"}
+        expected.update(f"l_out-{layer}" for layer in range(len(records) - 4))
+        if set(records) != expected:
+            raise InventoryError("precision trace stages are incomplete")
+        return records
+
+    left, right = read_trace(left_directory), read_trace(right_directory)
+    if left != right:
+        raise InventoryError("precision traces have different stage geometry")
+    stages = []
+    for name, shape in left.items():
+        count = shape[0] * shape[1]
+        values = np.fromfile(left_directory / (name + ".f32"), dtype="<f4", count=count).reshape(shape).astype(np.float64)
+        reference = np.fromfile(right_directory / (name + ".f32"), dtype="<f4", count=count).reshape(shape).astype(np.float64)
+        if not np.isfinite(values).all() or not np.isfinite(reference).all():
+            raise InventoryError("nonfinite precision trace values")
+        difference = values - reference
+        rmse = float(np.sqrt(np.mean(difference**2)))
+        magnitude = float(np.sqrt(np.mean(reference**2)))
+        stages.append({"name": name, "shape": shape, "max_abs_error": float(np.max(np.abs(difference))),
+                       "rmse": rmse, "relative_rmse": rmse / magnitude if magnitude else (0.0 if rmse == 0 else None),
+                       "last_token_max_abs_error": float(np.max(np.abs(difference[-1])))})
+    return {"scope": "precision_diagnostic_not_quality_or_acceptance_tolerance", "stages": stages,
+            "first_nonidentical_stage": next((stage["name"] for stage in stages if stage["max_abs_error"] != 0), None)}
 
 
 def run_streamed_text(
