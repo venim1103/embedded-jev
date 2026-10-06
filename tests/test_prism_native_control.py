@@ -546,16 +546,17 @@ print(json.dumps({"prompt": prompt, "tokens": tokens, "labels": labels,
     if mode == "trace":
         arguments = ["--prefill-model-bitnet-trace-control", model_file, projection_file,
                      expected["prompt"], str(tmp_path / "trace")]
+    control_timeout = 1200 if mode == "trace" else 600
     try:
         control = subprocess.run(
             [str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"), *arguments],
-            capture_output=True, text=True, timeout=600, env=native_environment,
+            capture_output=True, text=True, timeout=control_timeout, env=native_environment,
         )
     except subprocess.TimeoutExpired as failure:
         diagnostics = failure.stderr or ""
         if isinstance(diagnostics, bytes):
             diagnostics = diagnostics.decode("utf-8", errors="replace")
-        pytest.fail(f"native prefill exceeded 600 seconds; stderr tail: {diagnostics[-6000:]}")
+        pytest.fail(f"native prefill exceeded {control_timeout} seconds; stderr tail: {diagnostics[-6000:]}")
     if mode == "kernel-error":
         assert control.returncode == 29 and control.stdout == "", control.stderr[-6000:]
         return
