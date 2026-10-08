@@ -6,7 +6,7 @@ source-backed facts, mathematical deductions, and hypotheses requiring experimen
 No MiMo weights were downloaded or quantized during that initial audit.
 Subsequent source downloads, streamed text inference, and bounded native
 integration controls are recorded in the
-[current handover](handover.md#current-checkpoint-2026-10-06). This document's
+[current handover](handover.md#current-checkpoint-2026-10-08). This document's
 original mathematical/source conclusions are not model-quality measurements.
 
 The later [bounded precision diagnostic](development.md#bounded-prefill-precision-diagnostic)
@@ -14,6 +14,10 @@ matches embeddings exactly, first diverges at layer 0, and reproduces the frozen
 projection bit-for-bit when replayed on identical native inputs. BF16-RHS operand
 rounding explains part of the measured difference, not the complete runtime gap;
 no cross-runtime tolerance, calibration or quality acceptance follows.
+Later [recurrent controls](development.md#recurrent-operation-diagnostics)
+verify the different Q/K norm formulas and actual native output/state/raw-gate
+arithmetic. Q/K-only alignment worsens the engineering selected-logit gap;
+it is negative evidence against promoting that change, not a quality result.
 
 ## Recommendation
 

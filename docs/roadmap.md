@@ -5,8 +5,8 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `5b7e559` implementation checkpoint and remaining native gates,
-read the [current handover](handover.md#current-checkpoint-2026-10-06).
+For the tested `9408f3f` implementation checkpoint and remaining native gates,
+read the [current handover](handover.md#current-checkpoint-2026-10-08).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
 
@@ -307,6 +307,13 @@ parity or justify an acceptance tolerance. The next numerical step must isolate
 the remaining native/reference operation contracts, not refit this candidate or
 score held-out data. See the
 [trace measurements](development.md#bounded-prefill-precision-diagnostic).
+Separate Q/K norm and native gated-delta output/state/raw-gate controls pass,
+including unequal head counts. The converter already adapts grouped V weights
+to tiled physical head order. The opt-in Q/K formula experiment worsens the
+selected-logit gap; it does not close parity or justify policy promotion.
+Matching native/reference layer-0 captures are still needed, with any new
+complete-model conversion separately approved. See the
+[recurrent evidence](development.md#recurrent-operation-diagnostics).
 An earlier BitNet I2_S toy graph ran serially for two 128-value groups with
 distinct row/group scales applied outside the graph, returning exact outputs. This is a
 correctness bridge, not an integrated or optimized group-scale operator. The

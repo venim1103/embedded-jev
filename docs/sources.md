@@ -1,8 +1,8 @@
 # Source Register
 
-Initial audit: 2026-09-25. Updated: 2026-10-06. These primary sources and the
+Initial audit: 2026-09-25. Updated: 2026-10-08. These primary sources and the
 later scoped experiments below support the
-[current handover](handover.md#current-checkpoint-2026-10-06).
+[current handover](handover.md#current-checkpoint-2026-10-08).
 The initial audit inspected source code without executing model weights or
 benchmark suites; subsequent model/native controls are distinguished below.
 Paper titles/abstracts and linked project documentation establish their scope,
@@ -308,6 +308,16 @@ sets `vec_dot_type = GGML_TYPE_BF16` and converts F32 RHS inputs through
 graph outputs imply all-F32 matmul or that the limited BF16-RHS experiment matches
 every native operation. See the
 [trace contract and measurements](development.md#bounded-prefill-precision-diagnostic).
+At `a072049`/`e03b48e`/`9408f3f`, native clamped L2 and gated-delta graph controls
+verify normalization, tiled Q/K heads, transposed state and activated/raw gates;
+pinned Torch chunked/recurrence checks pass separately. The source owners are
+`ggml/src/ggml-cpu/ops.cpp`, `src/models/delta-net-base.cpp`, and
+`src/models/qwen35.cpp`. The converter imports split modules: Qwen3.5 inherits
+`_LinearAttentionVReorderBase` in `conversion/qwen.py`, which permutes grouped
+V/gate/convolution rows and output columns to tiled order. This inspected source
+contract is not all-source authentication. The streamed Q/K experiment's larger
+selected-logit gap remains a negative diagnostic, not policy or quality acceptance.
+See the [recurrent results](development.md#recurrent-operation-diagnostics).
 In a model-free check of the pinned `gguf-py` Qwen3.5 tensor-name map, exact
 MiMo `model.language_model.layers.3` FFN-down and attention-Q paths returned
 no match. The converter's shared tensor filter removes `language_model.`

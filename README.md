@@ -26,7 +26,7 @@ BitNet control checkpoint was loaded and prefilled without answer generation.
 Its A-C labels can be scored directly from final-position logits, but it is not
 a substitute for MiMo or evidence of decision quality or edge speed.
 
-The last tested implementation checkpoint is `5b7e559` (2026-10-06): the frozen
+The last tested implementation checkpoint is `9408f3f` (2026-10-08): the frozen
 BitNet-derived projection runs inside real native 32-layer MiMo with counted
 dispatch, preserved FP16 group scales, typed conditional scores, and zero answer
 generation. Its approved temporary model was deleted; whole-model ternary export
@@ -34,7 +34,9 @@ and exact native/streamed parity remain open. PQ2 alone is not BitNet dispatch.
 Bounded precision traces first diverge at layer 0, before the frozen projection;
 replaying that projection on identical native inputs is bit-for-bit exact.
 Fixture-only precision experiments are diagnostics, not quality acceptance.
-Read the [current handover](docs/handover.md#current-checkpoint-2026-10-06)
+Independent native recurrent output/state and fused-gate controls now pass.
+Matching the Q/K norm rule alone worsens the measured selected-logit gap.
+Read the [current handover](docs/handover.md#current-checkpoint-2026-10-08)
 for recorded gates, reusable caches, constraints, and the next native task.
 
 ## Get Started

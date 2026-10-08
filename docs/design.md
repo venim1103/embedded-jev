@@ -1,10 +1,10 @@
 # Embedded Jev Design
 
 Status: proposed architecture, first written 2026-09-25; implementation status
-checked 2026-10-06. Bounded ternary quantizers, the streamed BF16 text reference,
+checked 2026-10-08. Bounded ternary quantizers, the streamed BF16 text reference,
 and a frozen BitNet-derived FFN inside real native MiMo now exist. Whole-model
 ternary export and deployment services remain open.
-The [current handover](handover.md#current-checkpoint-2026-10-06) records the
+The [current handover](handover.md#current-checkpoint-2026-10-08) records the
 tested implementation checkpoint, cache paths, constraints, and next native task.
 See [docs/research-audit.md](research-audit.md) for evidence and corrections,
 [docs/roadmap.md](roadmap.md) for delivery gates, and
@@ -340,6 +340,14 @@ operands despite F32 graph outputs. Fixture-only F32-state/BF16-RHS experiments
 improve some agreement without matching all recurrent/attention/cache/reduction
 contracts. Trace metrics are not acceptance tolerances or calibration artifacts.
 See the [precision diagnostic](development.md#bounded-prefill-precision-diagnostic).
+
+Separate recurrent controls now verify native clamped Q/K normalization,
+tiled-head output/final-state arithmetic, and fused raw sigmoid/softplus gates.
+The converter reorders grouped HF V weights/gates to the kernel's tiled order.
+A fixture-only Q/K experiment nevertheless worsens the selected-logit gap on
+the engineering prompt; operation-level agreement is not full-model parity or
+policy promotion. See the
+[recurrent diagnostics](development.md#recurrent-operation-diagnostics).
 
 The 1.75-bpw storage target may require PTQ1_0 on disk and a different packed
 execution layout. Report resident packed bytes and scratch separately: expanding

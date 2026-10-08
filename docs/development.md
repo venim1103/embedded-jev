@@ -6,22 +6,24 @@ development image, not the eventual minimal edge deployment image.
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `5b7e559` (2026-10-06), following
-the complete-model policy, real one-projection run, and bounded precision traces.
-The [current handover](handover.md#current-checkpoint-2026-10-06) is the
+The last tested implementation checkpoint is `9408f3f` (2026-10-08), following
+the complete-model policy, precision traces, and bounded recurrent controls.
+The [current handover](handover.md#current-checkpoint-2026-10-08) is the
 authoritative resume summary, including external cache paths and the next
 native integration task. Do not recreate environments or download another
 source/model copy just to start a new chat.
 
-Current results: 162 default tests passed, 38 optional tests skipped, and all
-sixteen pinned Prism controls passed with full-size PQ2, repeated/owned native
+Current results: 163 default tests passed, 39 optional tests skipped, and all
+seventeen pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
 including the full-size frozen projection and guarded vocabulary-only native
 tokenizer preflight, dense/BitNet synthetic model prefill, and complete-model
-policy/CLI refusals plus trace equivalence (83.22 s). Separately, the approved real one-BitNet prefill
+policy/CLI refusals plus trace equivalence, Q/K normalization, sixteen native
+activated/raw-gate recurrence cases and eight pinned Torch recurrence/state
+cases (51.67 s). Separately, the approved real one-BitNet prefill
 regression passed in 221.62 s; its error/recovery cases passed in 733.45 s combined.
-The five real-model cases were skipped in the sixteen-control invocation because
+The five real-model cases were skipped in the seventeen-control invocation because
 their separately approved files were not supplied there. The prior dense-only
 regression passed at `462dc12`. The earlier dense and mixed temporary models were deleted;
 the separately approved precision trace regression passed in 746.54 s at
@@ -30,7 +32,9 @@ The separate full runtime build passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
 native file/runtime additions; unchanged model inference was not rerun afterwards.
-Ruff, editor diagnostics, and whitespace checks passed. GCC ASan/UBSan and leak
+Ruff, Python editor diagnostics, explicit C++ compilation, and whitespace checks
+passed. The C++ editor lacks the external GGML include path; no editor settings
+were changed. GCC ASan/UBSan and leak
 checks passed for bridge runtime controls; cached GGML is not instrumented. These
 are correctness/scope gates, not whole-model quantization acceptance, a
 benchmark, representative quality, or calibrated confidence.
@@ -1488,6 +1492,74 @@ outside Git at `$cache/native/mimo-precision-report-20261006-GiDmcd`.
 Both original candidate hashes and both pinned tracked source worktrees are
 unchanged. No installation, refitting, held-out inference, push or branch change
 was performed. Another model conversion requires separate approval.
+
+## Recurrent Operation Diagnostics
+
+At `a072049`, the existing native graph smoke executable adds
+`--qk-norm-control`. Five finite 128-wide vectors, including zero and small
+magnitudes, verify native L2's clamped rule `x / max(norm(x), 1e-6)` independently.
+The pinned Torch helper instead uses `x / sqrt(sum(x*x) + 1e-6)`; those formulas
+are materially different for small inputs. The Hadamard default is unchanged,
+and unknown/extra CLI arguments produce no report.
+
+Fixture-only `--compute-dtype ggml_bf16_rhs_qk` adds clamped Q/K normalization
+to the earlier BF16-RHS/F32-state experiment, disabling the Torch helper's own
+normalization to avoid doing it twice. It requires the pinned norm epsilon and
+existing frozen native artifact; prior modes/defaults are unchanged. Dataset,
+calibration, activation-observer and shallow-prefix use remain refused.
+Eight pinned Torch 2.10.0/Transformers 5.12.1 cases compare chunked output and
+returned state with a separately normalized token-by-token recurrence across
+1/7/64/80 tokens and zero/nonzero initial state. These are operation checks,
+not proof of all native rounding, convolution, attention, cache or gate behavior.
+
+Four-layer probes of both BF16-RHS variants pass on the existing 80-token
+`inspect-before-answer` fixture, with one saved projection call and zero
+generation. They differ first at `l_out-0` (RMSE 7.758425460008644e-6); this is
+a comparison between streamed variants, not with disposed native activations.
+The full Q/K-mode run passes all 32 layers, selected source head rows, typed
+options and zero generation in 21.31 s, peak RSS 1,678,868 KiB. Its native
+projection/reference maximum error is 1.1307724534503905e-7. Measured logits are
+21.466835021972656, 15.425870895385742, 17.849796295166016. Against the saved
+same-prompt native report, the maximum selected-logit gap is **0.028759002685546875**,
+larger than BF16-RHS alone (**0.004558563232421875**). This negative result does
+not promote the new mode or establish decision quality; matching one formula
+is not full-runtime parity. Timings are observations, not a speed comparison.
+All raw traces/compiler scratch under `native/mimo-qk-contract.HNEVga` are
+deleted. Only 44 KiB of small reports remain outside Git at
+`$cache/native/mimo-qk-contract-report-20261008-HNEVga`. Candidate hashes and
+both pinned tracked source worktrees are unchanged; no complete-model conversion,
+new fit, held-out scoring, installation, push or branch change followed.
+
+At `e03b48e`/`9408f3f`, the same executable adds
+`--gdn-control {1|7|64|80} {zero|nonzero} [raw]`. Actual GGML L2 and gated-delta
+graph execution uses width 128, two Q/K heads, four value heads, scalar gates,
+and one final-state slot. Sixteen cases compare every output/state value with an
+independent NumPy FP64 recurrence at `rtol=2e-5, atol=2e-6`, verify unchanged
+input state, and distinguish wrong interleaved head mapping. Raw-gate cases also
+exercise sigmoid and softplus, including inputs around the threshold 20.
+The actual kernel uses tiled Q/K broadcast and stores state as value-by-key.
+The pinned `conversion/qwen.py` reorder base permutes grouped HF V rows, gates,
+convolution V channels and output columns into that physical order; a kernel
+head-order difference alone is therefore not evidence of a model mismatch.
+This is a bounded numerical fixture, not all-source authentication, complete
+model/recurrent-cache equivalence, or an accepted model-parity tolerance.
+
+Run the focused checks without any complete model or source-weight load:
+
+```bash
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+PRISM_GGML_CPU_LIBRARY="$cache/native/prism-build/bin/libggml-cpu.so" \
+MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
+   tests/test_prism_native_control.py::test_pinned_prism_cpu_fwht_matches_dense_signed_reference \
+   tests/test_prism_native_control.py::test_streamed_native_qk_diagnostic_matches_pinned_torch_recurrence
+```
+
+No new complete native model was retained or converted for these controls.
+Matching layer-0 native/reference intermediate captures remain a next diagnostic,
+not a result established by the saved scores. Another temporary complete-model
+conversion requires separate approval; do not refit or score held-out data to
+hide the unresolved numerical contract.
 
 ## Single-Projection Native Fixture
 

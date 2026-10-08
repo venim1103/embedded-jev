@@ -1,6 +1,6 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-06. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-08. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
@@ -12,10 +12,10 @@ The current checkpoint below supersedes the bootstrap-era status statements.
 Later sections retain the scope and results of individual historical probes;
 do not read a probe's limitations as the current status of every later path.
 
-## Current Checkpoint (2026-10-06)
+## Current Checkpoint (2026-10-08)
 
-The last tested implementation commit is `5b7e559` (2026-10-06),
-`test: bound full-model trace regression by observed runtime`.
+The last tested implementation commit is `9408f3f` (2026-10-08),
+`test: cover fused sigmoid and softplus recurrent gates`.
 This continuation started clean at `445c8d7`, with `main` and `origin/main`
 matching after the user's push. Local commits `d95ffa4` (repeated graph),
 `e2378e4` (owned handles), `4efa59b` (streamed backend), and `cb4fe74` followed,
@@ -58,24 +58,39 @@ adds a fixture-only BF16-RHS experiment based on the pinned CPU trait.
 real cases keep 600 seconds. The approved diagnostic and cleanup are complete.
 The user's push was observed through `63e8b4c`; the assistant made no push.
 
-Current gates: **162 default tests passed, 38 optional tests skipped; all sixteen
+The next continuation began at user-pushed `771663e`. `a072049` adds a native
+Q/K norm graph and fixture-only streamed Q/K diagnostic; `e03b48e` checks the
+actual native gated-delta output/state and tiled head contract; `9408f3f` adds raw
+sigmoid/softplus gate fusion. All are bounded controls, not a production-policy
+promotion. The existing frozen projection is unchanged and no new complete
+model was converted. Q/K-only alignment worsens the selected-logit gap from
+0.004558563232421875 to 0.028759002685546875 on the same 80-token fixture.
+Raw streamed traces/compiler scratch are deleted; only 44 KiB of reports remain
+at `native/mimo-qk-contract-report-20261008-HNEVga` under the cache.
+
+Current gates: **163 default tests passed, 39 optional tests skipped; all seventeen
 pinned Prism controls passed** with full-size PQ2, reused weight/graph, owned
 handle, two-forward module, tagged toy GGUF import, and isolated versioned CPU
 discovery, mixed concurrent graphs, and actual pinned loader selection/upload
 enabled, including the sole full-size frozen projection, packaged dependency
 provenance, guarded vocabulary-only native tokenizer parity, and synthetic
-dense/BitNet hybrid model prefill plus model-policy/CLI refusals (83.22 s).
+dense/BitNet hybrid model prefill plus model-policy/CLI refusals, Q/K normalization,
+sixteen activated/raw-gate native recurrence cases, and eight pinned Torch
+recurrence/state cases (51.67 s).
 The real one-BitNet prefill regression passed separately in 221.62 s; its two
 real kernel controls passed in 733.45 s combined. All five real-model cases
-were skipped in the sixteen-control invocation, avoiding another large model
+were skipped in the seventeen-control invocation, avoiding another large model
 load or conversion. The prior dense-only regression passed at `462dc12`.
 The real trace case passed separately in 746.54 s at `5b7e559`, peak RSS
 17,611,040 KiB; its temporary files and all raw activations are deleted.
 The isolated full llama build also passes two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-option, and
 signed-Hadamard full gate passed at `4efa59b` (138.36 s); these unchanged model
-controls were not rerun after the later native file/runtime additions. Ruff,
-editor diagnostics, and `git diff --check` passed. GCC ASan/UBSan and leak checks
+controls were not rerun after the later native file/runtime additions. The new
+four-/32-layer fixture-only Q/K probes pass, without closing runtime parity.
+Ruff, Python editor diagnostics, explicit C++ compilation, and `git diff --check`
+passed. The C++ editor lacks the external GGML include path; user editor settings
+remain untouched. GCC ASan/UBSan and leak checks
 passed for the bridge runtime controls; cached GGML is not instrumented. See the
 development guide for flags.
 
@@ -253,6 +268,15 @@ development guide for flags.
   `native/mimo-precision-report-20261006-GiDmcd` under the cache. Candidate hashes
   and pinned tracked source worktrees are unchanged. Further conversion needs
   approval. See the [precision diagnostic](development.md#bounded-prefill-precision-diagnostic).
+- Q/K normalization and recurrence now have separate operation-level controls.
+  Native L2 uses a clamped norm, unlike the additive-epsilon Torch helper. The
+  fixture-only Q/K mode preserves prior defaults and refuses dataset/calibration
+  use. Sixteen native 128-wide cases cover 1/7/64/80 tokens, zero/nonzero initial
+  state, activated/raw gates, tiled two-to-four-head broadcast, and unchanged input
+  state; outputs/final state match an independent FP64 reference. The converter
+  reorders grouped V weights/gates to tiled order, so this kernel mapping alone
+  is not a model bug. No new tolerance, candidate or quality acceptance follows.
+  See the [recurrent diagnostics](development.md#recurrent-operation-diagnostics).
 - Split-aware datasets, calibration-only hashed captures, and frozen paired
   evaluation are implemented. The attributed CC-BY-3.0 CLINC150 four-choice
   proxy has four cases per split and four training captures. Held-out proxy
