@@ -58,9 +58,119 @@ static int qk_norm_control() {
     return 0;
 }
 
+static int gdn_control(int tokens, bool initialized) {
+    constexpr int width = 128;
+    constexpr int key_heads = 2;
+    constexpr int value_heads = 4;
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+    if (!context) {
+        return 1;
+    }
+    auto* query = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, width, key_heads, tokens, 1);
+    auto* key = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, width, key_heads, tokens, 1);
+    auto* value = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, width, value_heads, tokens, 1);
+    auto* decay = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, 1, value_heads, tokens, 1);
+    auto* beta = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, 1, value_heads, tokens, 1);
+    auto* state = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, width, width, value_heads, 1);
+    for (auto* input : { query, key, value, decay, beta, state }) {
+        ggml_set_input(input);
+    }
+    auto* output = ggml_gated_delta_net(context.get(),
+        ggml_l2_norm(context.get(), query, 1e-6f), ggml_l2_norm(context.get(), key, 1e-6f),
+        value, decay, beta, state, 1);
+    ggml_set_output(output);
+    auto* graph = ggml_new_graph(context.get());
+    ggml_build_forward_expand(graph, output);
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
+    std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+        ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+    if (!backend || !allocator || !ggml_backend_supports_op(backend.get(), output) ||
+            !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    std::vector<float> queries(width * key_heads * tokens);
+    std::vector<float> keys(queries.size());
+    std::vector<float> values(width * value_heads * tokens);
+    std::vector<float> decays(value_heads * tokens);
+    std::vector<float> betas(decays.size());
+    std::vector<float> initial(width * width * value_heads);
+    for (int token = 0; token < tokens; ++token) {
+        for (int head = 0; head < key_heads; ++head) {
+            for (int column = 0; column < width; ++column) {
+                const int index = (token * key_heads + head) * width + column;
+                queries[index] = ((column * 7 + token * 3 + head * 11) % 29 - 14) / 64.0f;
+                keys[index] = ((column * 3 + token * 7 + head * 5) % 31 - 15) / 64.0f;
+            }
+        }
+        for (int head = 0; head < value_heads; ++head) {
+            decays[token * value_heads + head] = -0.125f - ((token + 2 * head) % 5) / 16.0f;
+            betas[token * value_heads + head] = 0.25f + ((token + head) % 7) / 16.0f;
+            for (int column = 0; column < width; ++column) {
+                values[(token * value_heads + head) * width + column] =
+                    ((column * 5 + token * 2 + head * 13) % 23 - 11) / 32.0f;
+            }
+        }
+    }
+    if (initialized) {
+        for (int head = 0; head < value_heads; ++head) {
+            for (int value_index = 0; value_index < width; ++value_index) {
+                for (int key_index = 0; key_index < width; ++key_index) {
+                    initial[(head * width + value_index) * width + key_index] =
+                        ((key_index * 3 + value_index * 5 + head * 7) % 19 - 9) / 4096.0f;
+                }
+            }
+        }
+    }
+    const auto upload = [](ggml_tensor* tensor, const std::vector<float>& data) {
+        ggml_backend_tensor_set(tensor, data.data(), 0, data.size() * sizeof(float));
+    };
+    upload(query, queries);
+    upload(key, keys);
+    upload(value, values);
+    upload(decay, decays);
+    upload(beta, betas);
+    upload(state, initial);
+    if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+        return 3;
+    }
+    const std::size_t output_count = values.size() + initial.size();
+    if (ggml_nbytes(output) != output_count * sizeof(float)) {
+        return 4;
+    }
+    std::vector<float> actual(output_count);
+    std::vector<float> unchanged(initial.size());
+    ggml_backend_tensor_get(output, actual.data(), 0, actual.size() * sizeof(float));
+    ggml_backend_tensor_get(state, unchanged.data(), 0, unchanged.size() * sizeof(float));
+    if (unchanged != initial || !std::all_of(actual.begin(), actual.end(), [](float value) { return std::isfinite(value); })) {
+        return 4;
+    }
+    std::printf("{\"width\":%d,\"key_heads\":%d,\"value_heads\":%d,\"tokens\":%d,"
+                "\"initialized\":%s,\"broadcast\":\"tiled\",\"state_layout\":\"value_by_key\",\"outputs\":[",
+                width, key_heads, value_heads, tokens, initialized ? "true" : "false");
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        std::printf("%s%.9g", index ? "," : "", actual[index]);
+    }
+    std::printf("],\"state\":[");
+    for (std::size_t index = values.size(); index < actual.size(); ++index) {
+        std::printf("%s%.9g", index == values.size() ? "" : ",", actual[index]);
+    }
+    std::puts("]}");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--qk-norm-control") == 0) {
         return qk_norm_control();
+    }
+    if (argc == 4 && std::strcmp(argv[1], "--gdn-control") == 0) {
+        const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
+                           std::strcmp(argv[2], "64") == 0 ? 64 : std::strcmp(argv[2], "80") == 0 ? 80 : 0;
+        if (!tokens || (std::strcmp(argv[3], "zero") != 0 && std::strcmp(argv[3], "nonzero") != 0)) {
+            return 5;
+        }
+        return gdn_control(tokens, std::strcmp(argv[3], "nonzero") == 0);
     }
     if (argc != 1) {
         return 5;

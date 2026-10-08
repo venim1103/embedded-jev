@@ -649,7 +649,59 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     np.testing.assert_allclose(actual, native_expected, rtol=2e-7, atol=1e-8)
     assert np.max(np.abs(actual[1] - additive_expected[1])) > 0.02
     assert np.max(np.abs(actual[2] - additive_expected[2])) > 0.005
-    for arguments in (["--unknown"], ["--qk-norm-control", "extra"]):
+
+    def recurrence(tokens, initialized, interleaved=False):
+        token_index = np.arange(tokens)[:, None, None]
+        key_head = np.arange(2)[None, :, None]
+        column = np.arange(128)[None, None, :]
+        query = ((column * 7 + token_index * 3 + key_head * 11) % 29 - 14).astype(np.float32) / 64
+        key = ((column * 3 + token_index * 7 + key_head * 5) % 31 - 15).astype(np.float32) / 64
+        for features in (query, key):
+            norm = np.sqrt((features * features).sum(axis=-1, keepdims=True, dtype=np.float64).astype(np.float32))
+            features *= np.float32(1) / np.maximum(norm, np.float32(1e-6))
+        value_head = np.arange(4)[None, :, None]
+        value = ((column * 5 + token_index * 2 + value_head * 13) % 23 - 11).astype(np.float32) / 32
+        decay = -0.125 - ((token_index[:, :, 0] + 2 * np.arange(4)[None, :]) % 5) / 16
+        beta = 0.25 + ((token_index[:, :, 0] + np.arange(4)[None, :]) % 7) / 16
+        state = np.zeros((4, 128, 128), dtype=np.float64)
+        if initialized:
+            value_index = np.arange(128)[None, :, None]
+            key_index = np.arange(128)[None, None, :]
+            state = ((key_index * 3 + value_index * 5 + np.arange(4)[:, None, None] * 7) % 19 - 9) / 4096
+        outputs = np.empty((tokens, 4, 128), dtype=np.float64)
+        mapping = np.arange(4) // 2 if interleaved else np.arange(4) % 2
+        for token in range(tokens):
+            selected_key = key[token, mapping].astype(np.float64)
+            selected_query = query[token, mapping].astype(np.float64)
+            state *= np.exp(decay[token])[:, None, None]
+            delta = (value[token] - np.einsum("hvk,hk->hv", state, selected_key)) * beta[token, :, None]
+            state += delta[:, :, None] * selected_key[:, None, :]
+            outputs[token] = np.einsum("hvk,hk->hv", state, selected_query) / np.sqrt(128)
+        return outputs, state
+
+    for tokens in (1, 7, 64, 80):
+        for initialized in (False, True):
+            result = subprocess.run(
+                [str(binary), "--gdn-control", str(tokens), "nonzero" if initialized else "zero"],
+                check=True, capture_output=True, text=True, timeout=15,
+            )
+            report = json.loads(result.stdout)
+            assert report["tokens"] == tokens and report["initialized"] is initialized
+            assert report["width"] == 128 and report["key_heads"] == 2 and report["value_heads"] == 4
+            assert report["broadcast"] == "tiled" and report["state_layout"] == "value_by_key"
+            outputs = np.asarray(report["outputs"], dtype=np.float32).reshape(tokens, 4, 128)
+            state = np.asarray(report["state"], dtype=np.float32).reshape(4, 128, 128)
+            expected_output, expected_state = recurrence(tokens, initialized)
+            assert np.isfinite(outputs).all() and np.isfinite(state).all()
+            np.testing.assert_allclose(outputs, expected_output, rtol=2e-5, atol=2e-6)
+            np.testing.assert_allclose(state, expected_state, rtol=2e-5, atol=2e-6)
+            wrong_output, wrong_state = recurrence(tokens, initialized, interleaved=True)
+            assert np.max(np.abs(outputs - wrong_output)) > 2e-5
+            assert np.max(np.abs(state - wrong_state)) > 1e-4
+
+    for arguments in (["--unknown"], ["--qk-norm-control", "extra"], ["--gdn-control"],
+                      ["--gdn-control", "0", "zero"], ["--gdn-control", "129", "zero"],
+                      ["--gdn-control", "7", "unknown"], ["--gdn-control", "7", "zero", "extra"]):
         rejected = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
         assert rejected.returncode == 5 and rejected.stdout == ""
 
