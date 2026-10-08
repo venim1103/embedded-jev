@@ -629,6 +629,104 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     assert report["tokens"] == 2 and report["width"] == 128
     assert report["max_abs_error"] < 1e-4
 
+    import numpy as np
+
+    result = subprocess.run(
+        [str(binary), "--qk-norm-control"], check=True, capture_output=True, text=True, timeout=15,
+    )
+    report = json.loads(result.stdout)
+    assert report["rows"] == 5 and report["width"] == 128
+    assert report["epsilon"] == pytest.approx(1e-6)
+    pattern = (np.arange(128) % 7 - 3).astype(np.float32)
+    inputs = pattern[None, :] * np.array([0, 1e-8, 1e-4, 0.01, 1], dtype=np.float32)[:, None]
+    squared = inputs * inputs
+    norm = np.sqrt(squared.sum(axis=1, keepdims=True, dtype=np.float64)).astype(np.float32)
+    native_expected = inputs * (np.float32(1) / np.maximum(norm, np.float32(1e-6)))
+    additive_expected = inputs / np.sqrt(squared.sum(axis=1, keepdims=True) + np.float32(1e-6))
+    actual = np.asarray(report["outputs"], dtype=np.float32).reshape(5, 128)
+    assert np.isfinite(actual).all()
+    np.testing.assert_array_equal(actual[0], np.zeros(128, dtype=np.float32))
+    np.testing.assert_allclose(actual, native_expected, rtol=2e-7, atol=1e-8)
+    assert np.max(np.abs(actual[1] - additive_expected[1])) > 0.02
+    assert np.max(np.abs(actual[2] - additive_expected[2])) > 0.005
+    for arguments in (["--unknown"], ["--qk-norm-control", "extra"]):
+        rejected = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
+        assert rejected.returncode == 5 and rejected.stdout == ""
+
+
+def test_streamed_native_qk_diagnostic_matches_pinned_torch_recurrence():
+    dense_python = os.environ.get("MIMO_DENSE_PYTHON")
+    if not dense_python:
+        pytest.skip("requires the existing pinned CPU Torch/Transformers environment")
+    code = """
+import json
+import numpy as np
+import torch
+import transformers
+from embedded_jev.inventory import InventoryError
+from embedded_jev.streamed_text import _ggml_qk_delta_rule
+from transformers.models.qwen3_5.modeling_qwen3_5 import (
+    l2norm, torch_chunk_gated_delta_rule, torch_recurrent_gated_delta_rule,
+)
+assert torch.__version__.startswith("2.10.0") and transformers.__version__ == "5.12.1"
+generator = np.random.default_rng(1407)
+query = generator.normal(size=(1, 80, 2, 128)).astype(np.float32)
+key = generator.normal(size=query.shape).astype(np.float32)
+amplitudes = np.resize(np.array([1e-8, 1e-4, 0.01, 1], dtype=np.float32), 80)
+query *= amplitudes[None, :, None, None]
+key *= amplitudes[None, :, None, None]
+def normalize(features):
+    norm = np.sqrt((features * features).sum(axis=-1, keepdims=True, dtype=np.float64).astype(np.float32))
+    return torch.from_numpy(features / np.maximum(norm, np.float32(1e-6)))
+native_query, native_key = normalize(query), normalize(key)
+query, key = torch.from_numpy(query), torch.from_numpy(key)
+np.testing.assert_allclose(l2norm(query).numpy(),
+    query.numpy() / np.sqrt((query.numpy() ** 2).sum(axis=-1, keepdims=True) + np.float32(1e-6)),
+    rtol=2e-7, atol=1e-8)
+assert torch.max(torch.abs(native_query[:, 1] - l2norm(query)[:, 1])).item() > 0.05
+value = torch.from_numpy(generator.normal(0, 0.25, (1, 80, 2, 8)).astype(np.float32))
+g = torch.from_numpy(-generator.uniform(0.1, 0.5, (1, 80, 2)).astype(np.float32))
+beta = torch.from_numpy(generator.uniform(0.1, 0.9, (1, 80, 2)).astype(np.float32))
+initial = torch.from_numpy(generator.normal(0, 0.05, (1, 2, 128, 8)).astype(np.float32))
+max_output_error = max_state_error = 0.0
+cases = 0
+for tokens in (1, 7, 64, 80):
+    for state in (None, initial):
+        output, final = _ggml_qk_delta_rule(torch_chunk_gated_delta_rule,
+            query[:, :tokens], key[:, :tokens], value[:, :tokens], g[:, :tokens], beta[:, :tokens],
+            initial_state=state, output_final_state=True, use_qk_l2norm_in_kernel=True)
+        expected_output, expected_final = torch_recurrent_gated_delta_rule(
+            native_query[:, :tokens], native_key[:, :tokens], value[:, :tokens], g[:, :tokens], beta[:, :tokens],
+            initial_state=state, output_final_state=True, use_qk_l2norm_in_kernel=False)
+        torch.testing.assert_close(output, expected_output, rtol=2e-5, atol=2e-6)
+        torch.testing.assert_close(final, expected_final, rtol=2e-5, atol=2e-6)
+        max_output_error = max(max_output_error, (output - expected_output).abs().max().item())
+        max_state_error = max(max_state_error, (final - expected_final).abs().max().item())
+        cases += 1
+output, final = _ggml_qk_delta_rule(torch_chunk_gated_delta_rule,
+    query[:, :7], key[:, :7], value[:, :7], g[:, :7], beta[:, :7],
+    initial_state=None, output_final_state=False, use_qk_l2norm_in_kernel=True)
+assert final is None and torch.isfinite(output).all()
+for dtype, flag in ((torch.float32, False), (torch.bfloat16, True)):
+    try:
+        _ggml_qk_delta_rule(torch_chunk_gated_delta_rule, query.to(dtype), key.to(dtype), value, g, beta,
+                           use_qk_l2norm_in_kernel=flag)
+    except InventoryError:
+        pass
+    else:
+        raise AssertionError("unsafe Q/K diagnostic input was accepted")
+print(json.dumps({"cases": cases, "max_output_error": max_output_error, "max_state_error": max_state_error}))
+"""
+    result = subprocess.run(
+        [dense_python, "-c", code], capture_output=True, text=True, timeout=60,
+        env={**os.environ, "OMP_NUM_THREADS": "1", "PYTHONDONTWRITEBYTECODE": "1",
+             "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"},
+    )
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["cases"] == 8
+    assert report["max_output_error"] < 2e-6 and report["max_state_error"] < 2e-6
+
 
 def test_pinned_prism_fwht_feeds_bitnet_derived_group_scale_kernel(tmp_path):
     prism_source = os.environ.get("PRISM_SOURCE_DIR")

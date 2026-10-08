@@ -362,7 +362,7 @@ def test_streamed_capture_refuses_validation_and_held_out_before_model_import(tm
         )
 
 
-@pytest.mark.parametrize("dtype", ["fp32", "ggml_bf16_rhs"])
+@pytest.mark.parametrize("dtype", ["fp32", "ggml_bf16_rhs", "ggml_bf16_rhs_qk"])
 def test_streamed_precision_diagnostics_refuse_unsafe_scope_before_model_import(tmp_path, dtype):
     from embedded_jev.inventory import InventoryError
     from embedded_jev.streamed_text import make_native_ffn_down, run_streamed_text

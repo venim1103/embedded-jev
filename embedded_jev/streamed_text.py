@@ -440,6 +440,20 @@ def compare_precision_traces(left_directory: Path, right_directory: Path) -> dic
             "first_nonidentical_stage": next((stage["name"] for stage in stages if stage["max_abs_error"] != 0), None)}
 
 
+def _ggml_qk_delta_rule(rule, query, key, value, g, beta, **kwargs):
+    import torch
+
+    if not kwargs.pop("use_qk_l2norm_in_kernel", False):
+        raise InventoryError("native Q/K diagnostic requires unnormalized query and key")
+    normalized = []
+    for features in (query, key):
+        if features.dtype != torch.float32:
+            raise InventoryError("native Q/K diagnostic requires FP32 query and key")
+        squared_sum = (features * features).sum(dim=-1, keepdim=True, dtype=torch.float64).float()
+        normalized.append(features * squared_sum.sqrt().clamp_min(1e-6).reciprocal())
+    return rule(*normalized, value, g, beta, use_qk_l2norm_in_kernel=False, **kwargs)
+
+
 def run_streamed_text(
     directory: Path, *, layers: int = 4, prompt: str, label_count: int | None = None,
     fixture_path: Path | None = None, case_id: str | None = None,
@@ -455,7 +469,7 @@ def run_streamed_text(
     precision_trace_directory: Path | None = None,
 ) -> dict:
     """Execute at most one source-verified decoder layer at a time on CPU."""
-    if compute_dtype not in ("bf16", "fp32", "ggml_bf16_rhs"):
+    if compute_dtype not in ("bf16", "fp32", "ggml_bf16_rhs", "ggml_bf16_rhs_qk"):
         raise InventoryError("unsupported streamed computation dtype")
     if (compute_dtype != "bf16" or precision_trace_directory is not None) and (
         fixture_path is None or dataset_path is not None or calibration_output is not None
@@ -533,6 +547,8 @@ def run_streamed_text(
     metadata, headers = read_local_headers(directory)
     plan = plan_streamed_text(metadata, headers, layers=layers)
     config = AutoConfig.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
+    if compute_dtype == "ggml_bf16_rhs_qk" and config.text_config.rms_norm_eps != 1e-6:
+        raise InventoryError("native Q/K diagnostic requires the pinned 1e-6 norm epsilon")
     tokenizer = AutoTokenizer.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
     fixture_case = None
     dataset = None
@@ -636,10 +652,16 @@ def run_streamed_text(
                 )
         if any(parameter.is_meta or parameter.dtype != torch_dtype for parameter in decoder.parameters()):
             raise InventoryError(f"incomplete {compute_dtype} layer {layer_index} materialization")
-        if compute_dtype == "ggml_bf16_rhs":
+        if compute_dtype in ("ggml_bf16_rhs", "ggml_bf16_rhs_qk"):
             for module in decoder.modules():
                 if isinstance(module, torch.nn.Linear):
                     module.register_forward_pre_hook(round_linear_input)
+        if compute_dtype == "ggml_bf16_rhs_qk" and plan["layer_types"][layer_index] == "linear_attention":
+            from functools import partial
+
+            decoder.linear_attn.chunk_gated_delta_rule = partial(
+                _ggml_qk_delta_rule, decoder.linear_attn.chunk_gated_delta_rule,
+            )
         layer_mask = linear_mask if plan["layer_types"][layer_index] == "linear_attention" else causal_mask
         try:
             with torch.inference_mode():
@@ -732,7 +754,7 @@ def run_streamed_text(
     if layers == config.text_config.num_hidden_layers:
         selected = {label: boundary["label_token_ids"][label] for label in LABELS[:label_count]}
         head_input = hidden[0, -1]
-        if compute_dtype == "ggml_bf16_rhs":
+        if compute_dtype in ("ggml_bf16_rhs", "ggml_bf16_rhs_qk"):
             head_input = head_input.to(torch.bfloat16).float()
         scored = score_selected_head(
             directory, metadata, headers, head_input.float().numpy(), selected,
@@ -799,7 +821,7 @@ def main() -> None:
     parser.add_argument("--native-ffn-backend", choices=("direct", "prism_ggml", "prism_ggml_f32", "prism_ggml_hadamard128", "prism_ggml_registered"), default="direct")
     parser.add_argument("--projection-artifact", type=Path)
     parser.add_argument("--full-vocabulary-mass", action="store_true")
-    parser.add_argument("--compute-dtype", choices=("bf16", "fp32", "ggml_bf16_rhs"), default="bf16")
+    parser.add_argument("--compute-dtype", choices=("bf16", "fp32", "ggml_bf16_rhs", "ggml_bf16_rhs_qk"), default="bf16")
     parser.add_argument("--precision-trace-directory", type=Path)
     args = parser.parse_args()
     print(json.dumps(run_streamed_text(
