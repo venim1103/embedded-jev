@@ -58,7 +58,7 @@ static int qk_norm_control() {
     return 0;
 }
 
-static int gdn_control(int tokens, bool initialized) {
+static int gdn_control(int tokens, bool initialized, bool raw_gates) {
     constexpr int width = 128;
     constexpr int key_heads = 2;
     constexpr int value_heads = 4;
@@ -73,12 +73,19 @@ static int gdn_control(int tokens, bool initialized) {
     auto* decay = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, 1, value_heads, tokens, 1);
     auto* beta = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, 1, value_heads, tokens, 1);
     auto* state = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, width, width, value_heads, 1);
+    auto* dt_bias = raw_gates ? ggml_new_tensor_1d(context.get(), GGML_TYPE_F32, value_heads) : nullptr;
+    auto* decay_multiplier = raw_gates ? ggml_new_tensor_1d(context.get(), GGML_TYPE_F32, value_heads) : nullptr;
     for (auto* input : { query, key, value, decay, beta, state }) {
         ggml_set_input(input);
     }
     auto* output = ggml_gated_delta_net(context.get(),
         ggml_l2_norm(context.get(), query, 1e-6f), ggml_l2_norm(context.get(), key, 1e-6f),
         value, decay, beta, state, 1);
+    if (raw_gates) {
+        ggml_set_input(dt_bias);
+        ggml_set_input(decay_multiplier);
+        ggml_gated_delta_net_set_raw_gates(output, dt_bias, decay_multiplier);
+    }
     ggml_set_output(output);
     auto* graph = ggml_new_graph(context.get());
     ggml_build_forward_expand(graph, output);
@@ -96,6 +103,7 @@ static int gdn_control(int tokens, bool initialized) {
     std::vector<float> decays(value_heads * tokens);
     std::vector<float> betas(decays.size());
     std::vector<float> initial(width * width * value_heads);
+    const std::array<float, 5> raw_alpha = { -25.0f, -3.0f, 0.0f, 20.0f, 25.0f };
     for (int token = 0; token < tokens; ++token) {
         for (int head = 0; head < key_heads; ++head) {
             for (int column = 0; column < width; ++column) {
@@ -105,8 +113,10 @@ static int gdn_control(int tokens, bool initialized) {
             }
         }
         for (int head = 0; head < value_heads; ++head) {
-            decays[token * value_heads + head] = -0.125f - ((token + 2 * head) % 5) / 16.0f;
-            betas[token * value_heads + head] = 0.25f + ((token + head) % 7) / 16.0f;
+            decays[token * value_heads + head] = raw_gates ? raw_alpha[(token + 2 * head) % 5] :
+                -0.125f - ((token + 2 * head) % 5) / 16.0f;
+            betas[token * value_heads + head] = raw_gates ? ((token + head) % 7 - 3) / 4.0f :
+                0.25f + ((token + head) % 7) / 16.0f;
             for (int column = 0; column < width; ++column) {
                 values[(token * value_heads + head) * width + column] =
                     ((column * 5 + token * 2 + head * 13) % 23 - 11) / 32.0f;
@@ -132,6 +142,16 @@ static int gdn_control(int tokens, bool initialized) {
     upload(decay, decays);
     upload(beta, betas);
     upload(state, initial);
+    if (raw_gates) {
+        std::vector<float> biases(value_heads);
+        std::vector<float> multipliers(value_heads);
+        for (int head = 0; head < value_heads; ++head) {
+            biases[head] = (head - 2) / 8.0f;
+            multipliers[head] = -(head + 1) / 4.0f;
+        }
+        upload(dt_bias, biases);
+        upload(decay_multiplier, multipliers);
+    }
     if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
         return 3;
     }
@@ -147,8 +167,8 @@ static int gdn_control(int tokens, bool initialized) {
         return 4;
     }
     std::printf("{\"width\":%d,\"key_heads\":%d,\"value_heads\":%d,\"tokens\":%d,"
-                "\"initialized\":%s,\"broadcast\":\"tiled\",\"state_layout\":\"value_by_key\",\"outputs\":[",
-                width, key_heads, value_heads, tokens, initialized ? "true" : "false");
+                "\"initialized\":%s,\"raw_gates\":%s,\"broadcast\":\"tiled\",\"state_layout\":\"value_by_key\",\"outputs\":[",
+                width, key_heads, value_heads, tokens, initialized ? "true" : "false", raw_gates ? "true" : "false");
     for (std::size_t index = 0; index < values.size(); ++index) {
         std::printf("%s%.9g", index ? "," : "", actual[index]);
     }
@@ -164,13 +184,14 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--qk-norm-control") == 0) {
         return qk_norm_control();
     }
-    if (argc == 4 && std::strcmp(argv[1], "--gdn-control") == 0) {
+    if ((argc == 4 || argc == 5) && std::strcmp(argv[1], "--gdn-control") == 0) {
         const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
                            std::strcmp(argv[2], "64") == 0 ? 64 : std::strcmp(argv[2], "80") == 0 ? 80 : 0;
-        if (!tokens || (std::strcmp(argv[3], "zero") != 0 && std::strcmp(argv[3], "nonzero") != 0)) {
+        if (!tokens || (std::strcmp(argv[3], "zero") != 0 && std::strcmp(argv[3], "nonzero") != 0) ||
+            (argc == 5 && std::strcmp(argv[4], "raw") != 0)) {
             return 5;
         }
-        return gdn_control(tokens, std::strcmp(argv[3], "nonzero") == 0);
+        return gdn_control(tokens, std::strcmp(argv[3], "nonzero") == 0, argc == 5);
     }
     if (argc != 1) {
         return 5;

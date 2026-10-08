@@ -650,7 +650,7 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     assert np.max(np.abs(actual[1] - additive_expected[1])) > 0.02
     assert np.max(np.abs(actual[2] - additive_expected[2])) > 0.005
 
-    def recurrence(tokens, initialized, interleaved=False):
+    def recurrence(tokens, initialized, raw_gates=False, interleaved=False):
         token_index = np.arange(tokens)[:, None, None]
         key_head = np.arange(2)[None, :, None]
         column = np.arange(128)[None, None, :]
@@ -663,6 +663,12 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
         value = ((column * 5 + token_index * 2 + value_head * 13) % 23 - 11).astype(np.float32) / 32
         decay = -0.125 - ((token_index[:, :, 0] + 2 * np.arange(4)[None, :]) % 5) / 16
         beta = 0.25 + ((token_index[:, :, 0] + np.arange(4)[None, :]) % 7) / 16
+        if raw_gates:
+            alpha = np.array([-25, -3, 0, 20, 25])[(token_index[:, :, 0] + 2 * np.arange(4)[None, :]) % 5]
+            biased = alpha + (np.arange(4)[None, :] - 2) / 8
+            decay = -(np.arange(4)[None, :] + 1) / 4 * np.logaddexp(0, biased)
+            raw_beta = ((token_index[:, :, 0] + np.arange(4)[None, :]) % 7 - 3) / 4
+            beta = 1 / (1 + np.exp(-raw_beta))
         state = np.zeros((4, 128, 128), dtype=np.float64)
         if initialized:
             value_index = np.arange(128)[None, :, None]
@@ -679,25 +685,28 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
             outputs[token] = np.einsum("hvk,hk->hv", state, selected_query) / np.sqrt(128)
         return outputs, state
 
-    for tokens in (1, 7, 64, 80):
-        for initialized in (False, True):
-            result = subprocess.run(
-                [str(binary), "--gdn-control", str(tokens), "nonzero" if initialized else "zero"],
-                check=True, capture_output=True, text=True, timeout=15,
-            )
-            report = json.loads(result.stdout)
-            assert report["tokens"] == tokens and report["initialized"] is initialized
-            assert report["width"] == 128 and report["key_heads"] == 2 and report["value_heads"] == 4
-            assert report["broadcast"] == "tiled" and report["state_layout"] == "value_by_key"
-            outputs = np.asarray(report["outputs"], dtype=np.float32).reshape(tokens, 4, 128)
-            state = np.asarray(report["state"], dtype=np.float32).reshape(4, 128, 128)
-            expected_output, expected_state = recurrence(tokens, initialized)
-            assert np.isfinite(outputs).all() and np.isfinite(state).all()
-            np.testing.assert_allclose(outputs, expected_output, rtol=2e-5, atol=2e-6)
-            np.testing.assert_allclose(state, expected_state, rtol=2e-5, atol=2e-6)
-            wrong_output, wrong_state = recurrence(tokens, initialized, interleaved=True)
-            assert np.max(np.abs(outputs - wrong_output)) > 2e-5
-            assert np.max(np.abs(state - wrong_state)) > 1e-4
+    for tokens, initialized, raw_gates in (
+        (tokens, initialized, raw_gates)
+        for tokens in (1, 7, 64, 80) for initialized in (False, True) for raw_gates in (False, True)
+    ):
+        result = subprocess.run(
+            [str(binary), "--gdn-control", str(tokens), "nonzero" if initialized else "zero", *(["raw"] if raw_gates else [])],
+            check=True, capture_output=True, text=True, timeout=15,
+        )
+        report = json.loads(result.stdout)
+        assert report["tokens"] == tokens and report["initialized"] is initialized
+        assert report["raw_gates"] is raw_gates
+        assert report["width"] == 128 and report["key_heads"] == 2 and report["value_heads"] == 4
+        assert report["broadcast"] == "tiled" and report["state_layout"] == "value_by_key"
+        outputs = np.asarray(report["outputs"], dtype=np.float32).reshape(tokens, 4, 128)
+        state = np.asarray(report["state"], dtype=np.float32).reshape(4, 128, 128)
+        expected_output, expected_state = recurrence(tokens, initialized, raw_gates)
+        assert np.isfinite(outputs).all() and np.isfinite(state).all()
+        np.testing.assert_allclose(outputs, expected_output, rtol=2e-5, atol=2e-6)
+        np.testing.assert_allclose(state, expected_state, rtol=2e-5, atol=2e-6)
+        wrong_output, wrong_state = recurrence(tokens, initialized, raw_gates, interleaved=True)
+        assert np.max(np.abs(outputs - wrong_output)) > 2e-5
+        assert np.max(np.abs(state - wrong_state)) > 1e-4
 
     for arguments in (["--unknown"], ["--qk-norm-control", "extra"], ["--gdn-control"],
                       ["--gdn-control", "0", "zero"], ["--gdn-control", "129", "zero"],
