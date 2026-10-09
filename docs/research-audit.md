@@ -21,15 +21,24 @@ it is negative evidence against promoting that change, not a quality result.
 
 ## Recommendation
 
-Pursue **MiMo ternary quantization + genuine BitNet-derived CPU execution +
-SemIf-style typed decisions** as an experimental system. Preserve all three goals,
-but do not describe them as an already compatible stack. Quantization quality and
-runtime representation must be designed together before a full-model conversion.
+Pursue **Qwen3.5 9B-class ternary quantization + genuine BitNet-derived CPU
+execution + SemIf-style typed decisions** as an experimental system. Preserve
+all three goals, but do not describe them as an already compatible stack.
+Quantization quality and runtime representation must be designed together before
+a full-model conversion.
+
+MiMo-V2.6-Distill-Qwen-9B is the first test subject, not a permanent model
+requirement. The intended contracts should support other Qwen3.5 9B-class
+checkpoints and derivatives through separately validated model profiles. This
+scope clarification does not establish their compatibility or transfer MiMo's
+geometry, tokenizer behavior, quantization sensitivity, budgets or quality.
+The [model support gate](roadmap.md#model-scope-and-support-gate) applies to
+each new subject; no successor model was inspected for this documentation update.
 
 The most important missing work is a **group-scaled ternary kernel integration**
 for Qwen3.5, not another Python wrapper around a stock BitNet installation.
 Retain a native BitNet checkpoint as a runtime control, not as an undisclosed
-replacement for the requested MiMo model.
+replacement for whichever model is selected as the test subject.
 
 ## What Jev Means Here
 
@@ -73,6 +82,10 @@ semantic decisions. TypeSafe's published "zero hallucinations" discussion uses
 schema validity; it must not be interpreted as zero factual or judgment errors.
 
 ## Verified Model Facts
+
+The facts and numerical accounting in this audit are scoped to the pinned MiMo
+revision below, not a specification for every Qwen3.5 9B-class model. Recheck
+configuration, headers, licenses and runtime behavior for each selected model.
 
 The [MiMo model card](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B/blob/2367e865d009c13ac81713a2878291d33ab28177/README.md)
 identifies this checkpoint as an SFT of Qwen3.5-9B, including agentic and visual
@@ -248,9 +261,11 @@ Hadamard and then signs to recover the original basis. Shared activation transfo
 are memoized. These observations reinforce why sign order and inverse direction
 cannot be guessed from the PDF's symmetric unsigned-Hadamard example.
 
-For our untied MiMo route, start with version-1-compatible semantics and unrotated
-embeddings/head. An internal per-tensor manifest may be more expressive than this
-runtime, but the exporter must reject configurations that cannot be represented
+For the first test subject's untied MiMo route, start with version-1-compatible
+semantics and unrotated embeddings/head. Determine tied-output semantics from
+each new model's configuration and headers; do not copy this policy blindly.
+An internal per-tensor manifest may be more expressive than this runtime, but
+the exporter must reject configurations that cannot be represented
 by its single block size and width-keyed signs. Do not silently discard differences.
 The exact optimized `llama_mul_mat_hadamard` backend dispatch still requires
 inspection and native testing during the integration milestone.

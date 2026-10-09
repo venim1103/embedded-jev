@@ -4,6 +4,28 @@ The first environment is CPU-first so source research, mathematical tests, Pytho
 development, and C++ kernel work do not require an NVIDIA runtime. It is a
 development image, not the eventual minimal edge deployment image.
 
+## Model Scope and Existing Commands
+
+The intended system supports multiple Qwen3.5 9B-class models.
+MiMo-V2.6-Distill-Qwen-9B is the first test subject, not a permanent model
+requirement. Broader compatibility is planned, not implemented by changing a
+model path. No successor model/revision has been selected or validated here.
+
+The commands, `MIMO_*` environment variables, cached snapshot, fixed tensor
+paths, token IDs, frozen projection and complete-model policy below describe
+the existing MiMo controls. Keep these working examples and names unchanged;
+do not rename them in documentation as if a generic CLI already exists.
+Current metadata/geometry and source guards must still refuse other profiles.
+
+Once implementation is resumed, onboard a different checkpoint through the
+[model support gate](roadmap.md#model-scope-and-support-gate) and planned
+[profile contract](design.md#model-profiles-and-portability). Validate its own
+configuration, tokenizer/template, tensor mapping, precision/state behavior and
+source-bound artifacts. Reuse compatible tools/environments after checking
+their versions; model identity, calibration captures and results do not transfer.
+Another download, conversion, fitted candidate or quality experiment still
+requires the corresponding explicit approval.
+
 ## Current Checkpoint and Gates
 
 The last tested implementation checkpoint is `9408f3f` (2026-10-08), following

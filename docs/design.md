@@ -13,9 +13,17 @@ See [docs/research-audit.md](research-audit.md) for evidence and corrections,
 ## Goal and Boundaries
 
 Build a local decision engine accepting evidence, runtime-defined criteria, and
-typed options. Compress MiMo-V2.6-Distill-Qwen-9B, execute its eligible linear
-projections through verified BitNet-derived low-bit CPU kernels, and return
-SemIf-compatible option scores without generating an answer sequence.
+typed options. Support multiple Qwen3.5 9B-class models, compress their eligible
+linear projections, execute them through verified BitNet-derived low-bit CPU
+kernels, and return SemIf-compatible option scores without generating an answer
+sequence. Keep decision and quantization contracts reusable rather than tied
+to one model's identity.
+
+MiMo-V2.6-Distill-Qwen-9B is the first test subject, not a permanent model
+requirement. Other Qwen3.5 9B-class checkpoints and derivatives are planned
+targets, not validated compatibility. Other architecture families require their
+own adapters and evidence. A model change need not wait for MiMo's full-model
+ternary work to finish; the next model must pass its own support gates.
 
 The intended target is a Linux edge computer with gigabytes of RAM, not a
 microcontroller. Start on available x86-64 hardware, then validate ARM64. RISC-V
@@ -27,6 +35,29 @@ Do not promise Bonsai's proprietary quantization quality, a 1.75-bpw whole model
 sub-second cold decisions, or calibrated correctness before measurements. Do not
 equate direct option scoring with the model's generated reasoning capabilities.
 
+### Model Profiles and Portability
+
+A planned model profile separates checkpoint identity from shared decision,
+quantization and kernel contracts. This is an architecture requirement, not an
+already implemented profile-selection API. For each selected model, bind:
+
+- Source ID/revision, licenses, configuration and weight hashes, discovered
+   tensor names/shapes, layer types, tied embeddings, and modality support.
+- Tokenizer, processor, template and special-token hashes, rendered prompt
+   policy, and context-verified option-label IDs; do not inherit MiMo's IDs.
+- A versioned architecture/converter adapter with verified tensor mapping,
+   head ordering, position/cache semantics, and precision/accumulator contracts.
+- Model-specific quantization policy, exact codes/scales/transforms, calibration
+   provenance and runtime/build identity; a shared kernel is not a shared artifact.
+- Dense reference, codec/kernel dispatch, runtime comparison and quality evidence
+   scoped to that model/revision and the capability actually tested.
+
+Do not infer compatibility from a Qwen3.5 or 9B label alone. Derive geometry from
+reconciled metadata and reject unsupported profiles rather than relaxing the
+current MiMo-specific loader checks. Do not reuse its frozen projection,
+calibration captures or caches for another checkpoint. See the
+[model support gate](roadmap.md#model-scope-and-support-gate) for onboarding.
+
 ## Definition of BitNet Capability
 
 We distinguish three properties:
@@ -36,13 +67,14 @@ We distinguish three properties:
    documented adaptation of them, execute the projection arithmetic with A8 or
    another explicitly specified activation contract.
 3. **Native BitNet training:** the model was trained using a BitNet architecture
-   and quantization-aware recipe. Post-training conversion of MiMo does not imply
-   this property.
+   and quantization-aware recipe. Post-training conversion of a dense checkpoint
+   does not imply this property.
 
-The MiMo route targets properties 1 and 2. If PTQ cannot meet quality gates,
-evaluate QAT/distillation recovery rather than renaming a broken artifact.
+The post-training route targets properties 1 and 2. If PTQ cannot meet quality
+gates, evaluate QAT/distillation recovery rather than renaming a broken artifact.
 The official native BitNet 2B model provides a separate control for tooling and
-kernel behavior. It cannot silently substitute for MiMo or its vision capability.
+kernel behavior. It cannot silently substitute for the selected test subject
+or establish that subject's capabilities.
 
 Acceptance requires profiler/counter evidence that the claimed kernel executes,
 plus packed-memory accounting and end-to-end equivalence checks. A GGUF filename,
@@ -52,7 +84,7 @@ CMake option, or ternary-valued floating-point checkpoint is insufficient.
 
 ```mermaid
 flowchart TD
-    Source["Pinned MiMo weights, tokenizer, processor"] --> Inventory["Tensor and memory inventory"]
+   Source["Selected model profile: weights, tokenizer, processor"] --> Inventory["Tensor and memory inventory"]
     Data["Licensed representative data and split manifests"] --> Calibration["Template and activation calibration"]
     Inventory --> Dense["Dense reference and decision baseline"]
     Dense --> Rotated["Equivalent rotated dense graph"]
@@ -96,10 +128,11 @@ closed. Fused Q/gate and QKV projections need the actual split conventions.
 
 ### Calibration Records
 
-Normalize data into structured messages and tool schemas. Use the pinned MiMo
-template, including real `reasoning_content` only when present and licensed.
-Do not substitute a Qwen2.5 tokenizer. Keep EOS IDs explicit; token ID zero is
-valid, so a boolean `or` fallback is inappropriate.
+Normalize data into structured messages and tool schemas. Use the selected
+model's pinned template and tokenizer. MiMo's `reasoning_content` is an example,
+not a universal field; include it only when supported, present and licensed.
+Do not substitute another model's tokenizer. Keep EOS IDs explicit; token ID
+zero is valid, so a boolean `or` fallback is inappropriate.
 
 Maintain three disjoint datasets: quantization calibration, decision probability
 calibration/validation, and final evaluation. Split by source conversation,
@@ -202,7 +235,7 @@ converter support, write GGUF, or validate a loader.
 
 | Manifest section | Required content |
 | --- | --- |
-| Source | HF ID/revision, weight hashes, license, architecture and config hash |
+| Source | Model profile ID, HF ID/revision, weight hashes, license, architecture and config hash |
 | Tokenization | Tokenizer/processor files, hashes, template hash, special IDs |
 | Quantization | Algorithm/version, seeds, module policy, group axis/size, dtype, damping, traversal |
 | Transforms | Per-tensor mapping, normalization, sign/permutation data, order, remainder handling |
@@ -220,7 +253,9 @@ Unknown transform metadata must be rejected, not silently ignored.
 The inspected Prism schema uses a single power-of-two Hadamard block size and
 one sign vector per input width, with explicit weight-name and optional GDN
 permutation metadata. Our initial export must respect those constraints even if
-the internal artifact can describe more general transforms. MiMo is untied:
+the internal artifact can describe more general transforms. Determine tied-output
+semantics separately for every model profile. The first test subject, MiMo,
+is untied:
 do not select version-2 tied-output semantics or remove its output tensor to save
 space; the ordinary loader can then substitute the input embedding and change
 the function. A selected-label head needs a deliberate loader/graph extension.
@@ -235,8 +270,9 @@ I2_S dispatch, final logits, and a no-sampling decision readout. TL1/TL2 require
 their own format, generated kernels, and shape validation. Do not enable a LUT
 flag and assume an I2_S tensor uses it.
 
-**MiMo target:** keep the Qwen3.5 hybrid graph in a capable llama.cpp/Prism base,
-then port the selected Microsoft BitNet kernel into that graph with explicit
+**Qwen3.5 9B-class target (MiMo first):** keep the validated model's hybrid graph
+in a capable llama.cpp/Prism base, then port the selected Microsoft BitNet kernel
+into that graph with explicit
 group-scale and activation-transform support. This is the initial preferred
 integration direction because it keeps hybrid attention and vision in a runtime
 that already represents them. Re-evaluate against extending BitNet's own fork
@@ -395,10 +431,11 @@ Semantic IDs need not be tokenizer tokens. Map them to fixed labels A-P and
 verify each label extends the exact rendered prompt by one distinct token.
 
 Preserve the state before the changing criterion/options for cacheable workloads.
-Use the pinned model template with thinking disabled and record the exact bytes,
-token IDs, and prompt hash. Assert GGUF/native tokenization matches the reference
-tokenizer, including special-token handling. Reject overlong inputs rather than
-silently truncating important evidence.
+Use the selected model's verified non-thinking template policy and record the
+exact bytes, token IDs, and prompt hash. Do not assume MiMo's thinking switch or
+answer slot applies to another model. Assert GGUF/native tokenization matches
+that model's reference tokenizer, including special-token handling. Reject
+overlong inputs rather than silently truncating important evidence.
 
 Score final requested-position logits, with no generation loop, sampling,
 repetition penalty, top-k, or top-p processing. Apply stable softmax restricted
@@ -463,11 +500,13 @@ artifact for those diagnostics. Input embeddings are not removed.
 
 ## Vision and Device Control
 
-Use the actual processor, image normalization, resizing, patch/merge geometry,
-and multimodal positional inputs. A textual camera description is not image
-inference; image placeholder tokens alone do not compute image embeddings.
+For a model profile with vision support, use its actual processor, image
+normalization, resizing, patch/merge geometry, and multimodal positional inputs.
+A textual camera description is not image inference; image placeholder tokens
+alone do not compute image embeddings.
 Export a projector only through a converter supporting this exact architecture.
 The old LLaVA conversion example in the PDF is not an established MiMo route.
+Text-only model profiles do not acquire vision support from the shared interface.
 
 Keep image resolution/token budgets explicit and benchmark preprocessing, encoder,
 language prefill, and scoring separately. Weight calibration for a vision-enabled
@@ -480,10 +519,13 @@ No networking or camera devices are exposed by the research container by default
 
 ## Open Decisions
 
+- Next model ID/revision and modality; MiMo remains the first measured subject,
+  not a requirement for later deployment.
 - Host CPU, RAM, GPU/VRAM, driver, storage budget, and permitted download budget.
 - First target device and acceptable p95 latency, context size, and power budget.
 - Text-only versus image-enabled first deployment, and number of criteria/state.
-- Minimum decision accuracy and maximum degradation relative to dense MiMo.
+- Minimum decision accuracy and maximum degradation relative to each selected
+   model's dense baseline.
 - Whether selective higher precision and QAT recovery are acceptable if needed.
 - Whether a decision-only head is acceptable or text-generation fallback is required.
 

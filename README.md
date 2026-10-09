@@ -1,21 +1,21 @@
 # Embedded Jev
 
-An experimental on-device decision engine built around
-[`MiMo-V2.6-Distill-Qwen-9B`](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B)
-and a SemIf-style typed decision interface. Given evidence, a question and
-described options, it returns option IDs and conditional scores instead of
-generating an answer.
+An experimental on-device decision engine intended to support multiple
+Qwen3.5 9B-class models through a SemIf-style typed decision interface. Given
+evidence, a question and described options, it returns option IDs and conditional
+scores instead of generating an answer.
 
-The goal is a ternary-quantized MiMo model running through **genuine
-BitNet-derived CPU kernels**. Text comes first; vision and embedded-device
-support follow only after native validation.
+The goal is ternary-quantized models running through **genuine BitNet-derived
+CPU kernels**. [`MiMo-V2.6-Distill-Qwen-9B`](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B)
+is the first test subject, not a permanent model requirement. Text comes first;
+vision and embedded-device support follow only after native validation.
 
 ## Status
 
 The CPU text prototype runs MiMo's text path and scores options without
 generating answer tokens. A single quantized projection has also run inside
 native MiMo through BitNet-derived kernels. This is a research prototype, not
-a ready-to-deploy, fully ternary model.
+a ready-to-deploy, fully ternary model. Other model variants are not yet validated.
 
 Full-model ternary conversion, exact agreement across runtimes, representative
 decision quality and calibrated confidence remain open. Embedded-device

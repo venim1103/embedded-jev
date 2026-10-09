@@ -1,6 +1,6 @@
 # Source Register
 
-Initial audit: 2026-09-25. Updated: 2026-10-08. These primary sources and the
+Initial audit: 2026-09-25. Updated: 2026-10-09. These primary sources and the
 later scoped experiments below support the
 [current handover](handover.md#current-checkpoint-2026-10-08).
 The initial audit inspected source code without executing model weights or
@@ -10,7 +10,15 @@ not a full reproduction of every paper result.
 
 ## Model
 
-Target: `XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B`.
+First test subject: `XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B`.
+
+The broader target is multiple Qwen3.5 9B-class models, not MiMo alone. The
+sources and real-model evidence in this register remain tied to the first
+subject's pinned revision. No successor model/revision has been selected,
+audited or validated by this documentation change. Add separate source/license,
+configuration, tokenizer/template, weight-hash and runtime evidence for each
+new model using the [support gate](roadmap.md#model-scope-and-support-gate);
+family membership does not establish compatibility or transfer measurements.
 
 Observed HF revision: `2367e865d009c13ac81713a2878291d33ab28177`.
 

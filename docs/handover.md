@@ -24,6 +24,24 @@ The user `.vscode/` directory remains untouched. **Automatic implementation is
 paused at the user's request until they explicitly resume it.** Another temporary
 complete-model conversion is not authorized by this documentation request.
 
+**Model-scope clarification, 2026-10-09:** Starting from `c8e1e29`, all project
+docs and plans now target reusable contracts supporting multiple Qwen3.5
+9B-class models. MiMo-V2.6-Distill-Qwen-9B is the first test subject, not a
+permanent requirement; a different model may become the next subject before
+MiMo's full-model work is complete. The roadmap's
+[support gate](roadmap.md#model-scope-and-support-gate) requires per-model
+inventory, tokenization, architecture/runtime validation and artifact/evidence
+binding. Existing MiMo results, source pins, cache paths, `MIMO_*` commands and
+frozen candidate are unchanged; they are not family-wide compatibility evidence.
+Checks passed for eight docs, 138 local links/anchors, balanced fences, 48 Bash
+blocks, unchanged command examples, scope and whitespace. The initial wording
+check falsely rejected the capitalized "First test subject" label; correcting
+the validator's case handling resolved it without changing compatibility criteria.
+Editor diagnostics are clean. No source/native/model gates were rerun.
+No successor model has been selected, downloaded or converted. Implementation
+remains paused until the user resumes it; the broader goal is not authorization
+for another model experiment.
+
 ## Current Checkpoint (2026-10-08)
 
 The last tested implementation commit is `9408f3f` (2026-10-08),
@@ -297,7 +315,8 @@ development guide for flags.
   validation evidence: relative error 0.426 versus RTN 0.406 with one training
   context, and 0.456 with four balanced contexts. No compensated candidate,
   bulk fit, or policy promotion followed.
-- Full MiMo ternary GGUF loading, production registry lifecycle safety,
+- Full-model ternary GGUF loading for MiMo or another model, broader model
+  compatibility, production registry lifecycle safety,
   deployment-grade native services, calibrated decision quality,
   vision, edge performance, and ARM/RISC-V validation remain open.
 
@@ -330,13 +349,19 @@ guide's command, including the two pinned internal-header include paths.
 
 ### Resume Contract
 
+**Currently paused:** the October 9 requests authorize documentation and planning
+only. The broader Qwen3.5 9B-class goal does not resume implementation or authorize
+a model switch, download or conversion. Confirm that the user explicitly resumes
+work, and record the next model/revision if they choose a different subject.
+
 The user authorized routine bounded experiments, the existing full source
 download, quantization scratch space, and periodic **local commits**. Keep only
 one saved quantized candidate, do not push or create branches, preserve user
 changes, and do not launch subagents without explicit authorization. Do not
 bulk-quantize from these diagnostics or consume held-out data while tuning.
-Do not stop solely because representative domain data is absent if bounded
-runtime work can still proceed. Section 16 gives the next implementation task.
+Once resumed, do not stop solely because representative domain data is absent if
+authorized bounded runtime work can still proceed. Section 16 gives the existing
+MiMo implementation context; the roadmap also defines new-model onboarding.
 The registered-tensor step did not fit a policy, create another saved candidate,
 run validation/held-out inference, or promote compensation.
 
@@ -344,7 +369,13 @@ run validation/held-out inference, or promote compensation.
 
 The user wants an **embedded Jev-like decision engine**, built from this chain:
 
-`MiMo-V2.6-Distill-Qwen-9B -> ternary quantization -> BitNet-capable CPU inference -> SemIf-style decisions`
+`Selected Qwen3.5 9B-class model -> ternary quantization -> BitNet-capable CPU inference -> SemIf-style decisions`
+
+MiMo-V2.6-Distill-Qwen-9B was chosen as the first test subject, not as a permanent
+dependency. The user expects the system to become more general and may choose
+another model soon. Neither a successor nor generic profile support is delivered
+by this documentation change. Preserve MiMo-specific evidence and apply the
+model support gate before claiming another checkpoint is compatible.
 
 The original motivation is to use a knowledgeable, agentically fine-tuned model
 on an edge computer, eventually with camera/sensor evidence. Outputs should be
@@ -365,13 +396,14 @@ The user also requested:
 
 BitNet is a real requirement. Do not deliver ordinary llama.cpp inference and
 call the BitNet part complete. Conversely, do not pretend that ternary MiMo is a
-model trained natively with the BitNet b1.58 recipe.
+model trained natively with the BitNet b1.58 recipe; the same distinction applies
+to post-training conversion of another dense checkpoint.
 
 ## 2. Read These Documents
 
 | Document | Why it matters |
 | --- | --- |
-| [README.md](../README.md) | Project entry point, current status, commands, and key corrections |
+| [README.md](../README.md) | Public purpose, capabilities, maturity limits, documentation links and licensing |
 | [docs/research-audit.md](research-audit.md) | Technical audit, equations, actual formats, native API and cache risks, memory accounting |
 | [docs/design.md](design.md) | Proposed artifact contracts, quantizer, genuine BitNet integration, decision semantics, caching, and vision |
 | [docs/roadmap.md](roadmap.md) | Ordered implementation milestones, proposed modules, tests, and benchmark protocol |
@@ -1274,6 +1306,12 @@ tokenization parity, or a trained decision service.
 
 ## 16. Restart Brief
 
+Implementation remains paused after the October 9 documentation requests.
+When the user resumes, determine whether the next slice continues the existing
+MiMo diagnostic or onboards a different Qwen3.5 9B-class subject. Use the
+[model support gate](roadmap.md#model-scope-and-support-gate) for a new subject;
+the controls and artifacts below remain MiMo-specific, not a generic model API.
+
 For a fresh coding session:
 
 1. Read the current checkpoint above and the native projection/PQ2 sections of
@@ -1323,9 +1361,10 @@ For a fresh coding session:
   compensation approximation or save another candidate. No full-model
   conversion, benchmark, speed, or calibrated confidence claim follows.
 5. Validate each edit locally, update these documents, and make periodic local
-  commits. Continue autonomously within the authorized bounded scope; ask
-  only for a genuine blocker or permission to expand scope. Use the terminal
-  for environments, no subagents, no push, and no branch change.
+  commits. Only after the user resumes, continue autonomously within the
+  authorized bounded scope; ask only for a genuine blocker or permission to
+  expand scope. Use the terminal for environments, no subagents, no push, and
+  no branch change.
 
 The default regression command is
 `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider`.

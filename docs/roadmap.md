@@ -10,6 +10,42 @@ read the [current handover](handover.md#current-checkpoint-2026-10-08).
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
 
+## Model Scope and Support Gate
+
+The goal is reusable decision, quantization and runtime contracts, initially
+supporting multiple Qwen3.5 9B-class models. MiMo-V2.6-Distill-Qwen-9B is the
+first test subject, not a permanent model requirement. The real-model results
+below are MiMo-specific; synthetic controls and the native BitNet control are
+separate evidence. Other models are not yet validated.
+
+A different model may become the primary test subject before MiMo's full-model
+ternary work is complete. Keep the MiMo baseline and unresolved discrepancies
+as scoped evidence, not universal limits or a requirement to finish that model
+first. No successor checkpoint has been selected by this plan.
+
+For each new model/revision:
+
+1. Record the selected ID/revision, license, capabilities and resource budget.
+   Obtain separate approval for downloads, conversion and larger experiments.
+2. Reconcile configuration, tensor headers, names/shapes, tied embeddings,
+   recurrent/attention layout and modality. Validate the architecture/converter
+   adapter; do not reuse MiMo's geometry or loosen its current loader policy.
+3. Verify the exact tokenizer/template, non-thinking prompt policy, contextual
+   option-label boundaries and native tokenization for that model.
+4. Establish a dense reference and bounded native prefill with declared precision
+   contracts and numerical acceptance criteria. Check intermediate outputs,
+   state reset/reuse and no-generation typed scoring before claiming support.
+5. Bind any approved candidate and calibration data to that model/revision.
+   Verify exact codes/scales, codec parity and actual BitNet dispatch; do not
+   transplant the retained MiMo projection or silently replace it.
+6. Report the specific supported capability and remaining limits. Repeat the
+   applicable quality, calibration, export and device gates below before making
+   their claims; architecture-family membership does not transfer results.
+
+Planned profiles and adapters are described in the
+[design](design.md#model-profiles-and-portability). Shared arithmetic controls
+remain reusable, but model-specific artifacts and evidence remain distinct.
+
 ## Milestone 0: Research Environment
 
 Status: complete on Linux x86-64 using rootless Podman and Dev Containers CLI.
@@ -29,8 +65,9 @@ before their revisions and intended roles have been selected.
 
 ## Milestone 1: Quantization Feasibility
 
-Status: in progress. The pinned header inventory and byte estimates reconcile;
-the pinned tokenizer and text-only processor agree on prompt IDs and A-P labels.
+Status: in progress for the first test subject, MiMo. The pinned header inventory
+and byte estimates reconcile; the pinned tokenizer and text-only processor agree
+on prompt IDs and A-P labels.
 A single complete BF16 source snapshot was downloaded and SHA-256 verified on
 2026-09-29; its local headers also reconcile, but no full quantized model was kept.
 A synthetic five-case agent/tool fixture verifies option mapping, not model
@@ -83,10 +120,12 @@ readings are time-sensitive; full-model fit, conversion scratch, and
 target-device resource budgets still require a plan.
 
 1. Obtain host and target resource budgets. Inspect metadata and safetensors
-   headers for the pinned MiMo checkpoint without downloading all weight shards.
+   headers for the selected pinned checkpoint without downloading all weight
+   shards.
 2. Write a tensor policy and whole-model byte estimate, including embeddings,
    output, vision, MTP, transform metadata, and retained precision.
-3. Verify MiMo template rendering, true single-token labels, and processor inputs.
+3. Verify that model's template rendering, true single-token labels, and processor
+   inputs.
 4. Freeze a small domain-relevant decision fixture with labels, missing-evidence
    cases, and perturbations, isolated from all tuning datasets.
 5. Load the dense reference in a separately pinned ML environment. Measure direct
@@ -95,8 +134,8 @@ target-device resource budgets still require a plan.
 
 Gate: complete tensor inventory, no missing/mismatched required weights, exact
 tokenization parity, finite reference logits, a defined quality target, and a
-credible host-memory budget. If dense MiMo itself fails the task in non-thinking
-mode, quantify that before attributing failure to quantization.
+credible host-memory budget. If the selected dense model fails the task in
+non-thinking mode, quantify that before attributing failure to quantization.
 
 ## Milestone 2: Ternary Reference
 
@@ -337,7 +376,8 @@ not a registered loadable GGUF tensor or MiMo loader/dispatch parity.
    runtime. Compare every output with the portable reference for both one-token
    and multi-token batches, including activation preparation and rescaling.
 5. Evaluate I2_S-style MAD and TL/T-MAC paths as distinct candidates. Include
-   shapes 4,096 and 12,288 and the actual discovered attention widths.
+   the selected model's inventoried widths; 4,096 and 12,288 are existing MiMo
+   cases, not universal geometry. Inspect attention widths separately.
 6. Record format, architecture-specific packing, SIMD path, fallback counts,
    wall time, and resident bytes. Test misalignment and remainder handling.
 
@@ -364,7 +404,8 @@ PTQ1_0 versus PQ2_0 is a storage/kernel tradeoff, not a new training recipe.
 
 If quality fails after correctness is established, stop rollout and compare
 selective higher precision, reconstruction fine-tuning, and QAT/distillation.
-Changing the target model or dropping BitNet requires an explicit decision.
+Changing the selected model requires a recorded choice and its own support gates,
+not completion of MiMo first. Dropping BitNet remains a separate scope decision.
 
 ## Milestone 5: SemIf Integration
 
@@ -389,8 +430,9 @@ metrics. No claim of reproducing TypeSafe's private Jev model.
 3. Port the missing RISC-V paths only after specifying RVV version, vector length,
    compiler, OS ABI, and instruction availability. Generic ggml RVV support is
    not automatically support for this BitNet-derived format.
-4. Add the actual MiMo vision processor and supported native projector path.
-   Repeat quality and activation calibration with representative images.
+4. For a selected model with vision, add its pinned processor and supported
+   native projector path. Repeat quality and activation calibration with
+   representative images; do not claim vision for a text-only profile.
 5. Evaluate selected-label output-head pruning after full-head parity. Retain
    full-head artifacts for language evaluation and general generation.
 6. Run sustained thermal/power tests and a log-only sensor loop with watchdogs.
@@ -406,6 +448,7 @@ Do not create empty implementations merely to match this table.
 
 | Proposed command/module | Responsibility | Key output |
 | --- | --- | --- |
+| `model-profiles` / `models.qwen35` | Separate model identity/configuration from validated architecture adapters | Pinned profile and model-specific compatibility report |
 | `inspect-model` / `inventory` | Pinned metadata/header inventory and tensor policy | Inventory and byte budget |
 | `prepare-calibration` / `calibration` | Real records, split checks, exact template, bounded token packing | Safe token tensors and provenance |
 | `quantization.rotation` | Matching input/weight transforms and serialization | Transform specification |
@@ -425,6 +468,7 @@ code is justified only where existing tooling does not implement our contract.
 
 | Risk | Required check | Failure response |
 | --- | --- | --- |
+| Wrong model/profile | Source/revision, geometry, tokenizer/template and artifact provenance binding | Reject mismatched or unsupported profile |
 | Changed dense function | Dense vs rotated intermediate and final outputs | Fix transforms before PTQ |
 | Wrong scale or packing | Python/native codec golden vectors and round trips | Block export |
 | Changed graph semantics | Actual full and recurrent block replay | Fix architecture adapter |
@@ -465,7 +509,9 @@ declared numerical differences and report margin-sensitive decision flips.
 
 ## Decisions Needed Before Large Jobs
 
-We still need the quantization host's GPU/VRAM and RAM, the initial device,
-download/storage budget, deployment modality, and acceptable quality/latency
-tradeoffs. The next implementation should inspect and estimate first, then request
-approval for model downloads or compute that exceeds the agreed budget.
+Select the next model/revision and refresh the quantization host's GPU/VRAM and
+RAM, initial device, download/storage budget, deployment modality, and acceptable
+quality/latency tradeoffs. Reuse existing compatible environments and cache inputs;
+do not assume MiMo's measured budget fits another checkpoint. After the user
+resumes implementation, inspect and estimate first, then request approval for
+model downloads, conversions or compute that exceeds the agreed scope.

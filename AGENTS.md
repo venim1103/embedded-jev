@@ -1,6 +1,6 @@
 # Project Agent Workflow
 
-Build an experimental on-device decision engine around MiMo-V2.6-Distill-Qwen-9B, genuine BitNet-derived CPU execution, and typed conditional option scores without generated answer tokens. Preserve independent FP16 output-row/input-group scales; ternary storage alone is not proof of BitNet execution.
+Build an experimental on-device decision engine intended to support multiple Qwen3.5 9B-class models, genuine BitNet-derived CPU execution, and typed conditional option scores without generated answer tokens. MiMo-V2.6-Distill-Qwen-9B is the first test subject, not a permanent model requirement. Preserve independent FP16 output-row/input-group scales; ternary storage alone is not proof of BitNet execution.
 
 ## Start With Context
 
@@ -53,6 +53,7 @@ Prepare the autonomous prerequisites first. Explain the bounded action, expected
 
 ## Safety Boundaries
 
+- Treat each model/revision as a separately validated profile with its own configuration, tokenizer/template, tensor policy, provenance and numerical/quality evidence. Do not apply MiMo-specific geometry, artifacts, token IDs or approvals to another model. Broader Qwen3.5 9B-class support is a goal, not a current compatibility claim.
 - Keep storage-format correctness, actual BitNet dispatch, arithmetic agreement, runtime compatibility and model quality separate. Conditional option scores are not calibrated confidence; synthetic fixtures are not representative decision accuracy.
 - Preserve the frozen candidate's codes, independent row/group scales and declared transforms. Do not silently refit, replace or promote it to hide an unresolved runtime difference.
 - Keep weights, quantized artifacts, raw activations, compiler spill and large reports outside Git. Use disposable scratch for approved diagnostics, retain only small necessary reports, and verify copied evidence before cleanup.
