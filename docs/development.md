@@ -41,6 +41,29 @@ accepted and labelled as MiMo. Never pass another checkpoint to `--local-dir`,
 command can safely inspect or run another model; a new profile's preflight is a
 manual, approved metadata review.
 
+### Offline Model Profile Records
+
+P0.1 is implemented in [model_profile.py](../embedded_jev/model_profile.py).
+The strict bounded v1 JSON record refuses unknown/duplicate fields, unsupported
+source tiers, unsafe paths, invalid geometry and token declarations. Parsed
+records and their nested values are immutable; a canonical record SHA-256 binds
+the declarations independently of JSON formatting. This is provenance parsing,
+not a compatibility or quality claim.
+
+The [MiMo record](../embedded_jev/profiles/mimo.json) contains all 17 previously
+verified files, full shard hash pins plus separate header identities, canonical
+text geometry, packaging/dtype/template policies and pinned native/converter
+contracts. `mimo_profile()` loads it. `verify_profile_headers()` checks an exact
+metadata/shard set, metadata bytes/hashes and shard sizes/header hashes without
+reading payloads. `verify_profile_files()` hashes bounded nonweight files and
+refuses weight shards or files over 32 MiB. Full shard hashing remains an
+onboarding/artifact-creation gate; a header check never authenticates payloads.
+
+These helpers are not yet wired into inventory, tokenization or scoring reports;
+the identity warning above still applies until P0.2. The current default gate is
+187 passed, 39 optional skips. The 24 profile cases are model-free; the additional
+cache check verified all nonweight files and recorded geometry without inference.
+
 ### MiMo Coupling Inventory
 
 Checked on 2026-10-09 against `bc8e616`; derivative effects were added the same

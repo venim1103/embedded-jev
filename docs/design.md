@@ -4,8 +4,8 @@ Status: proposed architecture, first written 2026-09-25; implementation status
 checked 2026-10-08; model-family portability and derivative support tiers
 reviewed 2026-10-09. Bounded ternary quantizers, the streamed BF16 text
 reference, and a frozen BitNet-derived FFN inside real native MiMo now exist.
-Whole-model ternary export, profile-aware model support and deployment services
-remain open.
+Strict profile-record parsing now exists. Whole-model ternary export,
+profile-aware model execution and deployment services remain open.
 The [current handover](handover.md#current-checkpoint-2026-10-08) records the
 tested implementation checkpoint, cache paths, constraints, and next native task.
 The [family review](research-audit.md#qwen35-9b-class-family-review) records the
@@ -46,9 +46,11 @@ equate direct option scoring with the model's generated reasoning capabilities.
 
 ### Model Profiles and Portability
 
-A planned model profile separates checkpoint identity from shared decision,
-quantization and kernel contracts. This is an architecture requirement, not an
-already implemented profile-selection API. For each selected model, bind:
+A model profile separates checkpoint identity from shared decision,
+quantization and kernel contracts. The strict v1 record and bounded identity
+verifiers are implemented; selection and report wiring remain open, as described
+in the [development guide](development.md#offline-model-profile-records).
+For each selected model, bind:
 
 - Source ID/revision, licenses, configuration and weight hashes, discovered
    tensor names/shapes, layer types, tied embeddings, and modality support.
@@ -776,7 +778,8 @@ No networking or camera devices are exposed by the research container by default
   wrapped decoders or depth variants.
 - Policy for templates with in-band controls and for refusal-removed models in
   decision deployments.
-- Where versioned profile records live and who approves a new record.
+- Versioned records now live under [embedded_jev/profiles/](../embedded_jev/profiles/);
+   new record approval and each profile's experiment authorization remain separate.
 - Per-profile numerical acceptance criteria for native-versus-reference agreement,
   decided before a new profile's native comparison rather than after it.
 - Whether text-only exports, adapter bundles or auxiliary decision heads are in

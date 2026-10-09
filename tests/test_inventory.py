@@ -20,6 +20,10 @@ from embedded_jev.inventory import (
     build_inventory,
     parse_safetensors_header,
 )
+from embedded_jev.model_profile import (
+    GEOMETRY_INTS, MAX_PROFILE_BYTES, ProfileError, mimo_profile, parse_model_profile,
+    verify_profile_files, verify_profile_headers,
+)
 from embedded_jev.ternary import quantize_ternary_rtn
 from embedded_jev.ternary_artifact import (
     TernaryArtifactError,
@@ -180,6 +184,179 @@ def _model_fixture():
         ),
     }
     return metadata, {shard: (prefix, shard_bytes)}
+
+
+def _profile_fixture():
+    metadata, headers = _model_fixture()
+    files = {
+        name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        for name, data in {**metadata, "tokenizer.json": b"{}"}.items()
+    }
+    for name, (prefix, size) in headers.items():
+        files[name] = {
+            "bytes": size, "sha256": "a" * 64,
+            "header_bytes": len(prefix), "header_sha256": hashlib.sha256(prefix).hexdigest(),
+        }
+    geometry = dict.fromkeys(GEOMETRY_INTS, 1)
+    geometry.update({
+        "hidden_size": 1024, "intermediate_size": 2048, "vocab_size": 32,
+        "num_attention_heads": 8, "num_key_value_heads": 2, "head_dim": 64,
+        "linear_num_key_heads": 16, "linear_num_value_heads": 32,
+        "linear_key_head_dim": 128, "linear_value_head_dim": 128,
+        "linear_conv_kernel_dim": 4, "layer_types": ["full_attention"],
+        "mamba_ssm_dtype": "float32", "partial_rotary_factor": 0.25,
+        "rms_norm_eps": 1e-6, "tie_word_embeddings": False, "attn_output_gate": True,
+        "rope_parameters": {
+            "mrope_interleaved": True, "mrope_section": [3, 3, 2],
+            "partial_rotary_factor": 0.25, "rope_theta": 10000000, "rope_type": "default",
+        },
+    })
+    return {
+        "schema_version": 1, "profile_id": "synthetic-profile",
+        "source": {
+            "model": "example/Synthetic", "revision": "1" * 40, "license": "MIT",
+            "format": "safetensors", "support_tier": "A",
+        },
+        "files": files,
+        "packaging": {
+            "architecture": "Qwen3_5ForConditionalGeneration", "text_config_path": ["text_config"],
+            "text_prefix": "model.language_model.", "vision_prefix": "model.visual.",
+            "output_head": "lm_head.weight", "shards": list(headers), "metadata_files": list(metadata),
+            "mtp_prefix": "mtp.", "mtp_status": "absent", "mtp_handling": "exclude",
+            "index_total_policy": "exact", "text_tensor_count": 14,
+            "dtype_policy": dict.fromkeys((
+                "input_embedding", "output_head", "language_projection", "sensitive", "vision", "optional_mtp",
+            ), ["BF16"]),
+        },
+        "geometry": geometry,
+        "tokenization": {
+            "template_file": "chat_template.jinja", "gguf_template_file": None,
+            "render_arguments": {"add_generation_prompt": True, "enable_thinking": False},
+            "non_thinking_suffix": "<think></think>", "control_markers": [],
+            "special_token_ids": {"<think>": 20, "</think>": 21},
+            "label_token_ids": {label: number for number, label in enumerate("ABCDEFGHIJKLMNOP")},
+            "prompt_formatter_version": 1,
+        },
+        "runtime": {
+            "architecture_adapter": "qwen35-safetensors-v1", "converter_revision": "2" * 40,
+            "runtime_revision": "2" * 40, "converter_flags": ["--no-nextn"], "native_policy": None,
+        },
+        "quantization": {
+            "group_size": 128, "scale_dtype": "F16", "activation_contract": "group128-dynamic-a8-v1",
+            "eligible_suffixes": ["mlp.down_proj.weight", "mlp.gate_proj.weight", "mlp.up_proj.weight"],
+        },
+        "evidence": [],
+    }
+
+
+def test_profile_record_is_strict_immutable_and_canonically_hashed():
+    record = _profile_fixture()
+    profile = parse_model_profile(json.dumps(record).encode())
+    assert profile.profile_id == "synthetic-profile"
+    assert profile.model == "example/Synthetic" and profile.revision == "1" * 40
+    assert profile.geometry["hidden_size"] == 1024
+    assert profile.geometry["layer_types"] == ("full_attention",)
+    assert profile.sha256 == parse_model_profile(json.dumps(record, sort_keys=True, indent=4).encode()).sha256
+    with pytest.raises(TypeError):
+        profile.geometry["hidden_size"] = 4096
+    with pytest.raises(TypeError):
+        profile.tokenization["render_arguments"]["enable_thinking"] = True
+    with pytest.raises(TypeError):
+        profile.files["config.json"] = profile.files["tokenizer.json"]
+
+
+@pytest.mark.parametrize("section,field,value", [
+    (None, "schema_version", True), (None, "schema_version", 2), (None, "unknown", 1),
+    ("source", "revision", "main"), ("source", "unknown", "value"),
+    ("source", "support_tier", "C"), ("geometry", "hidden_size", True),
+    ("geometry", "rms_norm_eps", float("nan")), ("geometry", "rms_norm_eps", 10**400),
+    ("geometry", "unknown", 1),
+    ("geometry", "layer_types", ["linear_attention"]),
+    ("packaging", "unknown", "value"), ("packaging", "mtp_handling", "include"),
+    ("packaging", "shards", ["../model.safetensors"]),
+    ("tokenization", "render_arguments", {"add_generation_prompt": True, "enable_thinking": True}),
+    ("tokenization", "template_file", []), ("tokenization", "gguf_template_file", {}),
+    ("runtime", "converter_flags", []), ("quantization", "group_size", True),
+])
+def test_profile_record_refuses_invalid_or_unknown_fields(section, field, value):
+    record = _profile_fixture()
+    target = record if section is None else record[section]
+    target[field] = value
+    with pytest.raises(ProfileError):
+        parse_model_profile(json.dumps(record).encode())
+
+
+def test_profile_record_refuses_duplicate_keys_paths_labels_and_oversized_input():
+    for payload in (b'{"schema_version":1,"schema_version":1}', b"x" * (MAX_PROFILE_BYTES + 1), b"[]"):
+        with pytest.raises(ProfileError):
+            parse_model_profile(payload)
+    record = _profile_fixture()
+    record["files"]["../config.json"] = record["files"]["config.json"]
+    with pytest.raises(ProfileError, match="unsafe profile file path"):
+        parse_model_profile(json.dumps(record).encode())
+    record = _profile_fixture()
+    record["tokenization"]["label_token_ids"]["B"] = 0
+    with pytest.raises(ProfileError, match="distinct non-special"):
+        parse_model_profile(json.dumps(record).encode())
+    record = _profile_fixture()
+    record["files"]["config.json"]["extra"] = 1
+    with pytest.raises(ProfileError, match="unknown profile fields"):
+        parse_model_profile(json.dumps(record).encode())
+
+
+def test_profile_header_identity_refuses_another_checkpoint():
+    metadata, headers = _model_fixture()
+    profile = parse_model_profile(json.dumps(_profile_fixture()).encode())
+    verify_profile_headers(profile, metadata, headers)
+    changed = {**metadata, "config.json": metadata["config.json"] + b" "}
+    with pytest.raises(ProfileError, match="metadata identity"):
+        verify_profile_headers(profile, changed, headers)
+    name, (prefix, size) = next(iter(headers.items()))
+    with pytest.raises(ProfileError, match="shard header identity"):
+        verify_profile_headers(profile, metadata, {name: (prefix, size + 1)})
+    with pytest.raises(ProfileError, match="shard header identity"):
+        verify_profile_headers(profile, metadata, {name: (prefix[:-1] + b" ", size)})
+    with pytest.raises(ProfileError, match="metadata file set"):
+        verify_profile_headers(profile, {}, headers)
+    with pytest.raises(ProfileError, match="shard file set"):
+        verify_profile_headers(profile, metadata, {})
+
+
+def test_profile_nonweight_identity_never_hashes_weight_payloads(tmp_path):
+    profile = parse_model_profile(json.dumps(_profile_fixture()).encode())
+    metadata, headers = _model_fixture()
+    for name, data in {**metadata, "tokenizer.json": b"{}"}.items():
+        (tmp_path / name).write_bytes(data)
+    verify_profile_files(profile, tmp_path)
+    with pytest.raises(ProfileError, match="nonweight identity check"):
+        verify_profile_files(profile, tmp_path, headers)
+    (tmp_path / "tokenizer.json").write_bytes(b"[]")
+    with pytest.raises(ProfileError, match="file identity"):
+        verify_profile_files(profile, tmp_path)
+    with pytest.raises(ProfileError, match="not declared"):
+        verify_profile_files(profile, tmp_path, ("other.json",))
+
+
+def test_mimo_profile_preserves_existing_source_and_geometry_pins():
+    profile = mimo_profile()
+    assert profile.model == inventory.MODEL_ID and profile.revision == inventory.MODEL_REVISION
+    assert profile.license == "MIT" and len(profile.files) == 17
+    assert profile.geometry["num_hidden_layers"] == 32
+    assert profile.geometry["hidden_size"] == 4096
+    assert profile.geometry["intermediate_size"] == 12288
+    assert profile.geometry["vocab_size"] == 248320
+    assert profile.packaging["text_tensor_count"] == 427
+    assert profile.runtime["native_policy"] == "mimo-qwen35-layer3-ffn-down-v1"
+    assert tuple(profile.packaging["metadata_files"]) == inventory.REQUIRED_METADATA + inventory.OPTIONAL_METADATA
+    assert profile.tokenization["label_token_ids"] == dict(zip("ABCDEFGHIJKLMNOP", range(32, 48), strict=True))
+    assert tuple(profile.files[name].sha256 for name in profile.packaging["shards"]) == (
+        "aab052180118aee34abc3029b54eaa49096aac606b97d703866b420dceb703c3",
+        "7a0486565f06d25ac4628e9dba470dc3f604353471d240d5a0bf7128f64df396",
+        "6c73207563d1879bfd6c143a028cc70be68edff56280458c71a43df4240300f4",
+        "1379a7cf8c0b8555a39ab65a47e830e0eb45e776b46045734da3afd73c09eea2",
+    )
+    assert sum(profile.files[name].bytes for name in profile.packaging["shards"]) == 18819720848
+    assert sum(profile.files[name].header_bytes for name in profile.packaging["shards"]) == 93360
 
 
 def test_inventory_reconciles_and_estimates_bytes_deterministically():

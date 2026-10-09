@@ -8,11 +8,11 @@ original conversation. Read this first, then follow the links for detail.
 
 **Quick orientation (2026-10-09):**
 
-1. Implementation is paused in this session. The user plans to have another model
-   implement the queue; begin implementation only when the user instructs that
-   session. No further download, conversion or new artifact is authorized.
-2. The last tested implementation commit is `9408f3f`; read the dated paragraphs
-   below, then the [current checkpoint](#current-checkpoint-2026-10-08).
+1. The user resumed autonomous code-only implementation on 2026-10-09 under
+  AGENTS.md. No further download, conversion or new artifact is authorized.
+2. Read the [profile record checkpoint](#profile-record-checkpoint-2026-10-09)
+  below, then the [native checkpoint](#current-checkpoint-2026-10-08), whose
+  last tested implementation commit remains `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
    MiMo as the first test subject and most derivatives as the eventual aim (see
    the [support tiers](design.md#support-tiers-for-derivatives)). Existing tools
@@ -25,12 +25,44 @@ original conversation. Read this first, then follow the links for detail.
    container rebuild with host certificates. Verified files and headers are
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
-5. Suggested order: the code-only P0.1-P0.4 and P3 items of the
+5. P0.1 is implemented; next are the code-only P0.2-P0.4 and P3 items of the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
    fixtures mirroring the verified Defiant Fable packaging; then P2 only with new
    approval. The MiMo layer-0 precision diagnostic also needs new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
+
+## Profile Record Checkpoint (2026-10-09)
+
+The continuation began at user-pushed `affedd4`, with `main` matching
+`origin/main` and only the untracked user `.vscode/` directory present. P0.1 now
+has a bounded strict v1 [parser](../embedded_jev/model_profile.py), immutable
+records and the checked-in [MiMo record](../embedded_jev/profiles/mimo.json).
+It binds all 17 existing verified files, the four complete shard hash pins and
+separate header hashes, canonical text geometry, per-class float dtype policy,
+template arguments/suffix/IDs, converter/runtime revisions and the exact existing
+native model-policy tag. Unsupported tiers, unknown/duplicate fields, unsafe
+paths, invalid numeric types, inconsistent layers and conflicting labels refuse.
+
+The cached MiMo record matches all 13 nonweight files, all four shard sizes and
+headers, and every recorded text-geometry field. Full weight payloads were not
+rehashed; those digests are the existing onboarding pins. The bounded verifier
+explicitly refuses complete weight-shard hashing. No download, inference,
+conversion, environment rebuild or candidate change followed. P0.2 report
+identity enforcement and P0.3/P0.4 adapters are not implemented by this record.
+
+Verification: 24 focused profile cases passed; the default gate passed with
+187 tests and 39 optional skips, Ruff and whitespace clean. Editor diagnostics
+are clean. VS Code test discovery returned no tests, so focused pytest was used.
+The rebuilt container has no `rg`; workspace search with ignored files included
+provided the native tag after the default search omitted it. A guessed policy
+name was corrected from that source evidence, then focused and default checks
+reran for the changed record. No optional native/full-model gate was rerun for
+this schema-only increment. The selected interpreter is `/opt/venv/bin/python`,
+and the existing Prism source still has its pinned `842b1880` revision.
+
+Next: derive report identity from verified profiles, reject unmatched local
+directories, and preserve MiMo's current numerical and artifact contracts.
 
 **The frozen BitNet-derived FFN now runs inside real native 32-layer MiMo,
 with zero generated answer tokens. Whole-model ternary export remains open.**

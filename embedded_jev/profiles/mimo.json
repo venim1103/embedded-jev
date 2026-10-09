@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "profile_id": "mimo-2367e865",
+  "source": {
+    "model": "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B",
+    "revision": "2367e865d009c13ac81713a2878291d33ab28177",
+    "license": "MIT",
+    "format": "safetensors",
+    "support_tier": "A"
+  },
+  "files": {
+    ".gitattributes": {
+      "bytes": 1570,
+      "sha256": "34448b82c17d60fec9b65b1f093c115ddbaadc04beb1b0140b6bfed2e012a930"
+    },
+    "README.md": {
+      "bytes": 3030,
+      "sha256": "09f915ac8116db54ca78586cfdf9ddb14209cba1ca23561a202f38039eac95ca"
+    },
+    "chat_template.jinja": {
+      "bytes": 3916,
+      "sha256": "59a64ebb4df6d1489d09a91267cf3ceb106162d4a893c4f84833cfb8c897ff63"
+    },
+    "config.json": {
+      "bytes": 2784,
+      "sha256": "407c46388b8fa2ae9bf69fe27d40af236d373e86a6b48f5284c86df5cd183633"
+    },
+    "generation_config.json": {
+      "bytes": 126,
+      "sha256": "aaed5b26f1cae55c1ceb58fc483c3cd65ee8d386b61daec3d7a9df82432d9205"
+    },
+    "merges.txt": {
+      "bytes": 3353259,
+      "sha256": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+    },
+    "model-00001-of-00004.safetensors": {
+      "bytes": 5276436216,
+      "sha256": "aab052180118aee34abc3029b54eaa49096aac606b97d703866b420dceb703c3",
+      "header_bytes": 1784,
+      "header_sha256": "b9a4eb7e269fed6f83f046413693444f83581583ef7d10fcdd2123174295340b"
+    },
+    "model-00002-of-00004.safetensors": {
+      "bytes": 5033171280,
+      "sha256": "7a0486565f06d25ac4628e9dba470dc3f604353471d240d5a0bf7128f64df396",
+      "header_bytes": 6480,
+      "header_sha256": "4446e06139df99a4b1456b52cafc72ccac28035d82fe2d6baef695d580a6d6b1"
+    },
+    "model-00003-of-00004.safetensors": {
+      "bytes": 5234499504,
+      "sha256": "6c73207563d1879bfd6c143a028cc70be68edff56280458c71a43df4240300f4",
+      "header_bytes": 8112,
+      "header_sha256": "0bdfb937253ee825744db5e76e3925bd013f0d6af2c3bbfda69d16d4f69afad1"
+    },
+    "model-00004-of-00004.safetensors": {
+      "bytes": 3275613848,
+      "sha256": "1379a7cf8c0b8555a39ab65a47e830e0eb45e776b46045734da3afd73c09eea2",
+      "header_bytes": 76984,
+      "header_sha256": "7d2c7f4b2eaa619eb6b539a018adb78c3daa826a34e68548a2738625c5a0041e"
+    },
+    "model.safetensors.index.json": {
+      "bytes": 69217,
+      "sha256": "4a24d25e902169c0393a2ca58b697c03b27efc40dcddbc2b59c42e5e1e2b1d90"
+    },
+    "preprocessor_config.json": {
+      "bytes": 443,
+      "sha256": "3a159dfec9978a186a72ba085e0ad6a050f3968d8b364218d7bd13f5c89381f2"
+    },
+    "processor_config.json": {
+      "bytes": 1191,
+      "sha256": "d89ef49ce9cd37fbf510158e13c1ef063d9286411c1ec9049932dbe0487143b1"
+    },
+    "tokenizer.json": {
+      "bytes": 19989325,
+      "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+    },
+    "tokenizer_config.json": {
+      "bytes": 1165,
+      "sha256": "792fa3f0cb88b111e54ef3134c873531008c4df471d108da17903426e308aa7b"
+    },
+    "video_preprocessor_config.json": {
+      "bytes": 385,
+      "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+    },
+    "vocab.json": {
+      "bytes": 6722759,
+      "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+    }
+  },
+  "packaging": {
+    "architecture": "Qwen3_5ForConditionalGeneration",
+    "text_config_path": ["text_config"],
+    "text_prefix": "model.language_model.",
+    "vision_prefix": "model.visual.",
+    "output_head": "lm_head.weight",
+    "shards": [
+      "model-00001-of-00004.safetensors",
+      "model-00002-of-00004.safetensors",
+      "model-00003-of-00004.safetensors",
+      "model-00004-of-00004.safetensors"
+    ],
+    "metadata_files": [
+      "config.json", "model.safetensors.index.json", "tokenizer_config.json",
+      "processor_config.json", "preprocessor_config.json", "chat_template.jinja",
+      "video_preprocessor_config.json"
+    ],
+    "mtp_prefix": "mtp.",
+    "mtp_status": "absent",
+    "mtp_handling": "exclude",
+    "index_total_policy": "exact",
+    "text_tensor_count": 427,
+    "dtype_policy": {
+      "input_embedding": ["BF16"],
+      "output_head": ["BF16"],
+      "language_projection": ["BF16"],
+      "sensitive": ["BF16"],
+      "vision": ["BF16"],
+      "optional_mtp": ["BF16"]
+    }
+  },
+  "geometry": {
+    "hidden_size": 4096,
+    "intermediate_size": 12288,
+    "vocab_size": 248320,
+    "num_hidden_layers": 32,
+    "full_attention_interval": 4,
+    "num_attention_heads": 16,
+    "num_key_value_heads": 4,
+    "head_dim": 256,
+    "linear_num_key_heads": 16,
+    "linear_num_value_heads": 32,
+    "linear_key_head_dim": 128,
+    "linear_value_head_dim": 128,
+    "linear_conv_kernel_dim": 4,
+    "layer_types": [
+      "linear_attention", "linear_attention", "linear_attention", "full_attention",
+      "linear_attention", "linear_attention", "linear_attention", "full_attention",
+      "linear_attention", "linear_attention", "linear_attention", "full_attention",
+      "linear_attention", "linear_attention", "linear_attention", "full_attention",
+      "linear_attention", "linear_attention", "linear_attention", "full_attention",
+      "linear_attention", "linear_attention", "linear_attention", "full_attention",
+      "linear_attention", "linear_attention", "linear_attention", "full_attention",
+      "linear_attention", "linear_attention", "linear_attention", "full_attention"
+    ],
+    "mamba_ssm_dtype": "float32",
+    "partial_rotary_factor": 0.25,
+    "rms_norm_eps": 0.000001,
+    "rope_parameters": {
+      "mrope_interleaved": true,
+      "mrope_section": [11, 11, 10],
+      "partial_rotary_factor": 0.25,
+      "rope_theta": 10000000,
+      "rope_type": "default"
+    },
+    "tie_word_embeddings": false,
+    "attn_output_gate": true
+  },
+  "tokenization": {
+    "template_file": "chat_template.jinja",
+    "gguf_template_file": null,
+    "render_arguments": {"add_generation_prompt": true, "enable_thinking": false},
+    "non_thinking_suffix": "<|im_start|>assistant\n<think></think>",
+    "control_markers": [],
+    "special_token_ids": {
+      "<|endoftext|>": 248044,
+      "<|im_start|>": 248045,
+      "<|im_end|>": 248046,
+      "<think>": 248068,
+      "</think>": 248069
+    },
+    "label_token_ids": {
+      "A": 32, "B": 33, "C": 34, "D": 35, "E": 36, "F": 37, "G": 38, "H": 39,
+      "I": 40, "J": 41, "K": 42, "L": 43, "M": 44, "N": 45, "O": 46, "P": 47
+    },
+    "prompt_formatter_version": 1
+  },
+  "runtime": {
+    "architecture_adapter": "qwen35-safetensors-v1",
+    "converter_revision": "842b1880415d6f508f03b789e5ce70194def7bfd",
+    "runtime_revision": "842b1880415d6f508f03b789e5ce70194def7bfd",
+    "converter_flags": ["--no-nextn"],
+    "native_policy": "mimo-qwen35-layer3-ffn-down-v1"
+  },
+  "quantization": {
+    "group_size": 128,
+    "scale_dtype": "F16",
+    "activation_contract": "group128-dynamic-a8-v1",
+    "eligible_suffixes": [
+      "mlp.down_proj.weight", "mlp.gate_proj.weight", "mlp.up_proj.weight",
+      "self_attn.q_proj.weight", "self_attn.k_proj.weight", "self_attn.v_proj.weight",
+      "self_attn.o_proj.weight"
+    ]
+  },
+  "evidence": [
+    "docs/development.md#pinned-bf16-snapshot",
+    "docs/sources.md#model",
+    "docs/handover.md#current-checkpoint-2026-10-08"
+  ]
+}
