@@ -648,8 +648,13 @@ revision and model tags, 427 tensors, `qwen35` 32/4,096/12,288 geometry,
 at most 4,096 output rows, 96 input groups and 128 tokens. Whole-model ternary on
 any 9B-class profile also needs FFN gate/up (12,288 rows) and `q_proj` (8,192
 rows), plus linear-attention `in_proj_qkv` (8,192 rows) if it becomes eligible.
-Do not loosen v1. Add a versioned policy whose geometry and every quantized
-target's exact bytes come from a verified profile and artifact manifest, not
+Do not loosen v1. The P3 owned-projection v2 API now admits declared larger
+projection shapes beside unchanged v1 factories. Its Python adapter binds
+profile-derived geometry/eligibility and exact artifact-manifest payload bytes;
+the native trait binds the declared name/shape and canonical reference bytes.
+This is not automatic loader selection or a complete-model policy. P4 must add
+a versioned model policy whose geometry and every quantized target's exact
+bytes come from a verified profile and artifact manifest, not
 from file tags alone. The P3 resident compaction now keeps one 34-byte block per
 128 weights: original FP16 scale bits plus in-place BitNet code lanes, with
 canonical PQ2 reads reconstructed on demand. The former 34-byte PQ2 copy plus

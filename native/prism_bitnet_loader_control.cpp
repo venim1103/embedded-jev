@@ -162,6 +162,28 @@ static int test_weight_execution(ggml_backend_dev_t device, ggml_backend_buffer_
             return 7;
         }
     }
+    const jev_bitnet_projection_spec_v2 specification {
+        JEV_BITNET_PROJECTION_ABI_V2, "blk.0.ffn_down.weight", rows, groups * 128, blocks.data(), bytes
+    };
+    void* owned_handle = nullptr;
+    if (prism_bitnet_registered_projection_create_v2(&specification, blocks.data(), bytes, 2, &owned_handle) != 0 || !owned_handle) {
+        return 7;
+    }
+    std::vector<float> owned_inputs(2 * groups * 128, 0.375f);
+    std::vector<int8_t> owned_activations(owned_inputs.size());
+    std::vector<float> owned_scales(2 * groups);
+    std::vector<float> owned_expected(2 * rows);
+    std::vector<float> owned_output(2 * rows);
+    const bool owned_ok = bitnet_group_scale_prepare_a8(owned_inputs.data(), 2, groups,
+            owned_activations.data(), owned_scales.data()) == 0 &&
+        bitnet_group_scale_matmul_avx2(packed.data(), scales.data(), owned_activations.data(), owned_scales.data(),
+            2, rows, groups, owned_expected.data()) == 0 &&
+        prism_bitnet_registered_projection_compute(owned_handle, owned_inputs.data(), owned_output.data(), &calls, &repacks) == 0 &&
+        calls == 1 && repacks == 1 && owned_output == owned_expected;
+    prism_bitnet_registered_projection_free(owned_handle);
+    if (!owned_ok) {
+        return 7;
+    }
     std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
     ggml_backend_cpu_set_n_threads(backend.get(), 1);
     if (ggml_backend_dev_supports_op(device, probe)) {

@@ -1040,7 +1040,7 @@ print(json.dumps({"prompt": prompt, "tokens": tokenizer.encode(prompt, add_speci
         2, 5, 3, actual.ctypes.data_as(arguments[-1]), signs.ctypes.data_as(rotated_graph.argtypes[-1]),
     ) == 1
     from embedded_jev.prism_codec import pack_ternary_pq2_0
-    from embedded_jev.ternary import reconstruct_ternary
+    from embedded_jev.ternary import reconstruct_ternary, unpack_group128_codes
 
     registered = native.prism_bitnet_registered_tensor_matmul
     registered.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_float),
@@ -1067,6 +1067,126 @@ print(json.dumps({"prompt": prompt, "tokens": tokenizer.encode(prompt, add_speci
     projection_storage = native.prism_bitnet_registered_projection_storage_bytes_v1
     projection_storage.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
     projection_storage.restype = ctypes.c_int
+
+    from embedded_jev.prism_codec import NativeProjectionSpecification as ProjectionSpecification
+
+    create_v2 = native.prism_bitnet_registered_projection_create_v2
+    create_v2.argtypes = [ctypes.POINTER(ProjectionSpecification), ctypes.POINTER(ctypes.c_uint8),
+                         ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p)]
+    create_v2.restype = ctypes.c_int
+    for rows, name in ((8192, "blk.3.attn_q.weight"), (12288, "blk.1.ffn_gate.weight"), (12288, "blk.2.ffn_up.weight")):
+        large_groups = 32
+        codes = generator.integers(-1, 2, size=(rows, large_groups, 128), dtype=np.int8)
+        fp16_scales = generator.uniform(0.01, 0.2, size=(rows, large_groups)).astype(np.float16)
+        blocks = np.concatenate([pack_ternary_pq2_0(codes[first:first + 4096], fp16_scales[first:first + 4096])
+                                 for first in range(0, rows, 4096)])
+        reference_blocks = blocks.copy()
+        specification = ProjectionSpecification(2, name.encode(), rows, large_groups * 128,
+            reference_blocks.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)), reference_blocks.nbytes)
+        handle = ctypes.c_void_p()
+        assert create_projection(blocks.ctypes.data_as(create_projection.argtypes[0]), 2, rows, large_groups, ctypes.byref(handle)) == 1
+        assert handle.value is None
+        assert create_v2(ctypes.byref(specification), blocks.ctypes.data_as(create_v2.argtypes[1]),
+                         blocks.nbytes, 2, ctypes.byref(handle)) == 0
+        try:
+            values = generator.normal(size=(2, large_groups * 128)).astype(np.float32)
+            prepared, input_scales = quantize_a8_per_group(values)
+            packed = pack_group128_codes(codes)
+            scales = fp16_scales.astype(np.float32)
+            reference_output = np.empty((2, rows), dtype=np.float32)
+            assert direct(packed.ctypes.data_as(arguments[0]), scales.ctypes.data_as(arguments[1]),
+                          prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+                          2, rows, large_groups, reference_output.ctypes.data_as(arguments[-1])) == 0
+            output = np.empty_like(reference_output)
+            calls, repacks = ctypes.c_size_t(), ctypes.c_size_t()
+            assert compute_projection(handle, values.ctypes.data_as(compute_projection.argtypes[1]),
+                                      output.ctypes.data_as(compute_projection.argtypes[2]),
+                                      ctypes.byref(calls), ctypes.byref(repacks)) == 0
+            np.testing.assert_array_equal(output, reference_output)
+            assert calls.value == repacks.value == 1
+            resident_bytes, auxiliary_bytes = ctypes.c_size_t(), ctypes.c_size_t()
+            assert projection_storage(handle, ctypes.byref(resident_bytes), ctypes.byref(auxiliary_bytes)) == 0
+            assert resident_bytes.value == blocks.nbytes and auxiliary_bytes.value == 0
+        finally:
+            free_projection(handle)
+        changed = blocks.copy()
+        changed.flat[-1] ^= 1
+        handle = ctypes.c_void_p(123)
+        assert create_v2(ctypes.byref(specification), changed.ctypes.data_as(create_v2.argtypes[1]),
+                         changed.nbytes, 2, ctypes.byref(handle)) == 6
+        assert handle.value is None
+        specification.tensor_name = b"blk.3.ssm_out.weight"
+        assert create_v2(ctypes.byref(specification), blocks.ctypes.data_as(create_v2.argtypes[1]),
+                         blocks.nbytes, 2, ctypes.byref(handle)) == 6
+        assert handle.value is None
+        specification.tensor_name = name.encode()
+        for field, value in (("abi_version", 1), ("rows", 12289), ("columns", 12288),
+                             ("reference_bytes", blocks.nbytes + 1)):
+            invalid = ProjectionSpecification.from_buffer_copy(specification)
+            setattr(invalid, field, value)
+            handle = ctypes.c_void_p(123)
+            assert create_v2(ctypes.byref(invalid), blocks.ctypes.data_as(create_v2.argtypes[1]),
+                             blocks.nbytes, 2, ctypes.byref(handle)) == 1
+            assert handle.value is None
+        for tokens in (0, 129):
+            handle = ctypes.c_void_p(123)
+            assert create_v2(ctypes.byref(specification), blocks.ctypes.data_as(create_v2.argtypes[1]),
+                             blocks.nbytes, tokens, ctypes.byref(handle)) == 1
+            assert handle.value is None
+
+    import hashlib
+
+    from embedded_jev.inventory import _json_object, build_inventory, read_local_headers
+    from embedded_jev.model_profile import mimo_profile
+    from embedded_jev.prism_codec import create_profile_projection
+
+    snapshot = os.environ.get("MIMO_LOCAL_DIR")
+    artifact = os.environ.get("MIMO_PROJECTION_ARTIFACT")
+    if snapshot and artifact:
+        from embedded_jev.projection_artifact import load_projection_artifact
+
+        profile = mimo_profile()
+        metadata, headers = read_local_headers(Path(snapshot), profile=profile)
+        inventory = build_inventory(metadata, headers, profile=profile)
+        stored_packed, stored_scales, stored_manifest = load_projection_artifact(Path(artifact))
+        source_tensor = next(tensor for tensor in inventory["tensors"] if tensor["name"] == stored_manifest["tensor"])
+        header, _ = headers[source_tensor["shard"]]
+        offsets = _json_object(header[8:], source_tensor["shard"])[source_tensor["name"]]["data_offsets"]
+        source_digest = hashlib.sha256()
+        remaining = source_tensor["storage_bytes"]
+        with (Path(snapshot) / source_tensor["shard"]).open("rb") as source:
+            source.seek(len(header) + offsets[0])
+            while remaining:
+                data = source.read(min(1 << 20, remaining))
+                assert data, "short existing source tensor payload"
+                source_digest.update(data)
+                remaining -= len(data)
+        blocks = pack_ternary_pq2_0(unpack_group128_codes(stored_packed), stored_scales)
+        manifest = {
+            "schema_version": 2, "format": "jev-profile-projection-v2", "profile_id": profile.profile_id,
+            "profile_sha256": profile.sha256, "tensor": stored_manifest["tensor"],
+            "gguf_tensor": "blk.3.ffn_down.weight", "shape": stored_manifest["shape"], "group_size": 128,
+            "transform": "identity", "source_tensor_sha256": source_digest.hexdigest(),
+            "payload_bytes": blocks.nbytes, "payload_sha256": hashlib.sha256(memoryview(blocks)).hexdigest(),
+        }
+        handle, specification = create_profile_projection(native, profile, inventory, manifest, blocks, tokens=2)
+        try:
+            values = generator.normal(size=(2, 12288)).astype(np.float32)
+            prepared, input_scales = quantize_a8_per_group(values)
+            reference_output = np.empty((2, 4096), dtype=np.float32)
+            scales = stored_scales.astype(np.float32)
+            assert direct(stored_packed.ctypes.data_as(arguments[0]), scales.ctypes.data_as(arguments[1]),
+                          prepared.ctypes.data_as(arguments[2]), input_scales.ctypes.data_as(arguments[3]),
+                          2, 4096, 96, reference_output.ctypes.data_as(arguments[-1])) == 0
+            output = np.empty_like(reference_output)
+            calls, repacks = ctypes.c_size_t(), ctypes.c_size_t()
+            assert compute_projection(handle, values.ctypes.data_as(compute_projection.argtypes[1]),
+                                      output.ctypes.data_as(compute_projection.argtypes[2]),
+                                      ctypes.byref(calls), ctypes.byref(repacks)) == 0
+            np.testing.assert_array_equal(output, reference_output)
+            assert specification["profile_id"] == profile.profile_id and calls.value == repacks.value == 1
+        finally:
+            free_projection(handle)
 
     def check_projection_lifetime(blocks, values, reference):
         before = registry_size()

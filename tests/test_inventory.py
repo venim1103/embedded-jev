@@ -24,6 +24,7 @@ from embedded_jev.model_profile import (
     GEOMETRY_INTS, MAX_PROFILE_BYTES, ProfileError, defiant_fable_profile, mimo_profile, parse_model_profile,
     verify_profile_files, verify_profile_headers,
 )
+from embedded_jev.prism_codec import create_profile_projection, pack_ternary_pq2_0, profile_projection_specification
 from embedded_jev.ternary import quantize_ternary_rtn
 from embedded_jev.ternary_artifact import (
     TernaryArtifactError,
@@ -385,6 +386,80 @@ def test_profile_quantization_eligibility_is_explicit_not_inherited():
     assert eligible == ["model.language_model.layers.0.mlp.down_proj.weight"]
     omitted = next(tensor for tensor in report["tensors"] if tensor["name"].endswith("mlp.up_proj.weight"))
     assert omitted["policy_reason"] == "projection_not_declared_by_profile"
+
+
+def _projection_manifest_fixture():
+    metadata, headers, record = _packaging_fixture(text_only=True)
+    profile = parse_model_profile(json.dumps(record).encode())
+    report = build_inventory(metadata, headers, profile=profile)
+    codes = np.zeros((1024, 16, 128), dtype=np.int8)
+    scales = np.zeros((1024, 16), dtype=np.float16)
+    blocks = pack_ternary_pq2_0(codes, scales)
+    manifest = {
+        "schema_version": 2, "format": "jev-profile-projection-v2", "profile_id": profile.profile_id,
+        "profile_sha256": profile.sha256, "tensor": "model.layers.0.mlp.down_proj.weight",
+        "gguf_tensor": "blk.0.ffn_down.weight", "shape": [1024, 2048], "group_size": 128,
+        "transform": "identity", "source_tensor_sha256": "f" * 64,
+        "payload_bytes": blocks.nbytes, "payload_sha256": hashlib.sha256(memoryview(blocks)).hexdigest(),
+    }
+    return profile, report, manifest, blocks
+
+
+def test_profile_projection_manifest_derives_native_geometry_and_payload_identity():
+    profile, report, manifest, blocks = _projection_manifest_fixture()
+    specification = profile_projection_specification(profile, report, manifest, blocks)
+    assert specification["rows"] == 1024 and specification["columns"] == 2048
+    assert specification["tensor_name"] == "blk.0.ffn_down.weight" and specification["abi_version"] == 2
+    assert specification["profile_id"] == profile.profile_id
+    assert specification["source_payload_verification"] == "declared_digest_not_rehashed_source_tensor"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("schema_version", True), ("profile_sha256", "0" * 64), ("shape", [1024, 4096]),
+    ("gguf_tensor", "blk.0.ssm_out.weight"), ("tensor", "model.layers.1.mlp.down_proj.weight"),
+    ("transform", "hadamard"), ("source_tensor_sha256", "unknown"), ("payload_bytes", 1),
+    ("payload_sha256", "0" * 64), ("unknown_field", 1),
+])
+def test_profile_projection_manifest_refuses_unmatched_declarations(field, value):
+    profile, report, manifest, blocks = _projection_manifest_fixture()
+    manifest[field] = value
+    with pytest.raises(ValueError):
+        profile_projection_specification(profile, report, manifest, blocks)
+
+
+def test_profile_projection_manifest_refuses_unbound_inventory_or_changed_payload():
+    profile, report, manifest, blocks = _projection_manifest_fixture()
+    report["source"]["profile_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="unverified profile"):
+        profile_projection_specification(profile, report, manifest, blocks)
+    report["source"]["profile_sha256"] = profile.sha256
+    blocks.flat[-1] ^= 1
+    with pytest.raises(ValueError, match="payload identity"):
+        profile_projection_specification(profile, report, manifest, blocks)
+
+
+def test_profile_projection_native_creation_refuses_before_dispatch():
+    profile, report, manifest, blocks = _projection_manifest_fixture()
+
+    class NeverCalled:
+        def __getattr__(self, name):
+            pytest.fail("invalid projection declaration reached native dispatch")
+
+    for tokens in (0, True, 129):
+        with pytest.raises(ValueError, match="token count"):
+            create_profile_projection(NeverCalled(), profile, report, manifest, blocks, tokens=tokens)
+    manifest["payload_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="payload identity"):
+        create_profile_projection(NeverCalled(), profile, report, manifest, blocks, tokens=2)
+
+
+def test_profile_projection_manifest_geometry_cannot_come_from_altered_report():
+    profile, report, manifest, blocks = _projection_manifest_fixture()
+    tensor = next(tensor for tensor in report["tensors"] if tensor["name"] == manifest["tensor"])
+    tensor["shape"] = (1024, 1024)
+    manifest["shape"] = [1024, 1024]
+    with pytest.raises(ValueError, match="geometry mismatch"):
+        profile_projection_specification(profile, report, manifest, blocks[:, :8].copy())
 
 
 def test_profile_record_is_strict_immutable_and_canonically_hashed():

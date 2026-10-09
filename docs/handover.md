@@ -10,7 +10,7 @@ original conversation. Read this first, then follow the links for detail.
 
 1. The user resumed autonomous code-only implementation on 2026-10-09 under
   AGENTS.md. No further download, conversion or new artifact is authorized.
-2. Read the [resident weight checkpoint](#resident-weight-checkpoint-2026-10-09)
+2. Read the [projection geometry checkpoint](#projection-geometry-checkpoint-2026-10-09)
   below, then the [native checkpoint](#current-checkpoint-2026-10-08), whose
   last tested implementation commit remains `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
@@ -26,13 +26,77 @@ original conversation. Read this first, then follow the links for detail.
    container rebuild with host certificates. Verified files and headers are
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
-5. P0.1-P0.4 and P3 resident compaction are implemented; remaining P3 work is
-  geometry and manifest-gated tensor selection in the
+5. P0.1-P0.4 and bounded P3 owned-projection geometry/manifest/compaction are
+  implemented. P4 complete-model policy remains separate in the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
    fixtures mirroring the verified Defiant Fable packaging; then P2 only with new
    approval. The MiMo layer-0 precision diagnostic also needs new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
+
+## Projection Geometry Checkpoint (2026-10-09)
+
+The P3 resident checkpoint was committed locally as `cedaeec`. The second P3
+increment adds `prism_bitnet_registered_projection_create_v2` beside unchanged
+v1 creation/file/loader/complete-model factories. A typed C specification declares
+ABI 2, exact tensor name, rows/columns and canonical reference PQ2 bytes. Creation
+checks payload length and every byte against that reference, binds the trait to
+the exact name/shape, and retains one compact owned block array. Existing
+compute/free/storage diagnostics are reused. Failed creation clears the handle.
+
+Bounds: 1-128 fixed-shape tokens, rows/columns at most 12,288, group-128 columns,
+and at most 50,331,648 logical weights (the largest current 9B-class projection).
+The name gate admits only bounded `blk.N` FFN gate/up/down and full-attention
+Q/K/V/output names, not recurrent or unknown projections. The new path supports
+8,192 x 4,096 Q and 12,288 x 4,096 FFN gate/up synthetic weights with exact
+direct-kernel parity. V1 still rejects these larger rows. No v1 name, shape,
+file/model count, token bound, policy or numerical tolerance was widened.
+
+The [Python adapter](../embedded_jev/prism_codec.py) validates a strict in-memory
+v2 manifest before native access: exact profile ID/fingerprint and inventory
+identity, independently profile-derived geometry/eligibility/dtype, canonical
+HF-to-GGUF name, identity transform, group size, source-tensor digest declaration,
+exact contiguous payload shape/size/SHA-256 and valid trits/FP16 scales. Codec
+validation uses existing <=4,096-row slices; the old codec's bounds remain intact.
+`create_profile_projection()` creates one native owned handle, not a model loader
+or saved candidate. It explicitly reports the source digest as declared, not
+rehashed by the adapter. A supplied expected byte array is caller provenance,
+not native authentication of a source profile or artifact manifest.
+
+Verification: 14 focused profile-projection tests passed, covering altered
+profile/report geometry, names, transforms, hashes, unknown fields and rejection
+before dispatch. The default gate passed with **234 tests, 39 optional skips**,
+Ruff, whitespace and editor diagnostics clean. After refreshing only our isolated
+runtime wrapper, all **11 selected compiled controls** passed in 32.34 s: larger
+v2 projection/refusal cases, exact frozen v2 adapter and v1 parity, PQ2 decoder,
+owned-module reuse, tagged loader/file refusals, unchanged complete-model exact
+policy and eight synthetic dense/BitNet recurrent/attention prefill combinations.
+
+The transient frozen v2 manifest used the existing artifact and a real SHA-256
+of its 100,663,296 BF16 source-tensor bytes, read from the verified cached snapshot
+in <=1 MiB chunks. It was not saved. No whole shard was rehashed, new fit/codes/
+scales retained, model inference or held-out scoring run. The actual source
+digest does not close the existing model-level numerical discrepancy. Weight
+resident bytes remain 34 per 128 values with zero auxiliary weight arrays.
+
+Failed-check history: the first opt-in frozen v2 bridge exposed a test-local
+`unpack_group128_codes` import below its new use. Moving the import into the
+existing import block repaired it; the same check passed afterward. No retry
+without diagnosis, relaxed assertion or changed runtime policy followed.
+GCC ASan/UBSan/leak early/late runtime controls pass with the added v2 lifecycle,
+mixed v1 graphs, readback and teardown; cached GGML remains uninstrumented.
+The existing deleter-attribute warnings remain. Sanitizer scratch was removed.
+CMake Tools/CTest remain unavailable for this workspace configuration as recorded
+below; no CTest result is claimed. User editor settings and pinned upstream
+source/libraries remain unchanged.
+
+Limits and next step: this completes P3's bounded owned-projection proof, not
+whole-model ternary hosting, a generic discoverable loader buffer, native
+Defiant Fable execution, an accepted numerical tolerance, calibrated quality or
+edge performance. P4 must introduce a separately versioned complete-model
+policy whose targets and exact artifacts are profile-bound; real checks and P2
+download/conversion still require separate approval. No push, branch or subagent
+was introduced; user `.vscode/` and the frozen candidate remain untouched.
 
 ## Resident Weight Checkpoint (2026-10-09)
 

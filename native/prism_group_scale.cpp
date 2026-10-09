@@ -18,6 +18,8 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <regex>
+#include <string>
 #include <vector>
 
 extern "C" int bitnet_group_scale_matmul_avx2(
@@ -132,11 +134,14 @@ struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
     std::size_t repacks = 0;
     int status = 4;
     const uint8_t* resident_blocks = nullptr;
+    std::string tensor_name;
     std::vector<int8_t> activations;
     std::vector<float> activation_scales;
 
-    bitnet_tensor_traits(std::size_t token_count, std::size_t row_count, std::size_t group_count)
+    bitnet_tensor_traits(std::size_t token_count, std::size_t row_count, std::size_t group_count,
+                         const char* expected_name = "")
         : tokens(token_count), rows(row_count), groups(group_count),
+          tensor_name(expected_name),
           activations(tokens * groups * 128), activation_scales(tokens * groups) {}
 
     bool work_size(int n_threads, const ggml_tensor*, std::size_t& size) override {
@@ -223,6 +228,7 @@ struct bitnet_buffer_type final : ggml::cpu::extra_buffer_type {
         return op->op == GGML_OP_MUL_MAT && weight && input &&
             weight->buffer && weight->buffer->buft == &type && weight->extra == &traits &&
             weight->type == GGML_TYPE_PQ2_0 && input->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32 &&
+            (traits.tensor_name.empty() || traits.tensor_name == ggml_get_name(weight)) &&
             weight->ne[0] == static_cast<int64_t>(traits.groups * 128) &&
             weight->ne[1] == static_cast<int64_t>(traits.rows) &&
             input->ne[0] == weight->ne[0] && input->ne[1] == static_cast<int64_t>(traits.tokens) &&
@@ -458,8 +464,8 @@ struct registered_projection {
     ggml_tensor* result = nullptr;
     ggml_cgraph* graph = nullptr;
 
-    registered_projection(std::size_t tokens, std::size_t rows, std::size_t groups)
-        : traits(tokens, rows, groups), buffer_type(traits) {}
+    registered_projection(std::size_t tokens, std::size_t rows, std::size_t groups, const char* tensor_name = "")
+        : traits(tokens, rows, groups, tensor_name), buffer_type(traits) {}
 
     int initialize(const uint8_t* pq2_blocks) {
         const bitnet_registration registration(&buffer_type.type);
@@ -469,6 +475,9 @@ struct registered_projection {
             return 2;
         }
         weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, traits.groups * 128, traits.rows);
+        if (!traits.tensor_name.empty()) {
+            ggml_set_name(weight, traits.tensor_name.c_str());
+        }
         input = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, traits.groups * 128, traits.tokens);
         result = ggml_mul_mat(context.get(), weight, input);
         const std::size_t weight_bytes = traits.rows * traits.groups * 34;
@@ -811,6 +820,45 @@ extern "C" int prism_bitnet_registered_projection_create(
     const std::lock_guard<std::mutex> lock(registration_mutex);
     try {
         auto projection = std::make_unique<registered_projection>(tokens, rows, groups);
+        const int status = projection->initialize(pq2_blocks);
+        if (status == 0) {
+            *handle = projection.release();
+        }
+        return status;
+    } catch (const std::bad_alloc&) {
+        return 2;
+    }
+}
+
+extern "C" int prism_bitnet_registered_projection_create_v2(
+    const jev_bitnet_projection_spec_v2* specification, const uint8_t* pq2_blocks,
+    std::size_t payload_bytes, std::size_t tokens, void** handle) {
+    if (!handle) {
+        return 1;
+    }
+    *handle = nullptr;
+    if (!specification || specification->abi_version != JEV_BITNET_PROJECTION_ABI_V2 ||
+        !specification->tensor_name || !specification->reference_pq2 || !pq2_blocks ||
+        tokens == 0 || tokens > 128 || specification->rows == 0 || specification->rows > 12288 ||
+        specification->columns == 0 || specification->columns > 12288 || specification->columns % 128 != 0 ||
+        specification->rows * specification->columns > 4096 * 12288 ||
+        payload_bytes != specification->rows * (specification->columns / 128) * 34 ||
+        payload_bytes != specification->reference_bytes) {
+        return 1;
+    }
+    try {
+        static const std::regex allowed_name(
+            "blk\\.(0|[1-9][0-9]{0,2})\\.(ffn_gate|ffn_up|ffn_down|attn_q|attn_k|attn_v|attn_output)\\.weight");
+        std::cmatch match;
+        if (std::strlen(specification->tensor_name) >= GGML_MAX_NAME ||
+            !std::regex_match(specification->tensor_name, match, allowed_name) ||
+            std::stoul(match[1].str()) > 255 ||
+            std::memcmp(pq2_blocks, specification->reference_pq2, payload_bytes) != 0) {
+            return 6;
+        }
+        const std::lock_guard<std::mutex> lock(registration_mutex);
+        auto projection = std::make_unique<registered_projection>(tokens, specification->rows,
+            specification->columns / 128, specification->tensor_name);
         const int status = projection->initialize(pq2_blocks);
         if (status == 0) {
             *handle = projection.release();

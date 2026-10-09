@@ -5,11 +5,31 @@
 #include <stdint.h>
 
 #define JEV_BITNET_RUNTIME_ABI_V1 1
+#define JEV_BITNET_PROJECTION_ABI_V2 2
 #define JEV_PRISM_SOURCE_REVISION "842b1880415d6f508f03b789e5ce70194def7bfd"
+
+struct jev_bitnet_projection_spec_v2 {
+    uint32_t abi_version;
+    const char* tensor_name;
+    size_t rows;
+    size_t columns;
+    const uint8_t* reference_pq2;
+    size_t reference_bytes;
+};
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+int prism_bitnet_registered_projection_create_v2(
+    const struct jev_bitnet_projection_spec_v2* specification,
+    const uint8_t* pq2_blocks, size_t payload_bytes, size_t tokens, void** handle);
+
+int prism_bitnet_registered_projection_compute(
+    void* handle, const float* inputs, float* output,
+    size_t* dispatch_calls, size_t* weight_repacks);
+
+void prism_bitnet_registered_projection_free(void* handle);
 
 int prism_bitnet_cpu_runtime_init_v1(
     const char* prism_revision, uint32_t abi_version,

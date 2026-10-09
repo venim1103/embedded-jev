@@ -68,7 +68,7 @@ inputs remain unbound, while unmatched directories are refused. The original
 MiMo Prism-width mapper remains MiMo-only; `profile_prism_expected_widths()`
 requires an inventory bound to the supplied record.
 
-The current default gate is 220 passed, 39 optional skips; 125 focused
+The current default gate is 234 passed, 39 optional skips; 139 focused
 inventory/label/data/evaluation cases pass. Cached MiMo and Defiant Fable metadata, tokenizers and
 legacy captures were verified without full-model inference. Full weight hashes
 and optional native/model gates were not rerun for this Python-only change.
@@ -1193,6 +1193,54 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 \
    --native-ffn-library "$cache/native/prism_group_scale_probe.so" \
    --native-ffn-backend prism_ggml_registered
 ```
+
+### Profile-Gated Owned Projections
+
+P3 adds `prism_bitnet_registered_projection_create_v2` beside unchanged legacy
+factories. [prism_bitnet_runtime.h](../native/prism_bitnet_runtime.h) declares
+`jev_bitnet_projection_spec_v2`: ABI 2, exact GGUF projection name, logical
+rows/columns, expected canonical PQ2 bytes and length. Creation validates
+every payload byte against that reference, clears failed handles and binds
+the trait to the exact name/shape. The caller keeps the reference valid during
+creation; the resulting handle owns copied/repacked weight bytes. Use the
+existing compute/free/storage diagnostics and keep the creating library alive.
+
+V2 caps tokens at 128, rows/columns at 12,288, requires group-128 columns and
+caps total logical weights at 50,331,648. Only `blk.0`-`blk.255` FFN gate/up/down
+and attention Q/K/V/output names are accepted. Unknown/recurrent names and
+reference mismatches return 6, invalid ABI/geometry/length/tokens return 1,
+invalid ternary/scales retain 5 and allocation failure 2. The old v1 APIs still
+reject >4,096 rows and retain all file/model policy refusals. This is an owned
+projection API, not another discoverable loader buffer or complete-model policy.
+
+`profile_projection_specification(profile, inventory, manifest, blocks)` in
+[prism_codec.py](../embedded_jev/prism_codec.py) validates strict manifest fields:
+
+- `schema_version=2`, `format="jev-profile-projection-v2"`.
+- `profile_id`, `profile_sha256`, canonical HF `tensor` and `gguf_tensor`.
+- `shape=[rows, columns]`, `group_size=128`, `transform="identity"`.
+- `source_tensor_sha256`, `payload_bytes`, `payload_sha256`.
+
+The source digest is declared provenance, not automatically rehashed or proof
+of model quality. Geometry/dtype/eligibility must agree with the immutable
+profile and its bound inventory, not just a caller-supplied report shape.
+Contiguous uint8 blocks must have exact `[rows, columns/128, 34]` layout, size
+and SHA-256; existing codec checks validate trits/scales in <=4,096-row slices.
+`create_profile_projection(native, profile, inventory, manifest, blocks,
+tokens=N)` performs those checks before native access and returns the owned
+handle plus declared evidence. Free that handle with the existing native API.
+This adapter writes no artifact and cannot create a full-model loader policy.
+
+Golden controls cover 8,192 x 4,096 Q and 12,288 x 4,096 gate/up matrices,
+exact direct-kernel parity, one repack, resident bytes, all v2 bound refusals and
+continued v1 rejection. Setting existing `MIMO_LOCAL_DIR` and
+`MIMO_PROJECTION_ARTIFACT` additionally takes the unchanged frozen projection
+through this adapter. That test hashes only its existing BF16 source tensor in
+1 MiB chunks, builds a transient manifest and saves no new candidate. The final
+P3 gate passed 11 compiled controls (including v1 policies and tiny native
+prefill), 234 default tests with 39 optional skips, and GCC ASan/UBSan/leak
+checks on our bridge/control. Native model quality and broader loader/runtime
+capabilities remain separate gates.
 
 ### Tagged Single-Tensor GGUF Import
 
