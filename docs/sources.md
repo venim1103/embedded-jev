@@ -14,8 +14,9 @@ First test subject: `XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B`.
 
 The broader target is multiple Qwen3.5 9B-class models, not MiMo alone. The
 sources and real-model evidence in this register remain tied to the first
-subject's pinned revision. No successor model/revision has been selected,
-audited or validated by this documentation change. Add separate source/license,
+subject's pinned revision. No successor model/revision has been selected or
+validated; the base Qwen3.5-9B and other derivatives received only the
+[metadata review](#qwen35-family-observations) below. Add separate source/license,
 configuration, tokenizer/template, weight-hash and runtime evidence for each
 new model using the [support gate](roadmap.md#model-scope-and-support-gate);
 family membership does not establish compatibility or transfer measurements.
@@ -71,6 +72,28 @@ projection can replace the dense matmul via the BitNet-derived grouped kernel.
 These Python-hosted controls are not full-model ternary GGUF loading or
 representative decision quality; commands and recorded results are in the
 development guide and handover.
+
+### Qwen3.5 Family Observations
+
+On 2026-10-09 the family review read only metadata; no shard headers, weights,
+tokenizers or processors of another model were downloaded or executed. Hub
+listings and model cards are moving, self-declared sources.
+
+| Source | What it establishes | Limit |
+| --- | --- | --- |
+| [Base Qwen3.5-9B Hub API](https://huggingface.co/api/models/Qwen/Qwen3.5-9B) | Repository head `c202236235762e1c871ad0ccb60c8ee5ba337b9a` (modified 2026-03-02), Apache-2.0, base model `Qwen/Qwen3.5-9B-Base`, 9,653,100,528 BF16 + 3,840 F32 parameters, file sizes | Server metadata observed at that head; no headers or weights read |
+| [Base configuration](https://huggingface.co/Qwen/Qwen3.5-9B/blob/c202236235762e1c871ad0ccb60c8ee5ba337b9a/config.json) | Same 9B-class text geometry as MiMo, untied embeddings, one configured MTP layer, recorded Transformers 4.57.0.dev0 | Configuration only; Git blob `273ce437e01baf96a07cd9eb3d5f48bac8d7c657` |
+| [Base weight index](https://huggingface.co/Qwen/Qwen3.5-9B/blob/c202236235762e1c871ad0ccb60c8ee5ba337b9a/model.safetensors.index.json) | `model.safetensors-0000N-of-00004` shard names, `mtp.*` tensors, 19,306,216,416 total bytes | Index only; dtype placement of the F32 parameters unverified |
+| [Base tokenizer configuration](https://huggingface.co/Qwen/Qwen3.5-9B/blob/c202236235762e1c871ad0ccb60c8ee5ba337b9a/tokenizer_config.json) and [template](https://huggingface.co/Qwen/Qwen3.5-9B/blob/c202236235762e1c871ad0ccb60c8ee5ba337b9a/chat_template.jinja) | `Qwen2Tokenizer`, special-token IDs, newline turn separators, default open `<think>` and non-thinking `<think>\n\n</think>\n\n` suffix | Template text only (7,756 bytes, Git blob `a585dec894e63da457d9440ec6aa7caa16d20860`); no tokenization or native parity run |
+| [Fine-tune listing](https://huggingface.co/api/models?filter=base_model:finetune:Qwen/Qwen3.5-9B&sort=downloads&direction=-1&limit=25) | Variety of declared derivatives, including text-only exports, adapters and repackaged variants | Tags are self-declared; one listed name suggests a different size |
+| [autotrust/JEV-9B](https://huggingface.co/autotrust/JEV-9B) | Text-only `Qwen3_5ForCausalLM` export, 17,907,614,208 index bytes, LoRA adapters, decision head and calibration files; claims agreement with TypeSafe Jev 1.13 | Unpinned `main`; claims unverified; data provenance and terms not reviewed; not downloaded |
+| Pinned Prism `conversion/qwen.py` | `Qwen3_5TextModel` registered for `Qwen3_5ForConditionalGeneration` and `Qwen3_5ForCausalLM`; MTP remapped unless `--no-nextn` | Source inspection; no conversion of another model |
+
+The MiMo repository head was still `2367e865d009c13ac81713a2878291d33ab28177` on
+2026-10-09. The comparison table and deductions are in the
+[research audit](research-audit.md#qwen35-9b-class-family-review). Pin a selected
+profile's revision and verify every file before use; these observations do not
+establish compatibility.
 
 ## Public Intent Proxy
 
@@ -387,6 +410,21 @@ The repository retains the historical `SemIf-OpenJev` URL.
 | [QuaRot](https://arxiv.org/abs/2404.00456) | Function-preserving rotations for four-bit weight/activation/cache inference; [code](https://github.com/spcl/QuaRot) | Published four-bit retention guarantees equivalent three-level PTQ on MiMo. |
 | [BitNet b1.58](https://arxiv.org/abs/2402.17764) | A ternary model/training recipe with low-bit activations | Merely packing an existing BF16 model reproduces its training and quality. |
 | [T-MAC](https://arxiv.org/abs/2407.00088) | LUT-based mixed-precision CPU matrix multiplication; [implementation](https://github.com/microsoft/T-MAC) | Every format, model, ISA, or prefill workload receives the same speedup. |
+
+## Upstream Status Check
+
+On 2026-10-09 the pinned upstreams were compared with their public heads. This
+records drift only; nothing was fetched into the caches or rebuilt.
+
+| Component | Pin used here | Observed upstream | Action |
+| --- | --- | --- | --- |
+| MiMo model | `2367e865d009c13ac81713a2878291d33ab28177` | Same repository head | None |
+| Microsoft BitNet | `0b341e582afbf9e1011f24744b554c96a3477eb5` | Same `main` head (2026-07-27); July 2026 additions include I2_S guides for BitNet Embedding 0.6B (Qwen3) and 270M (Gemma3) | None; embedding models are not hybrid Qwen3.5 decoders |
+| Prism llama.cpp | `prism-b10735-842b188` | Newer releases [`prism-b10743-adfffbe`](https://github.com/PrismML-Eng/llama.cpp/releases/tag/prism-b10743-adfffbe) (2026-09-25, `adfffbe41b2cabcd51fff326ab045662265062bb`) and [`prism-b10754-2459f68`](https://github.com/PrismML-Eng/llama.cpp/releases/tag/prism-b10754-2459f68) (2026-10-02, `2459f68b5c0eb26261fd5a81682004b93cd645ba`); notes list binaries only | Stay pinned; upgrade only as a scoped task that re-runs every native control and refreshes library hashes |
+| SemIf | `23cf1f39fc9534fe81437200959b6dfc7106e45a` | Same `master` head | None |
+
+The bridge depends on pinned internal C++ CPU-trait and buffer ABIs, so a newer
+Prism release is not a drop-in replacement even if its public API is unchanged.
 
 ## Evidence Rules
 

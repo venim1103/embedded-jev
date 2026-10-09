@@ -5,6 +5,7 @@ Build an experimental on-device decision engine intended to support multiple Qwe
 ## Start With Context
 
 - Read the newest relevant checkpoint in [docs/handover.md](docs/handover.md) before continuing implementation. Use [docs/development.md](docs/development.md) for setup, tools and technical reference, and [docs/design.md](docs/design.md) for architecture and numerical contracts.
+- For multi-model work, read the design's model-profile sections, the development guide's MiMo coupling inventory and the roadmap's generalization work queue before editing code.
 - Check the actual worktree and nearby implementation/tests. Preserve user changes, including editor settings. Verify cached files, pinned source revisions, selected environments and resource budgets rather than assuming they survived a restart.
 - Reuse existing caches and environments; do not duplicate model downloads or source checkouts. After an interrupted tool call with unknown outcome, verify whether it applied before repeating it. Distinguish implemented, tested, staged, integrated and measured work.
 
@@ -54,6 +55,7 @@ Prepare the autonomous prerequisites first. Explain the bounded action, expected
 ## Safety Boundaries
 
 - Treat each model/revision as a separately validated profile with its own configuration, tokenizer/template, tensor policy, provenance and numerical/quality evidence. Do not apply MiMo-specific geometry, artifacts, token IDs or approvals to another model. Broader Qwen3.5 9B-class support is a goal, not a current compatibility claim.
+- Existing MiMo tools take model identity from pinned constants, not from the files they read. Never point them (`--local-dir`, `MIMO_*` variables or the native MiMo policy) at another checkpoint; reports would be refused or mislabelled. Onboard other models only after identity is derived from verified files.
 - Keep storage-format correctness, actual BitNet dispatch, arithmetic agreement, runtime compatibility and model quality separate. Conditional option scores are not calibrated confidence; synthetic fixtures are not representative decision accuracy.
 - Preserve the frozen candidate's codes, independent row/group scales and declared transforms. Do not silently refit, replace or promote it to hide an unresolved runtime difference.
 - Keep weights, quantized artifacts, raw activations, compiler spill and large reports outside Git. Use disposable scratch for approved diagnostics, retain only small necessary reports, and verify copied evidence before cleanup.

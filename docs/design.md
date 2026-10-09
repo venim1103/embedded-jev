@@ -1,11 +1,14 @@
 # Embedded Jev Design
 
 Status: proposed architecture, first written 2026-09-25; implementation status
-checked 2026-10-08. Bounded ternary quantizers, the streamed BF16 text reference,
-and a frozen BitNet-derived FFN inside real native MiMo now exist. Whole-model
-ternary export and deployment services remain open.
+checked 2026-10-08; model-family portability reviewed 2026-10-09. Bounded ternary
+quantizers, the streamed BF16 text reference, and a frozen BitNet-derived FFN
+inside real native MiMo now exist. Whole-model ternary export, profile-aware
+model support and deployment services remain open.
 The [current handover](handover.md#current-checkpoint-2026-10-08) records the
 tested implementation checkpoint, cache paths, constraints, and next native task.
+The [family review](research-audit.md#qwen35-9b-class-family-review) records the
+Qwen3.5 9B-class evidence behind the profile requirements below.
 See [docs/research-audit.md](research-audit.md) for evidence and corrections,
 [docs/roadmap.md](roadmap.md) for delivery gates, and
 [docs/sources.md](sources.md) for inspected upstream revisions.
@@ -56,7 +59,100 @@ Do not infer compatibility from a Qwen3.5 or 9B label alone. Derive geometry fro
 reconciled metadata and reject unsupported profiles rather than relaxing the
 current MiMo-specific loader checks. Do not reuse its frozen projection,
 calibration captures or caches for another checkpoint. See the
-[model support gate](roadmap.md#model-scope-and-support-gate) for onboarding.
+[model support gate](roadmap.md#model-scope-and-support-gate) for onboarding
+and the [coupling inventory](development.md#mimo-coupling-inventory) for every
+current MiMo-specific assumption in code.
+
+#### Qwen3.5 9B-Class Geometry
+
+"9B-class" names a text-decoder geometry, not a repository name, tag or
+`model_type`; for example, a Qwen3.6 27B release also reports `qwen3_5`. A
+checkpoint is a candidate only when its own reconciled configuration and
+safetensors headers show these values. On 2026-10-09 MiMo's configuration and
+headers matched them, as did the base `Qwen/Qwen3.5-9B` configuration; the base
+text-tensor count is deduced from parameter totals, not headers:
+
+| Property | Required value |
+| --- | --- |
+| Decoder layout | 32 layers, `full_attention_interval` 4: 24 Gated DeltaNet and 8 gated full-attention layers |
+| Widths | Hidden 4,096; FFN 12,288; vocabulary 248,320; untied input and output matrices |
+| Full attention | 16 query heads, 4 KV heads, head dimension 256, output gate (`q_proj` has 8,192 rows) |
+| Linear attention | 16 key and 32 value heads of dimension 128, convolution kernel 4, FP32 SSM state |
+| Positions and norms | Partial rotary 0.25, interleaved MRoPE sections [11, 11, 10], theta 10,000,000, RMSNorm epsilon 1e-6 |
+| Text tensors | 427 after excluding vision and MTP tensors |
+
+Matching geometry allows geometry-bound code, synthetic controls and resource
+formulas to be reused after the profile gate. It does not transfer weights,
+tokenizer or template behaviour, dtype layout, packaging, licence, numerical
+evidence, calibration or quality.
+
+#### Packaging Variation Within the Class
+
+Checkpoints with this geometry still differ in ways that current MiMo-pinned code
+either refuses or would mislabel. A profile adapter must handle each axis
+explicitly or fail closed:
+
+| Axis | Observed variants | Profile requirement |
+| --- | --- | --- |
+| Architecture and prefixes | Multimodal `Qwen3_5ForConditionalGeneration` (`model.language_model.*`, `model.visual.*`) or text-only `Qwen3_5ForCausalLM` (`model.*`) | Declared name-prefix rule; text-only profiles claim no vision |
+| Shard names | `model-0000N-of-0000M` (MiMo) or `model.safetensors-0000N-of-0000M` (base) | Accept exactly the names in the pinned index; hash every file |
+| MTP tensors | Absent (MiMo despite its configured MTP layer; a text-only export) or present as `mtp.*` (base, 243,290,624 parameters) | Exclude explicitly with `--no-nextn` and report separately |
+| Small-tensor dtype | All BF16 (MiMo) or 3,840 F32 parameters (base, a text-only export) | Allowed dtype per tensor class; never cast silently |
+| Template | Different turn separators and non-thinking suffixes (below) | Bind template hash, exact suffix, prompt hashes and label IDs |
+| Tokenizer files | Equal vocabulary and merge sizes, different `tokenizer.json` bytes | Hash files and re-verify HF and native token IDs |
+| Licence | MIT, Apache-2.0 or custom terms (one listing declares `apple-amlr`) | Record terms and carry notices into derived artifacts |
+| Extra assets | LoRA adapters, auxiliary decision heads, calibration files | Out of scope until their semantics are designed and validated |
+| Weight format | FP8, GGUF or other repackaged releases | Refuse as PTQ sources; require original floating-point safetensors |
+
+The same single-message decision request ends differently in the two inspected
+templates, so prompt bytes, token counts, hashes and activations differ:
+
+```text
+MiMo:  ...<|im_end|><|im_start|>assistant\n<think></think>
+Base:  ...<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n
+```
+
+#### Profile Record and Identity Binding
+
+A profile record is small, versioned, non-secret metadata; weights, captures and
+quantized artifacts stay outside Git. It should contain at least:
+
+- **Identity:** profile ID and schema version, repository/revision, licence, and
+   size plus Git blob ID or SHA-256 for every file used, including each shard.
+- **Packaging:** architecture class, tensor-name prefix rule, shard list, MTP and
+   vision handling, expected text-tensor count and allowed dtype per tensor class.
+- **Geometry:** the class values above, read from configuration and confirmed
+   against headers rather than copied from another profile.
+- **Tokenization:** tokenizer, configuration and template hashes, special-token
+   IDs, rendered non-thinking suffix, decision prompt formatter version and
+   context-verified A-P label IDs.
+- **Runtime:** pinned converter/runtime revisions, converter flags, expected GGUF
+   metadata and tensor geometry, and the native policy version that accepts it.
+- **Quantization and evidence:** eligible tensor names, codec/transform/A8
+   contracts, artifact manifests bound by source tensor payload SHA-256, and links
+   to the gates that passed for this profile.
+
+Identity must be derived, never assumed. Current MiMo tools take the model ID and
+revision from constants and attach them to inventories, label probes, streamed
+reports, calibration captures and evaluations regardless of the directory read.
+A profile-aware path must verify local files against one profile record before
+emitting any report or artifact, refuse directories that match no record, and
+keep MiMo's existing results bound to MiMo. Per-run checks can stay cheap:
+metadata-file hashes, shard sizes and safetensors header hashes. Full shard
+SHA-256 belongs to onboarding and to artifact creation, as the frozen candidate
+already requires; header hashes alone do not authenticate payload bytes. Reuse a
+derived result across profiles only when the source tensor payload hashes are
+identical.
+
+#### Shared Versus Per-Profile Contracts
+
+| Shared once a profile passes its gate | Always per profile |
+| --- | --- |
+| Group-128 BitNet-derived kernel arithmetic, PQ2 codec and repack, A8 rules | Source files, hashes, licence and packaging rules |
+| Transform algebra and Prism v1 metadata constraints | Template, non-thinking suffix, prompt hashes and label IDs |
+| Decision request/response schema and conditional softmax | Converter flags, GGUF geometry and native model policy |
+| Dataset schema, split and leakage rules (not captures) | Calibration captures, quantization policy and frozen candidates |
+| Bounded trace comparator and resource formulas | Dense baseline, precision gaps, quality, calibration and resources |
 
 ## Definition of BitNet Capability
 
@@ -240,7 +336,7 @@ converter support, write GGUF, or validate a loader.
 | Quantization | Algorithm/version, seeds, module policy, group axis/size, dtype, damping, traversal |
 | Transforms | Per-tensor mapping, normalization, sign/permutation data, order, remainder handling |
 | Calibration | Dataset revisions, sample manifest hash, split roles, token budgets |
-| Payload | Logical shapes, code/scale hashes, retained tensor names, exact byte counts |
+| Payload | Logical shapes, code/scale hashes, source tensor payload SHA-256, retained tensor names, exact byte counts |
 | Runtime | Repository/commit/submodules, format/version, ISA, compiler/build flags, activation and accumulator policy |
 | Validation | Codec parity results, model-quality report, hardware benchmark reference |
 
@@ -390,6 +486,22 @@ execution layout. Report resident packed bytes and scratch separately: expanding
 trits to two bits at load time changes RAM and bandwidth, even without FP16
 expansion. A compact file is not proof of compact execution.
 
+**Profile generalization limits.** The native policy and trait are deliberately
+MiMo- and one-projection-specific. The v1 complete-model factory requires MiMo's
+revision and model tags, 427 tensors, `qwen35` 32/4,096/12,288 geometry,
+248,320-row BF16 vocabularies, at most 19 GiB and the single
+`blk.3.ffn_down.weight` target. The BitNet trait accepts only that tensor name,
+at most 4,096 output rows, 96 input groups and 128 tokens. Whole-model ternary on
+any 9B-class profile also needs FFN gate/up (12,288 rows) and `q_proj` (8,192
+rows), plus linear-attention `in_proj_qkv` (8,192 rows) if it becomes eligible.
+Do not loosen v1. Add a versioned policy whose geometry and every quantized
+target's exact bytes come from a verified profile and artifact manifest, not
+from file tags alone. The current trait also retains the PQ2 block (34 bytes),
+repacked BitNet lanes (32 bytes) and an expanded FP32 scale (4 bytes) for every
+128 weights: about 4.4 bpw resident versus 2.125 bpw on disk. For MiMo's
+5,301,600,256 eligible parameters that is roughly 2.90 GB versus 1.41 GB, before
+A8 scratch; remove the duplication before quoting edge memory budgets.
+
 ### Numerical Order
 
 The first optimized candidate uses:
@@ -433,7 +545,10 @@ verify each label extends the exact rendered prompt by one distinct token.
 Preserve the state before the changing criterion/options for cacheable workloads.
 Use the selected model's verified non-thinking template policy and record the
 exact bytes, token IDs, and prompt hash. Do not assume MiMo's thinking switch or
-answer slot applies to another model. Assert GGUF/native tokenization matches
+answer slot applies to another model; the inspected base Qwen3.5 template already
+renders different separators and suffixes (see
+[packaging variation](#packaging-variation-within-the-class)). Assert
+GGUF/native tokenization matches
 that model's reference tokenizer, including special-token handling. Reject
 overlong inputs rather than silently truncating important evidence.
 
@@ -520,7 +635,13 @@ No networking or camera devices are exposed by the research container by default
 ## Open Decisions
 
 - Next model ID/revision and modality; MiMo remains the first measured subject,
-  not a requirement for later deployment.
+  not a requirement for later deployment. The family review recommends an early
+  packaging-different second profile, but none is selected.
+- Where versioned profile records live and who approves a new record.
+- Per-profile numerical acceptance criteria for native-versus-reference agreement,
+  decided before a new profile's native comparison rather than after it.
+- Whether text-only exports, adapter bundles or auxiliary decision heads are in
+  scope, and the licence policy for redistributing derived ternary artifacts.
 - Host CPU, RAM, GPU/VRAM, driver, storage budget, and permitted download budget.
 - First target device and acceptable p95 latency, context size, and power budget.
 - Text-only versus image-enabled first deployment, and number of criteria/state.

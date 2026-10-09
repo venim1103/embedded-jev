@@ -6,6 +6,22 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Quick orientation (2026-10-09):**
+
+1. Implementation is paused until the user explicitly resumes it. Documentation
+   and planning are allowed; no download, conversion or new artifact is authorized.
+2. The last tested implementation commit is `9408f3f`; read the dated paragraphs
+   below, then the [current checkpoint](#current-checkpoint-2026-10-08).
+3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
+   MiMo as the first test subject. Existing tools are MiMo-pinned and label output
+   with MiMo's identity whatever directory they read; never point them at another
+   checkpoint (see the [coupling inventory](development.md#mimo-coupling-inventory)).
+4. When resumed, ask whether to continue the MiMo layer-0 precision diagnostic
+   (needs a new temporary-model approval) or begin the code-only P0 items of the
+   [generalization queue](roadmap.md#generalization-work-queue).
+5. Keep the sole frozen candidate and untouched held-out data; no push, branch
+   change or subagents.
+
 **The frozen BitNet-derived FFN now runs inside real native 32-layer MiMo,
 with zero generated answer tokens. Whole-model ternary export remains open.**
 The current checkpoint below supersedes the bootstrap-era status statements.
@@ -41,6 +57,43 @@ Editor diagnostics are clean. No source/native/model gates were rerun.
 No successor model has been selected, downloaded or converted. Implementation
 remains paused until the user resumes it; the broader goal is not authorization
 for another model experiment.
+
+**Family design review, 2026-10-09:** Starting from user-pushed `bc8e616` (local
+`main` matched `origin/main`), the user requested a deep review of the plan to
+support Qwen3.5 9B-class models generally. Research was metadata-only: base
+`Qwen/Qwen3.5-9B` Hub metadata, configuration, index, tokenizer configuration and
+template at `c202236235762e1c871ad0ccb60c8ee5ba337b9a`; the fine-tune listing and
+one text-only derivative's index; upstream heads; local MiMo metadata/headers; and
+the pinned Prism converter source. No other model's weights, tokenizer or processor
+were downloaded, and no code, tests, caches, candidate or user `.vscode/` changed.
+Findings:
+
+- MiMo and the base share the 9B-class geometry but differ in shard names,
+  `mtp.*` tensors, 3,840 F32 parameters, template separators and non-thinking
+  suffix, `tokenizer.json` bytes and licence; text-only exports also change the
+  architecture and tensor prefix. See the
+  [family review](research-audit.md#qwen35-9b-class-family-review).
+- Current code derives model identity from constants. Other packagings are refused
+  only incidentally, while a MiMo-packaged checkpoint would be mislabelled as MiMo.
+  This is the first generalization item, documented with every other coupling in
+  the [development guide](development.md#mimo-coupling-inventory).
+- Native trait bounds and the v1 policy cover only the layer-3 down projection.
+  FFN gate/up and `q_proj` need 12,288/8,192 rows, and resident storage keeps PQ2
+  blocks, repacked lanes and FP32 scales (about 4.4 bpw versus 2.125 on disk).
+- Microsoft BitNet, SemIf and MiMo heads still equal our pins; Prism published two
+  newer releases, not adopted. A third-party Jev-style Qwen3.5-9B release with
+  adapters and a decision head exists; its claims are unverified.
+
+Documentation now defines the 9B-class geometry, packaging axes, profile record,
+identity rule and shared/per-profile split in the
+[design](design.md#model-profiles-and-portability), an ordered
+[work queue](roadmap.md#generalization-work-queue), source observations and an
+[upstream check](sources.md#upstream-status-check), plus an agent safety rule.
+The README is unchanged. Implementation remains paused; recommending the base
+model as an early second profile does not select or authorize it. Checks passed
+for eight docs: 181 local links/anchors, balanced fences, consistent columns in
+33 tables, editor diagnostics and `git diff --check`. No source, native or model
+gates were rerun because no code changed.
 
 ## Current Checkpoint (2026-10-08)
 
@@ -403,6 +456,7 @@ to post-training conversion of another dense checkpoint.
 
 | Document | Why it matters |
 | --- | --- |
+| [AGENTS.md](../AGENTS.md) | Stable agent workflow, verification, approval and safety rules |
 | [README.md](../README.md) | Public purpose, capabilities, maturity limits, documentation links and licensing |
 | [docs/research-audit.md](research-audit.md) | Technical audit, equations, actual formats, native API and cache risks, memory accounting |
 | [docs/design.md](design.md) | Proposed artifact contracts, quantizer, genuine BitNet integration, decision semantics, caching, and vision |
@@ -437,6 +491,11 @@ Delivered files:
 | [tests/test_label_probe.py](../tests/test_label_probe.py) | Offline tokenizer, processor, and fixture contract cases |
 | [tests/fixtures/agent_tool_smoke.json](../tests/fixtures/agent_tool_smoke.json) | Five synthetic option-mapping cases, never calibration or benchmark data |
 | [.gitignore](../.gitignore) | Existing PDF exclusion preserved; generated Python bytecode caches ignored |
+
+This table records the bootstrap delivery only. Later modules and native sources
+are described in the development guide; its
+[coupling inventory](development.md#mimo-coupling-inventory) maps the current
+files and their MiMo-specific assumptions.
 
 The documentation above is also delivered. The existing [LICENSE](../LICENSE)
 was not modified. Third-party model, data, and code licenses remain separate.
@@ -1311,6 +1370,9 @@ When the user resumes, determine whether the next slice continues the existing
 MiMo diagnostic or onboards a different Qwen3.5 9B-class subject. Use the
 [model support gate](roadmap.md#model-scope-and-support-gate) for a new subject;
 the controls and artifacts below remain MiMo-specific, not a generic model API.
+Generalization starts with the code-only P0 items of the
+[work queue](roadmap.md#generalization-work-queue), which need no download; read
+the [coupling inventory](development.md#mimo-coupling-inventory) first.
 
 For a fresh coding session:
 

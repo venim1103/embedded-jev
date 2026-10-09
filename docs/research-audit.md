@@ -4,6 +4,8 @@ Reviewed on 2026-09-25. The supplied 72-page conversation is a statement of
 intent, not a working implementation or reliable benchmark. This audit separates
 source-backed facts, mathematical deductions, and hypotheses requiring experiments.
 No MiMo weights were downloaded or quantized during that initial audit.
+A metadata-only [Qwen3.5 9B-class family review](#qwen35-9b-class-family-review)
+followed on 2026-10-09.
 Subsequent source downloads, streamed text inference, and bounded native
 integration controls are recorded in the
 [current handover](handover.md#current-checkpoint-2026-10-08). This document's
@@ -33,7 +35,8 @@ checkpoints and derivatives through separately validated model profiles. This
 scope clarification does not establish their compatibility or transfer MiMo's
 geometry, tokenizer behavior, quantization sensitivity, budgets or quality.
 The [model support gate](roadmap.md#model-scope-and-support-gate) applies to
-each new subject; no successor model was inspected for this documentation update.
+each new subject. The [family review](#qwen35-9b-class-family-review) inspected
+metadata for the base Qwen3.5-9B and other derivatives, but selected no successor.
 
 The most important missing work is a **group-scaled ternary kernel integration**
 for Qwen3.5, not another Python wrapper around a stock BitNet installation.
@@ -85,7 +88,9 @@ schema validity; it must not be interpreted as zero factual or judgment errors.
 
 The facts and numerical accounting in this audit are scoped to the pinned MiMo
 revision below, not a specification for every Qwen3.5 9B-class model. Recheck
-configuration, headers, licenses and runtime behavior for each selected model.
+configuration, headers, licenses and runtime behavior for each selected model;
+the [family review](#qwen35-9b-class-family-review) shows packaging differences
+even where geometry matches.
 
 The [MiMo model card](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B/blob/2367e865d009c13ac81713a2878291d33ab28177/README.md)
 identifies this checkpoint as an SFT of Qwen3.5-9B, including agentic and visual
@@ -116,6 +121,83 @@ totaling 18,819,627,488 tensor bytes.
 The config declares one optional MTP layer, but the pinned index/headers contain
 no MTP tensors. This is a storage inventory, not a model-quality or runtime
 measurement. The [docs/sources.md](sources.md) register records the evidence boundary.
+
+## Qwen3.5 9B-Class Family Review
+
+Reviewed on 2026-10-09 without downloading weights. Evidence: local MiMo metadata
+and headers; the base `Qwen/Qwen3.5-9B` Hub metadata, configuration, weight index,
+tokenizer configuration and template at revision
+`c202236235762e1c871ad0ccb60c8ee5ba337b9a`; one text-only derivative's Hub
+metadata and index on moving `main`; and the pinned Prism converter source.
+"Deduced" items below are arithmetic consistency checks, not header or payload
+verification. Sources and limits are in the [register](sources.md#qwen35-family-observations).
+
+| Property | MiMo `2367e865` (pinned, local) | Base `c2022362` (pinned metadata) | Text-only derivative (`main`) |
+| --- | --- | --- | --- |
+| Architecture | `Qwen3_5ForConditionalGeneration` | Same | `Qwen3_5ForCausalLM` (`qwen3_5_text`) |
+| Declared licence | MIT | Apache-2.0 | Apache-2.0 |
+| Text geometry | 9B-class values verified from headers | Same configuration values | Totals consistent; configuration not inspected |
+| Hub parameters | 9,409,813,744 BF16 | 9,653,100,528 BF16 + 3,840 F32 | 8,953,799,424 BF16 + 3,840 F32 |
+| Index total bytes | 18,819,627,488 | 19,306,216,416 | 17,907,614,208 |
+| Shard names | `model-0000N-of-00004` | `model.safetensors-0000N-of-00004` | `model-0000N-of-00005` |
+| Text tensor prefix | `model.language_model.` | `model.language_model.` | `model.` |
+| Vision | 912,020,960 bytes | Present | Absent |
+| MTP | Configured, no tensors | `mtp.*` tensors | Absent |
+| Non-thinking suffix | `<think></think>` | `<think>\n\n</think>\n\n` | Base-style template observed |
+| `tokenizer.json` bytes | 19,989,325 | 12,807,982 | Not inspected |
+
+Deduced consistency checks:
+
+- Base minus MiMo is 243,290,624 parameters, exactly one MTP block: fusion
+  projection 33,554,432; gated attention 58,720,256 plus Q/K norms 512; MLP
+  150,994,944; five 4,096-wide norms 20,480. The language and vision tensors
+  therefore have MiMo's parameter count.
+- The text-only total equals MiMo minus its 456,010,480 vision parameters. Its
+  bytes equal MiMo's 17,907,606,528 text bytes plus 7,680 bytes for 3,840
+  parameters stored as F32, consistent with the same 427 text tensors.
+- 3,840 = 24 x 32 + 24 x 128 fits one per-head vector plus the 128-wide gated
+  norm in each linear-attention layer kept in F32; header inspection must confirm
+  which tensors these are. MiMo stores every tensor in BF16.
+- Base `vocab.json` and `merges.txt` match MiMo's byte sizes and their displayed
+  Git blob IDs appear identical; `tokenizer.json` differs. The base tokenizer
+  configuration lists `<|im_start|>`/`<|im_end|>` as 248045/248046 and non-special
+  `<think>`/`</think>` as 248068/248069. Equal A-P label IDs are plausible but
+  unverified.
+
+Consequences:
+
+1. Geometry-bound work can be reused after each profile's gate: kernel shapes,
+   eligible-tensor lists, header budgets after MTP/dtype corrections, and the
+   converter class. The pinned Prism
+   converter registers `Qwen3_5TextModel` for both architectures and uses
+   `Qwen/Qwen3.5-9B` as its example. It remaps `mtp.*` to next-token layers unless
+   `--no-nextn` is set, and adds configured MTP layers to `block_count` even when
+   tensors are absent, so `--no-nextn` remains mandatory for MiMo.
+2. Current MiMo-pinned code refuses the base checkpoint (shard names, template
+   suffix, F32 tensors) and text-only exports (architecture, prefixes, processor
+   files). It would mislabel any other accepted directory as MiMo because identity
+   comes from constants; see the [coupling inventory](development.md#mimo-coupling-inventory).
+3. Prompt bytes, hashes, token counts, activations and calibration captures are
+   template-specific. Label IDs and the non-thinking prefix must be re-verified.
+4. Even a base and its SFT differ in stored precision (3,840 F32 parameters
+   versus all BF16); precision and quality evidence never transfers by family
+   membership.
+5. The Hub fine-tune listing of the base model contains multimodal SFTs, text-only
+   exports, adapter bundles, quantized or encoder repackaging, and at least one
+   entry whose name suggests a different size. Tags and names are not evidence.
+6. One text-only release, `autotrust/JEV-9B`, advertises Jev-style Choice, Score
+   and Noul decisions distilled from TypeSafe Jev 1.13 through LoRA adapters and a
+   separate decision head, with self-reported, unverified agreement and calibration
+   metrics. It was not downloaded or evaluated, and its training-data provenance
+   and terms were not reviewed. It is design context for auxiliary decision heads,
+   not evidence for this project's approach or a recovered Jev architecture.
+
+Recommendation, pending the user's choice: onboard a second profile before more
+MiMo-only native work so hidden assumptions surface early. The base
+`Qwen/Qwen3.5-9B` exercises the most packaging axes with identical geometry and is
+the converter's own example; a deployment-motivated derivative may still be
+preferred. Begin with the profile identity work in the
+[roadmap queue](roadmap.md#generalization-work-queue), which needs no download.
 
 ## Corrections to the Conversation
 

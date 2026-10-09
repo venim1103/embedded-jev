@@ -15,7 +15,8 @@ The commands, `MIMO_*` environment variables, cached snapshot, fixed tensor
 paths, token IDs, frozen projection and complete-model policy below describe
 the existing MiMo controls. Keep these working examples and names unchanged;
 do not rename them in documentation as if a generic CLI already exists.
-Current metadata/geometry and source guards must still refuse other profiles.
+Keep the current metadata, geometry and source guards; they refuse many, but not
+all, other packagings (see the identity warning below).
 
 Once implementation is resumed, onboard a different checkpoint through the
 [model support gate](roadmap.md#model-scope-and-support-gate) and planned
@@ -25,6 +26,48 @@ source-bound artifacts. Reuse compatible tools/environments after checking
 their versions; model identity, calibration captures and results do not transfer.
 Another download, conversion, fitted candidate or quality experiment still
 requires the corresponding explicit approval.
+
+**Identity warning.** The existing tools do not verify that a directory is the
+pinned MiMo snapshot: `MODEL_ID` and `MODEL_REVISION` are constants attached to
+every inventory, label-probe, streamed, capture and evaluation report. Other
+packagings are refused only incidentally (shard names, prefixes, template suffix,
+dtype or architecture checks); a checkpoint packaged exactly like MiMo would be
+accepted and labelled as MiMo. Never pass another checkpoint to `--local-dir`,
+`MIMO_LOCAL_DIR` or the native MiMo policy. Until the roadmap's
+[P0 identity work](roadmap.md#generalization-work-queue) lands, no repository
+command can safely inspect or run another model; a new profile's preflight is a
+manual, approved metadata review.
+
+### MiMo Coupling Inventory
+
+Checked on 2026-10-09 against `bc8e616`. "Effect" describes another 9B-class
+checkpoint passed to the current code; the last column names the profile field or
+[work item](roadmap.md#generalization-work-queue) that replaces the assumption.
+
+| Location | MiMo-specific assumption | Effect on another checkpoint | Replacement |
+| --- | --- | --- | --- |
+| [inventory.py](../embedded_jev/inventory.py) `MODEL_ID`, `MODEL_REVISION`, `MODEL_URL` | Identity constants; remote fetch only for MiMo | Reports from any accepted `--local-dir` claim MiMo's identity | Identity verified from files (P0.2) |
+| inventory.py `_model_config`, `REQUIRED_METADATA` | `Qwen3_5ForConditionalGeneration`, untied embeddings, processor files and classes | Text-only `Qwen3_5ForCausalLM` exports refused | Architecture class and modality (P0.3) |
+| inventory.py `SHARD_NAME` | `model-NNNNN-of-NNNNN.safetensors` | Base Qwen3.5-9B `model.safetensors-*` shards refused | Shard names from the pinned index (P0.3) |
+| inventory.py `LAYER_NAME`, `_classify`, `_required_weights` | `model.language_model.` prefix, MiMo vision names, `lm_head.weight` | Text-only `model.*` names refused | Prefix rule (P0.3) |
+| [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | MiMo's `<think></think>` suffix, MiMo identity in reports, MiMo-only `--fetch` | Base template refused; other accepted tokenizers labelled MiMo | Profile template suffix and identity (P0.2, P0.3) |
+| [dense_probe.py](../embedded_jev/dense_probe.py) `plan_text_prefix`, `plan_streamed_text` | Prefixed names; every text tensor BF16 | Profiles with F32 small tensors refused | Per-class dtype policy (P0.3) |
+| [streamed_text.py](../embedded_jev/streamed_text.py) | Layer-3 FFN-down substitution and capture, 4,096 x 12,288 shapes, untied `lm_head.weight` reader, 32 layers for full-vocabulary mass, seed-773 signs | Checkpoints packaged like MiMo run but inherit MiMo labels | Profile target list and head reader |
+| [projection_artifact.py](../embedded_jev/projection_artifact.py), [evaluation.py](../embedded_jev/evaluation.py) | `PINNED_SHARD`, `PINNED_SHARD_SHA256`, MiMo identity and 32 layers | Artifacts and evaluations MiMo-only | Profile ID plus tensor payload SHA-256 |
+| [decision_dataset.py](../embedded_jev/decision_dataset.py) captures | `single_case_mimo_calibration_activations`, MiMo identity, layer-3 tensor, width 12,288 | Captures labelled MiMo | Capture manifest binds the verified profile |
+| [weight_slice.py](../embedded_jev/weight_slice.py), [ternary_artifact.py](../embedded_jev/ternary_artifact.py) | `DEFAULT_TENSOR`, MiMo-only fetch and identity, multimodal prefix | Refused or mislabelled | Profile tensor names and identity |
+| [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | At most 4,096 rows, 96 groups and 128 tokens; only `blk.3.ffn_down.weight` | FFN gate/up and `q_proj` cannot be represented | Geometry-driven bounds or row tiling (P3) |
+| Native v1 complete-model factory | MiMo revision and model tags, 427 tensors, 32/4,096/12,288, 248,320 vocabulary, at most 19 GiB, one layer-3 target | Every other file refused | Versioned profile-driven policy (P4) |
+| Tests and documented commands | `MIMO_*` flags, cache paths, fixture prompts and expected IDs | MiMo evidence only | Keep names; add per-profile gates beside them |
+
+Model-independent today: [activation.py](../embedded_jev/activation.py),
+[ternary.py](../embedded_jev/ternary.py), PQ2 packing logic, the dataset schema
+and split checks, [public_data.py](../embedded_jev/public_data.py), the trace
+comparator, the [BitNet-derived kernel](../native/bitnet_group_scale.cpp) and
+the [versioned runtime build](../native/CMakeLists.txt). The pinned Prism
+converter registers `Qwen3_5TextModel` for both Qwen3.5 architectures. It removes
+MTP tensors only with `--no-nextn`, which MiMo also needs because its configured
+MTP layer has no tensors.
 
 ## Current Checkpoint and Gates
 
@@ -1745,8 +1788,9 @@ user's existing ignore rules unchanged.
 Install the quantization ML stack only after host inventory. Use a dedicated
 environment and lock, not ad hoc packages in the research base. The inspected
 SemIf revision pins Torch 2.10.0 and Transformers 5.17.0; MiMo's configuration
-records Transformers 5.12.1. These are useful compatibility anchors, not proof
-that all three projects share one working environment.
+records Transformers 5.12.1 and the base Qwen3.5-9B configuration 4.57.0.dev0.
+These are useful compatibility anchors, not proof that all three projects share
+one working environment or that one reference implementation fits every profile.
 
 Maintain separate environments for:
 
