@@ -49,7 +49,7 @@ equate direct option scoring with the model's generated reasoning capabilities.
 
 A model profile separates checkpoint identity from shared decision,
 quantization and kernel contracts. The strict v1 record, bounded identity
-verifiers, MiMo report wiring and offline Tier A packaging adapters are
+verifiers, MiMo report wiring, template-control policy and offline Tier A packaging adapters are
 implemented. Broader model execution remains open, as described
 in the [development guide](development.md#offline-model-profile-records).
 For each selected model, bind:
@@ -228,6 +228,12 @@ marker in user text vanished from the rendered prompt and expanded it from 202 t
 - Treat a template embedded in GGUF metadata as a separate file to hash, and
    compare its native rendering and token IDs with the reference renderer.
 
+P0.4 implements bounded untrusted-field refusal and separate embedded-template
+provenance in the reference label probe. Defiant Fable pins non-thinking medium
+and conservatively refuses `{REASON:` for either template; cached default prompt
+bytes/IDs agree. This is not native-rendering evidence, GGUF weight identity or
+model-execution support. Those remain separate gates.
+
 #### Refusal-Removed and Merged Releases
 
 Refusal removal edits weights to suppress refusal behaviour. The Defiant Fable
@@ -288,8 +294,9 @@ Paired evaluation freezes and compares the profile record as well as existing
 data/candidate/runtime inputs. P0.3 validates profile-bound offline packaging,
 including every text/MTP shape, dtype and explicit eligible projection, without
 enabling another model's execution. MTP completeness and stale index accounting
-remain distinct from source identity. Template-control refusal is separate
-P0.4 work; metadata validation alone does not validate another model's runtime.
+remain distinct from source identity.
+P0.4 evidence covers reference rendering, control refusal and separate template
+origins; metadata validation alone does not validate another model's runtime.
 
 #### Shared Versus Per-Profile Contracts
 

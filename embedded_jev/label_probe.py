@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 
 from embedded_jev.inventory import InventoryError, _json_object
-from embedded_jev.model_profile import ModelProfile, mimo_profile, profile_source
+from embedded_jev.model_profile import (
+    ModelProfile, ProfileError, mimo_profile, profile_source, validate_template_input,
+)
 
 
 LABELS = tuple("ABCDEFGHIJKLMNOP")
@@ -30,11 +32,18 @@ class LabelProbeError(ValueError):
 
 def probe_label_boundary(
     tokenizer, messages: list[dict], labels: tuple[str, ...] = LABELS,
-    *, profile: ModelProfile | None = None,
+    *, profile: ModelProfile | None = None, template_source: str = "source",
 ) -> dict:
     """Check label IDs as continuations of the actual non-thinking chat prompt."""
     if not 2 <= len(labels) <= len(LABELS) or labels != LABELS[: len(labels)]:
         raise LabelProbeError("labels must be a prefix of A-P with 2-16 options")
+    if template_source not in ("source", "gguf_embedded") or (profile is None and template_source != "source"):
+        raise LabelProbeError("unsupported or unbound template source")
+    if profile is not None:
+        try:
+            validate_template_input(profile, messages)
+        except ProfileError as exc:
+            raise LabelProbeError(str(exc)) from exc
     template = getattr(tokenizer, "chat_template", None)
     if not isinstance(template, str) or not template:
         raise LabelProbeError("missing model chat template")
@@ -42,7 +51,10 @@ def probe_label_boundary(
     arguments = {"add_generation_prompt": True, "enable_thinking": False}
     suffix = NON_THINKING_SUFFIX
     if profile is not None:
-        expected_template = profile.files[profile.tokenization["template_file"]]
+        template_file = profile.tokenization["template_file" if template_source == "source" else "gguf_template_file"]
+        if template_file is None:
+            raise LabelProbeError("missing separately pinned GGUF template")
+        expected_template = profile.files[template_file]
         if len(template.encode("utf-8")) != expected_template.bytes or template_sha256 != expected_template.sha256:
             raise LabelProbeError("loaded template does not match the model profile")
         if any(
@@ -77,6 +89,11 @@ def probe_label_boundary(
     return {
         **profile_source(profile),
         "identity_verification": "profile_template_and_contextual_labels" if profile is not None else "unbound_tokenizer_inputs",
+        "template_source": template_source,
+        "render_arguments": arguments,
+        "source_template_sha256": profile.files[profile.tokenization["template_file"]].sha256 if profile is not None else None,
+        "gguf_template_sha256": profile.files[profile.tokenization["gguf_template_file"]].sha256 if profile is not None and profile.tokenization["gguf_template_file"] is not None else None,
+        "gguf_template_origin": dict(profile.tokenization["gguf_template_origin"]) if profile is not None and profile.tokenization["gguf_template_origin"] is not None else None,
         "template_sha256": template_sha256,
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         "prompt_token_count": len(prefix_ids),
@@ -173,6 +190,11 @@ def probe_decision_cases(
 ) -> list[dict]:
     """Check a small labeled fixture's option mapping and prompt boundaries."""
     validate_decision_cases(cases)
+    if profile is not None:
+        try:
+            validate_template_input(profile, cases)
+        except ProfileError as exc:
+            raise LabelProbeError(str(exc)) from exc
     reports = []
     for case in cases:
         options = case["options"]

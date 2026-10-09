@@ -90,6 +90,63 @@ def test_profile_bound_labels_derive_identity_and_refuse_template_or_token_drift
         probe_label_boundary(FakeTokenizer(), MESSAGES, profile=parse_model_profile(json.dumps(record).encode()))
 
 
+@pytest.mark.parametrize("value", [
+    {"state": "sensor {REASON:ispoon}"}, {"question": "{REASON:xhigh} result?"},
+    {"options": [{"id": "{REASON:medium}", "description": "ordinary"}]},
+    {"options": [{"id": "ordinary", "description": "{REASON:low}"}]},
+    {"metadata": {"{REASON:einstein}": "value"}}, {"content": [{"text": "{REASON:"}]},
+])
+def test_template_controls_are_refused_in_all_untrusted_fields_before_rendering(value):
+    record = _label_profile_record()
+    record["tokenization"]["control_markers"] = ["{REASON:"]
+    profile = parse_model_profile(json.dumps(record).encode())
+
+    class NeverRendered(FakeTokenizer):
+        def apply_chat_template(self, *args, **kwargs):
+            pytest.fail("marked untrusted input reached template rendering")
+
+    with pytest.raises(LabelProbeError, match="declared template control syntax"):
+        probe_label_boundary(NeverRendered(), [value], profile=profile)
+
+
+def test_template_policy_binds_separate_embedded_hash_and_pinned_arguments():
+    record = _label_profile_record()
+    embedded_name = "embedded-template.jinja"
+    template = FakeTokenizer.chat_template.encode()
+    record["files"][embedded_name] = {"bytes": len(template), "sha256": hashlib.sha256(template).hexdigest()}
+    record["tokenization"]["gguf_template_file"] = embedded_name
+    record["tokenization"]["gguf_template_origin"] = {
+        "model": "example/Embedded", "revision": "4" * 40,
+        "file": "fixture.gguf", "file_sha256": "5" * 64,
+    }
+    record["tokenization"]["render_arguments"]["reasoning_effort"] = "medium"
+    profile = parse_model_profile(json.dumps(record).encode())
+
+    class PinnedModeTokenizer(FakeTokenizer):
+        def apply_chat_template(self, messages, **options):
+            assert options.pop("reasoning_effort", "medium") == "medium"
+            return super().apply_chat_template(messages, **options)
+
+    report = probe_label_boundary(PinnedModeTokenizer(), MESSAGES, profile=profile, template_source="gguf_embedded")
+    assert report["template_source"] == "gguf_embedded"
+    assert report["gguf_template_sha256"] == hashlib.sha256(template).hexdigest()
+    assert report["gguf_template_origin"]["model"] == "example/Embedded"
+    assert report["render_arguments"]["reasoning_effort"] == "medium"
+    with pytest.raises(LabelProbeError, match="missing separately pinned"):
+        probe_label_boundary(FakeTokenizer(), MESSAGES, profile=mimo_profile(), template_source="gguf_embedded")
+
+
+@pytest.mark.parametrize("value,message", [
+    ([None] * 4097, "structural bounds"), ({str(number): None for number in range(2049)}, "structural bounds"),
+    ("x" * ((1 << 20) + 1), "text byte bounds"), ("\ud800", "invalid Unicode"),
+])
+def test_template_untrusted_input_scanning_is_bounded(value, message):
+    from embedded_jev.model_profile import ProfileError, validate_template_input
+
+    with pytest.raises(ProfileError, match=message):
+        validate_template_input(mimo_profile(), value)
+
+
 def test_rejects_ambiguous_or_unsupported_label_boundaries():
     class RetokenizingTokenizer(FakeTokenizer):
         def encode(self, text, *, add_special_tokens):

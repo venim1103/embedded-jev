@@ -249,7 +249,7 @@ def parse_model_profile(data: bytes) -> ModelProfile:
         raise ProfileError("profile MRoPE sections disagree with rotary width")
 
     tokenization = _fields(record["tokenization"], (
-        "template_file", "gguf_template_file", "render_arguments", "non_thinking_suffix",
+        "template_file", "gguf_template_file", "gguf_template_origin", "render_arguments", "non_thinking_suffix",
         "control_markers", "special_token_ids", "label_token_ids", "prompt_formatter_version",
     ), "tokenization")
     _path(tokenization["template_file"])
@@ -259,6 +259,16 @@ def parse_model_profile(data: bytes) -> ModelProfile:
         _path(tokenization["gguf_template_file"])
         if tokenization["gguf_template_file"] not in files:
             raise ProfileError("missing profile GGUF template identity")
+        origin = _fields(tokenization["gguf_template_origin"], ("model", "revision", "file", "file_sha256"), "gguf_template_origin")
+        _string(origin["model"], "gguf_template_origin.model")
+        if not isinstance(origin["revision"], str) or REVISION.fullmatch(origin["revision"]) is None:
+            raise ProfileError("invalid profile GGUF template source revision")
+        _path(origin["file"])
+        if not origin["file"].endswith(".gguf"):
+            raise ProfileError("invalid profile GGUF template source file")
+        _hash(origin["file_sha256"], "gguf_template_origin.file_sha256")
+    elif tokenization["gguf_template_origin"] is not None:
+        raise ProfileError("GGUF template origin requires a separately pinned template")
     arguments = tokenization["render_arguments"]
     if not isinstance(arguments, dict) or set(arguments) not in ({"add_generation_prompt", "enable_thinking"}, {"add_generation_prompt", "enable_thinking", "reasoning_effort"}):
         raise ProfileError("unknown or missing profile rendering arguments")
@@ -335,6 +345,38 @@ def profile_text_config(profile: ModelProfile, config: dict) -> dict:
         if _freeze(actual) != expected or (type(expected) is int and type(actual) is not int):
             raise ProfileError(f"configuration geometry does not match the model profile: {name}")
     return text
+
+
+def validate_template_input(profile: ModelProfile, value) -> None:
+    """Refuse declared control syntax anywhere in bounded untrusted JSON fields."""
+    pending = [(value, 0)]
+    nodes, text_bytes = 0, 0
+    while pending:
+        item, depth = pending.pop()
+        nodes += 1
+        if nodes > 4096 or depth > 32:
+            raise ProfileError("template input exceeds allowed structural bounds")
+        if isinstance(item, str):
+            if len(item) > (1 << 20) - text_bytes:
+                raise ProfileError("template input exceeds allowed text byte bounds")
+            try:
+                text_bytes += len(item.encode("utf-8"))
+            except UnicodeEncodeError as exc:
+                raise ProfileError("invalid Unicode in untrusted template input") from exc
+            if text_bytes > 1 << 20:
+                raise ProfileError("template input exceeds allowed text byte bounds")
+            if any(marker in item for marker in profile.tokenization["control_markers"]):
+                raise ProfileError("untrusted field contains declared template control syntax")
+        elif isinstance(item, dict):
+            if nodes + len(pending) + 2 * len(item) > 4096:
+                raise ProfileError("template input exceeds allowed structural bounds")
+            pending.extend((part, depth + 1) for pair in item.items() for part in pair)
+        elif isinstance(item, (list, tuple)):
+            if nodes + len(pending) + len(item) > 4096:
+                raise ProfileError("template input exceeds allowed structural bounds")
+            pending.extend((part, depth + 1) for part in item)
+        elif item is not None and type(item) not in (bool, int, float):
+            raise ProfileError("unsupported untrusted template input type")
 
 
 def verify_profile_headers(

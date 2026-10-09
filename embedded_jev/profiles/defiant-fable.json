@@ -63,6 +63,10 @@
       "bytes": 71170,
       "sha256": "0faf8647b2565e43515858fec62c5f2f0cdb03e7a513bcd1e3721dfa20cfd2f9"
     },
+    "plusIQ-bf16-gguf-chat-template.jinja": {
+      "bytes": 17057,
+      "sha256": "1aca4ae064eff63b6fae32f9e260a1b641be87e49667f046629d6a299be89954"
+    },
     "preprocessor_config.json": {
       "bytes": 390,
       "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
@@ -150,10 +154,16 @@
   },
   "tokenization": {
     "template_file": "chat_template.jinja",
-    "gguf_template_file": null,
-    "render_arguments": {"add_generation_prompt": true, "enable_thinking": false},
+    "gguf_template_file": "plusIQ-bf16-gguf-chat-template.jinja",
+    "gguf_template_origin": {
+      "model": "DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF",
+      "revision": "8b192a8e203440d6492a133f6cdfa4bf7bffac98",
+      "file": "Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf",
+      "file_sha256": "6a772118b107772fb83d111fec59e54b139c993fe6dc4906288a3bb81178705d"
+    },
+    "render_arguments": {"add_generation_prompt": true, "enable_thinking": false, "reasoning_effort": "medium"},
     "non_thinking_suffix": "<|im_start|>assistant\n<think>\n\n</think>\n\n",
-    "control_markers": [],
+    "control_markers": ["{REASON:"],
     "special_token_ids": {
       "<|endoftext|>": 248044, "<|im_start|>": 248045, "<|im_end|>": 248046,
       "<think>": 248068, "</think>": 248069

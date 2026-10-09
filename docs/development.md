@@ -68,7 +68,7 @@ inputs remain unbound, while unmatched directories are refused. The original
 MiMo Prism-width mapper remains MiMo-only; `profile_prism_expected_widths()`
 requires an inventory bound to the supplied record.
 
-The current default gate is 206 passed, 39 optional skips; 114 focused
+The current default gate is 217 passed, 39 optional skips; 125 focused
 inventory/label/data/evaluation cases pass. Cached MiMo and Defiant Fable metadata, tokenizers and
 legacy captures were verified without full-model inference. Full weight hashes
 and optional native/model gates were not rerun for this Python-only change.
@@ -110,7 +110,40 @@ Current evidence: Defiant Fable has 775 tensors, including 427 text/333 vision/
 Its cached bound tokenizer yields 49 tokens for the default label prompt, A-P
 32-47 and zero generation. MiMo's original 760-tensor accounting is unchanged.
 These are inventory/tokenization gates, not inference, native compatibility or
-quality. Template-control refusal remains P0.4.
+quality. The P0.4 template policy below is implemented; native rendering remains
+a separate gate.
+
+### Template Control Policy
+
+Profile-bound label probes call `validate_template_input()` before rendering.
+Declared literal control prefixes are refused anywhere in bounded untrusted
+dictionary keys/values, nested content and decision fields, including IDs and
+option descriptions. Evidence is never silently stripped. Bounds are 4,096
+nodes, depth 32 and 1 MiB UTF-8 text, with pre-expansion/encoding checks and
+invalid-Unicode refusal. Errors return no score report. Mode arguments are
+profile-owned, not derived from evidence or case metadata.
+
+Defiant Fable conservatively declares `{REASON:` and pins
+`enable_thinking=False`, `reasoning_effort="medium"` and
+`add_generation_prompt=True`. This protects both source and embedded-template
+probes even though the safetensors source's base template does not interpret
+that marker. MiMo keeps its existing exact arguments and prompt bytes.
+
+The Defiant Fable record additionally hashes the existing
+`plusIQ-bf16-gguf-chat-template.jinja` separately and binds its originating GGUF
+repository, pinned revision, file and remote whole-file SHA-256. The record now
+has 12 nonweight files plus five shards. `probe_label_boundary(...,
+template_source="gguf_embedded")` validates that template rather than treating
+it as the source file; reports include both hashes, origin and render arguments.
+The GGUF hash is a remote pin, not a local payload check or GGUF-source approval.
+No generic GGUF weight adapter or native template support follows.
+
+Both cached Defiant Fable templates render the same 49-token default prompt and
+A-P IDs under the pinned mode. All five source-template fixture boundaries pass;
+the cached embedded template refuses tested `ispoon`, `xhigh` and unknown markers
+before rendering. MiMo's prompt hash is unchanged. Twelve focused policy/resource
+tests pass; native rendering/tokenization, GGUF/source full-weight equality and
+model execution remain unverified for this profile.
 
 ### MiMo Coupling Inventory
 
@@ -126,7 +159,7 @@ the current code; the last column names the profile field or
 | inventory.py `SHARD_NAME` | Unbound legacy inputs retain MiMo numbering; bound profiles use exact index-listed shard names | Explicit offline profiles accept alternate/unpadded/restored names; undeclared names refuse | P0.3 implemented |
 | inventory.py index reconciliation | Bound profiles declare exact/recomputed totals and MTP status; raw legacy totals remain exact | Stale totals are recorded only as declared, MTP completeness validated, never used as identity | P0.3 implemented |
 | inventory.py `_classify`, `_required_weights` | Bound prefixes, geometry, counts and per-class dtypes are profile-driven | Explicit text-only and multimodal fixtures validate; unknown names/shapes/dtypes refuse | P0.3 implemented |
-| [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | Unbound fixtures retain the fallback suffix; explicit profiles pin template/suffix/arguments/IDs; CLI fetch remains MiMo-only | Raw tokenizers are unbound; explicit records verify rendering, but in-band controls are not yet refused | P0.2 implemented; control refusal still P0.4 |
+| [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | Unbound fixtures retain fallback suffix; explicit profiles pin templates/suffix/arguments/IDs/control prefixes; CLI fetch remains MiMo-only | Raw tokenizers stay unbound; marked evidence refuses before rendering; source/GGUF template origins remain separate | P0.2/P0.4 implemented; other-model native rendering remains open |
 | [dense_probe.py](../embedded_jev/dense_probe.py) `plan_text_prefix`, `plan_streamed_text` | Bound offline plans use profile prefixes and dtype policy; real execution remains MiMo BF16 | F32 small-tensor plans validate without casting; another model's scoring remains refused | P0.3 planning implemented; P2 runtime gates remain |
 | [streamed_text.py](../embedded_jev/streamed_text.py) | Layer-3 FFN-down substitution and capture, 4,096 x 12,288 shapes, untied `lm_head.weight` reader, 32 layers for full-vocabulary mass, seed-773 signs | Checkpoints packaged like MiMo run but inherit MiMo labels; depth variants unsupported | Profile target list, head reader and layer count (P7) |
 | [projection_artifact.py](../embedded_jev/projection_artifact.py), [evaluation.py](../embedded_jev/evaluation.py) | `PINNED_SHARD`, `PINNED_SHARD_SHA256`, MiMo identity and 32 layers | Artifacts and evaluations MiMo-only | Profile ID plus tensor payload SHA-256 |

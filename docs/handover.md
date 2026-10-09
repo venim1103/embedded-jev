@@ -10,7 +10,7 @@ original conversation. Read this first, then follow the links for detail.
 
 1. The user resumed autonomous code-only implementation on 2026-10-09 under
   AGENTS.md. No further download, conversion or new artifact is authorized.
-2. Read the [packaging checkpoint](#packaging-checkpoint-2026-10-09)
+2. Read the [template policy checkpoint](#template-policy-checkpoint-2026-10-09)
   below, then the [native checkpoint](#current-checkpoint-2026-10-08), whose
   last tested implementation commit remains `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
@@ -26,12 +26,56 @@ original conversation. Read this first, then follow the links for detail.
    container rebuild with host certificates. Verified files and headers are
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
-5. P0.1-P0.3 are implemented; next are the code-only P0.4 and P3 items of the
+5. P0.1-P0.4 are implemented; next is the code-only P3 item of the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
    fixtures mirroring the verified Defiant Fable packaging; then P2 only with new
    approval. The MiMo layer-0 precision diagnostic also needs new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
+
+## Template Policy Checkpoint (2026-10-09)
+
+P0.3 was committed locally as `8d3556e`. P0.4 now refuses profile-declared
+control syntax anywhere in bounded untrusted JSON fields before template
+rendering. It scans dictionary keys/values and nested message content, including
+case IDs/groups and option IDs/descriptions, without stripping or rewriting
+evidence. Scanning is capped at 4,096 nodes, depth 32 and 1 MiB text, checking
+container expansion and character bounds before allocation; invalid Unicode
+refuses. Marker refusal raises an explicit error and returns no score report.
+
+Defiant Fable's profile conservatively refuses the exact `{REASON:` prefix in
+all untrusted fields, for both source and embedded-template probes. It pins
+non-thinking `reasoning_effort=medium`. The separately cached `plusIQ` template
+is 17,057 UTF-8 bytes, SHA-256
+`1aca4ae064eff63b6fae32f9e260a1b641be87e49667f046629d6a299be89954`;
+its separate GGUF repository/revision/file and remote whole-file hash are
+declared, never mistaken for the safetensors template or a locally authenticated
+GGUF. `probe_label_boundary(..., template_source="gguf_embedded")` requires
+that separate record. Source/embedded template hashes, origin and all render
+arguments are recorded. This does not enable GGUF weight ingestion or assert
+source/GGUF full-weight equality. The MiMo record declares no GGUF template;
+both record fingerprints changed with the explicit provenance field, not source
+files, frozen candidate or numerical policy.
+
+Verification: 12 focused template cases and all **217 default tests** passed,
+with 39 optional skips, Ruff, whitespace and editor diagnostics clean. In the
+existing dense environment, both cached Defiant Fable templates render identical
+default prompt bytes/IDs at pinned non-thinking medium: 49 tokens, A-P 32-47,
+the same `299d512e...` prompt hash as P0.3. All five source-template engineering
+cases pass contextual label boundaries. The three real-template probes with
+`{REASON:ispoon}`, `{REASON:xhigh}` and `{REASON:unknown}` refuse before
+rendering. MiMo's `325474ab...` prompt hash remains unchanged. No model weights
+or GGUF file were read, no answer generated and no native/full-model gate run.
+
+Limits: this is reference-renderer policy/provenance evidence. Native rendering
+and tokenization for Defiant Fable, complete GGUF/source tensor comparison,
+dense/native inference and model quality still need their own gates and any
+separately approved inputs. No hidden mode selection from untrusted text is
+accepted merely because a template is pinned. Next is P3 kernel geometry and
+resident-storage work, using synthetic fixtures and the unchanged MiMo artifact.
+No further download, conversion, candidate, fitting or held-out scoring is
+authorized; no push, branch or subagent was introduced. User `.vscode/` and
+existing caches remain untouched.
 
 ## Packaging Checkpoint (2026-10-09)
 

@@ -232,6 +232,7 @@ def _profile_fixture():
         "geometry": geometry,
         "tokenization": {
             "template_file": "chat_template.jinja", "gguf_template_file": None,
+            "gguf_template_origin": None,
             "render_arguments": {"add_generation_prompt": True, "enable_thinking": False},
             "non_thinking_suffix": "<think></think>", "control_markers": [],
             "special_token_ids": {"<think>": 20, "</think>": 21},
@@ -500,7 +501,7 @@ def test_defiant_fable_record_is_separate_metadata_evidence_not_runtime_support(
     profile = defiant_fable_profile()
     assert profile.model.startswith("DavidAU/") and profile.model != mimo_profile().model
     assert profile.revision == "7af0a9c4e221e01b246b3c577fbb7110b79823e8"
-    assert profile.license == "Apache-2.0" and len(profile.files) == 16
+    assert profile.license == "Apache-2.0" and len(profile.files) == 17
     assert profile.packaging["mtp_status"] == "complete"
     assert profile.packaging["index_total_policy"] == "recomputed"
     assert "processor_config.json" not in profile.files and "merges.txt" not in profile.files

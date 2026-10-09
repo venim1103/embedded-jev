@@ -161,6 +161,7 @@
   "tokenization": {
     "template_file": "chat_template.jinja",
     "gguf_template_file": null,
+    "gguf_template_origin": null,
     "render_arguments": {"add_generation_prompt": true, "enable_thinking": false},
     "non_thinking_suffix": "<|im_start|>assistant\n<think></think>",
     "control_markers": [],
