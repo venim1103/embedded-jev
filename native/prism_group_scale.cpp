@@ -24,6 +24,9 @@ extern "C" int bitnet_group_scale_matmul_avx2(
     const uint8_t* packed, const float* weight_scales, const int8_t* activations,
     const float* activation_scales, std::size_t tokens, std::size_t rows,
     std::size_t groups, float* output);
+extern "C" int bitnet_group_scale_matmul_fp16_avx2(
+    const uint8_t* blocks, const int8_t* activations, const float* activation_scales,
+    std::size_t tokens, std::size_t rows, std::size_t groups, float* output);
 extern "C" int bitnet_group_scale_prepare_a8(
     const float* inputs, std::size_t tokens, std::size_t groups,
     int8_t* activations, float* activation_scales);
@@ -82,6 +85,45 @@ void grouped_dot(
         static_cast<float*>(destination->data));
 }
 
+int validate_pq2_weight(const uint8_t* blocks, std::size_t count) {
+    for (std::size_t block = 0; block < count; ++block) {
+        const uint8_t* source = blocks + block * 34;
+        const uint16_t bits = static_cast<uint16_t>(source[0] | (source[1] << 8));
+        if ((bits & 0x7c00) == 0x7c00 || ((bits & 0x8000) && (bits & 0x7fff))) {
+            return 5;
+        }
+        for (std::size_t byte = 0; byte < 32; ++byte) {
+            if ((source[2 + byte] & (source[2 + byte] >> 1) & 0x55) != 0) {
+                return 5;
+            }
+        }
+    }
+    return 0;
+}
+
+void read_pq2_weight(const uint8_t* blocks, void* destination, std::size_t offset, std::size_t count, bool repacked) {
+    auto* output = static_cast<uint8_t*>(destination);
+    if (!repacked) {
+        std::memcpy(output, blocks + offset, count);
+        return;
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::size_t position = offset + index;
+        const uint8_t* source = blocks + position / 34 * 34;
+        const std::size_t byte = position % 34;
+        if (byte < 2) {
+            output[index] = source[byte];
+        } else {
+            uint8_t value = 0;
+            for (std::size_t lane = 0; lane < 4; ++lane) {
+                const std::size_t column = (byte - 2) * 4 + lane;
+                value |= ((source[2 + column % 32] >> (6 - 2 * (column / 32))) & 3) << (2 * lane);
+            }
+            output[index] = value;
+        }
+    }
+}
+
 struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
     std::size_t tokens;
     std::size_t rows;
@@ -89,14 +131,12 @@ struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
     std::size_t calls = 0;
     std::size_t repacks = 0;
     int status = 4;
-    std::vector<uint8_t> packed;
-    std::vector<float> weight_scales;
+    const uint8_t* resident_blocks = nullptr;
     std::vector<int8_t> activations;
     std::vector<float> activation_scales;
 
     bitnet_tensor_traits(std::size_t token_count, std::size_t row_count, std::size_t group_count)
         : tokens(token_count), rows(row_count), groups(group_count),
-          packed(rows * groups * 32), weight_scales(rows * groups),
           activations(tokens * groups * 128), activation_scales(tokens * groups) {}
 
     bool work_size(int n_threads, const ggml_tensor*, std::size_t& size) override {
@@ -104,24 +144,20 @@ struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
         return n_threads == 1;
     }
 
-    int prepare_weight(const uint8_t* blocks) {
-        std::fill(packed.begin(), packed.end(), 0);
+    int prepare_weight(uint8_t* blocks) {
+        if (const int result = validate_pq2_weight(blocks, rows * groups); result != 0) {
+            return result;
+        }
         for (std::size_t block = 0; block < rows * groups; ++block) {
-            const uint8_t* source = blocks + block * 34;
-            const ggml_fp16_t scale_bits = static_cast<ggml_fp16_t>(source[0] | (source[1] << 8));
-            const float scale = ggml_fp16_to_fp32(scale_bits);
-            if (!std::isfinite(scale) || scale < 0.0f) {
-                return 5;
-            }
-            weight_scales[block] = scale;
+            uint8_t* source = blocks + block * 34;
+            uint8_t packed[32] {};
             for (std::size_t column = 0; column < 128; ++column) {
                 const uint8_t code = (source[2 + column / 4] >> (2 * (column % 4))) & 3;
-                if (code == 3) {
-                    return 5;
-                }
-                packed[block * 32 + column % 32] |= code << (6 - 2 * (column / 32));
+                packed[column % 32] |= code << (6 - 2 * (column / 32));
             }
+            std::memcpy(source + 2, packed, sizeof(packed));
         }
+        resident_blocks = blocks;
         ++repacks;
         return 0;
     }
@@ -135,7 +171,7 @@ struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
             return true;
         }
         if (repacks == 0) {
-            status = prepare_weight(static_cast<const uint8_t*>(op->src[0]->data));
+            status = prepare_weight(static_cast<uint8_t*>(op->src[0]->data));
             if (status != 0) {
                 return true;
             }
@@ -145,8 +181,8 @@ struct bitnet_tensor_traits final : ggml::cpu::tensor_traits {
             activations.data(), activation_scales.data());
         if (status == 0) {
             ++calls;
-            status = bitnet_group_scale_matmul_avx2(
-                packed.data(), weight_scales.data(), activations.data(),
+            status = bitnet_group_scale_matmul_fp16_avx2(
+                resident_blocks, activations.data(),
                 activation_scales.data(), tokens, rows, groups, static_cast<float*>(op->data));
         }
         return true;
@@ -170,6 +206,11 @@ struct bitnet_buffer_type final : ggml::cpu::extra_buffer_type {
                     auto* extra = static_cast<bitnet_buffer_type*>(owner->buft->context);
                     tensor->extra = &extra->traits;
                     return GGML_STATUS_SUCCESS;
+                };
+                buffer->iface.get_tensor = [](ggml_backend_buffer_t owner, const ggml_tensor* tensor,
+                                              void* data, std::size_t offset, std::size_t count) {
+                    auto* extra = static_cast<bitnet_buffer_type*>(owner->buft->context);
+                    read_pq2_weight(static_cast<const uint8_t*>(tensor->data), data, offset, count, extra->traits.repacks != 0);
                 };
             }
             return buffer;
@@ -336,13 +377,18 @@ struct bitnet_loader_buffer_v1 final : ggml::cpu::extra_buffer_type {
                     traits->uploaded += count;
                     if (traits->uploaded == ggml_nbytes(tensor)) {
                         traits->sealed = true;
-                        traits->load_status = traits->kernel.prepare_weight(static_cast<const uint8_t*>(tensor->data));
+                        traits->load_status = traits->kernel.prepare_weight(static_cast<uint8_t*>(tensor->data));
                     }
                     traits->kernel.status = traits->load_status;
                 };
-                iface.get_tensor = [](ggml_backend_buffer_t, const ggml_tensor* tensor,
+                iface.get_tensor = [](ggml_backend_buffer_t buffer, const ggml_tensor* tensor,
                                       void* data, std::size_t offset, std::size_t count) {
-                    std::memcpy(data, static_cast<const uint8_t*>(tensor->data) + offset, count);
+                    auto* traits = state(buffer)->find(tensor);
+                    if (!traits) {
+                        return;
+                    }
+                    const std::lock_guard<std::mutex> lock(traits->mutex);
+                    read_pq2_weight(static_cast<const uint8_t*>(tensor->data), data, offset, count, traits->kernel.repacks != 0);
                 };
                 iface.memset_tensor = [](ggml_backend_buffer_t buffer, ggml_tensor* tensor,
                                          uint8_t, std::size_t, std::size_t) {
@@ -408,6 +454,7 @@ struct registered_projection {
     std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend { nullptr, ggml_backend_free };
     std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator { nullptr, ggml_gallocr_free };
     ggml_tensor* input = nullptr;
+    ggml_tensor* weight = nullptr;
     ggml_tensor* result = nullptr;
     ggml_cgraph* graph = nullptr;
 
@@ -421,7 +468,7 @@ struct registered_projection {
         if (!context) {
             return 2;
         }
-        ggml_tensor* weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, traits.groups * 128, traits.rows);
+        weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, traits.groups * 128, traits.rows);
         input = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, traits.groups * 128, traits.tokens);
         result = ggml_mul_mat(context.get(), weight, input);
         const std::size_t weight_bytes = traits.rows * traits.groups * 34;
@@ -451,7 +498,7 @@ struct registered_projection {
             return 2;
         }
         ggml_backend_tensor_set(weight, pq2_blocks, 0, weight_bytes);
-        return traits.prepare_weight(static_cast<const uint8_t*>(weight->data));
+        return traits.prepare_weight(static_cast<uint8_t*>(weight->data));
     }
 
     int compute(const float* inputs, float* output) {
@@ -550,6 +597,24 @@ extern "C" int prism_bitnet_cpu_tensor_last_input_tokens_v1(
     }
     const std::lock_guard<std::mutex> lock(traits->mutex);
     *input_tokens = traits->last_input_tokens;
+    return traits->kernel.status;
+}
+
+extern "C" int prism_bitnet_cpu_tensor_storage_bytes_v1(
+    const ggml_tensor* weight, std::size_t* resident_weight_bytes, std::size_t* auxiliary_weight_bytes) {
+    if (!resident_weight_bytes || !auxiliary_weight_bytes) {
+        return 1;
+    }
+    *resident_weight_bytes = *auxiliary_weight_bytes = 0;
+    if (!weight || !weight->buffer || weight->buffer->buft != &loader_runtime_v1().type) {
+        return 1;
+    }
+    auto* traits = bitnet_loader_buffer_v1::state(weight->buffer)->find(weight);
+    if (!traits || weight->extra != traits) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(traits->mutex);
+    *resident_weight_bytes = ggml_nbytes(weight);
     return traits->kernel.status;
 }
 
@@ -850,8 +915,7 @@ extern "C" int prism_bitnet_cpu_loader_override_from_gguf_v1(
         if (status != 0) {
             return status;
         }
-        bitnet_tensor_traits validator(1, rows, groups);
-        status = validator.prepare_weight(blocks.data());
+        status = validate_pq2_weight(blocks.data(), rows * groups);
         if (status != 0) {
             return status;
         }
@@ -890,8 +954,7 @@ extern "C" int prism_bitnet_cpu_model_override_from_gguf_v1(
         if (status != 0 || rows != 4096 || groups != 96) {
             return status != 0 ? status : 6;
         }
-        bitnet_tensor_traits validator(1, rows, groups);
-        if ((status = validator.prepare_weight(reference.data())) != 0) {
+        if ((status = validate_pq2_weight(reference.data(), rows * groups)) != 0) {
             return status;
         }
         std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(model_path, "rb"), std::fclose);
@@ -1016,6 +1079,21 @@ extern "C" int prism_bitnet_registered_projection_compute(
     } catch (const std::bad_alloc&) {
         return 2;
     }
+}
+
+extern "C" int prism_bitnet_registered_projection_storage_bytes_v1(
+    void* handle, std::size_t* resident_weight_bytes, std::size_t* auxiliary_weight_bytes) {
+    if (!resident_weight_bytes || !auxiliary_weight_bytes) {
+        return 1;
+    }
+    *resident_weight_bytes = *auxiliary_weight_bytes = 0;
+    if (!handle) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(registration_mutex);
+    const auto* projection = static_cast<registered_projection*>(handle);
+    *resident_weight_bytes = ggml_nbytes(projection->weight);
+    return 0;
 }
 
 extern "C" void prism_bitnet_registered_projection_free(void* handle) {

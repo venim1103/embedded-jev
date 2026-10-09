@@ -125,3 +125,48 @@ extern "C" int bitnet_group_scale_matmul_avx2(
     }
     return 0;
 }
+
+extern "C" int bitnet_group_scale_matmul_fp16_avx2(
+    const uint8_t* blocks, const int8_t* activations, const float* activation_scales,
+    std::size_t tokens, std::size_t rows, std::size_t groups, float* output) {
+    if (!blocks || !activations || !activation_scales || !output ||
+        tokens == 0 || tokens > 128 || rows == 0 || rows > 12288 || groups == 0 || groups > 96) {
+        return 1;
+    }
+    for (std::size_t block = 0; block < rows * groups; ++block) {
+        const uint8_t* source = blocks + block * 34;
+        const uint16_t bits = static_cast<uint16_t>(source[0] | (source[1] << 8));
+        if ((bits & 0x7c00) == 0x7c00 || ((bits & 0x8000) && (bits & 0x7fff))) {
+            return 5;
+        }
+        for (std::size_t byte = 0; byte < kPackedBytes; ++byte) {
+            if ((source[2 + byte] & (source[2 + byte] >> 1) & 0x55) != 0) {
+                return 5;
+            }
+        }
+    }
+    for (std::size_t index = 0; index < tokens * groups; ++index) {
+        if (!std::isfinite(activation_scales[index]) || activation_scales[index] < 0.0f) {
+            return 2;
+        }
+    }
+    for (std::size_t token = 0; token < tokens; ++token) {
+        for (std::size_t row = 0; row < rows; ++row) {
+            float value = 0.0f;
+            for (std::size_t group = 0; group < groups; ++group) {
+                const uint8_t* source = blocks + (row * groups + group) * 34;
+                const uint16_t bits = static_cast<uint16_t>(source[0] | (source[1] << 8));
+                const int exponent = (bits >> 10) & 31;
+                const float scale = exponent == 0
+                    ? std::ldexp(static_cast<float>(bits & 1023), -24)
+                    : std::ldexp(static_cast<float>(1024 + (bits & 1023)), exponent - 25);
+                const float signed_scale = bits & 0x8000 ? -scale : scale;
+                const int32_t partial = dot_group(source + 2,
+                    activations + (token * groups + group) * kGroupSize);
+                value += static_cast<float>(partial) * signed_scale * activation_scales[token * groups + group];
+            }
+            output[token * rows + row] = value;
+        }
+    }
+    return 0;
+}

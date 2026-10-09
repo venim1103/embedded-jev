@@ -144,6 +144,24 @@ static int test_weight_execution(ggml_backend_dev_t device, ggml_backend_buffer_
             prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0 || last_input_tokens != 0) {
         return 7;
     }
+    std::size_t resident_bytes = 0;
+    std::size_t auxiliary_bytes = 99;
+    if (prism_bitnet_cpu_tensor_storage_bytes_v1(weight, &resident_bytes, &auxiliary_bytes) != 0 ||
+            resident_bytes != bytes || auxiliary_bytes != 0) {
+        return 7;
+    }
+    std::vector<uint8_t> readback(bytes);
+    ggml_backend_tensor_get(weight, readback.data(), 0, bytes);
+    if (readback != blocks) {
+        return 7;
+    }
+    for (std::size_t offset = 0; offset < bytes; ++offset) {
+        uint8_t value = 0;
+        ggml_backend_tensor_get(weight, &value, offset, 1);
+        if (value != blocks[offset]) {
+            return 7;
+        }
+    }
     std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
     ggml_backend_cpu_set_n_threads(backend.get(), 1);
     if (ggml_backend_dev_supports_op(device, probe)) {

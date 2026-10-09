@@ -68,7 +68,7 @@ inputs remain unbound, while unmatched directories are refused. The original
 MiMo Prism-width mapper remains MiMo-only; `profile_prism_expected_widths()`
 requires an inventory bound to the supplied record.
 
-The current default gate is 217 passed, 39 optional skips; 125 focused
+The current default gate is 220 passed, 39 optional skips; 125 focused
 inventory/label/data/evaluation cases pass. Cached MiMo and Defiant Fable metadata, tokenizers and
 legacy captures were verified without full-model inference. Full weight hashes
 and optional native/model gates were not rerun for this Python-only change.
@@ -1082,14 +1082,18 @@ The separate `prism_bitnet_registered_tensor_matmul` export registers a scoped
 `tensor->extra` with the BitNet tensor trait; the CPU backend recognizes the
 buffer and dispatches a real `GGML_OP_MUL_MAT` through that trait, not
 `MAP_CUSTOM2` or the ordinary Prism PQ2 dot. A dispatch counter must report
-exactly one invocation of `bitnet_group_scale_matmul_avx2` on success.
+exactly one invocation of the BitNet-derived grouped kernel on success.
 
 Storage is deliberately still `GGML_TYPE_PQ2_0`: each row/input-group block has
 a little-endian FP16 scale and 32 adjacent, low-bit-first code bytes. Only
 codes 0/1/2 (ternary -1/0/+1) are accepted; PQ2's +2 code, negative scales,
-and nonfinite scales are rejected. Native execution explicitly repacks to
-BitNet's four separated high-bit-first lanes and expands each independent
-FP16 scale exactly to FP32. No scale is refitted. FP32 inputs use native
+and nonfinite scales are rejected. Since the P3 compaction checkpoint, owned
+tensor storage repacks its code bytes in place to BitNet's four separated
+high-bit-first lanes, retaining every independent FP16 scale bit. The new
+`bitnet_group_scale_matmul_fp16_avx2` converts scales exactly at computation;
+it does not retain an expanded FP32 array. Canonical PQ2 reads reconstruct
+original code bytes on demand. File-policy validation never mutates canonical
+reference bytes. No scale is refitted. FP32 inputs use native
 per-token/group-128 A8, nearest-even rounding, clipping to [-127,127], FP32
 max-abs/127 scales, and scale 1 for zero groups. This is not Q8_0 or Q8_K.
 
@@ -1121,6 +1125,10 @@ Reusable native ownership is exposed separately:
 - `prism_bitnet_registered_projection_free(handle)` releases all owned state;
    null is allowed. Free each successful handle exactly once using its creating
    library. Foreign, freed, or concurrently freed pointers are invalid C callers.
+- `prism_bitnet_registered_projection_storage_bytes_v1(handle, weight_bytes*,
+   auxiliary_weight_bytes*)` reports the owned logical weight payload and extra
+   weight-array allocation separately. Both are cleared on invalid arguments;
+   activation/graph scratch, allocator alignment and process RSS are not included.
 
 Registration is scoped to initialization/compute, not handle lifetime. Idle
 handles leave no global registry entry. Native byte ownership, two live toy
@@ -1152,9 +1160,11 @@ calls serialize with each other, but the global registry is not synchronized
 with arbitrary Prism graphs or external mutation. Use only an isolated,
 single-threaded probe. Device buffer discovery, production registry lifetime,
 GGUF loader selection, full-model hosting, and target-platform parity remain
-unproven. Standard PQ2 bytes, repacked weights, expanded FP32 weight scales,
-and A8 scratch coexist during this control; no compact resident-memory or
-performance claim follows. No new candidate or dataset inference is saved.
+unproven. The former standard-PQ2/repacked-code/FP32-scale resident duplication
+was removed by P3 compaction. The frozen weight payload is 13,369,344 bytes
+(34 bytes per 128 weights, 2.125 bpw), with zero auxiliary weight-array bytes.
+Graph/A8 scratch and allocation overhead remain separate; no whole-model fit
+or performance claim follows. No new candidate or dataset inference is saved.
 
 The `--native-ffn-backend prism_ggml_registered` streamed backend now uses these
 owned handles for the sole frozen layer-3 FFN-down substitution. It performs
@@ -1235,8 +1245,9 @@ Initialize on one thread before any CPU discovery and retain the bridge library
 until all CPU users are finished. A caller revision string is not binary hash
 attestation; the pinned dependency provenance checks still matter.
 
-The buffer owns each tensor's copied weight bytes, native trait, repacked lanes,
-and exact FP16-derived scales. Only the bounded named layer-3 PQ2 weight is
+The buffer owns each tensor's one repacked weight block array and native trait;
+FP16 scale bits are retained in those blocks without a duplicate FP32 array.
+Only the bounded named layer-3 PQ2 weight is
 accepted. Sequential uploads are validated and packed once when complete;
 rewriting packed weights is refused. Ordinary `MUL_MAT` performs native A8 for
 1 through 128 tokens, allowing the token count to change between graphs.
@@ -1244,6 +1255,11 @@ rewriting packed weights is refused. Ordinary `MUL_MAT` performs native A8 for
 status 8 for incomplete or invalidated uploads. Graph compute status alone is
 insufficient: failed native execution fills output with NaNs, and the tensor
 status must be checked. Nonfinite input rejection can recover on a later batch.
+`prism_bitnet_cpu_tensor_storage_bytes_v1` reports logical resident weight bytes
+and auxiliary weight-array bytes (zero), returning the current tensor status.
+Canonical PQ2 full/chunked/one-byte readback preserves the storage API even
+though the private resident code layout is BitNet-specific. This is not a new
+GGUF tensor type or permission for another tensor name or larger v1 geometry.
 
 The isolated [loader control](../native/prism_bitnet_loader_control.cpp) tests
 early/late initialization in fresh processes, chunked loading, 1/2/128-token

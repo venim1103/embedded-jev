@@ -1064,6 +1064,9 @@ print(json.dumps({"prompt": prompt, "tokens": tokenizer.encode(prompt, add_speci
     free_projection = native.prism_bitnet_registered_projection_free
     free_projection.argtypes = [ctypes.c_void_p]
     free_projection.restype = None
+    projection_storage = native.prism_bitnet_registered_projection_storage_bytes_v1
+    projection_storage.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
+    projection_storage.restype = ctypes.c_int
 
     def check_projection_lifetime(blocks, values, reference):
         before = registry_size()
@@ -1074,6 +1077,9 @@ print(json.dumps({"prompt": prompt, "tokens": tokenizer.encode(prompt, add_speci
         assert create_projection(copied_blocks.ctypes.data_as(create_projection.argtypes[0]),
                                  tokens, rows, groups, ctypes.byref(handle)) == 0
         assert handle.value and registry_size() == before
+        resident_bytes, auxiliary_bytes = ctypes.c_size_t(99), ctypes.c_size_t(99)
+        assert projection_storage(handle, ctypes.byref(resident_bytes), ctypes.byref(auxiliary_bytes)) == 0
+        assert resident_bytes.value == rows * groups * 34 and auxiliary_bytes.value == 0
         copied_blocks.fill(255)
         calls, repacks = ctypes.c_size_t(0), ctypes.c_size_t(0)
         output = np.empty((tokens, rows), dtype=np.float32)

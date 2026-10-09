@@ -10,7 +10,7 @@ original conversation. Read this first, then follow the links for detail.
 
 1. The user resumed autonomous code-only implementation on 2026-10-09 under
   AGENTS.md. No further download, conversion or new artifact is authorized.
-2. Read the [template policy checkpoint](#template-policy-checkpoint-2026-10-09)
+2. Read the [resident weight checkpoint](#resident-weight-checkpoint-2026-10-09)
   below, then the [native checkpoint](#current-checkpoint-2026-10-08), whose
   last tested implementation commit remains `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
@@ -26,12 +26,70 @@ original conversation. Read this first, then follow the links for detail.
    container rebuild with host certificates. Verified files and headers are
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
-5. P0.1-P0.4 are implemented; next is the code-only P3 item of the
+5. P0.1-P0.4 and P3 resident compaction are implemented; remaining P3 work is
+  geometry and manifest-gated tensor selection in the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
    fixtures mirroring the verified Defiant Fable packaging; then P2 only with new
    approval. The MiMo layer-0 precision diagnostic also needs new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
+
+## Resident Weight Checkpoint (2026-10-09)
+
+This continuation began after the user's push of `1df6458`, with `main` matching
+`origin/main` and only the untracked user `.vscode/` directory. The first P3
+increment removes resident weight duplication from the registered trait and v1
+loader. Each owned 34-byte row/input-group block retains its original
+little-endian FP16 scale bits and repacks only its 32 code bytes to BitNet's
+separated high-bit-first lanes, in place. No full-size code copy or expanded
+FP32 scale array remains. Scale conversion occurs exactly at the grouped dot;
+no scale refit, code change or arithmetic-order change is introduced.
+
+Canonical PQ2 readback reconstructs bytes on demand, including arbitrary
+one-byte reads. File-policy validators remain non-mutating, preserving the v1
+complete-model factory's exact canonical target-byte comparison. Chunked upload,
+one repack, immutable weights, failed-input/no-score recovery, mixed read-only
+graphs and owned handles retain their existing contracts. New storage diagnostics
+report weight-tensor payload bytes separately from auxiliary weight arrays;
+these are not total process RSS or graph/A8 allocator measurements.
+
+The sole 4,096 x 12,288 frozen projection reports 13,369,344 resident weight
+payload bytes and zero auxiliary weight bytes, versus the prior 27,525,120-byte
+payload/duplicate-array basis. This is 2.125 bpw for those weight blocks, not
+the complete model, a 1.75-bpw format, edge fit or a speed claim. Original
+artifact files, independent FP16 row/group scales and all v1 model/tensor/name/
+shape/refusal bounds remain unchanged. Larger trait shapes and manifest-driven
+selection are the next P3 increment, not implemented by compaction alone.
+
+Verification: 17 standalone kernel tests passed, four optional checks skipped;
+the new three FP16-block cases match expanded-scale output exactly at 256,
+4,096 and 12,288 input widths, including zero/subnormal/maximum FP16 scales and
+transactional malformed-block refusal. The focused shared Prism control passed.
+The two full-size registered/PQ2 decoder gates passed in 59.00 s with the existing
+frozen artifact and owned-module reuse. A complete-model policy case initially
+skipped without its runtime variable; after rebuilding only our isolated wrapper,
+all nine synthetic dense/BitNet recurrent/attention prefill and v1 exact-policy
+cases passed in 5.50 s. No real complete-model inference or conversion ran.
+
+The default gate passed with **220 tests, 39 optional skips**, Ruff and whitespace
+clean; editor diagnostics are clean. Cached Prism/BitNet source revisions and
+GGML CPU/base SHA-256 values are unchanged; tracked upstream source is clean.
+GCC ASan/UBSan/leak controls pass early/late initialization, chunked upload,
+canonical readback, mixed graphs and teardown. Cached GGML is not instrumented;
+GCC emitted the existing `fclose` deleter attribute warnings. Disposable
+sanitizer binaries were deleted after verification.
+
+CMake Tools returned no targets/tests and could not configure this workspace,
+so the already-configured isolated runtime was rebuilt with `cmake --build`.
+The CTest tool likewise could not configure; no CTest result is claimed. The
+same early/late runtime behavior passed in the compiled pytest/sanitizer controls.
+No editor settings were changed to work around tool configuration. The cached
+CLI bridge and pinned upstream libraries were not overwritten; only the
+project-owned isolated wrapper targets were rebuilt.
+
+Next: geometry/manifest-gated larger projections beside unchanged v1 factories.
+No additional download, full-model conversion, fitting, retained candidate,
+held-out inference, push, branch or subagent is authorized or introduced.
 
 ## Template Policy Checkpoint (2026-10-09)
 

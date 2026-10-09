@@ -21,6 +21,9 @@ int prism_bitnet_cpu_tensor_status_v1(
 int prism_bitnet_cpu_tensor_last_input_tokens_v1(
     const struct ggml_tensor* weight, size_t* input_tokens);
 
+int prism_bitnet_cpu_tensor_storage_bytes_v1(
+    const struct ggml_tensor* weight, size_t* resident_weight_bytes, size_t* auxiliary_weight_bytes);
+
 struct llama_model_tensor_buft_override;
 
 int prism_bitnet_cpu_loader_override_from_gguf_v1(

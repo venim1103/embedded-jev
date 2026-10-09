@@ -650,11 +650,14 @@ any 9B-class profile also needs FFN gate/up (12,288 rows) and `q_proj` (8,192
 rows), plus linear-attention `in_proj_qkv` (8,192 rows) if it becomes eligible.
 Do not loosen v1. Add a versioned policy whose geometry and every quantized
 target's exact bytes come from a verified profile and artifact manifest, not
-from file tags alone. The current trait also retains the PQ2 block (34 bytes),
-repacked BitNet lanes (32 bytes) and an expanded FP32 scale (4 bytes) for every
-128 weights: about 4.4 bpw resident versus 2.125 bpw on disk. For MiMo's
-5,301,600,256 eligible parameters that is roughly 2.90 GB versus 1.41 GB, before
-A8 scratch; remove the duplication before quoting edge memory budgets.
+from file tags alone. The P3 resident compaction now keeps one 34-byte block per
+128 weights: original FP16 scale bits plus in-place BitNet code lanes, with
+canonical PQ2 reads reconstructed on demand. The former 34-byte PQ2 copy plus
+32-byte lanes and four-byte FP32 scale (about 4.4 bpw) are no longer all resident.
+The frozen projection's payload is 13,369,344 bytes with zero auxiliary weight
+array bytes, or 2.125 bpw for those blocks. A8/graph scratch, allocation overhead
+and untouched dense model tensors remain additional costs; this is not a
+whole-model resident budget, target-device guarantee or speed result.
 
 ### Numerical Order
 

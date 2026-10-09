@@ -61,7 +61,7 @@ def native_dot(tmp_path_factory):
         ctypes.POINTER(ctypes.c_float),
     ]
     batch.restype = ctypes.c_int
-    return function, batch, binary.bitnet_group_scale_prepare_a8
+    return function, batch, binary.bitnet_group_scale_prepare_a8, binary.bitnet_group_scale_matmul_fp16_avx2
 
 
 def pack_codes(codes):
@@ -251,6 +251,42 @@ def test_saved_fp16_group_scales_feed_native_batch(native_dot, groups):
     ).reshape(3, groups * 128)
     expected = np.einsum("ri,ti->tr", restored, scaled_activations)
     np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=0.01)
+
+
+@pytest.mark.parametrize("groups", [2, 32, 96])
+def test_resident_fp16_blocks_match_expanded_scale_kernel_exactly(native_dot, groups):
+    function = native_dot[3]
+    function.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_int8),
+                        ctypes.POINTER(ctypes.c_float), ctypes.c_size_t, ctypes.c_size_t,
+                        ctypes.c_size_t, ctypes.POINTER(ctypes.c_float)]
+    function.restype = ctypes.c_int
+    generator = np.random.default_rng(1519 + groups)
+    codes = generator.integers(-1, 2, size=(5, groups, 128), dtype=np.int8)
+    activations = generator.integers(-128, 128, size=(3, groups, 128), dtype=np.int8)
+    scales = generator.uniform(0, 1, size=(5, groups)).astype("<f2")
+    scales.reshape(-1)[:5] = [0, -0.0, np.nextafter(np.float16(0), np.float16(1)), 1, 65504]
+    activation_scales = generator.uniform(0.01, 0.2, size=(3, groups)).astype(np.float32)
+    blocks = np.concatenate((scales.view(np.uint8).reshape(5, groups, 2), pack_codes(codes)), axis=-1)
+    output = np.full((3, 5), -19, dtype=np.float32)
+    def compute(payload):
+        return function(payload.ctypes.data_as(function.argtypes[0]),
+                        activations.ctypes.data_as(function.argtypes[1]),
+                        activation_scales.ctypes.data_as(function.argtypes[2]),
+                        3, 5, groups, output.ctypes.data_as(function.argtypes[-1]))
+
+    assert compute(blocks) == 0
+    expected = call_native_batch(native_dot[1], codes, activations, scales.astype(np.float32), activation_scales)
+    np.testing.assert_array_equal(output, expected)
+    for scale_bits in (0xbc00, 0x7c00, 0x7e00):
+        invalid = blocks.copy()
+        invalid[-1, -1, :2] = [scale_bits & 255, scale_bits >> 8]
+        output.fill(-19)
+        assert compute(invalid) == 5
+        np.testing.assert_array_equal(output, -19)
+    invalid = blocks.copy()
+    invalid[-1, -1, -1] |= 3
+    assert compute(invalid) == 5
+    np.testing.assert_array_equal(output, -19)
 
 
 def test_compensated_artifact_executes_with_saved_scales(native_dot):
