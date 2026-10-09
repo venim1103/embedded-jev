@@ -1,6 +1,6 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-08. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-09. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
@@ -11,6 +11,18 @@ with zero generated answer tokens. Whole-model ternary export remains open.**
 The current checkpoint below supersedes the bootstrap-era status statements.
 Later sections retain the scope and results of individual historical probes;
 do not read a probe's limitations as the current status of every later path.
+
+**Documentation-only checkpoint, 2026-10-09:** The user-pushed starting point
+was `c8d4c5e`. The copied [agent workflow](../AGENTS.md) now uses this project's
+documentation paths, Python/native gates, numerical and resource boundaries,
+and scoped approval rules. The [public introduction](../README.md) is shortened
+to capabilities, maturity caveats, documentation links and licensing; its removed
+setup commands are already covered in the development guide. Scoped links,
+anchors, fences, Bash syntax, content and whitespace checks passed. No source,
+native or model gates were rerun; the implementation results below are unchanged.
+The user `.vscode/` directory remains untouched. **Automatic implementation is
+paused at the user's request until they explicitly resume it.** Another temporary
+complete-model conversion is not authorized by this documentation request.
 
 ## Current Checkpoint (2026-10-08)
 

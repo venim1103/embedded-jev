@@ -1,95 +1,41 @@
 # Embedded Jev
 
-An experimental on-device decision engine: present evidence, a question, and
-described options; score the options directly instead of generating an answer.
-The target is a ternary-quantized
+An experimental on-device decision engine built around
 [`MiMo-V2.6-Distill-Qwen-9B`](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B)
-running through **genuine BitNet-derived CPU kernels**, with a SemIf-style typed
-decision interface. Text comes first; vision and embedded x86, ARM, and RISC-V
-targets follow only after native validation.
+and a SemIf-style typed decision interface. Given evidence, a question and
+described options, it returns option IDs and conditional scores instead of
+generating an answer.
 
-**Status:** The CPU research environment, bounded inventory, and text-only
-tokenizer/processor checks work on the pinned model metadata. A small synthetic
-agent/tool fixture checks prompt and option-label mapping, not decision accuracy.
-Full-model ternary quantization remains open. Pinned
-MiMo text layers now stream in BF16 and produce no-generation A/B conditional
-scores from selected output-head rows. A bounded synthetic agent/tool fixture
-also returns typed option IDs with A-C conditional scores; these are not
-calibrated confidence or validated decisions. The complete pinned BF16 source
-snapshot (four SHA-256-verified shards, 760 indexed tensors) is cached outside
-this repository; an offline inventory reconciles its headers. One real FFN-down
-matmul can be replaced in the streamed BF16 text path by an in-memory
-BitNet-derived ternary/A8 AVX2 adapter. One hash-checked, packed projection
-fixture is retained outside Git; it is not a loadable quantized model or a
-quality result. Separately, a supported 1.19 GB native
-BitNet control checkpoint was loaded and prefilled without answer generation.
-Its A-C labels can be scored directly from final-position logits, but it is not
-a substitute for MiMo or evidence of decision quality or edge speed.
+The goal is a ternary-quantized MiMo model running through **genuine
+BitNet-derived CPU kernels**. Text comes first; vision and embedded-device
+support follow only after native validation.
 
-The last tested implementation checkpoint is `9408f3f` (2026-10-08): the frozen
-BitNet-derived projection runs inside real native 32-layer MiMo with counted
-dispatch, preserved FP16 group scales, typed conditional scores, and zero answer
-generation. Its approved temporary model was deleted; whole-model ternary export
-and exact native/streamed parity remain open. PQ2 alone is not BitNet dispatch.
-Bounded precision traces first diverge at layer 0, before the frozen projection;
-replaying that projection on identical native inputs is bit-for-bit exact.
-Fixture-only precision experiments are diagnostics, not quality acceptance.
-Independent native recurrent output/state and fused-gate controls now pass.
-Matching the Q/K norm rule alone worsens the measured selected-logit gap.
-Read the [current handover](docs/handover.md#current-checkpoint-2026-10-08)
-for recorded gates, reusable caches, constraints, and the next native task.
+## Status
 
-## Get Started
+The CPU text prototype runs MiMo's text path and scores options without
+generating answer tokens. A single quantized projection has also run inside
+native MiMo through BitNet-derived kernels. This is a research prototype, not
+a ready-to-deploy, fully ternary model.
 
-Open the repository in the [CPU devcontainer](.devcontainer/devcontainer.json),
-then from its workspace root run:
+Full-model ternary conversion, exact agreement across runtimes, representative
+decision quality and calibrated confidence remain open. Embedded-device
+performance, vision, and ARM/RISC-V support are not yet validated.
 
-```bash
-python .devcontainer/smoke.py
-PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider docs/test_research_math.py tests
-PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory
-```
-
-The inventory reads only small metadata and safetensors headers at the pinned
-MiMo revision; it does **not** fetch weight shards. Its JSON output reports
-tensor shapes, storage costs, initial ternary eligibility, and separate memory
-estimates. To inspect the locally cached full snapshot without network access:
-
-```bash
-snapshot="$HOME/.cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
-PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory --local-dir "$snapshot"
-```
-
-The audit and exact byte counts live in
-[the research notes](docs/research-audit.md) and
-[development guide](docs/development.md). Only the default remote inventory
-command needs a network connection; `--local-dir` and the tests do not.
-See the development guide for the
-optional, tokenizer-only [label-boundary probe](embedded_jev/label_probe.py).
-
-## Approach
-
-1. Establish a dense reference and validate the model's actual prompt and
-   tokenizer boundary for fixed answer labels.
-2. Preserve the function under matching activation/weight transforms; test
-   group-scaled ternary reconstruction against that reference.
-3. Run eligible projections through verified BitNet-derived CPU kernels without
-   losing scales or activation transforms, then return conditional option scores
-   without sampling output tokens.
-
-Ternary storage alone is not BitNet execution, and conditional option scores
-are not calibrated confidence or a reproduction of TypeSafe Jev's private model.
-This project is independent of TypeSafe, SemIf, and PrismML. Consult
-[the design](docs/design.md) before treating a format estimate as a runtime.
+Conditional scores are not calibrated confidence, and synthetic checks do not
+establish real-world accuracy. Ternary storage alone is not BitNet execution.
+This project is independent of TypeSafe, SemIf and PrismML; it does not reproduce
+TypeSafe Jev's private model.
 
 ## Documentation
 
-- [Roadmap](docs/roadmap.md): milestones, quality gates, and benchmarks.
-- [Design](docs/design.md): artifact, runtime, and typed-decision contracts.
-- [Research audit](docs/research-audit.md): verified facts, estimates, and open hypotheses.
-- [Development guide](docs/development.md): setup, tests, and inventory usage.
+- [Development guide](docs/development.md): setup, operation, tests and technical reference.
+- [Design](docs/design.md): architecture, numerical contracts and rationale.
+- [Roadmap](docs/roadmap.md): milestones and acceptance gates.
+- [Research audit](docs/research-audit.md): verified facts, estimates and hypotheses.
 - [Source register](docs/sources.md): upstream revisions and evidence limits.
-- [Engineering handover](docs/handover.md): detailed status for the next session.
+- [Engineering handover](docs/handover.md): implementation status and developer checkpoints.
+
+## License
 
 This repository's [license](LICENSE) does not supersede model, dataset, or
 third-party runtime licenses.
