@@ -1,5 +1,6 @@
 """Offline tests of exact final-position label tokenization."""
 
+import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -15,11 +16,15 @@ from embedded_jev.label_probe import (
     probe_label_boundary,
     probe_text_processor,
 )
+from embedded_jev.model_profile import MIMO_PROFILE_PATH, mimo_profile, parse_model_profile
 
 
 class FakeTokenizer:
     chat_template = "pinned template"
     all_special_ids = [0]
+
+    def convert_tokens_to_ids(self, token):
+        return 0 if token == "special" else None
 
     def apply_chat_template(self, messages, **options):
         assert messages == [{"role": "user", "content": "Choice?"}]
@@ -51,7 +56,38 @@ def test_labels_extend_the_non_thinking_prefix_without_generation():
     assert report["label_token_ids"] == {label: ord(label) for label in "ABCDEFGHIJKLMNOP"}
     assert report["prompt_token_count"] == 2
     assert report["generated_tokens"] == 0
+    assert report["model"] is None and report["revision"] is None
+    assert report["identity_verification"] == "unbound_tokenizer_inputs"
     assert report == probe_label_boundary(FakeTokenizer(), MESSAGES)
+
+
+def _label_profile_record():
+    record = json.loads(MIMO_PROFILE_PATH.read_bytes())
+    record["profile_id"] = "synthetic-labels"
+    record["source"].update(model="example/Labels", revision="9" * 40)
+    template = FakeTokenizer.chat_template.encode()
+    record["files"]["chat_template.jinja"] = {
+        "bytes": len(template), "sha256": hashlib.sha256(template).hexdigest(),
+    }
+    record["tokenization"]["special_token_ids"] = {"special": 0}
+    record["tokenization"]["label_token_ids"] = {label: ord(label) for label in "ABCDEFGHIJKLMNOP"}
+    return record
+
+
+def test_profile_bound_labels_derive_identity_and_refuse_template_or_token_drift():
+    record = _label_profile_record()
+    template = FakeTokenizer.chat_template.encode()
+    profile = parse_model_profile(json.dumps(record).encode())
+    report = probe_label_boundary(FakeTokenizer(), MESSAGES, profile=profile)
+    assert report["model"] == "example/Labels" and report["revision"] == "9" * 40
+    assert report["profile_id"] == "synthetic-labels" and report["profile_sha256"] == profile.sha256
+    record["files"]["chat_template.jinja"]["sha256"] = "0" * 64
+    with pytest.raises(LabelProbeError, match="template does not match"):
+        probe_label_boundary(FakeTokenizer(), MESSAGES, profile=parse_model_profile(json.dumps(record).encode()))
+    record["files"]["chat_template.jinja"]["sha256"] = hashlib.sha256(template).hexdigest()
+    record["tokenization"]["label_token_ids"]["B"] = 300
+    with pytest.raises(LabelProbeError, match="token ID does not match"):
+        probe_label_boundary(FakeTokenizer(), MESSAGES, profile=parse_model_profile(json.dumps(record).encode()))
 
 
 def test_rejects_ambiguous_or_unsupported_label_boundaries():
@@ -317,6 +353,8 @@ def test_calibration_capture_roundtrip_and_rejects_other_splits(tmp_path):
     assert reloaded == manifest and loaded.flags.writeable is False
     assert manifest["dataset"]["purpose"] == "synthetic_split_contract_smoke"
     assert manifest["dataset"]["split"] == "calibration"
+    assert manifest["schema_version"] == 2 and manifest["source"]["model"] is None
+    assert manifest["source"]["identity_verification"] == "unbound_activation_inputs"
     for case_id in ("edit-authorized", "publish-without-authorization"):
         with pytest.raises(DecisionDatasetError, match="requested split"):
             save_calibration_capture(
@@ -343,6 +381,73 @@ def test_calibration_capture_roundtrip_and_rejects_other_splits(tmp_path):
             dataset_sha256=digest, case_id="inspect-before-answer",
         )
     assert not (tmp_path / "changed").exists()
+
+
+def test_calibration_capture_binds_its_profile_and_refuses_transplant(tmp_path):
+    import numpy as np
+
+    from embedded_jev.decision_dataset import (
+        DecisionDatasetError, load_calibration_capture, load_decision_dataset, save_calibration_capture,
+    )
+
+    dataset_path = tmp_path / "decisions.json"
+    dataset_path.write_text(json.dumps(split_dataset_smoke()))
+    _, digest = load_decision_dataset(dataset_path)
+    profile = parse_model_profile(json.dumps(_label_profile_record()).encode())
+    values = np.zeros((2, 12288), dtype=np.float32)
+    directory = tmp_path / "capture"
+    manifest = save_calibration_capture(
+        directory, values, dataset_path=dataset_path, dataset_sha256=digest,
+        case_id="inspect-before-answer", profile=profile,
+    )
+    loaded, reloaded = load_calibration_capture(directory, profile=profile)
+    np.testing.assert_array_equal(loaded, values)
+    assert manifest == reloaded and manifest["source"]["model"] == "example/Labels"
+    assert manifest["source"]["profile_sha256"] == profile.sha256
+    with pytest.raises(DecisionDatasetError, match="does not match a verified model profile"):
+        load_calibration_capture(directory)
+    with pytest.raises(DecisionDatasetError, match="does not match a verified model profile"):
+        load_calibration_capture(directory, profile=mimo_profile())
+
+
+def test_calibration_legacy_readability_and_mixed_profile_refusal(tmp_path):
+    import numpy as np
+
+    from embedded_jev.decision_dataset import (
+        DecisionDatasetError, load_balanced_calibration_captures, load_calibration_capture,
+        load_decision_dataset, save_calibration_capture,
+    )
+
+    dataset_path = tmp_path / "decisions.json"
+    dataset_path.write_text(json.dumps(split_dataset_smoke()))
+    _, digest = load_decision_dataset(dataset_path)
+    values = np.zeros((2, 12288), dtype=np.float32)
+    profile = mimo_profile()
+    bound, unbound = tmp_path / "bound", tmp_path / "unbound"
+    manifest = save_calibration_capture(
+        bound, values, dataset_path=dataset_path, dataset_sha256=digest,
+        case_id="inspect-before-answer", profile=profile,
+    )
+    save_calibration_capture(
+        unbound, values, dataset_path=dataset_path, dataset_sha256=digest, case_id="inspect-before-answer",
+    )
+    with pytest.raises(DecisionDatasetError, match="different model profiles"):
+        load_balanced_calibration_captures([bound, unbound])
+    with pytest.raises(DecisionDatasetError, match="unbound calibration capture"):
+        load_calibration_capture(unbound, profile=profile)
+    legacy = {
+        **{key: manifest[key] for key in ("tensor", "transform", "shape", "dataset", "array")},
+        "schema_version": 1, "format": "single_case_mimo_calibration_activations",
+        "model": profile.model, "revision": profile.revision,
+    }
+    (bound / "manifest.json").write_text(json.dumps(legacy))
+    loaded, reloaded = load_calibration_capture(bound, profile=profile)
+    np.testing.assert_array_equal(loaded, values)
+    assert reloaded == legacy
+    legacy["revision"] = "main"
+    (bound / "manifest.json").write_text(json.dumps(legacy))
+    with pytest.raises(DecisionDatasetError, match="unsupported legacy"):
+        load_calibration_capture(bound)
 
 
 def test_streamed_capture_refuses_validation_and_held_out_before_model_import(tmp_path):
@@ -467,10 +572,11 @@ def test_calibration_capture_rejects_unsafe_manifest_or_arrays(tmp_path, defect)
 
 def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkeypatch):
     import math
+    from dataclasses import replace
 
     from embedded_jev import evaluation
     from embedded_jev.decision_dataset import DecisionDatasetError, load_decision_dataset
-    from embedded_jev.inventory import MODEL_ID, MODEL_REVISION
+    from embedded_jev.model_profile import profile_source
 
     path = tmp_path / "decisions.json"
     path.write_text(json.dumps(split_dataset_smoke()))
@@ -491,6 +597,7 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
     monkeypatch.setattr(evaluation, "native_backend_dependencies", lambda library, backend: deepcopy(dependencies))
     calls = []
     defect = None
+    profile = mimo_profile()
 
     def scorer(snapshot, **kwargs):
         calls.append(kwargs)
@@ -502,7 +609,7 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
             for index, (option, label, probability) in enumerate(zip(case["options"], "ABC", probabilities, strict=True))
         ]
         report = {
-            "model": MODEL_ID, "revision": MODEL_REVISION, "generated_tokens": 0, "layers": 32,
+            **profile_source(profile), "generated_tokens": 0, "layers": 32,
             "prompt_sha256": "1" * 64, "ffn_down_input_sha256": "3" * 64, "tokens": 82,
             "dataset": {"sha256": digest, "split": "held_out", "case_id": case["id"]},
             "native_ffn_down": {
@@ -527,6 +634,10 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
             report["ffn_down_input_sha256"] = "4" * 64
         elif native and defect == "case":
             report["dataset"]["case_id"] = "different-case"
+        elif native and defect == "profile":
+            report["profile_sha256"] = "0" * 64
+        elif not native and defect == "profile_record":
+            monkeypatch.setattr(evaluation, "mimo_profile", lambda: replace(profile, sha256="f" * 64))
         elif not native and defect == "dataset":
             changed = deepcopy(dataset)
             changed["provenance"]["source"] = "changed after reference run"
@@ -551,6 +662,7 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
         native_library=library, candidate=tmp_path / "candidate",
     )
     assert report["quantizer_fitting"] is False and report["generated_tokens"] == 0
+    assert report["profile_id"] == profile.profile_id and report["profile_sha256"] == profile.sha256
     assert report["dataset"]["purpose"] == "synthetic_split_contract_smoke"
     assert report["runtime_versions"]["python"]
     assert len(report["scoring_source_sha256"]["streamed_text.py"]) == 64
@@ -559,13 +671,14 @@ def test_pairwise_evaluator_reports_regressions_without_fitting(tmp_path, monkey
     assert len(calls) == 2 and all(call["split"] == "held_out" for call in calls)
     assert calls[1]["native_ffn_backend"] == report["native_backend"] == "direct"
     assert "calibration_output" not in calls[0] and "calibration_output" not in calls[1]
-    for defect in ("generation", "prompt", "mapping", "normalization", "logits", "tokens", "activation", "case", "dataset", "candidate", "kernel", "source", "runtime", "dependency", "backend_report"):
+    for defect in ("generation", "prompt", "mapping", "normalization", "logits", "tokens", "activation", "case", "profile", "profile_record", "dataset", "candidate", "kernel", "source", "runtime", "dependency", "backend_report"):
         path.write_text(json.dumps(dataset))
         identity["manifest_sha256"] = "0" * 64
         source_identity.update(original_sources)
         runtime_versions.update(original_versions)
         dependencies.clear()
         dependencies.update(deepcopy(original_dependencies))
+        monkeypatch.setattr(evaluation, "mimo_profile", lambda: profile)
         library.write_bytes(b"mock library")
         with pytest.raises(DecisionDatasetError):
             evaluation.compare_dataset_cases(

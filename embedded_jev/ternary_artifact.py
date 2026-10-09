@@ -9,6 +9,7 @@ import zipfile
 import numpy as np
 
 from embedded_jev.inventory import MODEL_ID, MODEL_REVISION, _json_object
+from embedded_jev.model_profile import ModelProfile, mimo_profile, profile_source
 from embedded_jev.ternary import reconstruct_ternary
 
 
@@ -227,23 +228,39 @@ def mimo_prism_expected_widths(inventory: dict, names: list[str]) -> dict[str, i
         or len(set(names)) != len(names)
     ):
         raise TernaryArtifactError("unverified MiMo inventory or Prism selection")
+    return profile_prism_expected_widths(inventory, names, profile=mimo_profile())
+
+
+def profile_prism_expected_widths(
+    inventory: dict, names: list[str], *, profile: ModelProfile,
+) -> dict[str, int]:
+    """Derive projection widths only from an inventory bound to this profile."""
+    source = inventory.get("source", {})
+    if (
+        any(source.get(key) != value for key, value in profile_source(profile).items())
+        or inventory.get("schema_version") != 1
+        or inventory.get("metadata_summary", {}).get("architecture") != profile.packaging["architecture"]
+        or not isinstance(names, list) or not 1 <= len(names) <= 16
+        or any(not isinstance(name, str) for name in names) or len(set(names)) != len(names)
+    ):
+        raise TernaryArtifactError("unverified profile inventory or Prism selection")
     tensors = {entry["name"]: entry for entry in inventory["tensors"]}
     widths = {}
     for name in names:
         match = PRISM_FOLDABLE.fullmatch(name) if isinstance(name, str) else None
         if match is None:
-            raise TernaryArtifactError("unsupported MiMo Prism projection")
+            raise TernaryArtifactError("unsupported profile Prism projection")
         hf_name = (
-            f"model.language_model.layers.{match[1]}."
+            f"{profile.packaging['text_prefix']}layers.{match[1]}."
             f"{HF_PROJECTION[match[2]]}.weight"
         )
         tensor = tensors.get(hf_name)
         if (
-            tensor is None or tensor["dtype"] != "BF16"
+            tensor is None or tensor["dtype"] not in profile.packaging["dtype_policy"]["language_projection"]
             or tensor["category"] != "language_projection"
             or not tensor["quantization_eligible"]
             or len(tensor["shape"]) != 2
         ):
-            raise TernaryArtifactError("missing or ineligible MiMo projection")
+            raise TernaryArtifactError("missing or ineligible profile projection")
         widths[name] = tensor["shape"][1]
     return widths

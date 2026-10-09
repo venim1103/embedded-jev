@@ -13,6 +13,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from embedded_jev.model_profile import (
+    ModelProfile, ProfileError, match_model_profile, profile_source, require_model_profile,
+)
+
 
 MODEL_ID = "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B"
 MODEL_REVISION = "2367e865d009c13ac81713a2878291d33ab28177"
@@ -429,10 +433,16 @@ def fetch_pinned_headers() -> tuple[dict[str, bytes], dict[str, tuple[bytes, int
         if second_file_bytes != file_bytes:
             raise InventoryError(f"shard size changed between range requests: {shard}")
         headers[shard] = (length_prefix + header, file_bytes)
+    try:
+        require_model_profile(metadata, headers)
+    except ProfileError as exc:
+        raise InventoryError(str(exc)) from exc
     return metadata, headers
 
 
-def read_local_headers(directory: Path) -> tuple[dict[str, bytes], dict[str, tuple[bytes, int]]]:
+def read_local_headers(
+    directory: Path, *, profile: ModelProfile | None = None,
+) -> tuple[dict[str, bytes], dict[str, tuple[bytes, int]]]:
     """Inspect a local snapshot without loading safetensors payloads into memory."""
     try:
         metadata = {}
@@ -465,13 +475,17 @@ def read_local_headers(directory: Path) -> tuple[dict[str, bytes], dict[str, tup
                     raise InventoryError(f"safetensors header exceeds allowed bounds: {shard}")
                 header = source.read(header_bytes)
             headers[shard] = (length_prefix + header, path.stat().st_size)
+        require_model_profile(metadata, headers, profile=profile)
         return metadata, headers
+    except ProfileError as exc:
+        raise InventoryError(str(exc)) from exc
     except OSError as exc:
         raise InventoryError(f"unable to read local model snapshot: {exc}") from exc
 
 
 def build_inventory(
-    metadata_files: Mapping[str, bytes], shard_headers: Mapping[str, tuple[bytes, int]]
+    metadata_files: Mapping[str, bytes], shard_headers: Mapping[str, tuple[bytes, int]],
+    *, profile: ModelProfile | None = None,
 ) -> dict:
     """Reconcile pinned index, complete shard headers, and explicit policy offline."""
     missing = set(REQUIRED_METADATA) - metadata_files.keys()
@@ -648,6 +662,10 @@ def build_inventory(
             * text["linear_value_head_dim"] * 4
         )
 
+    try:
+        source_identity = profile_source(match_model_profile(metadata_files, shard_headers, profile=profile))
+    except ProfileError as exc:
+        raise InventoryError(str(exc)) from exc
     return {
         "schema_version": 1,
         "metadata_summary": {
@@ -661,8 +679,7 @@ def build_inventory(
             "chat_template_file": "chat_template.jinja",
         },
         "source": {
-            "model": MODEL_ID,
-            "revision": MODEL_REVISION,
+            **source_identity,
             "metadata_files": {
                 name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
                 for name, data in sorted(metadata_files.items())

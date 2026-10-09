@@ -11,7 +11,7 @@ from pathlib import Path
 from embedded_jev.decision_dataset import (
     SPLITS, DecisionDatasetError, load_decision_dataset, select_dataset_case,
 )
-from embedded_jev.inventory import MODEL_ID, MODEL_REVISION
+from embedded_jev.model_profile import mimo_profile, profile_source
 from embedded_jev.projection_artifact import PINNED_SHARD_SHA256, load_projection_artifact
 from embedded_jev.streamed_text import native_backend_dependencies, run_streamed_text
 
@@ -47,9 +47,9 @@ def _runtime_versions() -> dict:
 
 
 def _case_observation(case: dict, dense: dict, native: dict) -> dict:
+    expected_source = profile_source(mimo_profile())
     if (
-        dense.get("model") != MODEL_ID or native.get("model") != MODEL_ID
-        or dense.get("revision") != MODEL_REVISION or native.get("revision") != MODEL_REVISION
+        any(report.get(key) != value for report in (dense, native) for key, value in expected_source.items())
         or dense.get("generated_tokens") != 0 or native.get("generated_tokens") != 0
         or dense.get("layers") != 32 or native.get("layers") != 32
         or dense.get("prompt_sha256") != native.get("prompt_sha256")
@@ -123,6 +123,7 @@ def compare_dataset_cases(
         raise DecisionDatasetError("comparison requires 1-4 unique case IDs, an explicit split, and a native library")
     dataset, digest = load_decision_dataset(dataset_path)
     cases = [select_dataset_case(dataset, split=split, case_id=case_id) for case_id in case_ids]
+    profile = mimo_profile()
     identity = _candidate_identity(candidate)
     source_identity = _source_identity()
     runtime_versions = _runtime_versions()
@@ -136,11 +137,12 @@ def compare_dataset_cases(
             current_library = hashlib.file_digest(source, "sha256").hexdigest()
         if (
             current != digest or _candidate_identity(candidate) != identity
+            or mimo_profile().sha256 != profile.sha256
             or current_library != library_digest or _source_identity() != source_identity
             or _runtime_versions() != runtime_versions
             or native_backend_dependencies(native_library, native_backend) != dependencies
         ):
-            raise DecisionDatasetError("dataset, candidate, native library, scoring source, or runtime changed during comparison")
+            raise DecisionDatasetError("dataset, profile, candidate, native library, scoring source, or runtime changed during comparison")
 
     results = []
     for case in cases:
@@ -164,7 +166,7 @@ def compare_dataset_cases(
     return {
         "schema_version": 1,
         "purpose": "fixed_candidate_pairwise_observations_not_calibrated_confidence",
-        "model": MODEL_ID, "revision": MODEL_REVISION,
+        **profile_source(profile),
         "dataset": {"sha256": digest, "purpose": dataset["purpose"], "provenance": dataset["provenance"], "split": split},
         "candidate": identity, "native_library_sha256": library_digest,
         "native_backend": native_backend,

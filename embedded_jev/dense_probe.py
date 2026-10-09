@@ -8,6 +8,7 @@ from pathlib import Path
 from embedded_jev.inventory import (
     InventoryError, _json_object, build_inventory, read_local_headers,
 )
+from embedded_jev.model_profile import ProfileError, mimo_profile, profile_source, verify_profile_files
 
 
 MAX_PREFIX_LAYERS = 4
@@ -43,6 +44,8 @@ def plan_text_prefix(metadata_files, shard_headers, *, layers: int = 4) -> dict:
     return {
         "model": report["source"]["model"],
         "revision": report["source"]["revision"],
+        "profile_id": report["source"]["profile_id"],
+        "profile_sha256": report["source"]["profile_sha256"],
         "layers": layers,
         "layer_types": text["layer_types"][:layers],
         "tensor_count": len(selected),
@@ -81,6 +84,8 @@ def plan_streamed_text(metadata_files, shard_headers, *, layers: int = 32) -> di
     return {
         "model": report["source"]["model"],
         "revision": report["source"]["revision"],
+        "profile_id": report["source"]["profile_id"],
+        "profile_sha256": report["source"]["profile_sha256"],
         "layers": layers,
         "layer_types": text["layer_types"][:layers],
         "embedding_bytes": indexed[embedding]["storage_bytes"],
@@ -101,6 +106,13 @@ def run_text_prefix(
         raise InventoryError("ternary comparison requires four dense prefix layers")
     if native_library is not None and not compare_ternary:
         raise InventoryError("native comparison requires ternary comparison")
+    profile = mimo_profile()
+    metadata, headers = read_local_headers(directory, profile=profile)
+    try:
+        verify_profile_files(profile, directory)
+    except ProfileError as exc:
+        raise InventoryError(str(exc)) from exc
+    plan = plan_text_prefix(metadata, headers, layers=layers)
     import torch
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
@@ -110,15 +122,13 @@ def run_text_prefix(
 
     from embedded_jev.label_probe import probe_label_boundary
 
-    metadata, headers = read_local_headers(directory)
-    plan = plan_text_prefix(metadata, headers, layers=layers)
     config = AutoConfig.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
     tokenizer = AutoTokenizer.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
     if chat_template:
         messages = [{"role": "user", "content": prompt}]
-        boundary = probe_label_boundary(tokenizer, messages)
+        boundary = probe_label_boundary(tokenizer, messages, profile=profile)
         encoded = tokenizer.apply_chat_template(
-            messages, tokenize=True, add_generation_prompt=True, enable_thinking=False,
+            messages, tokenize=True, **dict(profile.tokenization["render_arguments"]),
         )
         input_ids = torch.tensor([encoded["input_ids"]], dtype=torch.long)
     else:
@@ -173,8 +183,7 @@ def run_text_prefix(
     if not torch.isfinite(output.last_hidden_state).all():
         raise InventoryError("nonfinite dense prefix output")
     summary = {
-        "model": plan["model"],
-        "revision": plan["revision"],
+        **profile_source(profile),
         "layers": layers,
         "weight_bytes": plan["weight_bytes"],
         "tokens": input_ids.shape[1],

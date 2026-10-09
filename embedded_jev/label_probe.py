@@ -5,7 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from embedded_jev.inventory import InventoryError, MODEL_ID, MODEL_REVISION, _json_object
+from embedded_jev.inventory import InventoryError, _json_object
+from embedded_jev.model_profile import ModelProfile, mimo_profile, profile_source
 
 
 LABELS = tuple("ABCDEFGHIJKLMNOP")
@@ -27,24 +28,37 @@ class LabelProbeError(ValueError):
     """The pinned prompt and tokenizer cannot safely score fixed labels."""
 
 
-def probe_label_boundary(tokenizer, messages: list[dict], labels: tuple[str, ...] = LABELS) -> dict:
+def probe_label_boundary(
+    tokenizer, messages: list[dict], labels: tuple[str, ...] = LABELS,
+    *, profile: ModelProfile | None = None,
+) -> dict:
     """Check label IDs as continuations of the actual non-thinking chat prompt."""
     if not 2 <= len(labels) <= len(LABELS) or labels != LABELS[: len(labels)]:
         raise LabelProbeError("labels must be a prefix of A-P with 2-16 options")
     template = getattr(tokenizer, "chat_template", None)
     if not isinstance(template, str) or not template:
         raise LabelProbeError("missing model chat template")
-    prompt = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
-    )
-    if not isinstance(prompt, str) or not prompt.endswith(NON_THINKING_SUFFIX):
+    template_sha256 = hashlib.sha256(template.encode("utf-8")).hexdigest()
+    arguments = {"add_generation_prompt": True, "enable_thinking": False}
+    suffix = NON_THINKING_SUFFIX
+    if profile is not None:
+        expected_template = profile.files[profile.tokenization["template_file"]]
+        if len(template.encode("utf-8")) != expected_template.bytes or template_sha256 != expected_template.sha256:
+            raise LabelProbeError("loaded template does not match the model profile")
+        if any(
+            tokenizer.convert_tokens_to_ids(token) != token_id
+            for token, token_id in profile.tokenization["special_token_ids"].items()
+        ):
+            raise LabelProbeError("special token IDs do not match the model profile")
+        arguments = dict(profile.tokenization["render_arguments"])
+        suffix = profile.tokenization["non_thinking_suffix"]
+    prompt = tokenizer.apply_chat_template(messages, tokenize=False, **arguments)
+    if not isinstance(prompt, str) or not prompt.endswith(suffix):
         raise LabelProbeError("unexpected non-thinking assistant prefix")
     prefix_ids = tokenizer.encode(prompt, add_special_tokens=False)
     if not prefix_ids or any(type(token_id) is not int for token_id in prefix_ids):
         raise LabelProbeError("invalid prompt token IDs")
-    tokenized = tokenizer.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=True, enable_thinking=False
-    )
+    tokenized = tokenizer.apply_chat_template(messages, tokenize=True, **arguments)
     if not hasattr(tokenized, "get") or tokenized.get("input_ids") != prefix_ids:
         raise LabelProbeError("rendered prompt disagrees with template tokenization")
 
@@ -56,12 +70,14 @@ def probe_label_boundary(tokenizer, messages: list[dict], labels: tuple[str, ...
         token_id = candidate_ids[-1]
         if token_id in tokenizer.all_special_ids or token_id in label_ids.values():
             raise LabelProbeError(f"{label} is special or shares a token ID")
+        if profile is not None and token_id != profile.tokenization["label_token_ids"][label]:
+            raise LabelProbeError(f"{label} token ID does not match the model profile")
         label_ids[label] = token_id
 
     return {
-        "model": MODEL_ID,
-        "revision": MODEL_REVISION,
-        "template_sha256": hashlib.sha256(template.encode("utf-8")).hexdigest(),
+        **profile_source(profile),
+        "identity_verification": "profile_template_and_contextual_labels" if profile is not None else "unbound_tokenizer_inputs",
+        "template_sha256": template_sha256,
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         "prompt_token_count": len(prefix_ids),
         "label_token_ids": label_ids,
@@ -71,12 +87,14 @@ def probe_label_boundary(tokenizer, messages: list[dict], labels: tuple[str, ...
 
 
 def probe_text_processor(
-    processor, tokenizer, messages: list[dict], labels: tuple[str, ...] = LABELS
+    processor, tokenizer, messages: list[dict], labels: tuple[str, ...] = LABELS,
+    *, profile: ModelProfile | None = None,
 ) -> dict:
     """Require processor text inputs to match the validated prompt tokenization."""
-    report = probe_label_boundary(tokenizer, messages, labels)
+    report = probe_label_boundary(tokenizer, messages, labels, profile=profile)
     prompt = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+        messages, tokenize=False,
+        **(dict(profile.tokenization["render_arguments"]) if profile is not None else {"add_generation_prompt": True, "enable_thinking": False}),
     )
     encoded = processor(text=prompt, return_tensors=None)
     expected_ids = tokenizer.encode(prompt, add_special_tokens=False)
@@ -150,7 +168,9 @@ def validate_decision_cases(cases: list[dict]) -> None:
             raise LabelProbeError(f"duplicate options or unknown expected choice: {case_id}")
 
 
-def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[dict]:
+def probe_decision_cases(
+    tokenizer, cases: list[dict], processor=None, *, profile: ModelProfile | None = None,
+) -> list[dict]:
     """Check a small labeled fixture's option mapping and prompt boundaries."""
     validate_decision_cases(cases)
     reports = []
@@ -160,8 +180,8 @@ def probe_decision_cases(tokenizer, cases: list[dict], processor=None) -> list[d
         labels = LABELS[: len(options)]
         messages = decision_case_messages(case)
         report = (
-            probe_text_processor(processor, tokenizer, messages, labels)
-            if processor is not None else probe_label_boundary(tokenizer, messages, labels)
+            probe_text_processor(processor, tokenizer, messages, labels, profile=profile)
+            if processor is not None else probe_label_boundary(tokenizer, messages, labels, profile=profile)
         )
         case_report = {
             "id": case["id"],
@@ -211,6 +231,7 @@ def main() -> None:
     parser.add_argument("--processor", action="store_true", help="check text-only processor parity")
     parser.add_argument("--fixture", type=Path, help="check a bounded synthetic decision fixture")
     args = parser.parse_args()
+    profile = mimo_profile()
 
     import huggingface_hub
     import jinja2
@@ -222,22 +243,25 @@ def main() -> None:
     for name in sorted(ALLOWED_FILES | (PROCESSOR_FILES if args.processor else {})):
         if args.fetch:
             metadata = huggingface_hub.get_hf_file_metadata(
-                huggingface_hub.hf_hub_url(MODEL_ID, name, revision=MODEL_REVISION)
+                huggingface_hub.hf_hub_url(profile.model, name, revision=profile.revision)
             )
             _bounded_size(name, metadata.size, processor=args.processor)
         path = Path(
             huggingface_hub.hf_hub_download(
-                MODEL_ID, name, revision=MODEL_REVISION, local_files_only=not args.fetch
+                profile.model, name, revision=profile.revision, local_files_only=not args.fetch
             )
         )
         size = _bounded_size(name, path.stat().st_size, processor=args.processor)
         with path.open("rb") as file:
             digest = hashlib.file_digest(file, "sha256").hexdigest()
+        expected = profile.files[name]
+        if size != expected.bytes or digest != expected.sha256:
+            raise LabelProbeError(f"tokenizer file identity does not match the model profile: {name}")
         paths[name] = path
         sources[name] = {"bytes": size, "sha256": digest}
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        MODEL_ID, revision=MODEL_REVISION, trust_remote_code=False,
+        profile.model, revision=profile.revision, trust_remote_code=False,
         use_fast=True, local_files_only=True,
     )
     if tokenizer.chat_template != paths["chat_template.jinja"].read_text(encoding="utf-8"):
@@ -252,26 +276,26 @@ def main() -> None:
     }]
     processor = (
         transformers.AutoProcessor.from_pretrained(
-            MODEL_ID, revision=MODEL_REVISION, trust_remote_code=False, local_files_only=True
+            profile.model, revision=profile.revision, trust_remote_code=False, local_files_only=True
         ) if args.processor else None
     )
     if args.fixture is not None:
         fixture, digest = load_decision_fixture(args.fixture)
         report = {
-            "model": MODEL_ID,
-            "revision": MODEL_REVISION,
+            **profile_source(profile),
             "fixture_purpose": fixture["purpose"],
             "fixture_sha256": digest,
-            "cases": probe_decision_cases(tokenizer, fixture["cases"], processor),
+            "cases": probe_decision_cases(tokenizer, fixture["cases"], processor, profile=profile),
             "generated_tokens": 0,
         }
         if processor is not None:
             report["processor_class"] = type(processor).__name__
             report["processor_text_only"] = True
     elif processor is not None:
-        report = probe_text_processor(processor, tokenizer, messages)
+        report = probe_text_processor(processor, tokenizer, messages, profile=profile)
     else:
-        report = probe_label_boundary(tokenizer, messages)
+        report = probe_label_boundary(tokenizer, messages, profile=profile)
+    report["identity_verification"] = "tokenizer_file_hashes_and_contextual_labels"
     report["source_files"] = sources
     report["tool_versions"] = {
         "huggingface_hub": huggingface_hub.__version__,

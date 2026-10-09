@@ -28,6 +28,7 @@ from embedded_jev.ternary import quantize_ternary_rtn
 from embedded_jev.ternary_artifact import (
     TernaryArtifactError,
     mimo_prism_expected_widths,
+    profile_prism_expected_widths,
     prism_v1_transform_metadata,
     save_toy_artifact,
 )
@@ -392,6 +393,14 @@ def test_inventory_reconciles_and_estimates_bytes_deterministically():
     assert native_plan["target_generated_answer_tokens"] == 0
 
 
+def test_unverified_inventory_never_claims_pinned_model_identity():
+    metadata, headers = _model_fixture()
+    report = build_inventory(metadata, headers)
+    assert report["source"]["model"] is None and report["source"]["revision"] is None
+    assert report["source"]["profile_id"] is None
+    assert report["source"]["identity_verification"] == "unbound_header_inputs"
+
+
 def test_native_reference_plan_excludes_optional_payloads_without_shrinking_head():
     metadata, shards = _model_fixture()
     report = build_inventory(metadata, shards)
@@ -413,7 +422,10 @@ def test_local_inventory_reads_bounded_headers_without_weight_payload(tmp_path, 
             destination.write(prefix)
             destination.truncate(size)
     monkeypatch.setattr(inventory, "_open_bounded", lambda *args, **kwargs: pytest.fail("network read"))
-    local_metadata, local_headers = inventory.read_local_headers(tmp_path)
+    profile = parse_model_profile(json.dumps(_profile_fixture()).encode())
+    with pytest.raises(InventoryError, match="no verified model profile"):
+        inventory.read_local_headers(tmp_path)
+    local_metadata, local_headers = inventory.read_local_headers(tmp_path, profile=profile)
     assert local_metadata == metadata and local_headers == shards
     assert build_inventory(local_metadata, local_headers)["totals"] == build_inventory(
         metadata, shards
@@ -425,6 +437,54 @@ def test_local_inventory_reads_bounded_headers_without_weight_payload(tmp_path, 
     (tmp_path / next(iter(shards))).unlink()
     with pytest.raises(InventoryError, match="unable to read local model snapshot"):
         inventory.read_local_headers(tmp_path)
+
+
+def test_local_inventory_binds_a_second_profile_without_mimo_identity(tmp_path):
+    metadata, headers = _model_fixture()
+    record = _profile_fixture()
+    record["profile_id"] = "synthetic-second"
+    record["source"].update(model="example/Second", revision="3" * 40)
+    metadata["config.json"] += b"\n"
+    record["files"]["config.json"] = {
+        "bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest(),
+    }
+    profile = parse_model_profile(json.dumps(record).encode())
+    for name, data in metadata.items():
+        (tmp_path / name).write_bytes(data)
+    for name, (prefix, size) in headers.items():
+        with (tmp_path / name).open("wb") as destination:
+            destination.write(prefix)
+            destination.truncate(size)
+    with pytest.raises(InventoryError, match="no verified model profile"):
+        inventory.read_local_headers(tmp_path)
+    local_metadata, local_headers = inventory.read_local_headers(tmp_path, profile=profile)
+    report = build_inventory(local_metadata, local_headers, profile=profile)
+    assert report["source"]["model"] == "example/Second"
+    assert report["source"]["revision"] == "3" * 40
+    assert report["source"]["profile_id"] == "synthetic-second"
+    assert report["source"]["profile_sha256"] == profile.sha256
+    with pytest.raises(InventoryError, match="shard file set"):
+        build_inventory(local_metadata, local_headers, profile=mimo_profile())
+    original_profile = parse_model_profile(json.dumps(_profile_fixture()).encode())
+    with pytest.raises(InventoryError, match="metadata identity"):
+        build_inventory(local_metadata, local_headers, profile=original_profile)
+
+
+@pytest.mark.parametrize("runner", [run_text_prefix, run_streamed_text])
+def test_unknown_scoring_source_is_refused_before_model_import(tmp_path, monkeypatch, runner):
+    import sys
+
+    metadata, headers = _model_fixture()
+    for name, data in metadata.items():
+        (tmp_path / name).write_bytes(data)
+    for name, (prefix, size) in headers.items():
+        with (tmp_path / name).open("wb") as destination:
+            destination.write(prefix)
+            destination.truncate(size)
+    monkeypatch.setitem(sys.modules, "torch", None)
+    monkeypatch.setitem(sys.modules, "transformers", None)
+    with pytest.raises(InventoryError, match="shard file set"):
+        runner(tmp_path, layers=1, prompt="never scored")
 
 
 def test_dense_prefix_plan_rejects_oversized_or_unsupported_layers(monkeypatch):
@@ -686,6 +746,8 @@ def test_pinned_fetch_only_reads_metadata_and_exact_header_ranges(monkeypatch):
         )
 
     monkeypatch.setattr(inventory, "urlopen", fake_urlopen)
+    profile = parse_model_profile(json.dumps(_profile_fixture()).encode())
+    monkeypatch.setattr("embedded_jev.model_profile.mimo_profile", lambda: profile)
     fetched_metadata, fetched_shards = inventory.fetch_pinned_headers()
     assert fetched_metadata == metadata
     assert fetched_shards == shards
@@ -746,8 +808,9 @@ def test_local_bf16_rows_read_complete_width_with_exact_offsets(tmp_path, monkey
             destination.write(data)
             raw_rows.append(data)
     monkeypatch.setattr(weight_slice, "_open_bounded", lambda *args, **kwargs: pytest.fail("network read"))
+    profile = parse_model_profile(json.dumps(_profile_fixture()).encode())
     values, source = weight_slice.read_local_bf16_projection_rows(
-        tmp_path, name=name, start_row=1, rows=2,
+        tmp_path, name=name, start_row=1, rows=2, profile=profile,
     )
     np.testing.assert_array_equal(values, np.array([[1.25] * 2048, [-2.5] * 2048]))
     assert source["payload_bytes"] == 2 * row_bytes
@@ -755,10 +818,10 @@ def test_local_bf16_rows_read_complete_width_with_exact_offsets(tmp_path, monkey
     assert source["full_weight_hash"] == "not_checked_local_rows_only"
     for request in ({"rows": 5}, {"start_row": 1023, "rows": 2}, {"name": "lm_head.weight"}):
         with pytest.raises(InventoryError):
-            weight_slice.read_local_bf16_projection_rows(tmp_path, **request)
+            weight_slice.read_local_bf16_projection_rows(tmp_path, profile=profile, **request)
     monkeypatch.setattr(weight_slice, "MAX_LOCAL_PAYLOAD_BYTES", row_bytes)
     with pytest.raises(InventoryError, match="payload budget"):
-        weight_slice.read_local_bf16_projection_rows(tmp_path, name=name, rows=2)
+        weight_slice.read_local_bf16_projection_rows(tmp_path, name=name, rows=2, profile=profile)
 
 
 def test_bounded_bf16_slice_rejects_invalid_requests_before_fetch(monkeypatch):
@@ -890,7 +953,8 @@ def test_local_projection_streams_sparse_rows_without_copying_weights(tmp_path, 
         destination.write(bits.tobytes() * 2048)
     monkeypatch.setattr(weight_slice, "DEFAULT_TENSOR", indexed_name)
     monkeypatch.setattr(weight_slice, "_open_bounded", lambda *args, **kwargs: pytest.fail("network read"))
-    report = weight_slice.screen_local_projection(tmp_path)
+    profile = parse_model_profile(json.dumps(_profile_fixture()).encode())
+    report = weight_slice.screen_local_projection(tmp_path, profile=profile)
     assert report["tensor"] == indexed_name and report["rows"] == 1024
     assert report["columns"] == 2048 and report["rows_per_batch"] == 64
     assert report["policies"]["maxabs"]["weight_mse"] == 0.0
@@ -898,25 +962,30 @@ def test_local_projection_streams_sparse_rows_without_copying_weights(tmp_path, 
     assert report["policies"]["searched_fp16"]["nonzero_fraction"] == 1 / 1024
     monkeypatch.setattr(weight_slice, "MAX_STREAM_TENSOR_BYTES", 4096)
     with pytest.raises(InventoryError, match="stream screen bounds"):
-        weight_slice.screen_local_projection(tmp_path)
+        weight_slice.screen_local_projection(tmp_path, profile=profile)
 
 
-def test_prism_candidate_widths_come_from_pinned_eligible_hf_headers():
+def test_prism_candidate_widths_come_from_profile_verified_eligible_hf_headers():
     metadata, shards = _model_fixture()
-    report = build_inventory(metadata, shards)
+    profile = parse_model_profile(json.dumps(_profile_fixture()).encode())
+    report = build_inventory(metadata, shards, profile=profile)
     names = ["blk.0.ffn_down.weight", "blk.0.ffn_gate.weight", "blk.0.attn_q.weight"]
-    widths = mimo_prism_expected_widths(report, names)
+    widths = profile_prism_expected_widths(report, names, profile=profile)
     assert widths == {
         "blk.0.ffn_down.weight": 2048,
         "blk.0.ffn_gate.weight": 1024,
         "blk.0.attn_q.weight": 1024,
     }
     with pytest.raises(TernaryArtifactError, match="unverified MiMo"):
-        mimo_prism_expected_widths({**report, "source": {**report["source"], "revision": "main"}}, names)
+        mimo_prism_expected_widths(report, names)
+    with pytest.raises(TernaryArtifactError, match="unverified profile"):
+        profile_prism_expected_widths(
+            {**report, "source": {**report["source"], "revision": "main"}}, names, profile=profile,
+        )
     with pytest.raises(TernaryArtifactError, match="missing or ineligible"):
-        mimo_prism_expected_widths(report, ["blk.1.ffn_down.weight"])
-    with pytest.raises(TernaryArtifactError, match="unsupported MiMo"):
-        mimo_prism_expected_widths(report, ["blk.0.ssm_out.weight"])
+        profile_prism_expected_widths(report, ["blk.1.ffn_down.weight"], profile=profile)
+    with pytest.raises(TernaryArtifactError, match="unsupported profile"):
+        profile_prism_expected_widths(report, ["blk.0.ssm_out.weight"], profile=profile)
 
     codes, scales = quantize_ternary_rtn(np.ones((2, 256), dtype=np.float32))
     payload = save_toy_artifact(
@@ -925,5 +994,5 @@ def test_prism_candidate_widths_come_from_pinned_eligible_hf_headers():
     )
     with pytest.raises(TernaryArtifactError, match="logical input width mismatch"):
         prism_v1_transform_metadata(
-            {names[0]: payload}, expected_widths=mimo_prism_expected_widths(report, [names[0]])
+            {names[0]: payload}, expected_widths=profile_prism_expected_widths(report, [names[0]], profile=profile)
         )

@@ -16,6 +16,7 @@ from embedded_jev.inventory import (
     fetch_pinned_headers,
     read_local_headers,
 )
+from embedded_jev.model_profile import ModelProfile, mimo_profile, profile_source, require_model_profile
 from embedded_jev.ternary import (
     prepare_block_diagonal_factors,
     prepare_compensation_factors,
@@ -38,13 +39,15 @@ DEFAULT_TENSOR = "model.language_model.layers.3.mlp.down_proj.weight"
 
 def read_local_bf16_projection_rows(
     directory: Path, *, name=DEFAULT_TENSOR, start_row: int = 0, rows: int = 4,
+    profile: ModelProfile | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Read at most four complete projection rows from a local pinned snapshot."""
     if type(start_row) is not int or start_row < 0 or type(rows) is not int or not 1 <= rows <= MAX_ROWS:
         raise InventoryError("unsupported local BF16 row request")
 
-    metadata, shard_headers = read_local_headers(directory)
-    report = build_inventory(metadata, shard_headers)
+    metadata, shard_headers = read_local_headers(directory, profile=profile)
+    profile = require_model_profile(metadata, shard_headers, profile=profile)
+    report = build_inventory(metadata, shard_headers, profile=profile)
     tensor = next((entry for entry in report["tensors"] if entry["name"] == name), None)
     if tensor is None or tensor["dtype"] != "BF16" or not tensor["quantization_eligible"]:
         raise InventoryError("local BF16 rows require an indexed eligible projection")
@@ -76,8 +79,7 @@ def read_local_bf16_projection_rows(
     if not np.isfinite(values).all():
         raise InventoryError("local BF16 rows contain nonfinite values")
     return values, {
-        "model": report["source"]["model"],
-        "revision": report["source"]["revision"],
+        **profile_source(profile),
         "tensor": name,
         "shard": shard,
         "start_row": start_row,
@@ -272,13 +274,16 @@ def screen_local_calibrated_slice(
         load_balanced_calibration_captures, load_calibration_capture, load_decision_dataset,
     )
 
-    activations, manifest = load_calibration_capture(capture_dir)
+    profile = mimo_profile()
+    activations, manifest = load_calibration_capture(capture_dir, profile=profile)
     selection = None
     capture_dataset = manifest["dataset"]
     if additional_capture_dirs is not None and not isinstance(additional_capture_dirs, list):
         raise InventoryError("additional calibration captures must be a bounded path list")
     if additional_capture_dirs:
-        activations, selection = load_balanced_calibration_captures([capture_dir] + additional_capture_dirs)
+        activations, selection = load_balanced_calibration_captures(
+            [capture_dir] + additional_capture_dirs, profile=profile,
+        )
         capture_dataset = selection["dataset"]
     if (dataset_path is None) != (validation_case_id is None):
         raise InventoryError("live validation requires a dataset and an explicit validation case id")
@@ -369,10 +374,11 @@ def screen_full_width_synthetic(weights) -> dict:
     }
 
 
-def screen_local_projection(directory: Path) -> dict:
+def screen_local_projection(directory: Path, *, profile: ModelProfile | None = None) -> dict:
     """Stream one pinned projection through in-memory RTN reconstruction checks."""
-    metadata, shard_headers = read_local_headers(directory)
-    report = build_inventory(metadata, shard_headers)
+    metadata, shard_headers = read_local_headers(directory, profile=profile)
+    profile = require_model_profile(metadata, shard_headers, profile=profile)
+    report = build_inventory(metadata, shard_headers, profile=profile)
     tensor = next((entry for entry in report["tensors"] if entry["name"] == DEFAULT_TENSOR), None)
     if tensor is None or tensor["dtype"] != "BF16" or not tensor["quantization_eligible"]:
         raise InventoryError("stream screen requires the pinned eligible BF16 projection")
@@ -436,8 +442,7 @@ def screen_local_projection(directory: Path) -> dict:
             result.pop("row_mse"), [0, 50, 95, 99, 100]
         ).tolist()
     return {
-        "model": report["source"]["model"],
-        "revision": report["source"]["revision"],
+        **profile_source(profile),
         "tensor": DEFAULT_TENSOR,
         "rows": rows,
         "columns": columns,

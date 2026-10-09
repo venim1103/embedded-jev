@@ -10,14 +10,14 @@ original conversation. Read this first, then follow the links for detail.
 
 1. The user resumed autonomous code-only implementation on 2026-10-09 under
   AGENTS.md. No further download, conversion or new artifact is authorized.
-2. Read the [profile record checkpoint](#profile-record-checkpoint-2026-10-09)
+2. Read the [verified identity checkpoint](#verified-identity-checkpoint-2026-10-09)
   below, then the [native checkpoint](#current-checkpoint-2026-10-08), whose
   last tested implementation commit remains `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
    MiMo as the first test subject and most derivatives as the eventual aim (see
-   the [support tiers](design.md#support-tiers-for-derivatives)). Existing tools
-   are MiMo-pinned and label output with MiMo's identity whatever directory they
-   read; never point them at another checkpoint (see the
+  the [support tiers](design.md#support-tiers-for-derivatives)). Existing real-model
+  tools verify MiMo's profile before loading; other packagings and execution
+  profiles remain unsupported. Never point them at another checkpoint (see the
    [coupling inventory](development.md#mimo-coupling-inventory)).
 4. The user selected DavidAU's Defiant Fable safetensors source at `7af0a9c4` as
    the first non-MiMo profile. Its approved
@@ -25,12 +25,67 @@ original conversation. Read this first, then follow the links for detail.
    container rebuild with host certificates. Verified files and headers are
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
-5. P0.1 is implemented; next are the code-only P0.2-P0.4 and P3 items of the
+5. P0.1-P0.2 are implemented; next are the code-only P0.3-P0.4 and P3 items of the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
    fixtures mirroring the verified Defiant Fable packaging; then P2 only with new
    approval. The MiMo layer-0 precision diagnostic also needs new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
+
+## Verified Identity Checkpoint (2026-10-09)
+
+P0.1 was committed locally as `2f659d0`. P0.2 now derives inventory identity
+from an exact profile match. Local readers and pinned remote-header fetches
+refuse unmatched metadata/shard sets, sizes or hashes before payload reads.
+Raw analytical header/tokenizer fixtures remain explicitly unbound (`model` and
+`revision` are null), never implicitly labelled MiMo. Explicit synthetic second
+profiles report only their own identity; the existing MiMo Prism-width entry
+point rejects them, beside a new verified-profile width mapper.
+
+The real prefix/streamed scorers require the MiMo record and all 13 nonweight
+file hashes before model imports or trace creation. Summaries carry the profile
+ID/fingerprint. Label probes bind exact templates, rendering arguments, suffixes,
+special IDs and contextual label IDs; CLI file fingerprints are checked before
+loading. Existing model/candidate/native-policy names and numerical contracts
+are unchanged. Header identity remains a cheap check, not full payload
+authentication; full shard hashes are not rerun here.
+
+New calibration manifests are v2: raw arrays are unbound unless the caller
+supplies the verified profile. Bound captures cannot be transplanted to another
+profile; fitting consumers refuse unbound captures, and balanced banks refuse
+mixed identities. Legacy v1 MiMo captures remain readable without rewriting or
+retroactively claiming a profile fingerprint. Paired evaluation requires both
+reports' profile fingerprints and freezes the profile record across the run.
+The evaluator still requires the sole MiMo candidate; no other-model scoring
+or candidate inheritance is introduced.
+
+Verification: 102 focused inventory/label/data/evaluation cases passed; the
+default gate passed with **194 tests and 39 optional skips**, Ruff, whitespace
+and editor diagnostics clean. In the existing CPU dense environment (Torch
+2.10.0+cpu, Transformers 5.12.1), the cached tokenizer's bound/unbound prompt
+bytes and IDs are identical: 46 tokens, A-P 32-47, prompt SHA-256
+`325474ab1f04150179209c0bd4c8c34bac284ffccda18788b481b4c6f92208be`,
+zero generated tokens and no weight loading. All four cached v1 training
+captures load read-only; their balanced 128 x 12,288 array still hashes to
+`7e49c6d52dd93a2386425d0850a2680d56f2222aff765373422f40dacaaf9866`.
+The existing frozen projection passes its code/scale/manifest hash checks with
+unchanged 4,096 x 12,288 geometry and source revision. No fitting or writes to
+those caches followed. Optional native/full-model inference gates were not run.
+
+Failed-check history: the full inventory slice initially exposed a tiny fixture
+that relied on false MiMo identity to enter the legacy width mapper. It now
+uses its own verified profile, while the MiMo refusal remains strict. The local
+guard then exposed an incorrect expected first-refusal message and an HTTP
+transport fixture without a registered synthetic record. Both were repaired
+without bypassing production checks; the same focused slice passed afterward.
+No numerical tolerance, payload/token bound or execution refusal was relaxed.
+
+Next: P0.3 packaging adapters and a record derived from the verified Defiant
+Fable metadata/header cache; then P0.4 untrusted template-control refusals and
+P3 native geometry/resident-storage work. Current CLI model execution remains
+MiMo-only. No download, complete-model conversion, new retained candidate,
+held-out inference, push, branch or subagent was introduced; user `.vscode/`
+remains untouched.
 
 ## Profile Record Checkpoint (2026-10-09)
 

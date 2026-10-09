@@ -356,3 +356,43 @@ def verify_profile_files(profile: ModelProfile, directory: Path, names=None) -> 
                 raise ProfileError(f"file identity does not match the model profile: {name}")
         except OSError as exc:
             raise ProfileError(f"unable to verify model profile file: {name}: {exc}") from exc
+
+
+def match_model_profile(
+    metadata_files: Mapping[str, bytes], shard_headers: Mapping[str, tuple[bytes, int]],
+    *, profile: ModelProfile | None = None,
+) -> ModelProfile | None:
+    """Identify verified headers, never infer identity from a directory name."""
+    if profile is not None:
+        verify_profile_headers(profile, metadata_files, shard_headers)
+        return profile
+    for candidate in (mimo_profile(),):
+        try:
+            verify_profile_headers(candidate, metadata_files, shard_headers)
+        except ProfileError:
+            continue
+        return candidate
+    return None
+
+
+def require_model_profile(
+    metadata_files: Mapping[str, bytes], shard_headers: Mapping[str, tuple[bytes, int]],
+    *, profile: ModelProfile | None = None,
+) -> ModelProfile:
+    """Refuse unknown sources before a local model or payload reader can run."""
+    identified = match_model_profile(metadata_files, shard_headers, profile=profile)
+    if identified is None:
+        raise ProfileError("no verified model profile matches the local files")
+    return identified
+
+
+def profile_source(profile: ModelProfile | None) -> dict:
+    """Report verified identity or explicitly unbound analytical header inputs."""
+    return {
+        "model": profile.model if profile is not None else None,
+        "revision": profile.revision if profile is not None else None,
+        "profile_id": profile.profile_id if profile is not None else None,
+        "profile_sha256": profile.sha256 if profile is not None else None,
+        "license": profile.license if profile is not None else None,
+        "identity_verification": "metadata_and_shard_headers" if profile is not None else "unbound_header_inputs",
+    }

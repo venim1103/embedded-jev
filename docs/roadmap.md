@@ -64,7 +64,7 @@ item touches.
 | Order | Work | Downloads or compute | Acceptance evidence |
 | --- | --- | --- | --- |
 | P0.1 | Implemented 2026-10-09: strict versioned profile schema and MiMo record built from existing verified hashes and geometry | None | 24 focused cases; all 17 file pins, four cached headers and recorded geometry match; malformed, duplicate and unknown fields refuse |
-| P0.2 | Derive identity from verified local files in inventory, label probe, streamed reports, captures and evaluation; refuse unmatched directories | None | Synthetic second-profile header fixtures can never be labelled MiMo; MiMo results unchanged apart from recorded identity and source hashes |
+| P0.2 | Implemented 2026-10-09: file-verified inventory, label, streamed, capture and evaluation identity; unmatched directories refuse | None | 102 focused cases; second-profile fixtures never claim MiMo; cached prompt bytes/IDs and legacy capture/candidate hashes preserved; full-model inference not rerun |
 | P0.3 | Packaging adapters: prefix rule, index-listed shard names (padded, unpadded or extra), recomputed index totals, MTP presence and completeness, per-class dtype policy, profile-supplied template suffix | None | Offline fixtures for multimodal, text-only, MTP-bearing, incomplete-MTP, restored-shard and F32-norm layouts pass or refuse exactly as declared |
 | P0.4 | Template policy: pinned rendering arguments and mode, declared control syntax refused in untrusted fields, separate hash for GGUF-embedded templates | None | Synthetic templates with in-band markers refuse marked evidence; MiMo prompt bytes, hashes and label IDs unchanged |
 | P1 | Metadata-only preflight of the selected Defiant Fable source: pinned files, header inventory, tokenizer/template label probe, plus the `plusIQ` header-and-sample comparison | Done 2026-10-09 within the approved bounds; see the [results](development.md#preflight-results) | Reconciled inventory and budgets, verified non-thinking suffix and label IDs, sampled GGUF comparison; no other weights read |
@@ -75,9 +75,10 @@ item touches.
 | P6 | Wrapped-decoder adapter (Tier B): static nested-configuration reader, declared prefix rename, text-only conversion, no repository code | Metadata for fixtures; real conversion needs approval | Renamed tensors keep payload hashes; geometry comes from the nested configuration; licence terms recorded |
 | P7 | Depth variants (Tier D): layer count and pattern from the profile throughout Python, traces and native policy; explicit recurrent-layer array for irregular patterns | None for synthetic fixtures; real models need approval | Synthetic 48-layer and irregular-pattern fixtures; MiMo results unchanged; budgets recomputed |
 
-The user resumed code-only implementation on 2026-10-09 under AGENTS.md. P0.1's
-record does not yet enforce report identity or provide model selection; P0.2 is
-next. No new download, conversion or model-quality experiment is authorized.
+The user resumed code-only implementation on 2026-10-09 under AGENTS.md. P0.1 and
+P0.2 now provide strict records and bound MiMo reports, not a generic execution
+CLI. P0.3 packaging and P0.4 template-control refusal are next. No new download,
+conversion or model-quality experiment is authorized.
 P0, P3 and the synthetic parts of P5-P7 can proceed without another model.
 Milestones 2-6 below still apply to each profile before quantization, quality,
 calibration or device claims. The user selected the Defiant Fable safetensors

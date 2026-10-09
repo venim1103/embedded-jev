@@ -9,6 +9,7 @@ import numpy as np
 
 from embedded_jev.inventory import MODEL_ID, MODEL_REVISION, InventoryError, _json_object
 from embedded_jev.label_probe import LabelProbeError, validate_decision_cases
+from embedded_jev.model_profile import ModelProfile, mimo_profile, profile_source
 from embedded_jev.weight_slice import DEFAULT_TENSOR
 
 
@@ -87,16 +88,20 @@ def select_dataset_case(dataset: dict, *, split: str, case_id: str) -> dict:
 
 def save_calibration_capture(
     directory: Path, values, *, dataset_path: Path, dataset_sha256: str, case_id: str,
+    profile: ModelProfile | None = None,
 ) -> dict:
     """Save bounded unrotated input features for a validated calibration case only."""
     dataset, digest = load_decision_dataset(dataset_path)
     if not isinstance(dataset_sha256, str) or digest != dataset_sha256:
         raise DecisionDatasetError("decision dataset changed since activation capture was planned")
     case = select_dataset_case(dataset, split="calibration", case_id=case_id)
+    width = profile.geometry["intermediate_size"] if profile is not None else 12288
+    if width > 12288 or (profile is not None and profile.geometry["num_hidden_layers"] < 4):
+        raise DecisionDatasetError("profile exceeds the bounded layer-3 capture contract")
     activations = np.asarray(values)
     if (
         activations.ndim != 2 or activations.dtype != np.float32
-        or not 1 <= activations.shape[0] <= MAX_CAPTURE_TOKENS or activations.shape[1] != 12288
+        or not 1 <= activations.shape[0] <= MAX_CAPTURE_TOKENS or activations.shape[1] != width
         or not np.isfinite(activations).all()
     ):
         raise DecisionDatasetError("invalid calibration activation shape, dtype, or values")
@@ -108,11 +113,13 @@ def save_calibration_capture(
     with path.open("rb") as source:
         array_digest = hashlib.file_digest(source, "sha256").hexdigest()
     manifest = {
-        "schema_version": 1,
-        "format": "single_case_mimo_calibration_activations",
-        "model": MODEL_ID,
-        "revision": MODEL_REVISION,
-        "tensor": DEFAULT_TENSOR,
+        "schema_version": 2,
+        "format": "single_case_profile_calibration_activations",
+        "source": {
+            **profile_source(profile),
+            "identity_verification": "profile_bound_activation_capture" if profile is not None else "unbound_activation_inputs",
+        },
+        "tensor": f"{profile.packaging['text_prefix']}layers.3.mlp.down_proj.weight" if profile is not None else DEFAULT_TENSOR,
         "transform": "identity",
         "shape": list(activations.shape),
         "dataset": {
@@ -125,7 +132,35 @@ def save_calibration_capture(
     return manifest
 
 
-def load_calibration_capture(directory: Path) -> tuple[np.ndarray, dict]:
+def _capture_profile(source: dict, profile: ModelProfile | None) -> ModelProfile | None:
+    if not isinstance(source, dict) or set(source) != set(profile_source(None)):
+        raise DecisionDatasetError("invalid calibration profile identity")
+    unbound = {**profile_source(None), "identity_verification": "unbound_activation_inputs"}
+    if source == unbound:
+        if profile is not None:
+            raise DecisionDatasetError("unbound calibration capture cannot be used for a model profile")
+        return None
+    candidates = (profile,) if profile is not None else (mimo_profile(),)
+    for candidate in candidates:
+        expected = {**profile_source(candidate), "identity_verification": "profile_bound_activation_capture"}
+        if source == expected:
+            return candidate
+    raise DecisionDatasetError("calibration capture does not match a verified model profile")
+
+
+def _capture_source(manifest: dict) -> dict:
+    if manifest["schema_version"] == 2:
+        return manifest["source"]
+    return {
+        "model": manifest["model"], "revision": manifest["revision"],
+        "profile_id": None, "profile_sha256": None, "license": None,
+        "identity_verification": "legacy_mimo_manifest",
+    }
+
+
+def load_calibration_capture(
+    directory: Path, *, profile: ModelProfile | None = None,
+) -> tuple[np.ndarray, dict]:
     """Check a calibration-only array and its provenance before memory-mapped reuse."""
     try:
         with (directory / "manifest.json").open("rb") as source:
@@ -133,15 +168,32 @@ def load_calibration_capture(directory: Path) -> tuple[np.ndarray, dict]:
         if len(data) > 64 << 10:
             raise DecisionDatasetError("calibration manifest exceeds byte budget")
         manifest = _json_object(data, "calibration capture manifest")
+        version = manifest.get("schema_version")
+        if type(version) is not int or version not in (1, 2):
+            raise DecisionDatasetError("unsupported calibration capture manifest")
+        common_fields = {"schema_version", "format", "tensor", "transform", "shape", "dataset", "array"}
+        if version == 1:
+            if (
+                set(manifest) != common_fields | {"model", "revision"}
+                or manifest["format"] != "single_case_mimo_calibration_activations"
+                or manifest["model"] != MODEL_ID or manifest["revision"] != MODEL_REVISION
+                or (profile is not None and (profile.model != MODEL_ID or profile.revision != MODEL_REVISION))
+            ):
+                raise DecisionDatasetError("unsupported legacy calibration capture manifest")
+            width, tensor = 12288, DEFAULT_TENSOR
+        else:
+            if set(manifest) != common_fields | {"source"} or manifest["format"] != "single_case_profile_calibration_activations":
+                raise DecisionDatasetError("unsupported calibration capture manifest")
+            identified = _capture_profile(manifest["source"], profile)
+            width = identified.geometry["intermediate_size"] if identified is not None else 12288
+            tensor = f"{identified.packaging['text_prefix']}layers.3.mlp.down_proj.weight" if identified is not None else DEFAULT_TENSOR
+            if width > 12288 or (identified is not None and identified.geometry["num_hidden_layers"] < 4):
+                raise DecisionDatasetError("profile exceeds the bounded layer-3 capture contract")
         if (
-            set(manifest) != {"schema_version", "format", "model", "revision", "tensor", "transform", "shape", "dataset", "array"}
-            or type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1
-            or manifest["format"] != "single_case_mimo_calibration_activations"
-            or manifest["model"] != MODEL_ID or manifest["revision"] != MODEL_REVISION
-            or manifest["tensor"] != DEFAULT_TENSOR or manifest["transform"] != "identity"
+            manifest["tensor"] != tensor or manifest["transform"] != "identity"
             or not isinstance(manifest["shape"], list) or len(manifest["shape"]) != 2
             or any(type(size) is not int for size in manifest["shape"])
-            or not 1 <= manifest["shape"][0] <= MAX_CAPTURE_TOKENS or manifest["shape"][1] != 12288
+            or not 1 <= manifest["shape"][0] <= MAX_CAPTURE_TOKENS or manifest["shape"][1] != width
         ):
             raise DecisionDatasetError("unsupported calibration capture manifest")
         dataset = manifest["dataset"]
@@ -179,6 +231,7 @@ def load_calibration_capture(directory: Path) -> tuple[np.ndarray, dict]:
 
 def load_balanced_calibration_captures(
     directories: list[Path], *, max_tokens: int = MAX_CAPTURE_TOKENS,
+    profile: ModelProfile | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Balance a bounded token budget across calibration cases from one frozen dataset."""
     if (
@@ -186,12 +239,16 @@ def load_balanced_calibration_captures(
         or type(max_tokens) is not int or not len(directories) <= max_tokens <= MAX_CAPTURE_TOKENS
     ):
         raise DecisionDatasetError("balanced calibration requires 1-4 captures and at most 128 tokens")
-    captures = [load_calibration_capture(directory) for directory in directories]
+    captures = [load_calibration_capture(directory, profile=profile) for directory in directories]
     first = captures[0][1]["dataset"]
+    source = _capture_source(captures[0][1])
+    tensor = captures[0][1]["tensor"]
     identity = {key: first[key] for key in ("sha256", "purpose", "provenance", "split")}
     case_ids = set()
     for _, manifest in captures:
         dataset = manifest["dataset"]
+        if _capture_source(manifest) != source or manifest["tensor"] != tensor:
+            raise DecisionDatasetError("calibration captures belong to different model profiles")
         if {key: dataset[key] for key in identity} != identity:
             raise DecisionDatasetError("calibration captures belong to different datasets or purposes")
         if dataset["case_id"] in case_ids:
@@ -211,7 +268,7 @@ def load_balanced_calibration_captures(
     combined = np.ascontiguousarray(np.concatenate(selected, axis=0), dtype=np.float32)
     combined.setflags(write=False)
     return combined, {
-        "dataset": identity, "shape": list(combined.shape), "tensor": DEFAULT_TENSOR,
+        "dataset": identity, "shape": list(combined.shape), "tensor": tensor, "source": source,
         "sampling": "equal_case_quota_even_token_indices_no_validation_or_held_out",
         "captures": records, "sha256": hashlib.sha256(combined.tobytes()).hexdigest(),
     }

@@ -30,16 +30,16 @@ their versions; model identity, calibration captures and results do not transfer
 Another download, conversion, fitted candidate or quality experiment still
 requires the corresponding explicit approval.
 
-**Identity warning.** The existing tools do not verify that a directory is the
-pinned MiMo snapshot: `MODEL_ID` and `MODEL_REVISION` are constants attached to
-every inventory, label-probe, streamed, capture and evaluation report. Other
-packagings are refused only incidentally (shard names, prefixes, template suffix,
-dtype or architecture checks); a checkpoint packaged exactly like MiMo would be
-accepted and labelled as MiMo. Never pass another checkpoint to `--local-dir`,
-`MIMO_LOCAL_DIR` or the native MiMo policy. Until the roadmap's
-[P0 identity work](roadmap.md#generalization-work-queue) lands, no repository
-command can safely inspect or run another model; a new profile's preflight is a
-manual, approved metadata review.
+**Identity boundary.** P0.2 now checks local metadata hashes and shard sizes/header
+hashes against the [MiMo record](../embedded_jev/profiles/mimo.json) before model
+loading or bound reporting. The tokenizer CLI also verifies cached file hashes;
+real scorers check all nonweight files before importing model dependencies. Raw
+header/tokenizer fixtures without a verified record have null model/revision,
+not an assumed MiMo identity. Header checks do not authenticate weight payloads;
+full shard hashing remains an onboarding/artifact gate. Existing CLI execution,
+remote downloads and native policy are still MiMo-only. Never pass another
+checkpoint to `--local-dir`, `MIMO_LOCAL_DIR` or the native MiMo policy; P0.3
+packaging adapters and other profiles' runtime gates remain open.
 
 ### Offline Model Profile Records
 
@@ -59,10 +59,18 @@ reading payloads. `verify_profile_files()` hashes bounded nonweight files and
 refuses weight shards or files over 32 MiB. Full shard hashing remains an
 onboarding/artifact-creation gate; a header check never authenticates payloads.
 
-These helpers are not yet wired into inventory, tokenization or scoring reports;
-the identity warning above still applies until P0.2. The current default gate is
-187 passed, 39 optional skips. The 24 profile cases are model-free; the additional
-cache check verified all nonweight files and recorded geometry without inference.
+P0.2 wires the helpers into local/pinned header readers, inventory, tokenization,
+real MiMo scoring, captures and paired evaluation. `build_inventory(...,
+profile=record)` and the bounded local row-reader APIs can bind explicit offline
+fixtures; they do not supply a generic model-execution CLI. Unmatched raw header
+inputs remain unbound, while unmatched directories are refused. The original
+MiMo Prism-width mapper remains MiMo-only; `profile_prism_expected_widths()`
+requires an inventory bound to the supplied record.
+
+The current default gate is 194 passed, 39 optional skips; 102 focused
+inventory/label/data/evaluation cases pass. Cached MiMo metadata, tokenizer and
+legacy captures were verified without full-model inference. Full weight hashes
+and optional native/model gates were not rerun for this Python-only change.
 
 ### MiMo Coupling Inventory
 
@@ -73,16 +81,16 @@ the current code; the last column names the profile field or
 
 | Location | MiMo-specific assumption | Effect on another checkpoint | Replacement |
 | --- | --- | --- | --- |
-| [inventory.py](../embedded_jev/inventory.py) `MODEL_ID`, `MODEL_REVISION`, `MODEL_URL` | Identity constants; remote fetch only for MiMo | Reports from any accepted `--local-dir` claim MiMo's identity | Identity verified from files (P0.2) |
+| [inventory.py](../embedded_jev/inventory.py) `MODEL_ID`, `MODEL_REVISION`, `MODEL_URL` | Remote URL remains MiMo-only; reports now match verified files to a profile | Unmatched directories refuse; unbound raw fixtures have null identity | P0.2 implemented; packaging/selection still P0.3 |
 | inventory.py `_model_config`, `REQUIRED_METADATA` | `Qwen3_5ForConditionalGeneration`, untied embeddings, processor files and classes | Text-only `Qwen3_5ForCausalLM` exports, custom-code wrappers such as ZDTaichu, and releases without `processor_config.json`, such as the Defiant Fable source, refused | Architecture class, modality and nested-configuration path (P0.3, P6) |
 | inventory.py `SHARD_NAME` | `model-NNNNN-of-NNNNN.safetensors` | Base `model.safetensors-*`, unpadded `model-N-of-M` and extra restored shards refused | Shard names from the pinned index (P0.3) |
 | inventory.py index reconciliation | `total_size` equals header tensor bytes; shards numbered 1 to N | A merge index with a stale total or an extra MTP shard refused | Recomputed totals with any mismatch recorded (P0.3) |
 | inventory.py `LAYER_NAME`, `_classify`, `_required_weights` | `model.language_model.` prefix, MiMo vision names, `lm_head.weight` | Text-only `model.*` names refused | Prefix rule (P0.3) |
-| [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | MiMo's `<think></think>` suffix, MiMo identity in reports, MiMo-only `--fetch`; template rendered with only `enable_thinking=False` | Base template refused; other accepted tokenizers labelled MiMo; no pinning of other rendering arguments or refusal of in-band markers | Profile template policy and identity (P0.2-P0.4) |
+| [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | Unbound fixtures retain the fallback suffix; explicit profiles pin template/suffix/arguments/IDs; CLI fetch remains MiMo-only | Raw tokenizers are unbound; explicit records verify rendering, but in-band controls are not yet refused | P0.2 implemented; control refusal still P0.4 |
 | [dense_probe.py](../embedded_jev/dense_probe.py) `plan_text_prefix`, `plan_streamed_text` | Prefixed names; every text tensor BF16 | Profiles with F32 small tensors refused | Per-class dtype policy (P0.3) |
 | [streamed_text.py](../embedded_jev/streamed_text.py) | Layer-3 FFN-down substitution and capture, 4,096 x 12,288 shapes, untied `lm_head.weight` reader, 32 layers for full-vocabulary mass, seed-773 signs | Checkpoints packaged like MiMo run but inherit MiMo labels; depth variants unsupported | Profile target list, head reader and layer count (P7) |
 | [projection_artifact.py](../embedded_jev/projection_artifact.py), [evaluation.py](../embedded_jev/evaluation.py) | `PINNED_SHARD`, `PINNED_SHARD_SHA256`, MiMo identity and 32 layers | Artifacts and evaluations MiMo-only | Profile ID plus tensor payload SHA-256 |
-| [decision_dataset.py](../embedded_jev/decision_dataset.py) captures | `single_case_mimo_calibration_activations`, MiMo identity, layer-3 tensor, width 12,288 | Captures labelled MiMo | Capture manifest binds the verified profile |
+| [decision_dataset.py](../embedded_jev/decision_dataset.py) captures | New v2 manifests bind a supplied profile or remain unbound; v1 MiMo remains read-only compatible; bounded layer-3 inputs | Cross-profile reuse and mixed capture banks refuse; raw arrays do not claim MiMo | P0.2 implemented; depth/target generalization still P7 |
 | [weight_slice.py](../embedded_jev/weight_slice.py), [ternary_artifact.py](../embedded_jev/ternary_artifact.py) | `DEFAULT_TENSOR`, MiMo-only fetch and identity, multimodal prefix | Refused or mislabelled | Profile tensor names and identity |
 | [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | At most 4,096 rows, 96 groups and 128 tokens; only `blk.3.ffn_down.weight` | FFN gate/up and `q_proj` cannot be represented | Geometry-driven bounds or row tiling (P3) |
 | Native v1 complete-model factory | MiMo revision and model tags, 427 tensors, 32/4,096/12,288, 248,320 vocabulary, at most 19 GiB, one layer-3 target | Every other file refused, including MTP-bearing, third-party and 48-layer GGUF files | Versioned profile-driven policy (P4, P5, P7) |
@@ -675,6 +683,14 @@ Only a BF16 run with at least four layers may capture inputs. Validation and
 held-out splits are rejected before model imports; the writer also resolves
 the case strictly from calibration. At most 128 x 12,288 float32 values are
 saved in a non-pickle NumPy array, accompanied by a hashed provenance manifest.
+New manifests use v2 `single_case_profile_calibration_activations` with a
+`source` block carrying the profile ID/fingerprint. The scorer supplies its
+verified MiMo profile. Calling `save_calibration_capture()` on raw arrays without
+that explicit profile produces unbound data, which model-fitting consumers
+refuse. `load_calibration_capture(..., profile=record)` checks the selected
+identity; balanced banks may not mix profiles or bound/unbound captures.
+Legacy v1 `single_case_mimo_calibration_activations` remains readable as a legacy
+declaration, without rewriting its manifest or inventing a profile fingerprint.
 The dataset digest must still match the pre-inference digest before writing.
 Reload is read-only and checks byte sizes, hash, dtype, shape, finiteness, and
 calibration role. Existing captures are not overwritten. Synthetic captures

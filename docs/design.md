@@ -4,7 +4,8 @@ Status: proposed architecture, first written 2026-09-25; implementation status
 checked 2026-10-08; model-family portability and derivative support tiers
 reviewed 2026-10-09. Bounded ternary quantizers, the streamed BF16 text
 reference, and a frozen BitNet-derived FFN inside real native MiMo now exist.
-Strict profile-record parsing now exists. Whole-model ternary export,
+Strict profile-record parsing and verified MiMo report identity now exist.
+Whole-model ternary export,
 profile-aware model execution and deployment services remain open.
 The [current handover](handover.md#current-checkpoint-2026-10-08) records the
 tested implementation checkpoint, cache paths, constraints, and next native task.
@@ -47,8 +48,9 @@ equate direct option scoring with the model's generated reasoning capabilities.
 ### Model Profiles and Portability
 
 A model profile separates checkpoint identity from shared decision,
-quantization and kernel contracts. The strict v1 record and bounded identity
-verifiers are implemented; selection and report wiring remain open, as described
+quantization and kernel contracts. The strict v1 record, bounded identity
+verifiers and MiMo report wiring are implemented; packaging adapters and broader
+model execution remain open, as described
 in the [development guide](development.md#offline-model-profile-records).
 For each selected model, bind:
 
@@ -265,17 +267,26 @@ quantized artifacts stay outside Git. It should contain at least:
    contracts, artifact manifests bound by source tensor payload SHA-256, and links
    to the gates that passed for this profile.
 
-Identity must be derived, never assumed. Current MiMo tools take the model ID and
-revision from constants and attach them to inventories, label probes, streamed
-reports, calibration captures and evaluations regardless of the directory read.
-A profile-aware path must verify local files against one profile record before
-emitting any report or artifact, refuse directories that match no record, and
-keep MiMo's existing results bound to MiMo. Per-run checks can stay cheap:
+Identity must be derived, never assumed. P0.2 verifies local files against the
+MiMo record before bound inventories, label probes, streamed reports, captures
+and evaluations. Unmatched directories refuse; raw analytical inputs without
+a record remain explicitly unbound. The existing real-model paths still accept
+only MiMo, not every Tier A checkpoint. New profiles must retain this verification
+boundary, including refusing ambiguous matches rather than choosing the first
+profile with matching metadata. Per-run checks can stay cheap:
 metadata-file hashes, shard sizes and safetensors header hashes. Full shard
 SHA-256 belongs to onboarding and to artifact creation, as the frozen candidate
 already requires; header hashes alone do not authenticate payload bytes. Reuse a
 derived result across profiles only when the source tensor payload hashes are
 identical.
+
+New calibration captures bind an explicit profile fingerprint in a v2 manifest;
+raw array inputs are unbound, not MiMo by default. Fitting requires a matching
+profile, and balanced banks cannot mix identities. Legacy v1 captures retain
+their historical declaration and format, without retroactive hash claims.
+Paired evaluation freezes and compares the profile record as well as existing
+data/candidate/runtime inputs. Packaging and template-control enforcement remain
+separate P0.3/P0.4 work; record parsing alone does not validate another model.
 
 #### Shared Versus Per-Profile Contracts
 

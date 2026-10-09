@@ -14,6 +14,7 @@ import numpy as np
 from embedded_jev.decision_dataset import SPLITS, load_decision_dataset, save_calibration_capture
 from embedded_jev.dense_probe import MAX_PREFIX_TOKENS, plan_streamed_text
 from embedded_jev.inventory import InventoryError, _json_object, build_inventory, read_local_headers
+from embedded_jev.model_profile import ProfileError, mimo_profile, profile_source, verify_profile_files
 from embedded_jev.label_probe import (
     LABELS, decision_case_messages, load_decision_fixture, probe_decision_cases,
     probe_label_boundary,
@@ -510,6 +511,13 @@ def run_streamed_text(
         or split not in ("calibration", "validation") or layers < 4 or native_ffn_library is not None
     ):
         raise InventoryError("activation observer requires a BF16 calibration or validation dataset prefix")
+    profile = mimo_profile()
+    metadata, headers = read_local_headers(directory, profile=profile)
+    try:
+        verify_profile_files(profile, directory)
+    except ProfileError as exc:
+        raise InventoryError(str(exc)) from exc
+    plan = plan_streamed_text(metadata, headers, layers=layers)
     import torch
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
@@ -544,8 +552,6 @@ def run_streamed_text(
     def round_linear_input(_module, arguments):
         return (arguments[0].to(torch.bfloat16).float(), *arguments[1:])
 
-    metadata, headers = read_local_headers(directory)
-    plan = plan_streamed_text(metadata, headers, layers=layers)
     config = AutoConfig.from_pretrained(directory, local_files_only=True, trust_remote_code=False)
     if compute_dtype == "ggml_bf16_rhs_qk" and config.text_config.rms_norm_eps != 1e-6:
         raise InventoryError("native Q/K diagnostic requires the pinned 1e-6 norm epsilon")
@@ -559,7 +565,7 @@ def run_streamed_text(
         else:
             fixture, fixture_digest = load_decision_fixture(fixture_path)
             cases = fixture["cases"]
-        case_reports = probe_decision_cases(tokenizer, cases)
+        case_reports = probe_decision_cases(tokenizer, cases, profile=profile)
         matching = [
             (case, case_report)
             for case, case_report in zip(cases, case_reports, strict=True)
@@ -575,11 +581,11 @@ def run_streamed_text(
     else:
         messages = [{"role": "user", "content": prompt}]
         label_count = label_count or 2
-    boundary = probe_label_boundary(tokenizer, messages, LABELS[:label_count])
+    boundary = probe_label_boundary(tokenizer, messages, LABELS[:label_count], profile=profile)
     if not 1 <= boundary["prompt_token_count"] <= MAX_PREFIX_TOKENS:
         raise InventoryError("streamed text prompt exceeds token budget")
     encoded = tokenizer.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=True, enable_thinking=False,
+        messages, tokenize=True, **dict(profile.tokenization["render_arguments"]),
     )
     input_ids = torch.tensor([encoded["input_ids"]], dtype=torch.long)
     weight_map = _json_object(metadata["model.safetensors.index.json"], "model.safetensors.index.json")["weight_map"]
@@ -691,8 +697,7 @@ def run_streamed_text(
         raise InventoryError("nonfinite streamed final norm")
     trace_stage("final_norm", hidden[:, -1:])
     summary = {
-        "model": plan["model"],
-        "revision": plan["revision"],
+        **profile_source(profile),
         "layers": layers,
         "tokens": input_ids.shape[1],
         "output_shape": list(hidden.shape),
@@ -741,6 +746,7 @@ def run_streamed_text(
         capture_manifest = save_calibration_capture(
             calibration_output, captured[0].numpy().reshape(-1, 12288),
             dataset_path=dataset_path, dataset_sha256=dataset_digest, case_id=case_id,
+            profile=profile,
         )
         summary["calibration_capture"] = {"path": str(calibration_output), "manifest": capture_manifest}
     if native_diagnostics is not None:
