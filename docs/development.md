@@ -9,7 +9,10 @@ development image, not the eventual minimal edge deployment image.
 The intended system supports multiple Qwen3.5 9B-class models.
 MiMo-V2.6-Distill-Qwen-9B is the first test subject, not a permanent model
 requirement. Broader compatibility is planned, not implemented by changing a
-model path. No successor model/revision has been selected or validated here.
+model path. On 2026-10-09 the user selected DavidAU's Defiant Fable safetensors
+source as the first non-MiMo profile. It is not validated, no repository command
+supports it yet, and its approved metadata preflight has not run; see the
+[preflight procedure](#defiant-fable-preflight-procedure).
 
 The commands, `MIMO_*` environment variables, cached snapshot, fixed tensor
 paths, token IDs, frozen projection and complete-model policy below describe
@@ -48,7 +51,7 @@ the current code; the last column names the profile field or
 | Location | MiMo-specific assumption | Effect on another checkpoint | Replacement |
 | --- | --- | --- | --- |
 | [inventory.py](../embedded_jev/inventory.py) `MODEL_ID`, `MODEL_REVISION`, `MODEL_URL` | Identity constants; remote fetch only for MiMo | Reports from any accepted `--local-dir` claim MiMo's identity | Identity verified from files (P0.2) |
-| inventory.py `_model_config`, `REQUIRED_METADATA` | `Qwen3_5ForConditionalGeneration`, untied embeddings, processor files and classes | Text-only `Qwen3_5ForCausalLM` exports and custom-code wrappers such as ZDTaichu refused | Architecture class, modality and nested-configuration path (P0.3, P6) |
+| inventory.py `_model_config`, `REQUIRED_METADATA` | `Qwen3_5ForConditionalGeneration`, untied embeddings, processor files and classes | Text-only `Qwen3_5ForCausalLM` exports, custom-code wrappers such as ZDTaichu, and releases without `processor_config.json` (absent from the Defiant Fable listing) refused | Architecture class, modality and nested-configuration path (P0.3, P6) |
 | inventory.py `SHARD_NAME` | `model-NNNNN-of-NNNNN.safetensors` | Base `model.safetensors-*`, unpadded `model-N-of-M` and extra restored shards refused | Shard names from the pinned index (P0.3) |
 | inventory.py index reconciliation | `total_size` equals header tensor bytes; shards numbered 1 to N | A merge index with a stale total or an extra MTP shard refused | Recomputed totals with any mismatch recorded (P0.3) |
 | inventory.py `LAYER_NAME`, `_classify`, `_required_weights` | `model.language_model.` prefix, MiMo vision names, `lm_head.weight` | Text-only `model.*` names refused | Prefix rule (P0.3) |
@@ -73,6 +76,68 @@ MTP layer has no tensors. No adapter exists yet for float-GGUF sources, wrapped
 decoders or depth variants; see the
 [support tiers](design.md#support-tiers-for-derivatives). Never execute code
 shipped in a model repository to inspect it.
+
+### Defiant Fable Preflight Procedure
+
+On 2026-10-09 the user selected DavidAU's Defiant Fable safetensors source as the
+first non-MiMo profile and approved one bounded metadata preflight, including the
+`plusIQ` GGUF header-and-sample comparison. It has not run: HTTPS certificate
+verification from this container failed (see the
+[environment pitfall](handover.md#13-environment-pitfalls-already-encountered)).
+The approval covers only the steps and budget below. A full snapshot (about
+19.3 GB), conversion, inference or retained weights need separate approval.
+
+| Item | Source repository | GGUF repository |
+| --- | --- | --- |
+| Hub ID | `DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP` | `DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF` |
+| Revision | `7af0a9c4e221e01b246b3c577fbb7110b79823e8` | `8b192a8e203440d6492a133f6cdfa4bf7bffac98` |
+| In scope | Non-weight files, including `backup/`; headers of the four numbered shards and `model-mtp-restored.safetensors`; sampled tensor ranges | Header and sampled tensor ranges of `Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf` |
+| Hub-displayed facts | Shards of about 4.94, 4.99, 4.95 and 4.35 GB; 67.1 MB restored shard; 20 MB `tokenizer.json`; 6.72 MB `vocab.json`; no `merges.txt` or `processor_config.json` listed | 18,407,330,272 bytes; SHA-256 `6a772118b107772fb83d111fec59e54b139c993fe6dc4906288a3bb81178705d` |
+
+Run the steps in order with throwaway scripts outside the repository. Do not run
+the MiMo `inventory`, `label_probe` or native tools against these files.
+
+1. Confirm that ordinary verified HTTPS works. Never pass `-k`, `verify=False` or
+   any option that disables certificate or checksum verification.
+2. Read both tree listings at the pinned revisions through the Hub API, including
+   `backup/`, and record each path, size, Git blob ID and LFS SHA-256. Stop if the
+   GGUF size or SHA-256 differs from the table.
+3. Download every source file except weights and images into
+   `$HOME/.cache/huggingface/embedded-jev/models/defiant-fable-7af0a9c4-metadata/`
+   (about 47 MB), verifying each Git blob ID or LFS SHA-256.
+4. Range-read each safetensors header: the 8-byte little-endian length (refuse
+   above 16 MiB), then the JSON. Save each header with its SHA-256. Reconcile it
+   with the index: names, BF16 dtypes, shapes, contiguous offsets and file sizes.
+   Count text (427 expected), vision and MTP tensors, recompute total bytes and
+   record the index `total_size` shortfall (67,108,864 bytes expected).
+5. Probe the tokenizer and template from the downloaded files with the dense
+   environment's Transformers 5.12.1 and `trust_remote_code=False`. Use MiMo's
+   default label-probe prompt and the five
+   [fixture cases](../tests/fixtures/agent_tool_smoke.json), rendered with
+   `add_generation_prompt=True` and `enable_thinking=False`. Require the base
+   suffix `<|im_start|>assistant\n<think>\n\n</think>\n\n`, equal templated and
+   plain encodings, and A-P labels that each extend the prompt by one distinct
+   non-special token. Record template and prompt hashes, token counts and IDs.
+6. Range-read the GGUF header, starting with 32 MiB and refusing more than
+   64 MiB, and parse it with a bounded GGUF v3 reader. Record the version,
+   metadata keys with array lengths and hashes, block and `nextn` counts,
+   layer-type keys, tensor names, types, shapes and offsets, data alignment, and
+   the embedded template's hash and any in-band control syntax.
+7. In disposable scratch, compare all of `blk.3.ffn_down.weight` with
+   `model.language_model.layers.3.mlp.down_proj.weight` (100,663,296 bytes each);
+   all of `blk.0.ssm_alpha.weight` and `blk.0.ssm_beta.weight` with layer 0
+   `linear_attn.in_proj_a.weight` and `in_proj_b.weight` (262,144 bytes each),
+   matching rows to identify tiled or grouped value-head order; and the first
+   2 MiB of the token embedding and output matrices. BF16 2-D GGUF tensors keep
+   the safetensors row-major bytes.
+8. Write one JSON report under 1 MiB beside the metadata directory, delete the
+   scratch bytes and verify the deletion.
+
+Transfer stays below about 350 MB and retained files below about 60 MB. Matching
+samples with tiled alpha/beta rows make `plusIQ` a likely template variant of the
+source, unproven until every eligible tensor matches. Any mismatch leaves `plusIQ`
+in Tier C behind [P5](roadmap.md#generalization-work-queue), and the source
+profile proceeds alone. Record results in the handover and source register.
 
 ## Current Checkpoint and Gates
 

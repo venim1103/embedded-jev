@@ -765,11 +765,11 @@ No networking or camera devices are exposed by the research container by default
 
 ## Open Decisions
 
-- Next model ID/revision and modality; MiMo remains the first measured subject,
-  not a requirement for later deployment. The user is interested in DavidAU's
-  Defiant Fable releases and ZDTaichu5.0-9B; the
-  [derivative review](research-audit.md#derivative-release-review) recommends the
-  Defiant Fable safetensors source first, but none is selected.
+- Decided 2026-10-09: the first non-MiMo profile is DavidAU's Defiant Fable
+  safetensors source at `7af0a9c4`, text path first as for MiMo; MiMo remains the
+  first measured subject. Whether the `plusIQ` GGUF joins as a template variant
+  or a Tier C source awaits the approved
+  [preflight](development.md#defiant-fable-preflight-procedure).
 - Which support tiers beyond A to fund, and in what order: float GGUF sources,
   wrapped decoders or depth variants.
 - Policy for templates with in-band controls and for refusal-removed models in

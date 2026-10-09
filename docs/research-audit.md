@@ -39,8 +39,8 @@ The [model support gate](roadmap.md#model-scope-and-support-gate) applies to
 each new subject. The [family review](#qwen35-9b-class-family-review) inspected
 metadata for the base Qwen3.5-9B and other derivatives, but selected no successor.
 The [derivative review](#derivative-release-review) adds support tiers for
-fine-tuned, merged, wrapped, GGUF-only and depth-expanded releases and recommends
-a first non-MiMo candidate, still pending the user's choice.
+fine-tuned, merged, wrapped, GGUF-only and depth-expanded releases and recommended
+a first non-MiMo candidate, which the user selected on 2026-10-09.
 
 The most important missing work is a **group-scaled ternary kernel integration**
 for Qwen3.5, not another Python wrapper around a stock BitNet installation.
@@ -196,14 +196,14 @@ Consequences:
    and terms were not reviewed. It is design context for auxiliary decision heads,
    not evidence for this project's approach or a recovered Jev architecture.
 
-Recommendation, pending the user's choice: onboard a second profile before more
+Recommendation at the time: onboard a second profile before more
 MiMo-only native work so hidden assumptions surface early. The base
 `Qwen/Qwen3.5-9B` exercises the most packaging axes with identical geometry and is
 the converter's own example; a deployment-motivated derivative may still be
 preferred. Begin with the profile identity work in the
 [roadmap queue](roadmap.md#generalization-work-queue), which needs no download.
-The [derivative review](#derivative-release-review) below refines this choice
-for the releases the user prefers.
+The user later selected a derivative instead; see the
+[derivative review](#derivative-release-review) below.
 
 ## Derivative Release Review
 
@@ -266,14 +266,16 @@ Consequences:
 6. Refusal removal and merging are weight edits with self-reported metrics; they
    transfer no quantization robustness, calibration or decision quality.
 
-Recommendation, pending the user's choice: make the Defiant Fable safetensors
-source, pinned at `7af0a9c4e221e01b246b3c577fbb7110b79823e8`, the first non-MiMo
-profile. It matches the user's interest, is declared Apache-2.0, keeps 9B-class
-geometry and exercises the packaging adapters. Then run an approved
-header-and-sample comparison of the `plusIQ` BF16 file against it before deciding
-on Tier C. Treat ZDTaichu as the first Tier B case after licence review, and
-depth variants as a later tier. The base model remains a useful parent control
-with the same template.
+Decision: on 2026-10-09 the user selected the Defiant Fable safetensors source,
+pinned at `7af0a9c4e221e01b246b3c577fbb7110b79823e8`, as the first non-MiMo
+profile, as recommended here. It matches the user's interest, is declared
+Apache-2.0, keeps 9B-class geometry and exercises the packaging adapters. The
+user also approved the bounded
+[preflight](development.md#defiant-fable-preflight-procedure), whose
+header-and-sample comparison of the `plusIQ` BF16 file decides on Tier C; it has
+not run because HTTPS verification fails in the container. ZDTaichu remains the
+first Tier B candidate after licence review, and depth variants a later tier.
+The base model remains a useful parent control with the same template.
 
 ## Corrections to the Conversation
 

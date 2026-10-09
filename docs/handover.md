@@ -8,24 +8,28 @@ original conversation. Read this first, then follow the links for detail.
 
 **Quick orientation (2026-10-09):**
 
-1. Implementation is paused until the user explicitly resumes it. Documentation
-   and planning are allowed; no download, conversion or new artifact is authorized.
+1. Implementation is paused in this session. The user plans to have another model
+   implement the queue; begin implementation only when the user instructs that
+   session. No download, conversion or new artifact is authorized beyond item 4.
 2. The last tested implementation commit is `9408f3f`; read the dated paragraphs
    below, then the [current checkpoint](#current-checkpoint-2026-10-08).
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
-   MiMo as the first test subject. Existing tools are MiMo-pinned and label output
-   with MiMo's identity whatever directory they read; never point them at another
-   checkpoint (see the [coupling inventory](development.md#mimo-coupling-inventory)).
-   The user is interested in DavidAU's Defiant Fable releases and ZDTaichu5.0-9B,
-   and hopes to cover most derivatives; read the
-   [support tiers](design.md#support-tiers-for-derivatives) and
-   [derivative review](research-audit.md#derivative-release-review).
-4. When resumed, ask whether to continue the MiMo layer-0 precision diagnostic
-   (needs a new temporary-model approval) or begin the code-only P0 items of the
-   [generalization queue](roadmap.md#generalization-work-queue), and which
-   candidate to onboard first. The review recommends the Defiant Fable
-   safetensors source; its preflight and any GGUF range reads need approval.
-5. Keep the sole frozen candidate and untouched held-out data; no push, branch
+   MiMo as the first test subject and most derivatives as the eventual aim (see
+   the [support tiers](design.md#support-tiers-for-derivatives)). Existing tools
+   are MiMo-pinned and label output with MiMo's identity whatever directory they
+   read; never point them at another checkpoint (see the
+   [coupling inventory](development.md#mimo-coupling-inventory)).
+4. The user selected DavidAU's Defiant Fable safetensors source at `7af0a9c4` as
+   the first non-MiMo profile and approved its bounded
+   [preflight](development.md#defiant-fable-preflight-procedure), including the
+   `plusIQ` GGUF header-and-sample comparison. It has not run because HTTPS
+   certificate verification fails in this container; never disable verification.
+5. Suggested order: the code-only P0.1-P0.4 and P3 items of the
+   [generalization queue](roadmap.md#generalization-work-queue), with synthetic
+   fixtures mirroring the Defiant Fable packaging; the preflight once HTTPS
+   verifies; then P2 only with new approval. The MiMo layer-0 precision diagnostic
+   also needs new approval.
+6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
 
 **The frozen BitNet-derived FFN now runs inside real native 32-layer MiMo,
@@ -135,6 +139,26 @@ Checks passed for eight docs: 209 local links/anchors, balanced fences, consiste
 columns in 36 tables, recomputed parameter and byte arithmetic, editor
 diagnostics and `git diff --check`. No source, native or model gates were rerun
 because no code changed.
+
+**First non-MiMo profile selected, 2026-10-09:** Starting from local `b0c9089`,
+the user selected DavidAU's Defiant Fable safetensors source at
+`7af0a9c4e221e01b246b3c577fbb7110b79823e8` as the first non-MiMo profile, approved
+the bounded preflight, and asked that implementation stay paused here because
+another model will implement the queue. The preflight did not run: `curl` to the
+Hub failed certificate verification because the network presents a TLS-inspection
+chain whose root is not in the container trust store (see
+[environment pitfalls](#13-environment-pitfalls-already-encountered)). Verification
+was not bypassed and nothing was downloaded. Hub pages read through the external
+web tool confirmed the source file listing, with no `merges.txt` or
+`processor_config.json` shown, and the exact `plusIQ` file name, size and
+Hub-displayed SHA-256. The development guide now holds the exact
+[preflight procedure](development.md#defiant-fable-preflight-procedure); the
+design, roadmap, research audit, source register, coupling inventory and this
+handover record the selection, approval, blocker and suggested implementation
+order. Checks passed for eight docs: 222 local links/anchors, balanced fences,
+consistent columns in 37 tables, repeated identifiers and byte figures, editor
+diagnostics and `git diff --check`. No source, native or model gates were rerun
+because no code changed; README and AGENTS.md needed no change.
 
 ## Current Checkpoint (2026-10-08)
 
@@ -443,10 +467,12 @@ guide's command, including the two pinned internal-header include paths.
 
 ### Resume Contract
 
-**Currently paused:** the October 9 requests authorize documentation and planning
-only. The broader Qwen3.5 9B-class goal does not resume implementation or authorize
-a model switch, download or conversion. Confirm that the user explicitly resumes
-work, and record the next model/revision if they choose a different subject.
+**Currently paused:** this session's October 9 requests authorize documentation,
+planning and the bounded Defiant Fable preflight only. The user plans to have
+another model implement the generalization queue; that session starts work only
+on the user's instruction. The selected first non-MiMo profile is the Defiant
+Fable safetensors source at `7af0a9c4`; its full download, conversion and any
+artifact still need separate approval.
 
 The user authorized routine bounded experiments, the existing full source
 download, quantization scratch space, and periodic **local commits**. Keep only
@@ -466,10 +492,11 @@ The user wants an **embedded Jev-like decision engine**, built from this chain:
 `Selected Qwen3.5 9B-class model -> ternary quantization -> BitNet-capable CPU inference -> SemIf-style decisions`
 
 MiMo-V2.6-Distill-Qwen-9B was chosen as the first test subject, not as a permanent
-dependency. The user expects the system to become more general and may choose
-another model soon. Neither a successor nor generic profile support is delivered
-by this documentation change. Preserve MiMo-specific evidence and apply the
-model support gate before claiming another checkpoint is compatible.
+dependency. The user expects the system to become more general, hopes to support
+most Qwen3.5-9B derivatives, and on 2026-10-09 selected DavidAU's Defiant Fable
+safetensors source as the first non-MiMo profile. Generic profile support is not
+delivered yet. Preserve MiMo-specific evidence and apply the model support gate
+before claiming another checkpoint is compatible.
 
 The original motivation is to use a knowledgeable, agentically fine-tuned model
 on an edge computer, eventually with camera/sensor evidence. Outputs should be
@@ -507,7 +534,10 @@ to post-training conversion of another dense checkpoint.
 
 These documents supersede unsupported claims from the supplied AI conversation.
 They are not substitutes for reading the selected runtime implementation before
-adapting its converter, kernels, graph, or bindings.
+adapting its converter, kernels, graph, or bindings. For the first non-MiMo
+profile, read the [support tiers](design.md#support-tiers-for-derivatives),
+[derivative review](research-audit.md#derivative-release-review) and
+[preflight procedure](development.md#defiant-fable-preflight-procedure).
 
 ## 3. Repository State
 
@@ -1325,6 +1355,9 @@ Ask the user for these once they become necessary:
   acceptable, or must arbitrary text generation remain available?
 - What downloads and long-running compute are authorized? Avoid assuming the
   current lightweight container is permission to fetch tens of gigabytes.
+- How should the container reach the Hub through the network's TLS inspection:
+  trust its root certificate through devcontainer provisioning, or download
+  elsewhere? Never disable verification instead.
 
 No hardware purchase was recommended or priced during this phase. Old pricing
 tables and expected tokens/s from the PDF are not verified evidence. For Finland,
@@ -1341,6 +1374,14 @@ only after a workload/target is chosen.
   SHA-256 over HTTPS from the CPU container. A later WSL/Podman `devcontainer up`
   built successfully and passed post-create `nvidia-smi` with driver 595.95.
   Do not bypass TLS or checksum verification if a future mirror issue recurs.
+- On 2026-10-09, `curl` from this container to `huggingface.co` failed with
+  "unable to get local issuer certificate": the network presented an enterprise
+  TLS-inspection chain whose root certificate is not in the container trust
+  store. A similar issuer failure appeared after an earlier reboot. Pages read by
+  the external web tool are text, not byte-exact downloads. Do not disable
+  verification or change trust settings as a workaround; downloads need the
+  user's decision to trust that root through devcontainer provisioning, or a
+  network without inspection.
 - Dev Containers CLI 0.87.0 accepts `info`, `debug`, and `trace` log levels,
   not `error`. The initial unsupported flag was corrected.
 - Direct rootless Podman bind mounts used for one-off tooling needed
@@ -1406,17 +1447,18 @@ tokenization parity, or a trained decision service.
 
 ## 16. Restart Brief
 
-Implementation remains paused after the October 9 documentation requests.
-When the user resumes, determine whether the next slice continues the existing
-MiMo diagnostic or onboards a different Qwen3.5 9B-class subject. Use the
-[model support gate](roadmap.md#model-scope-and-support-gate) for a new subject;
+Implementation remains paused after the October 9 requests; the user plans to
+have another model implement the queue on their instruction. The first non-MiMo
+subject is selected: DavidAU's Defiant Fable safetensors source at `7af0a9c4`.
+Use the [model support gate](roadmap.md#model-scope-and-support-gate) for it;
 the controls and artifacts below remain MiMo-specific, not a generic model API.
 Generalization starts with the code-only P0 items of the
 [work queue](roadmap.md#generalization-work-queue), which need no download; read
-the [coupling inventory](development.md#mimo-coupling-inventory) first. For the
-user's preferred derivatives, read the
-[derivative review](research-audit.md#derivative-release-review); its
-recommended first non-MiMo profile still needs the user's choice and approval.
+the [coupling inventory](development.md#mimo-coupling-inventory) first. The
+approved [preflight](development.md#defiant-fable-preflight-procedure) waits for
+verified HTTPS, and the
+[derivative review](research-audit.md#derivative-release-review) explains the
+choice. Continuing the MiMo diagnostic instead needs new approval.
 
 For a fresh coding session:
 

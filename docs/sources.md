@@ -14,7 +14,8 @@ First test subject: `XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B`.
 
 The broader target is multiple Qwen3.5 9B-class models, not MiMo alone. The
 sources and real-model evidence in this register remain tied to the first
-subject's pinned revision. No successor model/revision has been selected or
+subject's pinned revision. The first non-MiMo profile, DavidAU's Defiant Fable
+safetensors source at `7af0a9c4`, was selected on 2026-10-09 but is not
 validated; the base Qwen3.5-9B and other derivatives received only the
 [metadata review](#qwen35-family-observations) below, and the user's preferred
 releases the [derivative observations](#derivative-release-observations). Add
@@ -115,8 +116,13 @@ in the [research audit](research-audit.md#derivative-release-review).
 | DavidAU 48-layer [Deckard](https://huggingface.co/DavidAU/Qwen3.5-13B-Deckard-Heretic-Uncensored-Thinking/blob/main/config.json) and [Polaris-Grande](https://huggingface.co/DavidAU/Qwen3.5-13B-GLM-4.7-Flash-DeepSeek-Polaris-Grande-Deep-Thinking/blob/main/config.json) configurations | 48 layers, `full_attention_interval` 4, otherwise 9B-class values; Hub totals 12,869,594,608 and 13,079,330,800 BF16 parameters | Moving `main`; configuration only; MTP content deduced from totals |
 | [Merge listing](https://huggingface.co/api/models?filter=base_model:merge:Qwen/Qwen3.5-9B&sort=downloads&limit=25&expand%5B%5D=safetensors) | Same-shape merges with base-like totals (9,653,100,528 BF16 + 3,840 F32) or no MTP (9,409,813,744 BF16) | Truncated listing; self-declared relations |
 | Pinned Prism `conversion/qwen.py` and `src/models/qwen35.cpp` | Converter value-head permutation, `-exp(A_log)`, `dt_bias` rename, convolution squeeze and RMSNorm +1 transforms; only `full_attention_interval` written. Loader reads an optional `qwen35.attention.recurrent_layers` array and skips `nextn` tensors unless MTP loading is requested | Source inspection; no other model converted |
+| [Source file listing](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP/tree/7af0a9c4e221e01b246b3c577fbb7110b79823e8) and [`backup/` listing](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP/tree/7af0a9c4e221e01b246b3c577fbb7110b79823e8/backup) | Four shards of about 4.94, 4.99, 4.95 and 4.35 GB; 67.1 MB restored shard; 71.2 kB index; configuration, generation configuration and template; 20 MB `tokenizer.json`, `tokenizer_config.json` and 6.72 MB `vocab.json`; image and video preprocessor configurations; README and two images. No `merges.txt` or `processor_config.json` shown. `backup/` holds another configuration, generation configuration, template and tokenizer pair | Rendered pages read 2026-10-09; approximate sizes; exact listing awaits the preflight |
+| [`plusIQ` BF16 file page](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF/blob/8b192a8e203440d6492a133f6cdfa4bf7bffac98/Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf) | Exact name `Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf`, uploaded by head commit `8b192a8e`; SHA-256 `6a772118b107772fb83d111fec59e54b139c993fe6dc4906288a3bb81178705d`; Xet hash `a60519059ae2e25ba936f35118e63f0d1295eced50e5e6f43a06c1dd9bb0dcb8` | Hub-displayed text; verify through the API and any download |
 
-None of these releases is selected, pinned for use or validated.
+Only the Defiant Fable safetensors source is selected (2026-10-09); none of these
+releases is pinned in code or validated. The approved
+[preflight](development.md#defiant-fable-preflight-procedure) verifies the listed
+values once HTTPS verification works in the container.
 
 ## Public Intent Proxy
 

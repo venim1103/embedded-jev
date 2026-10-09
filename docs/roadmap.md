@@ -21,7 +21,8 @@ separate evidence. Other models are not yet validated.
 A different model may become the primary test subject before MiMo's full-model
 ternary work is complete. Keep the MiMo baseline and unresolved discrepancies
 as scoped evidence, not universal limits or a requirement to finish that model
-first. No successor checkpoint has been selected by this plan.
+first. On 2026-10-09 the user selected DavidAU's Defiant Fable safetensors source
+at `7af0a9c4` as the first non-MiMo profile; it is not yet validated.
 
 For each new model/revision:
 
@@ -51,8 +52,9 @@ remain distinct.
 ### Generalization Work Queue
 
 This ordered queue turns MiMo into one profile among several. It is a plan, not
-authorization: every item needs the user's resume instruction, and items marked
-as needing approval need that separate approval. The
+authorization: every item needs the user's instruction to begin implementation,
+and items marked as needing approval need that separate approval. The user plans
+to have another model implement it. The
 [family review](research-audit.md#qwen35-9b-class-family-review) motivates the
 order, the [derivative review](research-audit.md#derivative-release-review) adds
 P0.4 and the tier items P5-P7, and the
@@ -65,7 +67,7 @@ item touches.
 | P0.2 | Derive identity from verified local files in inventory, label probe, streamed reports, captures and evaluation; refuse unmatched directories | None | Synthetic second-profile header fixtures can never be labelled MiMo; MiMo results unchanged apart from recorded identity and source hashes |
 | P0.3 | Packaging adapters: prefix rule, index-listed shard names (padded, unpadded or extra), recomputed index totals, MTP presence and completeness, per-class dtype policy, profile-supplied template suffix | None | Offline fixtures for multimodal, text-only, MTP-bearing, incomplete-MTP, restored-shard and F32-norm layouts pass or refuse exactly as declared |
 | P0.4 | Template policy: pinned rendering arguments and mode, declared control syntax refused in untrusted fields, separate hash for GGUF-embedded templates | None | Synthetic templates with in-band markers refuse marked evidence; MiMo prompt bytes, hashes and label IDs unchanged |
-| P1 | Metadata-only preflight of the chosen second profile: pinned files, header inventory, tokenizer/template label probe | Small metadata fetch; approval needed | Reconciled inventory and budgets, verified non-thinking suffix and label IDs; no weights read |
+| P1 | Metadata-only preflight of the selected Defiant Fable source: pinned files, header inventory, tokenizer/template label probe, plus the `plusIQ` header-and-sample comparison | Bounded reads approved 2026-10-09 and specified in the [procedure](development.md#defiant-fable-preflight-procedure); waiting for verified HTTPS | Reconciled inventory and budgets, verified non-thinking suffix and label IDs, sampled GGUF comparison; no other weights read |
 | P2 | Dense streamed reference, vocabulary-only and BF16 native prefill, and precision traces for that profile | Full download and temporary conversion; approval needed | Acceptance criteria written first; zero generation; resources and cleanup recorded |
 | P3 | Geometry-driven kernel bounds or row tiling for 12,288- and 8,192-row projections, manifest-driven tensor gate, no resident PQ2/scale duplication | None (synthetic plus the existing MiMo artifact) | Golden parity for new shapes; MiMo frozen-projection parity unchanged; resident bytes reported |
 | P4 | Versioned profile-driven complete-model policy beside the unchanged MiMo v1 factory | Real checks need temporary-model approval | Geometry and target bytes come from verified profile and artifact manifests; all v1 refusals unchanged |
@@ -75,11 +77,11 @@ item touches.
 
 P0, P3 and the synthetic parts of P5-P7 can proceed without another model.
 Milestones 2-6 below still apply to each profile before quantization, quality,
-calibration or device claims. The
-[derivative review](research-audit.md#derivative-release-review) recommends the
-Defiant Fable safetensors source as the P1 subject, followed by a header-and-sample
-comparison of its `plusIQ` BF16 GGUF that decides whether P5 is needed at all.
-P5-P7 follow the user's priorities; none is authorized yet.
+calibration or device claims. The user selected the Defiant Fable safetensors
+source as the P1 subject, as the
+[derivative review](research-audit.md#derivative-release-review) recommended;
+its `plusIQ` BF16 comparison decides whether P5 is needed at all. P0 and P3 can
+start before P1 runs. P5-P7 follow the user's priorities; none is authorized yet.
 
 ## Milestone 0: Research Environment
 
@@ -548,14 +550,15 @@ declared numerical differences and report margin-sensitive decision flips.
 
 ## Decisions Needed Before Large Jobs
 
-Select the next model/revision and refresh the quantization host's GPU/VRAM and
-RAM, initial device, download/storage budget, deployment modality, and acceptable
-quality/latency tradeoffs. Approve a second profile's metadata-only preflight
-separately from any weight download, and decide its numerical acceptance criteria
-before its native comparison. Choose the first non-MiMo candidate and which
-support tiers beyond A to fund; a GGUF-only release also needs separate approval
-for its header-and-sample comparison before any full download. Reuse existing
+Decided on 2026-10-09: the first non-MiMo profile is the Defiant Fable
+safetensors source at `7af0a9c4`, and its bounded preflight, including the
+`plusIQ` header-and-sample comparison, is approved but waits for verified HTTPS.
+Still open: the quantization host's GPU/VRAM and RAM, initial device,
+download/storage budget, deployment modality and acceptable quality/latency
+tradeoffs; the Defiant Fable numerical acceptance criteria, decided before its
+native comparison; approval for its roughly 19.3 GB snapshot and temporary
+conversion (P2); and which support tiers beyond A to fund. Reuse existing
 compatible environments and cache inputs; do not assume MiMo's measured budget
-fits another checkpoint. After the user resumes implementation, inspect and
-estimate first, then request approval for model downloads, conversions or
-compute that exceeds the agreed scope.
+fits another checkpoint. When implementation starts, inspect and estimate first,
+then request approval for model downloads, conversions or compute that exceeds
+the agreed scope.
