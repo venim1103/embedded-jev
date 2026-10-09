@@ -5,8 +5,10 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the tested `9408f3f` implementation checkpoint and remaining native gates,
-read the [current handover](handover.md#current-checkpoint-2026-10-08).
+For the latest tested implementation at `db002c1`, read the
+[projection checkpoint](handover.md#projection-geometry-checkpoint-2026-10-09).
+The [historical real-model checkpoint](handover.md#current-checkpoint-2026-10-08)
+at `9408f3f` retains its separate MiMo inference and numerical evidence.
 The numbered items below retain the milestone plan, not a list of entirely
 unimplemented features; completed scoped probes are described alongside them.
 
@@ -22,7 +24,8 @@ A different model may become the primary test subject before MiMo's full-model
 ternary work is complete. Keep the MiMo baseline and unresolved discrepancies
 as scoped evidence, not universal limits or a requirement to finish that model
 first. On 2026-10-09 the user selected DavidAU's Defiant Fable safetensors source
-at `7af0a9c4` as the first non-MiMo profile; it is not yet validated.
+at `7af0a9c4` as the first non-MiMo profile. Its offline metadata/reference
+tokenization gates pass, not dense/native inference or model-quality gates.
 
 For each new model/revision:
 
@@ -75,11 +78,15 @@ item touches.
 | P6 | Wrapped-decoder adapter (Tier B): static nested-configuration reader, declared prefix rename, text-only conversion, no repository code | Metadata for fixtures; real conversion needs approval | Renamed tensors keep payload hashes; geometry comes from the nested configuration; licence terms recorded |
 | P7 | Depth variants (Tier D): layer count and pattern from the profile throughout Python, traces and native policy; explicit recurrent-layer array for irregular patterns | None for synthetic fixtures; real models need approval | Synthetic 48-layer and irregular-pattern fixtures; MiMo results unchanged; budgets recomputed |
 
-The user resumed code-only implementation on 2026-10-09 under AGENTS.md. P0.1-P0.4
-provide strict records, bound MiMo reports and offline Tier A packaging, not a
-generic execution CLI. P3 native geometry/resident storage is next. No new download,
-conversion or model-quality experiment is authorized.
-P0, P3 and the synthetic parts of P5-P7 can proceed without another model.
+The user resumed code-only implementation on 2026-10-09 under AGENTS.md and
+paused this chat for handoff after `db002c1`. P0.1-P0.4 provide strict records,
+bound MiMo reports and offline Tier A packaging. P3 provides compact, larger
+owned projections, not a generic model loader or execution CLI. Once the next
+chat is instructed to resume, the next step is P4's code-only synthetic policy
+work beside unchanged v1 factories, using existing inputs. No new download,
+complete-model conversion, fit or model-quality experiment is authorized.
+Synthetic P4 preparation needs no additional model; real P4 checks need separate
+approval. P5-P7 still follow the user's priorities and are not authorized yet.
 Milestones 2-6 below still apply to each profile before quantization, quality,
 calibration or device claims. The user selected the Defiant Fable safetensors
 source as the P1 subject, as the
@@ -87,7 +94,8 @@ source as the P1 subject, as the
 P1 found its 427 text tensors identical in names, shapes and dtypes to MiMo's,
 and sampled `plusIQ` BF16 tensors identical to the source in tiled order with only
 the template differing. P5 is therefore likely unnecessary for that file if a
-full comparison confirms equality, while P0.4 must cover its template markers.
+full comparison confirms equality; P0.4 now refuses its template markers before
+reference rendering, while native rendering remains a separate gate.
 P0 and P3 need no further download. P5-P7 follow the user's priorities; none is
 authorized yet.
 

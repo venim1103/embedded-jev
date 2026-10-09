@@ -1,13 +1,13 @@
 # Embedded Jev Design
 
 Status: proposed architecture, first written 2026-09-25; implementation status
-checked 2026-10-08; model-family portability and derivative support tiers
+checked through `db002c1` on 2026-10-09; model-family portability and derivative support tiers
 reviewed 2026-10-09. Bounded ternary quantizers, the streamed BF16 text
 reference, and a frozen BitNet-derived FFN inside real native MiMo now exist.
-Strict profile-record parsing and verified MiMo report identity now exist.
-Whole-model ternary export,
+Strict profiles, verified MiMo report identity and compact, profile-manifest-gated
+owned BitNet projections now exist. Whole-model ternary export, broader
 profile-aware model execution and deployment services remain open.
-The [current handover](handover.md#current-checkpoint-2026-10-08) records the
+The [current handover](handover.md#projection-geometry-checkpoint-2026-10-09) records the
 tested implementation checkpoint, cache paths, constraints, and next native task.
 The [family review](research-audit.md#qwen35-9b-class-family-review) records the
 Qwen3.5 9B-class evidence behind the profile requirements below, and the
@@ -101,9 +101,10 @@ not 9B-class profiles.
 
 #### Packaging Variation Within the Class
 
-Checkpoints with this geometry still differ in ways that current MiMo-pinned code
-either refuses or would mislabel. A profile adapter must handle each axis
-explicitly or fail closed:
+Checkpoints with this geometry still differ along these packaging axes. P0's
+explicit offline adapters address declared Tier A variants; MiMo execution and
+v1 loader policies still refuse other profiles. Wrapped/GGUF-only/depth variants
+need their remaining adapters. Every axis must be declared and fail closed:
 
 | Axis | Observed variants | Profile requirement |
 | --- | --- | --- |

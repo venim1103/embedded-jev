@@ -8,17 +8,18 @@ original conversation. Read this first, then follow the links for detail.
 
 **Quick orientation (2026-10-09):**
 
-1. The user resumed autonomous code-only implementation on 2026-10-09 under
-  AGENTS.md. No further download, conversion or new artifact is authorized.
+1. Implementation is paused in this chat at the user's request while preparing
+   a handoff. Resume only when the user instructs the next chat. No further
+   download, complete-model conversion, fit or new retained candidate is authorized.
 2. Read the [projection geometry checkpoint](#projection-geometry-checkpoint-2026-10-09)
-  below, then the [native checkpoint](#current-checkpoint-2026-10-08), whose
-  last tested implementation commit remains `9408f3f`.
+   at `db002c1`, with resident compaction at `cedaeec`; then read the historical
+   [real-model checkpoint](#current-checkpoint-2026-10-08) at `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
    MiMo as the first test subject and most derivatives as the eventual aim (see
-  the [support tiers](design.md#support-tiers-for-derivatives)). Existing real-model
-  scoring tools verify MiMo's profile before loading; explicit offline inventory
-  accepts the selected Defiant Fable metadata profile. Other-model execution
-  remains unsupported (see the
+   the [support tiers](design.md#support-tiers-for-derivatives)). Existing real-model
+   scoring tools verify MiMo's profile before loading; explicit offline inventory
+   accepts the selected Defiant Fable metadata profile. Other-model execution
+   remains unsupported (see the
    [coupling inventory](development.md#mimo-coupling-inventory)).
 4. The user selected DavidAU's Defiant Fable safetensors source at `7af0a9c4` as
    the first non-MiMo profile. Its approved
@@ -27,17 +28,32 @@ original conversation. Read this first, then follow the links for detail.
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
 5. P0.1-P0.4 and bounded P3 owned-projection geometry/manifest/compaction are
-  implemented. P4 complete-model policy remains separate in the
+  implemented. Next is P4's code-only, synthetic preparation for a separately
+  versioned profile-driven complete-model policy in the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
-   fixtures mirroring the verified Defiant Fable packaging; then P2 only with new
-   approval. The MiMo layer-0 precision diagnostic also needs new approval.
+  fixtures and existing verified inputs only. P2 and real-model P4 checks need
+  new approval. The MiMo layer-0 precision diagnostic also needs new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
 
+**Documentation handoff review, 2026-10-09:** The user requested a documentation
+check and a next-chat prompt, not more implementation. The starting source
+checkpoint was user-pushed `db002c1`, with `main` matching `origin/main` and only
+the untracked user `.vscode/` directory. Current checkpoint references, the
+restart brief, coupling inventory and roadmap now consistently identify P0/P3
+as complete and synthetic P4 preparation as next. The development guide includes
+the exact bounded 11-control P3 command, separating it from historical real-model
+inference commands. The obsolete constant-identity sentence in AGENTS.md was
+corrected without changing approvals or safety boundaries. README and historical
+model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence,
+table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
+native or model gates were rerun. Implementation stays paused in this chat;
+the next chat must receive the user's explicit resume instruction.
+
 ## Projection Geometry Checkpoint (2026-10-09)
 
-The P3 resident checkpoint was committed locally as `cedaeec`. The second P3
-increment adds `prism_bitnet_registered_projection_create_v2` beside unchanged
+The P3 resident checkpoint was committed as `cedaeec`; the second P3 increment
+is `db002c1`. It adds `prism_bitnet_registered_projection_create_v2` beside unchanged
 v1 creation/file/loader/complete-model factories. A typed C specification declares
 ABI 2, exact tensor name, rows/columns and canonical reference PQ2 bytes. Creation
 checks payload length and every byte against that reference, binds the trait to
@@ -345,9 +361,10 @@ directories, and preserve MiMo's current numerical and artifact contracts.
 
 **The frozen BitNet-derived FFN now runs inside real native 32-layer MiMo,
 with zero generated answer tokens. Whole-model ternary export remains open.**
-The current checkpoint below supersedes the bootstrap-era status statements.
-Later sections retain the scope and results of individual historical probes;
-do not read a probe's limitations as the current status of every later path.
+The historical real-model checkpoint below superseded bootstrap-era status.
+The October 9 checkpoints above supersede its source/native-projection status,
+not its unresolved MiMo numerical evidence. Later sections retain historical
+probe results; do not read them as current resume instructions or renewed approval.
 
 **Documentation-only checkpoint, 2026-10-09:** The user-pushed starting point
 was `c8d4c5e`. The copied [agent workflow](../AGENTS.md) now uses this project's
@@ -1808,62 +1825,46 @@ tokenization parity, or a trained decision service.
 
 ## 16. Restart Brief
 
-Implementation remains paused after the October 9 requests; the user plans to
-have another model implement the queue on their instruction. The first non-MiMo
-subject is selected: DavidAU's Defiant Fable safetensors source at `7af0a9c4`.
-Use the [model support gate](roadmap.md#model-scope-and-support-gate) for it;
-the controls and artifacts below remain MiMo-specific, not a generic model API.
-Generalization starts with the code-only P0 items of the
-[work queue](roadmap.md#generalization-work-queue), which need no download; read
-the [coupling inventory](development.md#mimo-coupling-inventory) first. The
-approved [preflight](development.md#preflight-results) is complete, and the
-[derivative review](research-audit.md#derivative-release-review) explains the
-choice. Continuing the MiMo diagnostic instead needs new approval.
+Implementation is paused in this chat for the user's requested handoff. P0.1-P0.4
+and bounded P3 are complete through `db002c1`, with resident compaction at
+`cedaeec`. The next instructed coding chat should start P4's code-only synthetic
+preparation for a profile-driven complete-model policy beside strict v1
+factories. Read the [work queue](roadmap.md#generalization-work-queue) and updated
+[coupling inventory](development.md#mimo-coupling-inventory), not an older
+paragraph's suggested next step.
+
+The first non-MiMo subject is DavidAU's Defiant Fable safetensors source at
+`7af0a9c4`: approved [preflight](development.md#preflight-results), offline
+inventory and reference tokenization pass; dense/native inference and quality
+do not. Use its own [support gate](roadmap.md#model-scope-and-support-gate).
+Existing MiMo controls/artifacts must not be transplanted. P2, any real-model P4
+check, another MiMo precision conversion, new download/fit/candidate or held-out
+experiment needs separate approval. This documentation request supplies none.
 
 For a fresh coding session:
 
-1. Read the current checkpoint above and the native projection/PQ2 sections of
-  [docs/development.md](development.md), then consult design, roadmap, and
-  source pins as needed. Check Git status and existing caches before acting.
+1. Read [AGENTS.md](../AGENTS.md), the
+  [latest checkpoint](#projection-geometry-checkpoint-2026-10-09), the profile/
+  support-tier design, updated coupling inventory and work queue. Check actual
+  Git state, interpreter, cache files/source pins and RAM/disk before acting.
 2. Preserve genuine BitNet-derived CPU execution, independent FP16 scales per
   output row/input group, and typed conditional option scores with zero
   generated answer tokens. PQ2 storage/dispatch alone does not meet BitNet.
-3. Start with the native PQ2 tensor control in
-  [native/prism_group_scale.cpp](../native/prism_group_scale.cpp) and its
-  [tests](../tests/test_prism_native_control.py), now especially
-  `prism_bitnet_registered_tensor_matmul`. The scoped buffer/tensor registration
-  now has reusable `prism_bitnet_registered_projection_create/compute/free`
-  ownership, tagged `create_from_gguf` toy file import, and a Python-hosted
-  `prism_ggml_registered` backend. Keep the exact
-  one-/two-evaluation, rejection/recovery, full-text, and typed synthetic gates.
-  Versioned early CPU discovery, per-buffer ownership, and an exact tagged
-  one-tensor public loader override now pass, including real loader upload and
-  full-size frozen-projection dispatch. Preserve default dummy-probe refusal,
-  file identity/lifetime requirements, and the isolated steady-state concurrent
-  graph gate. The separate full-runtime build and guarded vocabulary-only native
-  tokenization now pass. The separate bounded synthetic hybrid model also passes
-  genuine nonzero BitNet FFN/recurrent/attention prefill, typed order, chunk/reset,
-  initialized shared-context isolation, runtime failure/recovery, measured
-  128-token BitNet batches, and dense contextual prompt/label scoring gates;
-  start its next local control in
-  [native/prism_bitnet_loader_control.cpp](../native/prism_bitnet_loader_control.cpp)
-  and the existing optional test. Its test-only override must not become an
-  unvalidated full-model loader policy. Read the staged
-  [native hosting plan](development.md#native-hosting-preflight-and-conversion-plan)
-  before further work. The approved dense and one-projection native experiments
-  are complete, including exact target-byte policy, actual 80-row BitNet dispatch,
-  no-score failure, and cleared-context recovery. Both temporary models are
-  deleted; do not recreate them without approval. Numerical acceptance remains
-  open: first diagnose native/streamed precision differences before choosing
-  tolerances or claiming exact parity. Source-row spot checks and declared tags
-  do not authenticate every transformed weight. Preserve the old one-tensor
-  factory, file identity/lifetime contract, and native loader structure checks.
-  The legacy scoped
-  bridge must not run concurrently with arbitrary Prism graphs or registry
-  mutation. Further bulk conversion and whole-model ternary remain outside scope.
-  A production loader change
-  needs a versioned runtime/build contract; do not overwrite the immutable
-  cached source/library pins or bulk-convert MiMo. Do not claim loader parity.
+3. Anchor P4 in `prism_bitnet_cpu_model_override_from_gguf_v1` in
+  [native/prism_group_scale.cpp](../native/prism_group_scale.cpp), its contract in
+  [native/prism_bitnet_runtime.h](../native/prism_bitnet_runtime.h), and
+  `test_pinned_prism_complete_model_policy_binds_exact_projection` in the
+  [existing controls](../tests/test_prism_native_control.py). Reuse P0 verified
+  profiles and P3's [manifest adapter](../embedded_jev/prism_codec.py), but do
+  not confuse its owned v2 handle with a discoverable loader/model policy.
+  Add a separately versioned path rather than loosening v1. Preserve exact
+  target-byte checks, ordinary-PQ2/dummy-probe refusal, canonical readback,
+  one repack, no-score failure/recovery, context reset/isolation and library/
+  file lifetime requirements. Synthetic policy/hosting checks must stay bounded.
+  Source digests supplied by callers are not native source authentication.
+  The prior dense/mixed/precision models were deleted; do not recreate them
+  without approval. Runtime numerical acceptance remains open. Scoped registry
+  calls are not general lifecycle/concurrency safety or deployment evidence.
 4. Keep fitting on calibration only, diagnostics on validation, and held-out
   inference untouched. Do not promote the negative independent-block
   compensation approximation or save another candidate. No full-model
@@ -1874,8 +1875,10 @@ For a fresh coding session:
   expand scope. Use the terminal for environments, no subagents, no push, and
   no branch change.
 
-The default regression command is
-`PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider`.
-The development guide gives the pinned optional native gate and rebuild
-commands. Run relevant gates when implementation changes, not every expensive
-model experiment merely to reconstruct the history.
+The last source gate at `db002c1` was 234 passed/39 optional skips; 11 selected
+compiled P3 controls and GCC ASan/UBSan/leak checks also passed. CTest integration
+was unavailable. The [development guide](development.md#current-checkpoint-and-gates)
+contains the default test/Ruff/whitespace gate and exact bounded native command.
+Use focused checks after changes and the required gate before source commits;
+do not rerun successful expensive gates merely to reconstruct history. Keep
+editor settings and pinned caches intact when tool integration is unavailable.

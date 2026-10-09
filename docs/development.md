@@ -18,8 +18,9 @@ The commands, `MIMO_*` environment variables, cached snapshot, fixed tensor
 paths, token IDs, frozen projection and complete-model policy below describe
 the existing MiMo controls. Keep these working examples and names unchanged;
 do not rename them in documentation as if a generic CLI already exists.
-Keep the current metadata, geometry and source guards; they refuse many, but not
-all, other packagings (see the identity warning below).
+Keep the current metadata, geometry and source guards. MiMo execution refuses
+unmatched profiles; explicit offline packaging is a separate path (see the
+identity boundary below).
 
 Once implementation is resumed, onboard a different checkpoint through the
 [model support gate](roadmap.md#model-scope-and-support-gate) and planned
@@ -68,10 +69,12 @@ inputs remain unbound, while unmatched directories are refused. The original
 MiMo Prism-width mapper remains MiMo-only; `profile_prism_expected_widths()`
 requires an inventory bound to the supplied record.
 
-The current default gate is 234 passed, 39 optional skips; 139 focused
-inventory/label/data/evaluation cases pass. Cached MiMo and Defiant Fable metadata, tokenizers and
-legacy captures were verified without full-model inference. Full weight hashes
-and optional native/model gates were not rerun for this Python-only change.
+The latest source checkpoint is `db002c1`: 234 default tests passed, 39 optional
+tests skipped, with 139 focused inventory/label/data/evaluation cases. P0's cached
+metadata/tokenizer/legacy-capture checks did not run model inference. P3 later
+passed 11 selected compiled native controls and GCC ASan/UBSan/leak checks, as
+recorded in [current gates](#current-checkpoint-and-gates). No new real complete
+model was converted or inferred; full shard hashing was not rerun.
 
 ### Offline Packaging Adapters
 
@@ -84,8 +87,9 @@ reported and `--no-nextn` recorded. Norm/convolution/SSM parameters stay outside
 projection eligibility. Offline planners honor dtype/prefix policies but do not
 enable another model's execution or change MiMo's BF16 numerical contracts.
 
-The [Defiant Fable record](../embedded_jev/profiles/defiant-fable.json) binds the
-11 used nonweight files and five shard identities from the existing preflight.
+The [Defiant Fable record](../embedded_jev/profiles/defiant-fable.json) binds
+12 nonweight files, including the separately cached embedded template, and five
+shard identities from the existing preflight.
 Its full shard hashes are remote LFS pins; only headers/samples were read. The
 record's header hashes include the safetensors eight-byte length, unlike the
 preflight's raw-JSON header hashes in the source register. Its native policy is
@@ -147,25 +151,26 @@ model execution remain unverified for this profile.
 
 ### MiMo Coupling Inventory
 
-Checked on 2026-10-09 against `bc8e616`; derivative effects were added the same
-day without code changes. "Effect" describes another Qwen3.5 checkpoint passed to
-the current code; the last column names the profile field or
+Originally audited at `bc8e616`; updated through `db002c1` on 2026-10-09.
+"Effect" distinguishes explicit offline profiles and v2 owned projections from
+the still-MiMo-only execution and v1 loader paths. The last column names the
+implemented or remaining profile field or
 [work item](roadmap.md#generalization-work-queue) that replaces the assumption.
 
 | Location | MiMo-specific assumption | Effect on another checkpoint | Replacement |
 | --- | --- | --- | --- |
-| [inventory.py](../embedded_jev/inventory.py) `MODEL_ID`, `MODEL_REVISION`, `MODEL_URL` | Remote URL remains MiMo-only; reports now match verified files to a profile | Unmatched directories refuse; unbound raw fixtures have null identity | P0.2 implemented; packaging/selection still P0.3 |
-| inventory.py `_model_config`, `REQUIRED_METADATA` | `Qwen3_5ForConditionalGeneration`, untied embeddings, processor files and classes | Text-only `Qwen3_5ForCausalLM` exports, custom-code wrappers such as ZDTaichu, and releases without `processor_config.json`, such as the Defiant Fable source, refused | Architecture class, modality and nested-configuration path (P0.3, P6) |
+| [inventory.py](../embedded_jev/inventory.py) `MODEL_ID`, `MODEL_REVISION`, `MODEL_URL` | Remote URL remains MiMo-only; reports match verified files to a profile | Unmatched directories refuse; unbound raw fixtures have null identity | P0.2/P0.3 offline identity and packaging implemented; generic execution remains open |
+| inventory.py `_model_config`, `REQUIRED_METADATA` | Explicit Tier A profiles declare architecture/config path, metadata files/classes and untied embeddings; unbound legacy inputs retain MiMo rules | Text-only and missing-processor-config offline profiles validate as declared; custom-code wrappers remain unsupported | P0.3 implemented; wrapped-decoder adapter remains P6 |
 | inventory.py `SHARD_NAME` | Unbound legacy inputs retain MiMo numbering; bound profiles use exact index-listed shard names | Explicit offline profiles accept alternate/unpadded/restored names; undeclared names refuse | P0.3 implemented |
 | inventory.py index reconciliation | Bound profiles declare exact/recomputed totals and MTP status; raw legacy totals remain exact | Stale totals are recorded only as declared, MTP completeness validated, never used as identity | P0.3 implemented |
 | inventory.py `_classify`, `_required_weights` | Bound prefixes, geometry, counts and per-class dtypes are profile-driven | Explicit text-only and multimodal fixtures validate; unknown names/shapes/dtypes refuse | P0.3 implemented |
 | [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | Unbound fixtures retain fallback suffix; explicit profiles pin templates/suffix/arguments/IDs/control prefixes; CLI fetch remains MiMo-only | Raw tokenizers stay unbound; marked evidence refuses before rendering; source/GGUF template origins remain separate | P0.2/P0.4 implemented; other-model native rendering remains open |
 | [dense_probe.py](../embedded_jev/dense_probe.py) `plan_text_prefix`, `plan_streamed_text` | Bound offline plans use profile prefixes and dtype policy; real execution remains MiMo BF16 | F32 small-tensor plans validate without casting; another model's scoring remains refused | P0.3 planning implemented; P2 runtime gates remain |
-| [streamed_text.py](../embedded_jev/streamed_text.py) | Layer-3 FFN-down substitution and capture, 4,096 x 12,288 shapes, untied `lm_head.weight` reader, 32 layers for full-vocabulary mass, seed-773 signs | Checkpoints packaged like MiMo run but inherit MiMo labels; depth variants unsupported | Profile target list, head reader and layer count (P7) |
+| [streamed_text.py](../embedded_jev/streamed_text.py) | Real execution verifies MiMo; layer-3 target, 4,096 x 12,288 shapes, untied head, 32-layer full-vocabulary mass and seed-773 signs remain | Another checkpoint refuses before imports; metadata profile support does not enable its execution | Per-profile execution gates P2; target/depth generalization P4/P7 |
 | [projection_artifact.py](../embedded_jev/projection_artifact.py), [evaluation.py](../embedded_jev/evaluation.py) | `PINNED_SHARD`, `PINNED_SHARD_SHA256`, MiMo identity and 32 layers | Artifacts and evaluations MiMo-only | Profile ID plus tensor payload SHA-256 |
 | [decision_dataset.py](../embedded_jev/decision_dataset.py) captures | New v2 manifests bind a supplied profile or remain unbound; v1 MiMo remains read-only compatible; bounded layer-3 inputs | Cross-profile reuse and mixed capture banks refuse; raw arrays do not claim MiMo | P0.2 implemented; depth/target generalization still P7 |
-| [weight_slice.py](../embedded_jev/weight_slice.py), [ternary_artifact.py](../embedded_jev/ternary_artifact.py) | `DEFAULT_TENSOR`, MiMo-only fetch and identity, multimodal prefix | Refused or mislabelled | Profile tensor names and identity |
-| [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | At most 4,096 rows, 96 groups and 128 tokens; only `blk.3.ffn_down.weight` | FFN gate/up and `q_proj` cannot be represented | Geometry-driven bounds or row tiling (P3) |
+| [weight_slice.py](../embedded_jev/weight_slice.py), [ternary_artifact.py](../embedded_jev/ternary_artifact.py) | Default target/fetch remains MiMo-only; bounded local APIs and width mapper can bind explicit profiles | Unmatched local sources refuse rather than acquiring MiMo identity; no generic remote fetch | P0.2 identity implemented; broader workflow/targets remain separate |
+| [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | Legacy codec/v1 APIs retain 4,096-row bounds; v2 owned path is profile/manifest-gated with compact storage | Bounded 8,192-row Q and 12,288-row FFN projections pass; v1/model loader remains MiMo-only | Bounded P3 implemented; complete-model policy remains P4 |
 | Native v1 complete-model factory | MiMo revision and model tags, 427 tensors, 32/4,096/12,288, 248,320 vocabulary, at most 19 GiB, one layer-3 target | Every other file refused, including MTP-bearing, third-party and 48-layer GGUF files | Versioned profile-driven policy (P4, P5, P7) |
 | Tests and documented commands | `MIMO_*` flags, cache paths, fixture prompts and expected IDs | MiMo evidence only | Keep names; add per-profile gates beside them |
 
@@ -297,14 +302,20 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The last tested implementation checkpoint is `9408f3f` (2026-10-08), following
-the complete-model policy, precision traces, and bounded recurrent controls.
-The [current handover](handover.md#current-checkpoint-2026-10-08) is the
-authoritative resume summary, including external cache paths and the next
-native integration task. Do not recreate environments or download another
-source/model copy just to start a new chat.
+The latest tested source checkpoint is `db002c1` (2026-10-09), following P0.1-P0.4
+and bounded P3; resident compaction is `cedaeec`. The
+[latest handover](handover.md#projection-geometry-checkpoint-2026-10-09) records
+234 default passes/39 optional skips, 14 profile-projection cases, 11 selected
+compiled native controls and GCC ASan/UBSan/leak checks. The old v1 factories
+remain strict. CMake Tools/CTest were unavailable in that session; no new CTest
+result or real complete-model inference is claimed. P4's code-only synthetic
+complete-model policy work is next after the user resumes the next chat.
+Do not recreate environments or download another source/model copy to resume.
 
-Current results: 163 default tests passed, 39 optional tests skipped, and all
+**Historical 2026-10-08 evidence:** `9408f3f` followed the MiMo complete-model
+policy, precision traces and bounded recurrent controls. Those separately
+approved conversions and measurements are not renewed authorization. At that
+checkpoint, 163 default tests passed, 39 optional tests skipped, and all
 seventeen pinned Prism controls passed with full-size PQ2, repeated/owned native
 weights, two-forward module reuse, tagged toy GGUF import, and versioned CPU
 discovery, mixed concurrent graphs, and real pinned loader selection/upload,
@@ -319,7 +330,7 @@ their separately approved files were not supplied there. The prior dense-only
 regression passed at `462dc12`. The earlier dense and mixed temporary models were deleted;
 the separately approved precision trace regression passed in 746.54 s at
 `5b7e559`, and its model, spill and raw captures are also deleted. Details follow below.
-The separate full runtime build passes two CTests.
+At that historical checkpoint, the separate full runtime build passed two CTests.
 The 32-layer direct/callback/registered, reordered synthetic typed-decision,
 and signed-Hadamard full gate passed at `4efa59b` (138.36 s), before the isolated
 native file/runtime additions; unchanged model inference was not rerun afterwards.
@@ -338,8 +349,33 @@ ruff check --no-cache embedded_jev tests
 git diff --check
 ```
 
-To reproduce the earlier full-text gate together with current native controls,
-reuse the existing cache and run:
+The focused P3 command below reproduces the 11 selected compiled controls using
+only pinned cached sources/environments, synthetic fixtures and the sole frozen
+projection. It does not run a real complete model or convert/download one.
+Rebuild our isolated wrapper first only if its tracked native sources changed;
+do not overwrite pinned GGML libraries or change user editor settings to fix
+CMake Tools discovery. Run checks for a changed slice, not merely to repeat
+unchanged successful gates:
+
+```bash
+cache="$HOME/.cache/huggingface/embedded-jev"
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+PRISM_GGML_CPU_LIBRARY="$cache/native/prism-build/bin/libggml-cpu.so" \
+BITNET_SOURCE_DIR="$cache/native/bitnet-source" \
+PRISM_CONVERTER_PYTHON="$cache/native/converter-venv/bin/python" \
+MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
+MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
+MIMO_PROJECTION_ARTIFACT="$cache/quantized/layer3-ffn-down-rtn-searched-fp16" \
+MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
+MIMO_PQ2_CODEC_TEST=1 MIMO_REGISTERED_MODULE_TEST=1 \
+OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
+python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py \
+   -k 'shared_group_scale_graph_matches_direct_kernel or pq2_ternary_subset_matches_actual_decoder or tiny_qwen35_native_prefill_scores_without_generation or complete_model_policy_binds_exact_projection'
+```
+
+The earlier full-text command below is historical reference, not the code-only
+resume gate. It performs real MiMo streamed inference and must not be launched
+implicitly by a documentation request or this next-chat preparation:
 
 ```bash
 cache="$HOME/.cache/huggingface/embedded-jev"
