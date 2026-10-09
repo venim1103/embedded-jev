@@ -62,6 +62,7 @@ Prepare the autonomous prerequisites first. Explain the bounded action, expected
 - Keep weights, quantized artifacts, raw activations, compiler spill and large reports outside Git. Use disposable scratch for approved diagnostics, retain only small necessary reports, and verify copied evidence before cleanup.
 - Run large-memory jobs serially. Measure RAM, swap and disk use; per-process counters are not host or target-device guarantees. Preserve pinned cached sources/libraries unless changes are separately scoped.
 - Keep credentials and private data out of repository docs, logs, screenshots and memory. Do not claim deployment readiness, edge performance or whole-model ternary support from a bounded primitive or synthetic control.
+- `.devcontainer/host-ca-certificates.crt` and images built with it contain the host's trusted roots, which can identify the user's organisation; never commit, quote or publish them. Resolve TLS failures through that provisioning, never by disabling verification.
 
 ## Leave A Clear Handoff
 

@@ -84,6 +84,8 @@ first non-MiMo profile and approved one bounded metadata preflight, including th
 `plusIQ` GGUF header-and-sample comparison. It has not run: HTTPS certificate
 verification from this container failed (see the
 [environment pitfall](handover.md#13-environment-pitfalls-already-encountered)).
+The [host certificate](#host-certificates) provisioning added afterwards takes
+effect only after a container rebuild.
 The approval covers only the steps and budget below. A full snapshot (about
 19.3 GB), conversion, inference or retained weights need separate approval.
 
@@ -97,8 +99,10 @@ The approval covers only the steps and budget below. A full snapshot (about
 Run the steps in order with throwaway scripts outside the repository. Do not run
 the MiMo `inventory`, `label_probe` or native tools against these files.
 
-1. Confirm that ordinary verified HTTPS works. Never pass `-k`, `verify=False` or
-   any option that disables certificate or checksum verification.
+1. In a container rebuilt with the [host certificates](#host-certificates),
+   confirm that `curl` returns HTTP 200 for the source revision's Hub API URL.
+   Never pass `-k`, `verify=False` or any option that disables certificate or
+   checksum verification.
 2. Read both tree listings at the pinned revisions through the Hub API, including
    `backup/`, and record each path, size, Git blob ID and LFS SHA-256. Stop if the
    GGUF size or SHA-256 differs from the table.
@@ -216,6 +220,10 @@ operator is Prism's implementation, not the BitNet-derived callback.
 - Hash-locked NumPy 2.2.6, SciPy 1.15.3, pytest 8.4.2, Ruff 0.13.1, and dependencies.
 - Clang/LLD 18, GCC build tools, CMake, Ninja, OpenMP, OpenBLAS, ccache, and GDB.
 - Git/Git LFS, curl, jq, ShellCheck, numactl, and GNU time.
+- Root certificates the host trusts, added at build time (see
+  [host certificates](#host-certificates)), with `SSL_CERT_FILE`,
+  `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS` pointing at
+  the merged system bundle.
 - Python and C++ VS Code extensions configured for container installation.
 - Persistent workspace-specific cache mounted at `/home/vscode/.cache`.
 
@@ -240,11 +248,32 @@ cross-compilation workflow and are not implicitly supported by this image.
 Do not reopen the editor automatically during a running agent task; this can
 interrupt the session. The CLI can validate the container independently.
 
+## Host Certificates
+
+Networks with TLS inspection present server certificates issued by an
+organisation root that the base image does not trust. Before each build, both
+devcontainer profiles run [prepare-build.sh](../.devcontainer/prepare-build.sh)
+on the host through `initializeCommand`, which needs Bash there (WSL, Linux,
+macOS or Git Bash). It exports the macOS keychains or the Windows root stores,
+including from WSL through `powershell.exe`, and otherwise copies the host's
+Linux bundle, into `.devcontainer/host-ca-certificates.crt`. The
+[Dockerfile](../.devcontainer/Dockerfile) splits that file, drops entries
+OpenSSL cannot read, and runs `update-ca-certificates` before any download. An
+empty export keeps the default trust store. Base-image pulls use the container
+engine's own trust store on the host.
+
+The generated file, and any image built with it, contain the host's trusted
+roots, which can identify the organisation. The file is git-ignored: never
+commit or quote it, and do not publish such an image. Verification is never
+disabled. If HTTPS still fails after a rebuild, check the export output and the
+host's trust store instead of weakening a client.
+
 ## CLI Workflow
 
 Run on the host from the repository root:
 
 ```bash
+bash .devcontainer/prepare-build.sh
 devcontainer build --workspace-folder . --docker-path podman --image-name embedded-jev-research:dev
 devcontainer up --workspace-folder . --docker-path podman
 devcontainer exec --workspace-folder . --docker-path podman /opt/venv/bin/python .devcontainer/smoke.py
@@ -256,7 +285,8 @@ Replace `podman` with `docker`, or omit `--docker-path`, on a Docker host. These
 commands do not move the current editor into the container. `up` returns a
 container ID that can be stopped later with the chosen engine's `stop` command.
 The stopped container and persistent cache can be reused; do not prune them
-indiscriminately.
+indiscriminately. `up` and VS Code run the certificate export themselves; the
+explicit first command covers a separate `build`.
 
 Inside VS Code after reopening:
 
@@ -1834,7 +1864,8 @@ platform installs or works.
 
 The base image uses a versioned Ubuntu tag, not an immutable digest, and apt uses
 current Ubuntu package repositories. Python research dependencies are locked;
-the complete OS image is **not bit-reproducible**. Before publishing benchmarks,
+the complete OS image is **not bit-reproducible**, and it embeds the building
+host's exported root certificates. Before publishing benchmarks,
 record the actual image digest and system package versions or freeze a tested
 image. Record native compiler flags and submodule commits separately.
 
@@ -1850,8 +1881,8 @@ Do not disable APT integrity checks to work around stale mirror data.
 
 Keep third-party runtimes and generated build outputs outside tracked source, for
 example under `$HOME/.cache/embedded-jev`. Do not add large models, private data,
-credentials, or generated checkpoints to Git. This initial phase leaves the
-user's existing ignore rules unchanged.
+credentials, or generated checkpoints to Git. Repository ignore rules add only
+the generated host certificate files to the user's existing rules.
 
 ## ML and GPU Work
 

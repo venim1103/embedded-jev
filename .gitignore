@@ -1,2 +1,4 @@
 Quantizing\ Custom\ Models*
 __pycache__/
+.devcontainer/host-ca-certificates.crt
+.devcontainer/host-ca-certificates.crt.tmp

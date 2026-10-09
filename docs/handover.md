@@ -23,7 +23,9 @@ original conversation. Read this first, then follow the links for detail.
    the first non-MiMo profile and approved its bounded
    [preflight](development.md#defiant-fable-preflight-procedure), including the
    `plusIQ` GGUF header-and-sample comparison. It has not run because HTTPS
-   certificate verification fails in this container; never disable verification.
+   certificate verification failed in this container. Host-certificate
+   provisioning now exists: rebuild the container, confirm verified HTTPS, then
+   run it. Never disable verification.
 5. Suggested order: the code-only P0.1-P0.4 and P3 items of the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
    fixtures mirroring the Defiant Fable packaging; the preflight once HTTPS
@@ -159,6 +161,24 @@ order. Checks passed for eight docs: 222 local links/anchors, balanced fences,
 consistent columns in 37 tables, repeated identifiers and byte figures, editor
 diagnostics and `git diff --check`. No source, native or model gates were rerun
 because no code changed; README and AGENTS.md needed no change.
+
+**Host certificate provisioning, 2026-10-09:** At the user's request, and modelled
+on another of the user's projects, both devcontainer profiles now run
+[prepare-build.sh](../.devcontainer/prepare-build.sh) on the host through
+`initializeCommand`. It exports the host's trusted roots into a git-ignored
+`.devcontainer/host-ca-certificates.crt`. The Dockerfile installs readable
+entries with `update-ca-certificates` before any download and points
+`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`
+at the system bundle. Checks in this container: JSON parsing of both profiles,
+`bash -n` and ShellCheck, Git ignore rules, the script's Linux fallback in a
+temporary directory (121 certificates), and the Dockerfile step run in a sandbox
+with fake installation. That step split CRLF input, dropped a corrupt block,
+produced a bundle Python's `ssl` loaded with 121 roots, and handled an empty file.
+The Windows and macOS export paths, an actual image build and verified HTTPS were
+not tested here; the user must rebuild the container. AGENTS.md now forbids
+committing or publishing the generated file or images built with it. The default
+gate passed (163 passed, 39 skipped, Ruff and `git diff --check` clean), and the
+eight docs passed link/anchor, fence and table checks (231 local links, 37 tables).
 
 ## Current Checkpoint (2026-10-08)
 
@@ -595,13 +615,16 @@ Host-side commands, from this repository:
 
 ```bash
 devcontainer read-configuration --workspace-folder . --docker-path podman --log-level info
+bash .devcontainer/prepare-build.sh
 devcontainer build --workspace-folder . --docker-path podman --image-name embedded-jev-research:dev
 devcontainer up --workspace-folder . --docker-path podman
 ```
 
 Use `docker` instead of `podman`, or omit `--docker-path`, on a Docker host.
 These are host commands. The development image intentionally does not mount a
-host container socket or provide nested container management.
+host container socket or provide nested container management. The
+[certificate export](development.md#host-certificates) runs automatically for
+`up` and VS Code; the explicit command covers a separate `build`.
 
 Inside the container, run:
 
@@ -1355,9 +1378,6 @@ Ask the user for these once they become necessary:
   acceptable, or must arbitrary text generation remain available?
 - What downloads and long-running compute are authorized? Avoid assuming the
   current lightweight container is permission to fetch tens of gigabytes.
-- How should the container reach the Hub through the network's TLS inspection:
-  trust its root certificate through devcontainer provisioning, or download
-  elsewhere? Never disable verification instead.
 
 No hardware purchase was recommended or priced during this phase. Old pricing
 tables and expected tokens/s from the PDF are not verified evidence. For Finland,
@@ -1379,9 +1399,10 @@ only after a workload/target is chosen.
   TLS-inspection chain whose root certificate is not in the container trust
   store. A similar issuer failure appeared after an earlier reboot. Pages read by
   the external web tool are text, not byte-exact downloads. Do not disable
-  verification or change trust settings as a workaround; downloads need the
-  user's decision to trust that root through devcontainer provisioning, or a
-  network without inspection.
+  verification or change trust settings as a workaround. At the user's request,
+  the devcontainer now trusts the host's exported roots
+  ([host certificates](development.md#host-certificates)); this takes effect
+  only after a rebuild.
 - Dev Containers CLI 0.87.0 accepts `info`, `debug`, and `trace` log levels,
   not `error`. The initial unsupported flag was corrected.
 - Direct rootless Podman bind mounts used for one-off tooling needed
@@ -1456,7 +1477,7 @@ Generalization starts with the code-only P0 items of the
 [work queue](roadmap.md#generalization-work-queue), which need no download; read
 the [coupling inventory](development.md#mimo-coupling-inventory) first. The
 approved [preflight](development.md#defiant-fable-preflight-procedure) waits for
-verified HTTPS, and the
+a rebuilt container with verified HTTPS, and the
 [derivative review](research-audit.md#derivative-release-review) explains the
 choice. Continuing the MiMo diagnostic instead needs new approval.
 

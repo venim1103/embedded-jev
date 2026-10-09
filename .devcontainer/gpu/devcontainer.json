@@ -1,5 +1,6 @@
 {
   "name": "Embedded Jev Research (GPU, Podman/WSL)",
+  "initializeCommand": ["bash", "${localWorkspaceFolder}/.devcontainer/prepare-build.sh"],
   "build": {
     "dockerfile": "../Dockerfile",
     "context": "..",

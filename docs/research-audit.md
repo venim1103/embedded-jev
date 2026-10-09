@@ -272,8 +272,9 @@ profile, as recommended here. It matches the user's interest, is declared
 Apache-2.0, keeps 9B-class geometry and exercises the packaging adapters. The
 user also approved the bounded
 [preflight](development.md#defiant-fable-preflight-procedure), whose
-header-and-sample comparison of the `plusIQ` BF16 file decides on Tier C; it has
-not run because HTTPS verification fails in the container. ZDTaichu remains the
+header-and-sample comparison of the `plusIQ` BF16 file decides on Tier C. It has
+not run: HTTPS verification failed in the container, and the host-certificate
+provisioning added afterwards awaits a rebuild. ZDTaichu remains the
 first Tier B candidate after licence review, and depth variants a later tier.
 The base model remains a useful parent control with the same template.
 
