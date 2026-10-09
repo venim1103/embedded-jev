@@ -1,6 +1,7 @@
 #include "prism_bitnet_runtime.h"
 #include "ggml-alloc.h"
 #include "ggml-cpu.h"
+#include "gguf.h"
 #include "llama.h"
 #ifdef JEV_TEST_REAL_LOADER
 #include "llama-model-loader.h"
@@ -23,6 +24,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <unistd.h>
 
 extern "C" int bitnet_group_scale_prepare_a8(
     const float*, std::size_t, std::size_t, int8_t*, float*);
@@ -34,7 +36,7 @@ extern "C" int prism_pq2_tensor_matmul(
     const uint8_t*, const float*, std::size_t, std::size_t, std::size_t, float*);
 
 static bool run_concurrent_batch(
-    ggml_tensor* weight, const uint8_t* packed, const float* scales, std::size_t tokens) {
+    ggml_tensor* weight, const uint8_t* packed, const float* scales, std::size_t tokens, void* policy = nullptr) {
     const std::size_t groups = weight->ne[0] / 128;
     const std::size_t rows = weight->ne[1];
     ggml_init_params params = { 1024 * 1024, nullptr, true };
@@ -66,6 +68,27 @@ static bool run_concurrent_batch(
             bitnet_group_scale_matmul_avx2(packed, scales, activations.data(), activation_scales.data(),
                 tokens, rows, groups, expected.data()) != 0) {
             return false;
+        }
+        if (policy && evaluation == 0) {
+            std::size_t calls = 0;
+            std::size_t repacks = 0;
+            if (prism_bitnet_cpu_tensor_status_v2(policy, weight, &calls, &repacks) != 0) {
+                return false;
+            }
+            const auto previous_calls = calls;
+            const float saved = values[0];
+            values[0] = std::numeric_limits<float>::quiet_NaN();
+            ggml_backend_tensor_set(input, values.data(), 0, values.size() * sizeof(float));
+            if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS ||
+                prism_bitnet_cpu_tensor_status_v2(policy, weight, &calls, &repacks) != 2 ||
+                calls != previous_calls || repacks != 1) {
+                return false;
+            }
+            ggml_backend_tensor_get(result, output.data(), 0, output.size() * sizeof(float));
+            if (!std::all_of(output.begin(), output.end(), [](float value) { return std::isnan(value); })) {
+                return false;
+            }
+            values[0] = saved;
         }
         ggml_backend_tensor_set(input, values.data(), 0, values.size() * sizeof(float));
         if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
@@ -302,6 +325,170 @@ static int test_weight_execution(ggml_backend_dev_t device, ggml_backend_buffer_
         if (prism_bitnet_cpu_tensor_status_v1(other, &calls, &repacks) != 5 || calls != 0 || repacks != 0) {
             return 13;
         }
+    }
+    return 0;
+}
+
+static int test_model_policy_execution_v2(bool late_refusal = false) {
+    constexpr std::size_t rows = 8192;
+    constexpr std::size_t groups = 2;
+    constexpr std::size_t columns = groups * 128;
+    const char* name = "blk.0.ffn_up.weight";
+    std::vector<uint8_t> blocks(rows * groups * 34, 0);
+    std::vector<uint8_t> packed(rows * groups * 32, 0);
+    std::vector<float> scales(rows * groups);
+    for (std::size_t block = 0; block < rows * groups; ++block) {
+        const auto bits = ggml_fp32_to_fp16(static_cast<float>(block % 31 + 1) / 32.0f);
+        blocks[block * 34] = bits & 255;
+        blocks[block * 34 + 1] = bits >> 8;
+        scales[block] = ggml_fp16_to_fp32(bits);
+        for (std::size_t column = 0; column < 128; ++column) {
+            const uint8_t code = (block + column) % 3;
+            blocks[block * 34 + 2 + column / 4] |= code << (2 * (column % 4));
+            packed[block * 32 + column % 32] |= code << (6 - 2 * (column / 32));
+        }
+    }
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+    if (!context) {
+        return 36;
+    }
+    std::vector<uint8_t> dense(columns * 32 * 2, 0);
+    std::vector<float> norm(columns, 1.0f);
+    const jev_bitnet_model_tensor_v2 tensors[] = {
+        { "token_embd.weight", GGML_TYPE_BF16, { columns, 32, 1, 1 } },
+        { "output.weight", GGML_TYPE_BF16, { columns, 32, 1, 1 } },
+        { "output_norm.weight", GGML_TYPE_F32, { columns, 1, 1, 1 } },
+        { name, GGML_TYPE_PQ2_0, { columns, rows, 1, 1 } },
+    };
+    auto metadata = std::unique_ptr<gguf_context, decltype(&gguf_free)>(gguf_init_empty(), gguf_free);
+    const char* digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const char* revision = "1111111111111111111111111111111111111111";
+    for (const auto& entry : {
+            std::make_pair("general.architecture", "qwen35"),
+            std::make_pair("jev.model.profile_id", "synthetic-native-control"),
+            std::make_pair("jev.model.profile_sha256", digest),
+            std::make_pair("jev.model.source_revision", revision),
+            std::make_pair("jev.model.converter_revision", JEV_PRISM_SOURCE_REVISION),
+            std::make_pair("jev.bitnet.source_tensor_sha256", digest),
+            std::make_pair("jev.bitnet.model", "profile-qwen35-single-projection-v2"),
+            std::make_pair("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1") }) {
+        gguf_set_val_str(metadata.get(), entry.first, entry.second);
+    }
+    gguf_set_val_u32(metadata.get(), "qwen35.block_count", 1);
+    gguf_set_val_u32(metadata.get(), "qwen35.embedding_length", columns);
+    gguf_set_val_u32(metadata.get(), "qwen35.feed_forward_length", rows);
+    const char* integer_names[] = {
+        "qwen35.attention.head_count", "qwen35.attention.head_count_kv", "qwen35.attention.key_length",
+        "qwen35.attention.value_length", "qwen35.rope.dimension_count", "qwen35.ssm.conv_kernel",
+        "qwen35.ssm.inner_size", "qwen35.ssm.state_size", "qwen35.ssm.time_step_rank",
+        "qwen35.ssm.group_count", "qwen35.full_attention_interval"
+    };
+    const uint32_t integer_values[] = { 4, 1, 64, 64, 16, 4, 256, 64, 4, 1, 1 };
+    const float epsilon = 1e-6f;
+    const float theta = 10000.0f;
+    const int32_t sections[] = { 3, 3, 2, 0 };
+    std::vector<jev_bitnet_model_metadata_v2> expected_metadata;
+    for (std::size_t index = 0; index < 11; ++index) {
+        gguf_set_val_u32(metadata.get(), integer_names[index], integer_values[index]);
+        expected_metadata.push_back({ integer_names[index], 1, 1, &integer_values[index] });
+    }
+    gguf_set_val_f32(metadata.get(), "qwen35.attention.layer_norm_rms_epsilon", epsilon);
+    gguf_set_val_f32(metadata.get(), "qwen35.rope.freq_base", theta);
+    gguf_set_arr_data(metadata.get(), "qwen35.rope.dimension_sections", GGUF_TYPE_INT32, sections, 4);
+    expected_metadata.push_back({ "qwen35.attention.layer_norm_rms_epsilon", 2, 1, &epsilon });
+    expected_metadata.push_back({ "qwen35.rope.freq_base", 2, 1, &theta });
+    expected_metadata.push_back({ "qwen35.rope.dimension_sections", 3, 4, sections });
+    for (const auto& entry : tensors) {
+        auto* tensor = ggml_new_tensor_2d(context.get(), static_cast<ggml_type>(entry.type), entry.ne[0], entry.ne[1]);
+        ggml_set_name(tensor, entry.name);
+        tensor->data = entry.type == GGML_TYPE_PQ2_0 ? static_cast<void*>(blocks.data()) :
+            entry.type == GGML_TYPE_F32 ? static_cast<void*>(norm.data()) : static_cast<void*>(dense.data());
+        gguf_add_tensor(metadata.get(), tensor);
+    }
+    struct temporary_file {
+        char path[40] = "/tmp/jev-policy-v2-XXXXXX";
+        int descriptor = mkstemp(path);
+        ~temporary_file() {
+            if (descriptor >= 0) {
+                close(descriptor);
+                std::remove(path);
+            }
+        }
+    } file;
+    if (file.descriptor < 0 || !gguf_write_to_file(metadata.get(), file.path, false)) {
+        return 36;
+    }
+    const jev_bitnet_model_spec_v2 specification {
+        2, "synthetic-native-control", digest, revision, digest, 1, columns, rows, 32, tensors, 4,
+        expected_metadata.data(), expected_metadata.size(),
+        { 2, name, rows, columns, blocks.data(), blocks.size() }
+    };
+    void* raw_policy = nullptr;
+    const llama_model_tensor_buft_override* overrides = nullptr;
+    const int status = prism_bitnet_cpu_model_override_from_gguf_v2(
+        file.path, &specification, JEV_PRISM_SOURCE_REVISION, 2, &raw_policy, &overrides);
+    if (late_refusal) {
+        return status == 7 && !raw_policy && !overrides ? 0 : 36;
+    }
+    if (status != 0 || !raw_policy || !overrides) {
+        return 36;
+    }
+    std::unique_ptr<void, decltype(&prism_bitnet_cpu_model_policy_free_v2)> policy(raw_policy, prism_bitnet_cpu_model_policy_free_v2);
+    auto* weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, columns, rows);
+    ggml_set_name(weight, name);
+    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> storage(
+        ggml_backend_buft_alloc_buffer(overrides[0].buft, blocks.size()), ggml_backend_buffer_free);
+    if (!storage) {
+        return 36;
+    }
+    for (const char* wrong_name : { "blk.3.ffn_down.weight", "blk.0.ffn_gate.weight" }) {
+        auto* refused = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, columns, rows);
+        ggml_set_name(refused, wrong_name);
+        if (ggml_backend_tensor_alloc(storage.get(), refused, ggml_backend_buffer_get_base(storage.get())) != GGML_STATUS_FAILED) {
+            return 36;
+        }
+    }
+    ggml_set_name(weight, name);
+    if (ggml_backend_tensor_alloc(storage.get(), weight, ggml_backend_buffer_get_base(storage.get())) != GGML_STATUS_SUCCESS) {
+        return 36;
+    }
+    ggml_backend_buffer_set_usage(storage.get(), GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+    std::size_t calls = 99;
+    std::size_t repacks = 99;
+    if (prism_bitnet_cpu_tensor_status_v1(weight, &calls, &repacks) != 1 || calls != 0 || repacks != 0 ||
+        prism_bitnet_cpu_tensor_status_v2(policy.get(), weight, &calls, &repacks) != 8) {
+        return 36;
+    }
+    ggml_backend_tensor_set(weight, blocks.data(), 0, 17);
+    ggml_backend_tensor_set(weight, blocks.data() + 17, 17, blocks.size() - 17);
+    std::vector<uint8_t> readback(blocks.size());
+    ggml_backend_tensor_get(weight, readback.data(), 0, readback.size());
+    if (readback != blocks || prism_bitnet_cpu_tensor_status_v2(policy.get(), weight, &calls, &repacks) != 0 || repacks != 1) {
+        return 36;
+    }
+    for (std::size_t tokens : { 1U, 2U, 128U }) {
+        if (!run_concurrent_batch(weight, packed.data(), scales.data(), tokens, policy.get())) {
+            return 36;
+        }
+    }
+    if (prism_bitnet_cpu_tensor_status_v2(policy.get(), weight, &calls, &repacks) != 0 || calls != 12 || repacks != 1) {
+        return 36;
+    }
+    auto* other = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, columns, rows);
+    ggml_set_name(other, name);
+    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> other_storage(
+        ggml_backend_buft_alloc_buffer(overrides[0].buft, blocks.size()), ggml_backend_buffer_free);
+    if (!other_storage || ggml_backend_tensor_alloc(other_storage.get(), other,
+            ggml_backend_buffer_get_base(other_storage.get())) != GGML_STATUS_SUCCESS) {
+        return 36;
+    }
+    auto changed = blocks;
+    changed[2] ^= 1;
+    ggml_backend_tensor_set(other, changed.data(), 0, changed.size());
+    if (run_concurrent_batch(other, packed.data(), scales.data(), 1) ||
+        prism_bitnet_cpu_tensor_status_v2(policy.get(), other, &calls, &repacks) != 8 || calls != 0 || repacks != 0) {
+        return 36;
     }
     return 0;
 }
@@ -953,7 +1140,7 @@ int main(int argc, char** argv) {
     const int status = prism_bitnet_cpu_runtime_init_v1(
         JEV_PRISM_SOURCE_REVISION, JEV_BITNET_RUNTIME_ABI_V1, &buffer_type);
     if (late) {
-        if (status != 7 || buffer_type) {
+        if (status != 7 || buffer_type || test_model_policy_execution_v2(true) != 0) {
             return 3;
         }
         std::puts("{\"late_init_refused\":true}");
@@ -979,6 +1166,11 @@ int main(int argc, char** argv) {
     if (execution_status != 0) {
         std::fprintf(stderr, "loader control stage %d\n", execution_status);
         return execution_status;
+    }
+    const int policy_status = test_model_policy_execution_v2();
+    if (policy_status != 0) {
+        std::fprintf(stderr, "v2 policy control stage %d\n", policy_status);
+        return policy_status;
     }
     std::puts("{\"discovery_matches\":1,\"idempotent_init\":true,\"kernel_calls\":11,\"weight_repacks\":1,\"concurrent_graphs\":true}");
     return 0;

@@ -439,6 +439,148 @@ for kind in ("valid", "wrong_tag", "wrong_revision", "wrong_arch", "wrong_layers
         assert rejected.returncode == status and rejected.stdout == "", rejected.stderr
 
 
+def test_pinned_prism_profile_complete_model_policy_binds_exact_table_and_projection(tmp_path):
+    import ctypes
+
+    from embedded_jev.prism_codec import create_profile_model_policy, profile_model_specification
+    from test_inventory import _model_policy_fixture
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    converter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+    if not all((source_dir, converter, runtime_build)):
+        pytest.skip("requires cached pinned GGUF environment and runtime; synthetic policy only")
+    assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    profile, inventory, manifest, blocks = _model_policy_fixture()
+    specification = profile_model_specification(profile, inventory, manifest, blocks)
+    (tmp_path / "payload.bin").write_bytes(blocks.tobytes())
+    writer_code = """
+import json
+import sys
+from pathlib import Path
+import gguf
+import numpy as np
+spec = json.loads(sys.argv[1])
+directory = Path(sys.argv[2])
+payload = (directory / "payload.bin").read_bytes()
+for kind in ("valid", "profile", "fingerprint", "revision", "converter", "source_digest", "tag", "execution",
+             "layers", "hidden", "intermediate", "architecture", "name", "shape", "dtype", "other_pq2",
+             "target_shape", "payload", "transform", "truncated", "extra", "missing", "heads", "rope", "epsilon", "recurrent"):
+    writer = gguf.GGUFWriter(directory / (kind + ".gguf"), "qwen3" if kind == "architecture" else "qwen35")
+    for key, value, corruption in (
+        ("jev.model.profile_id", spec["profile_id"], "profile"),
+        ("jev.model.profile_sha256", spec["profile_sha256"], "fingerprint"),
+        ("jev.model.source_revision", spec["source_revision"], "revision"),
+        ("jev.model.converter_revision", "842b1880415d6f508f03b789e5ce70194def7bfd", "converter"),
+        ("jev.bitnet.source_tensor_sha256", spec["source_tensor_sha256"], "source_digest"),
+        ("jev.bitnet.model", "profile-qwen35-single-projection-v2", "tag"),
+        ("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1", "execution"),
+    ):
+        writer.add_string(key, "wrong" if kind == corruption else value)
+    for key, value, corruption in (("block_count", spec["layers"], "layers"),
+                                    ("embedding_length", spec["hidden"], "hidden"),
+                                    ("feed_forward_length", spec["intermediate"], "intermediate")):
+        writer.add_uint32("qwen35." + key, value + (kind == corruption))
+    for item in spec["metadata"]:
+        name, values = item["name"], item["values"].copy()
+        if (kind, name) in (("heads", "qwen35.attention.head_count"),
+                           ("rope", "qwen35.rope.dimension_sections"),
+                           ("epsilon", "qwen35.attention.layer_norm_rms_epsilon")):
+            values[0] += 1
+        if item["kind"] == "u32":
+            writer.add_uint32(name, values[0])
+        elif item["kind"] == "f32":
+            writer.add_float32(name, values[0])
+        else:
+            writer.add_array(name, values)
+    if kind == "recurrent":
+        writer.add_array("qwen35.attention.recurrent_layers", [True])
+    if kind == "transform":
+        writer.add_uint32("prism.hadamard.version", 1)
+    target = spec["projection"]["tensor_name"]
+    for item in spec["tensors"]:
+        if kind == "missing" and item["name"] == "output_norm.weight":
+            continue
+        name = "blk.0.control.weight" if kind == "name" and item["name"] == "output_norm.weight" else item["name"]
+        shape = list(reversed(item["ne"][:1 if item["ne"][1] == 1 else 2]))
+        dtype = item["type"]
+        if kind == "shape" and name == "output.weight":
+            shape[0] -= 1
+        if kind == "target_shape" and name == target:
+            shape[0] -= 1
+        if kind == "dtype" and name == "output_norm.weight":
+            dtype = "BF16"
+        if kind == "other_pq2" and name == "blk.0.ffn_up.weight":
+            dtype = "PQ2_0"
+        count = int(np.prod(shape))
+        size = count // 128 * 34 if dtype == "PQ2_0" else count * (4 if dtype == "F32" else 2)
+        if dtype == "PQ2_0":
+            shape[-1] = shape[-1] // 128 * 34
+        writer.add_tensor_info(name, shape, np.dtype("uint8" if dtype == "PQ2_0" else "uint16"), size,
+                               raw_dtype=getattr(gguf.GGMLQuantizationType, dtype))
+    if kind == "extra":
+        writer.add_tensor("blk.0.control.weight", np.zeros(1, dtype=np.float32))
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_ti_data_to_file()
+    output = writer.fout[0]
+    writer.write_padding(output, output.tell())
+    data_offset = output.tell()
+    infos = list(writer.tensors[0].items())
+    output.truncate(data_offset + sum(gguf.GGUFWriter.ggml_pad(info.nbytes, writer.data_alignment) for _, info in infos))
+    offset = sum(gguf.GGUFWriter.ggml_pad(info.nbytes, writer.data_alignment) for name, info in infos[:next(index for index, (name, _) in enumerate(infos) if name == target)])
+    output.seek(data_offset + offset)
+    encoded = bytearray(payload)
+    if kind == "payload":
+        encoded[-1] ^= 1
+    output.write(encoded[:next(info.nbytes for name, info in infos if name == target)])
+    if kind == "truncated":
+        output.truncate(data_offset + offset + 1)
+    writer.close()
+"""
+    writer = subprocess.run([converter, "-c", writer_code, json.dumps(specification), str(tmp_path)],
+                            capture_output=True, text=True, timeout=30,
+                            env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"), "PYTHONDONTWRITEBYTECODE": "1"})
+    assert writer.returncode == 0, writer.stderr
+    native = ctypes.CDLL(str(Path(runtime_build) / "bin" / "libprism_group_scale.so"))
+    initialize = native.prism_bitnet_cpu_runtime_init_v1
+    initialize.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
+    buffer_type = ctypes.c_void_p()
+    assert initialize(PRISM_REVISION.encode(), 1, ctypes.byref(buffer_type)) == 0
+    registry = native.prism_bitnet_registered_tensor_registry_size
+    registry.restype = ctypes.c_size_t
+    baseline = registry()
+    free = native.prism_bitnet_cpu_model_policy_free_v2
+    free.argtypes = [ctypes.c_void_p]
+    free.restype = None
+
+    class Override(ctypes.Structure):
+        _fields_ = [("pattern", ctypes.c_char_p), ("buffer_type", ctypes.c_void_p)]
+
+    for _ in range(2):
+        handle, overrides, result = create_profile_model_policy(native, tmp_path / "valid.gguf", profile, inventory, manifest, blocks)
+        try:
+            rules = ctypes.cast(overrides, ctypes.POINTER(Override))
+            assert rules[0].pattern == b"^blk\\.0\\.ffn_down\\.weight$" and rules[0].buffer_type != buffer_type.value
+            assert rules[1].pattern is None and rules[1].buffer_type is None
+            assert registry() == baseline + 1
+            assert result["source_payload_verification"] == "declared_digest_not_rehashed_source_tensor"
+        finally:
+            free(handle)
+        assert registry() == baseline
+    for path in sorted(tmp_path.glob("*.gguf")):
+        if path.name == "valid.gguf":
+            continue
+        with pytest.raises(ValueError, match="policy failed: 6"):
+            create_profile_model_policy(native, path, profile, inventory, manifest, blocks)
+        assert registry() == baseline
+    function = native.prism_bitnet_cpu_model_override_from_gguf_v2
+    handle, overrides = ctypes.c_void_p(123), ctypes.c_void_p(123)
+    assert function(os.fsencode(tmp_path / "valid.gguf"), None, PRISM_REVISION.encode(), 2,
+                    ctypes.byref(handle), ctypes.byref(overrides)) == 1
+    assert handle.value is overrides.value is None
+
+
 @pytest.mark.parametrize("use_bitnet,mode", [(False, "full"), (True, "full"),
                                  (True, "kernel-error"), (True, "kernel-recovery"), (True, "trace")],
                     ids=["dense-bf16", "one-bitnet", "one-bitnet-kernel-error", "one-bitnet-kernel-recovery",

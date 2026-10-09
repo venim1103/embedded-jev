@@ -19,6 +19,7 @@
 #include <mutex>
 #include <new>
 #include <regex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -323,20 +324,34 @@ struct bitnet_loader_storage_v1 {
 struct bitnet_loader_buffer_v1 final : ggml::cpu::extra_buffer_type {
     ggml_backend_buffer_type type;
 
-    static bool valid_weight(const ggml_tensor* tensor) {
+    bool valid_weight(const ggml_tensor* tensor) const {
+        if (!tensor_name.empty()) {
+            return tensor && tensor_name == ggml_get_name(tensor) &&
+                tensor->type == GGML_TYPE_PQ2_0 && tensor->ne[0] == columns && tensor->ne[1] == rows &&
+                tensor->ne[2] == 1 && tensor->ne[3] == 1 && ggml_is_contiguous(tensor);
+        }
         return tensor && std::strcmp(ggml_get_name(tensor), "blk.3.ffn_down.weight") == 0 &&
             tensor->type == GGML_TYPE_PQ2_0 && tensor->ne[0] > 0 && tensor->ne[0] <= 12288 &&
             tensor->ne[0] % 128 == 0 && tensor->ne[1] > 0 && tensor->ne[1] <= 4096 &&
             tensor->ne[2] == 1 && tensor->ne[3] == 1 && ggml_is_contiguous(tensor);
     }
 
+    std::string tensor_name;
+    int64_t rows = 0;
+    int64_t columns = 0;
+    std::vector<uint8_t> reference_pq2;
+
     static bitnet_loader_storage_v1* state(ggml_backend_buffer_t buffer) {
         return static_cast<bitnet_loader_storage_v1*>(buffer->context);
     }
 
-    bitnet_loader_buffer_v1() : type(*ggml_backend_cpu_buffer_type()) {
+    explicit bitnet_loader_buffer_v1(const char* name = "", int64_t row_count = 0, int64_t column_count = 0)
+        : type(*ggml_backend_cpu_buffer_type()), tensor_name(name), rows(row_count), columns(column_count) {
         type.context = this;
-        type.iface.get_name = [](ggml_backend_buffer_type_t) { return "JEV_BITNET_LOADER_V1"; };
+        type.iface.get_name = [](ggml_backend_buffer_type_t buft) {
+            return static_cast<bitnet_loader_buffer_v1*>(buft->context)->tensor_name.empty()
+                ? "JEV_BITNET_LOADER_V1" : "JEV_BITNET_MODEL_V2";
+        };
         type.iface.is_host = [](ggml_backend_buffer_type_t) { return false; };
         type.iface.alloc_buffer = [](ggml_backend_buffer_type_t buft, std::size_t size) {
             std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> storage(
@@ -353,7 +368,8 @@ struct bitnet_loader_buffer_v1 final : ggml::cpu::extra_buffer_type {
                     return ggml_backend_buffer_get_base(state(buffer)->storage.get());
                 };
                 iface.init_tensor = [](ggml_backend_buffer_t buffer, ggml_tensor* tensor) {
-                    if (!valid_weight(tensor) || state(buffer)->find(tensor)) {
+                    auto* runtime = static_cast<bitnet_loader_buffer_v1*>(buffer->buft->context);
+                    if (!runtime->valid_weight(tensor) || state(buffer)->find(tensor)) {
                         return GGML_STATUS_FAILED;
                     }
                     try {
@@ -375,6 +391,14 @@ struct bitnet_loader_buffer_v1 final : ggml::cpu::extra_buffer_type {
                     const std::lock_guard<std::mutex> lock(traits->mutex);
                     if (traits->sealed || !data || offset != traits->uploaded || count == 0 ||
                         offset > ggml_nbytes(tensor) || count > ggml_nbytes(tensor) - offset) {
+                        traits->load_status = traits->kernel.status = 8;
+                        traits->sealed = true;
+                        return;
+                    }
+                    auto* runtime = static_cast<bitnet_loader_buffer_v1*>(buffer->buft->context);
+                    if (!runtime->reference_pq2.empty() &&
+                        (offset > runtime->reference_pq2.size() || count > runtime->reference_pq2.size() - offset ||
+                         std::memcmp(data, runtime->reference_pq2.data() + offset, count) != 0)) {
                         traits->load_status = traits->kernel.status = 8;
                         traits->sealed = true;
                         return;
@@ -451,6 +475,26 @@ bitnet_loader_buffer_v1& loader_runtime_v1() {
     static bitnet_loader_buffer_v1 runtime;
     return runtime;
 }
+
+struct bitnet_model_policy_v2 {
+    bitnet_loader_buffer_v1 runtime;
+    std::string pattern;
+    llama_model_tensor_buft_override rules[2];
+
+    explicit bitnet_model_policy_v2(const jev_bitnet_projection_spec_v2& projection)
+        : runtime(projection.tensor_name, projection.rows, projection.columns), pattern("^") {
+        for (const char character : runtime.tensor_name) {
+            if (character == '.') {
+                pattern += '\\';
+            }
+            pattern += character;
+        }
+        pattern += '$';
+        runtime.reference_pq2.assign(projection.reference_pq2, projection.reference_pq2 + projection.reference_bytes);
+        rules[0] = { pattern.c_str(), &runtime.type };
+        rules[1] = { nullptr, nullptr };
+    }
+};
 
 struct registered_projection {
     bitnet_tensor_traits traits;
@@ -1104,6 +1148,276 @@ extern "C" int prism_bitnet_cpu_model_override_from_gguf_v1(
     } catch (const std::bad_alloc&) {
         return 2;
     }
+}
+
+extern "C" int prism_bitnet_cpu_model_override_from_gguf_v2(
+    const char* model_path, const jev_bitnet_model_spec_v2* specification,
+    const char* prism_revision, uint32_t abi_version, void** policy,
+    const llama_model_tensor_buft_override** overrides) {
+    if (policy) {
+        *policy = nullptr;
+    }
+    if (overrides) {
+        *overrides = nullptr;
+    }
+    if (!policy || !overrides || !model_path || !specification || !prism_revision ||
+        std::strcmp(prism_revision, JEV_PRISM_SOURCE_REVISION) != 0 || abi_version != JEV_BITNET_MODEL_ABI_V2 ||
+        specification->abi_version != JEV_BITNET_MODEL_ABI_V2 || !specification->profile_id ||
+        !specification->profile_sha256 || !specification->source_revision || !specification->source_tensor_sha256 ||
+        !specification->tensors || specification->tensor_count < 4 || specification->tensor_count > 427 ||
+        !specification->metadata || specification->metadata_count != 14 ||
+        specification->layers == 0 || specification->layers > 32 ||
+        specification->hidden == 0 || specification->hidden > 4096 ||
+        specification->intermediate == 0 || specification->intermediate > 12288 ||
+        specification->vocabulary == 0 || specification->vocabulary > 248320) {
+        return 1;
+    }
+    const auto& projection = specification->projection;
+    if (projection.abi_version != JEV_BITNET_PROJECTION_ABI_V2 || !projection.tensor_name || !projection.reference_pq2 ||
+        projection.rows == 0 || projection.rows > 12288 || projection.columns == 0 || projection.columns > 12288 ||
+        projection.columns % 128 != 0 || projection.rows * projection.columns > 4096 * 12288 ||
+        projection.reference_bytes != projection.rows * (projection.columns / 128) * 34) {
+        return 1;
+    }
+    try {
+        static const std::regex sha256("[0-9a-f]{64}");
+        static const std::regex revision("[0-9a-f]{40}");
+        static const std::regex profile_id("[a-z0-9][a-z0-9._-]{0,127}");
+        static const std::regex projection_name(
+            "blk\\.(0|[1-9][0-9]{0,2})\\.(ffn_gate|ffn_up|ffn_down|attn_q|attn_k|attn_v|attn_output)\\.weight");
+        std::cmatch match;
+        if (!std::regex_match(specification->profile_id, profile_id) ||
+            !std::regex_match(specification->profile_sha256, sha256) ||
+            !std::regex_match(specification->source_tensor_sha256, sha256) ||
+            !std::regex_match(specification->source_revision, revision) ||
+            std::strlen(projection.tensor_name) >= GGML_MAX_NAME ||
+            !std::regex_match(projection.tensor_name, match, projection_name) ||
+            std::stoul(match[1].str()) >= specification->layers) {
+            return 6;
+        }
+        if (const int status = validate_pq2_weight(projection.reference_pq2, projection.reference_bytes / 34); status != 0) {
+            return status;
+        }
+        for (std::size_t offset = 0; offset < projection.reference_bytes; offset += 34) {
+            const auto* block = projection.reference_pq2 + offset;
+            if (block[0] == 0 && (block[1] & 0x7f) == 0 &&
+                !std::all_of(block + 2, block + 34, [](uint8_t byte) { return byte == 0x55; })) {
+                return 5;
+            }
+        }
+        std::set<std::string> names;
+        std::size_t expected_bytes = 0;
+        std::size_t target_count = 0;
+        for (std::size_t index = 0; index < specification->tensor_count; ++index) {
+            const auto& tensor = specification->tensors[index];
+            if (!tensor.name || std::strlen(tensor.name) >= GGML_MAX_NAME || !names.insert(tensor.name).second ||
+                tensor.ne[0] <= 0 || tensor.ne[0] > 248320 || tensor.ne[1] <= 0 || tensor.ne[1] > 248320 ||
+                tensor.ne[2] != 1 || tensor.ne[3] != 1 ||
+                tensor.ne[0] * tensor.ne[1] > 248320LL * 4096) {
+                return 6;
+            }
+            const bool target = std::strcmp(tensor.name, projection.tensor_name) == 0;
+            if (target) {
+                ++target_count;
+                if (tensor.type != GGML_TYPE_PQ2_0 || tensor.ne[0] != static_cast<int64_t>(projection.columns) ||
+                    tensor.ne[1] != static_cast<int64_t>(projection.rows)) {
+                    return 6;
+                }
+                expected_bytes += projection.reference_bytes;
+            } else {
+                if (tensor.type != GGML_TYPE_BF16 && tensor.type != GGML_TYPE_F32) {
+                    return 6;
+                }
+                expected_bytes += tensor.ne[0] * tensor.ne[1] * (tensor.type == GGML_TYPE_BF16 ? 2 : 4);
+            }
+        }
+        if (target_count != 1 || expected_bytes > 19ULL * 1024 * 1024 * 1024) {
+            return 6;
+        }
+        std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(model_path, "rb"), std::fclose);
+        if (!file || std::fseek(file.get(), 0, SEEK_END) != 0) {
+            return 6;
+        }
+        const long length = std::ftell(file.get());
+        if (length <= 0 || static_cast<uint64_t>(length) > expected_bytes + 1024 * 1024 ||
+            std::fseek(file.get(), 0, SEEK_SET) != 0) {
+            return 6;
+        }
+        gguf_init_params params = { true, nullptr };
+        std::unique_ptr<gguf_context, decltype(&gguf_free)> metadata(
+            gguf_init_from_file_ptr(file.get(), params), gguf_free);
+        if (!metadata || gguf_get_version(metadata.get()) != GGUF_VERSION ||
+            gguf_get_n_tensors(metadata.get()) != static_cast<int64_t>(specification->tensor_count)) {
+            return 6;
+        }
+        for (const auto& requirement : {
+                std::make_pair("general.architecture", "qwen35"),
+                std::make_pair("jev.model.profile_id", specification->profile_id),
+                std::make_pair("jev.model.profile_sha256", specification->profile_sha256),
+                std::make_pair("jev.model.source_revision", specification->source_revision),
+                std::make_pair("jev.model.converter_revision", JEV_PRISM_SOURCE_REVISION),
+                std::make_pair("jev.bitnet.source_tensor_sha256", specification->source_tensor_sha256),
+                std::make_pair("jev.bitnet.model", "profile-qwen35-single-projection-v2"),
+                std::make_pair("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1") }) {
+            const auto key = gguf_find_key(metadata.get(), requirement.first);
+            if (key < 0 || gguf_get_kv_type(metadata.get(), key) != GGUF_TYPE_STRING ||
+                std::strcmp(gguf_get_val_str(metadata.get(), key), requirement.second) != 0) {
+                return 6;
+            }
+        }
+        for (const auto& requirement : {
+                std::make_pair("qwen35.block_count", specification->layers),
+                std::make_pair("qwen35.embedding_length", specification->hidden),
+                std::make_pair("qwen35.feed_forward_length", specification->intermediate) }) {
+            const auto key = gguf_find_key(metadata.get(), requirement.first);
+            if (key < 0 || gguf_get_kv_type(metadata.get(), key) != GGUF_TYPE_UINT32 ||
+                gguf_get_val_u32(metadata.get(), key) != requirement.second) {
+                return 6;
+            }
+        }
+        for (int64_t key = 0; key < gguf_get_n_kv(metadata.get()); ++key) {
+            if (std::strncmp(gguf_get_key(metadata.get(), key), "prism.hadamard.", sizeof("prism.hadamard.") - 1) == 0 ||
+                std::strcmp(gguf_get_key(metadata.get(), key), "qwen35.attention.recurrent_layers") == 0) {
+                return 6;
+            }
+        }
+        std::set<std::string> metadata_names;
+        for (std::size_t index = 0; index < specification->metadata_count; ++index) {
+            const auto& expected = specification->metadata[index];
+            if (!expected.name || !expected.values || !metadata_names.insert(expected.name).second) {
+                return 6;
+            }
+            const auto key = gguf_find_key(metadata.get(), expected.name);
+            if (key < 0) {
+                return 6;
+            }
+            const auto type = gguf_get_kv_type(metadata.get(), key);
+            if (expected.kind == 1 && expected.count == 1) {
+                if (type != GGUF_TYPE_UINT32 || gguf_get_val_u32(metadata.get(), key) != *static_cast<const uint32_t*>(expected.values)) {
+                    return 6;
+                }
+            } else if (expected.kind == 2 && expected.count == 1) {
+                const float value = *static_cast<const float*>(expected.values);
+                if (!std::isfinite(value) || type != GGUF_TYPE_FLOAT32 || gguf_get_val_f32(metadata.get(), key) != value) {
+                    return 6;
+                }
+            } else if (expected.kind == 3 && expected.count == 4) {
+                if (type != GGUF_TYPE_ARRAY || gguf_get_arr_type(metadata.get(), key) != GGUF_TYPE_INT32 ||
+                    gguf_get_arr_n(metadata.get(), key) != expected.count ||
+                    std::memcmp(gguf_get_arr_data(metadata.get(), key), expected.values, 4 * sizeof(int32_t)) != 0) {
+                    return 6;
+                }
+            } else {
+                return 6;
+            }
+        }
+        for (const char* name : {
+                "attention.head_count", "attention.head_count_kv", "attention.key_length", "attention.value_length",
+                "rope.dimension_count", "ssm.conv_kernel", "ssm.inner_size", "ssm.state_size", "ssm.time_step_rank",
+                "ssm.group_count", "full_attention_interval", "attention.layer_norm_rms_epsilon", "rope.freq_base",
+                "rope.dimension_sections" }) {
+            if (!metadata_names.count(std::string("qwen35.") + name)) {
+                return 6;
+            }
+        }
+        const auto data_offset = gguf_get_data_offset(metadata.get());
+        const auto file_bytes = static_cast<std::size_t>(length);
+        if (data_offset > file_bytes) {
+            return 6;
+        }
+        std::vector<std::pair<std::size_t, std::size_t>> ranges;
+        for (std::size_t index = 0; index < specification->tensor_count; ++index) {
+            const auto& expected = specification->tensors[index];
+            const auto tensor = gguf_find_tensor(metadata.get(), expected.name);
+            if (tensor < 0 || static_cast<uint32_t>(gguf_get_tensor_type(metadata.get(), tensor)) != expected.type ||
+                !std::equal(expected.ne, expected.ne + 4, gguf_get_tensor_ne(metadata.get(), tensor))) {
+                return 6;
+            }
+            const auto offset = gguf_get_tensor_offset(metadata.get(), tensor);
+            const auto bytes = gguf_get_tensor_size(metadata.get(), tensor);
+            if (offset > file_bytes - data_offset || bytes > file_bytes - data_offset - offset) {
+                return 6;
+            }
+            ranges.emplace_back(offset, offset + bytes);
+        }
+        std::sort(ranges.begin(), ranges.end());
+        for (std::size_t index = 1; index < ranges.size(); ++index) {
+            if (ranges[index].first < ranges[index - 1].second) {
+                return 6;
+            }
+        }
+        for (const char* name : { "token_embd.weight", "output.weight", "output_norm.weight" }) {
+            const auto tensor = gguf_find_tensor(metadata.get(), name);
+            if (tensor < 0) {
+                return 6;
+            }
+            const auto* shape = gguf_get_tensor_ne(metadata.get(), tensor);
+            if (shape[0] != specification->hidden || shape[1] !=
+                (std::strcmp(name, "output_norm.weight") == 0 ? 1 : specification->vocabulary)) {
+                return 6;
+            }
+        }
+        const auto target = gguf_find_tensor(metadata.get(), projection.tensor_name);
+        const auto offset = gguf_get_tensor_offset(metadata.get(), target);
+        uint8_t chunk[65536];
+        if (std::fseek(file.get(), static_cast<long>(data_offset + offset), SEEK_SET) != 0) {
+            return 6;
+        }
+        for (std::size_t first = 0; first < projection.reference_bytes; first += sizeof(chunk)) {
+            const auto count = std::min(sizeof(chunk), projection.reference_bytes - first);
+            if (std::fread(chunk, 1, count, file.get()) != count ||
+                std::memcmp(chunk, projection.reference_pq2 + first, count) != 0) {
+                return 6;
+            }
+        }
+        ggml_backend_buffer_type_t buffer_type = nullptr;
+        const int status = prism_bitnet_cpu_runtime_init_v1(prism_revision, JEV_BITNET_RUNTIME_ABI_V1, &buffer_type);
+        if (status != 0) {
+            return status;
+        }
+        auto owned = std::make_unique<bitnet_model_policy_v2>(projection);
+        const std::lock_guard<std::mutex> lock(registration_mutex);
+        ggml_backend_cpu_get_extra_buffer_types().push_back(&owned->runtime.type);
+        *overrides = owned->rules;
+        *policy = owned.release();
+        return 0;
+    } catch (const std::bad_alloc&) {
+        return 2;
+    }
+}
+
+extern "C" void prism_bitnet_cpu_model_policy_free_v2(void* policy) {
+    if (!policy) {
+        return;
+    }
+    const std::lock_guard<std::mutex> lock(registration_mutex);
+    auto* owned = static_cast<bitnet_model_policy_v2*>(policy);
+    auto& types = ggml_backend_cpu_get_extra_buffer_types();
+    const auto entry = std::find(types.begin(), types.end(), &owned->runtime.type);
+    if (entry != types.end()) {
+        types.erase(entry);
+    }
+    delete owned;
+}
+
+extern "C" int prism_bitnet_cpu_tensor_status_v2(
+    void* policy, const ggml_tensor* weight, std::size_t* dispatch_calls, std::size_t* weight_repacks) {
+    if (!dispatch_calls || !weight_repacks) {
+        return 1;
+    }
+    *dispatch_calls = *weight_repacks = 0;
+    const auto* owned = static_cast<bitnet_model_policy_v2*>(policy);
+    if (!owned || !weight || !weight->buffer || weight->buffer->buft != &owned->runtime.type) {
+        return 1;
+    }
+    auto* traits = bitnet_loader_buffer_v1::state(weight->buffer)->find(weight);
+    if (!traits || weight->extra != traits) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(traits->mutex);
+    *dispatch_calls = traits->kernel.calls;
+    *weight_repacks = traits->kernel.repacks;
+    return traits->kernel.status;
 }
 
 extern "C" int prism_bitnet_registered_projection_compute(

@@ -462,6 +462,98 @@ def test_profile_projection_manifest_geometry_cannot_come_from_altered_report():
         profile_projection_specification(profile, report, manifest, blocks[:, :8].copy())
 
 
+def _model_policy_fixture():
+    from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
+
+    metadata, headers, record = _packaging_fixture(text_only=True)
+    record["runtime"].update(converter_revision=PRISM_SOURCE_REVISION, runtime_revision=PRISM_SOURCE_REVISION)
+    profile = parse_model_profile(json.dumps(record).encode())
+    report = build_inventory(metadata, headers, profile=profile)
+    _, _, manifest, blocks = _projection_manifest_fixture()
+    manifest.update(profile_id=profile.profile_id, profile_sha256=profile.sha256)
+    return profile, report, manifest, blocks
+
+
+def test_profile_model_policy_derives_complete_table_without_execution_approval():
+    from embedded_jev.prism_codec import profile_model_specification
+
+    profile, report, manifest, blocks = _model_policy_fixture()
+    specification = profile_model_specification(profile, report, manifest, blocks)
+    table = {item["name"]: item for item in specification["tensors"]}
+    assert len(table) == 14
+    assert table["blk.0.ffn_down.weight"] == {"name": "blk.0.ffn_down.weight", "type": "PQ2_0", "ne": [2048, 1024, 1, 1]}
+    assert table["blk.0.attn_q.weight"]["ne"] == [1024, 1024, 1, 1]
+    assert table["output_norm.weight"]["type"] == "F32"
+    assert specification["runtime_approval"] == "not_granted_by_policy_validation"
+    assert specification["source_payload_verification"] == "declared_digest_not_rehashed_source_tensor"
+
+
+@pytest.mark.parametrize("defect", ["missing", "duplicate", "extra", "shape", "dtype", "category", "identity"])
+def test_profile_model_policy_refuses_altered_inventory_before_dispatch(defect):
+    from embedded_jev.prism_codec import create_profile_model_policy
+
+    profile, report, manifest, blocks = _model_policy_fixture()
+    tensor = next(item for item in report["tensors"] if item["name"].endswith("embed_tokens.weight"))
+    if defect == "missing":
+        report["tensors"].remove(tensor)
+    elif defect == "duplicate":
+        report["tensors"].append(tensor.copy())
+    elif defect == "extra":
+        report["tensors"].append({**tensor, "name": "model.layers.0.control.weight"})
+    elif defect == "shape":
+        tensor["shape"] = [1, 1024]
+    elif defect == "dtype":
+        tensor["dtype"] = "F32"
+    elif defect == "category":
+        tensor["category"] = "sensitive"
+    else:
+        report["source"]["profile_sha256"] = "0" * 64
+
+    class NeverCalled:
+        def __getattr__(self, name):
+            pytest.fail("altered model policy reached native dispatch")
+
+    with pytest.raises(ValueError):
+        create_profile_model_policy(NeverCalled(), "unused.gguf", profile, report, manifest, blocks)
+
+
+def test_profile_model_policy_recurrent_table_matches_pinned_converter_float_policy():
+    from embedded_jev.model_profile import profile_source
+    from embedded_jev.prism_codec import profile_model_specification
+
+    profile = mimo_profile()
+    target = "model.language_model.layers.3.self_attn.k_proj.weight"
+    tensors = []
+    for name, shape in inventory._profile_tensor_shapes(profile).items():
+        category, _ = inventory._classify(name, list(profile.geometry["layer_types"]), profile)
+        tensors.append({"name": name, "shape": list(shape), "category": category,
+                        "dtype": "BF16", "quantization_eligible": name == target})
+    blocks = np.zeros((1024, 32, 34), dtype=np.uint8)
+    blocks[:, :, 2:] = 0x55
+    manifest = {
+        "schema_version": 2, "format": "jev-profile-projection-v2", "profile_id": profile.profile_id,
+        "profile_sha256": profile.sha256, "tensor": target, "gguf_tensor": "blk.3.attn_k.weight",
+        "shape": [1024, 4096], "group_size": 128, "transform": "identity", "source_tensor_sha256": "f" * 64,
+        "payload_bytes": blocks.nbytes, "payload_sha256": hashlib.sha256(memoryview(blocks)).hexdigest(),
+    }
+    specification = profile_model_specification(profile, {"source": profile_source(profile), "tensors": tensors}, manifest, blocks)
+    table = {item["name"]: item for item in specification["tensors"]}
+    assert len(table) == 427
+    assert table["blk.0.ssm_conv1d.weight"] == {"name": "blk.0.ssm_conv1d.weight", "type": "F32", "ne": [4, 8192, 1, 1]}
+    assert table["blk.0.ssm_dt.bias"]["type"] == table["blk.0.ssm_a"]["type"] == "F32"
+    assert table["blk.0.attn_qkv.weight"]["ne"] == [4096, 8192, 1, 1]
+    assert table["blk.3.attn_q.weight"]["ne"] == [4096, 8192, 1, 1]
+    assert table["blk.3.attn_k.weight"]["type"] == "PQ2_0"
+
+
+def test_profile_model_policy_refuses_unpinned_runtime():
+    from embedded_jev.prism_codec import profile_model_specification
+
+    profile, report, manifest, blocks = _projection_manifest_fixture()
+    with pytest.raises(ValueError, match="runtime pin"):
+        profile_model_specification(profile, report, manifest, blocks)
+
+
 def test_profile_record_is_strict_immutable_and_canonically_hashed():
     record = _profile_fixture()
     profile = parse_model_profile(json.dumps(record).encode())
