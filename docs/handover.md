@@ -9,9 +9,10 @@ original conversation. Read this first, then follow the links for detail.
 **Quick orientation (2026-10-09):**
 
 1. Implementation is paused in this chat at the user's request while preparing
-   a handoff. Resume only when the user instructs the next chat. No further
+  a stopping handoff after source checkpoint `6abb44c`. Resume only when the user instructs the next chat. No further
    download, complete-model conversion, fit or new retained candidate is authorized.
-2. Read the [projection geometry checkpoint](#projection-geometry-checkpoint-2026-10-09)
+2. Read the [profile model policy checkpoint](#profile-model-policy-checkpoint-2026-10-09)
+  at `6abb44c`, then the [projection geometry checkpoint](#projection-geometry-checkpoint-2026-10-09)
    at `db002c1`, with resident compaction at `cedaeec`; then read the historical
    [real-model checkpoint](#current-checkpoint-2026-10-08) at `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
@@ -27,12 +28,12 @@ original conversation. Read this first, then follow the links for detail.
    container rebuild with host certificates. Verified files and headers are
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
-5. P0.1-P0.4 and bounded P3 owned-projection geometry/manifest/compaction are
-  implemented. Next is P4's code-only, synthetic preparation for a separately
-  versioned profile-driven complete-model policy in the
-   [generalization queue](roadmap.md#generalization-work-queue), with synthetic
-  fixtures and existing verified inputs only. P2 and real-model P4 checks need
-  new approval. The MiMo layer-0 precision diagnostic also needs new approval.
+5. P0.1-P0.4, bounded P3 and P4's separately versioned complete-model policy
+  preparation are implemented. V2 policy/table/refusal and isolated loader-graph
+  arithmetic pass; actual complete-model loading/prefill through v2 is not
+  tested. After explicit resume, the next code-only step is that bounded synthetic
+  integration in the [generalization queue](roadmap.md#generalization-work-queue).
+  P2, real-model P4 and the MiMo layer-0 diagnostic still need new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
 
@@ -49,6 +50,94 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Profile Model Policy Checkpoint (2026-10-09)
+
+Source checkpoint: `6abb44c`, following documentation audit `037b51b`.
+The user resumed bounded synthetic P4, then requested a commit and stop for today.
+Implementation is now paused; do not start the next integration slice without
+an explicit resume. Nothing was pushed and no branch or subagent was introduced.
+
+`prism_bitnet_cpu_model_override_from_gguf_v2` adds an owned ABI-2 policy beside
+the unchanged MiMo v1 factories. P3's manifest validator supplies the exact
+canonical PQ2 target bytes and profile-derived eligibility/shape. The new Python
+adapter derives the entire text tensor table, pinned BF16/F32 conversion policy,
+and 14 typed attention/SSM/rotary metadata requirements from the verified profile
+and inventory. It refuses altered identities, missing/extra/duplicate tensors,
+geometry/dtypes, unpinned runtime/converter rules and unsupported depth/patterns.
+SSM convolutions become F32, as required by the pinned converter; source dtype
+and converted dtype remain distinct. All 427 names for each cached MiMo and
+Defiant Fable profile match the pinned converter's static filter/name map.
+This comparison used metadata/headers and synthetic payloads, not model loading.
+
+Native validation checks GGUF v3, profile/fingerprint/revision/converter/source
+digest declarations, the separate v2 model tag, identity execution contract,
+every expected tensor name/type/shape, geometry metadata and nonoverlapping
+in-file ranges. It rejects ordinary/other PQ2, transforms, explicit recurrent
+layer overrides and changed target bytes. Reads compare the target in <=64 KiB
+chunks. Bounds remain <=32 layers, 427 tensors, 19 GiB declared weights plus
+1 MiB metadata/alignment reserve, and P3's <=50,331,648-weight projection bound.
+Malformed factory calls clear both outputs. The v1 complete-model factory's
+body is byte-for-byte unchanged; no v1 refusal or numerical tolerance widened.
+
+The exact-name/shape v2 buffer reuses the existing immutable/chunked upload,
+canonical readback, FP16-block repack and BitNet-derived A8 kernel lifecycle.
+Upload bytes must match the policy even after factory validation. Separate
+policy-bound v2 status queries leave all v1 diagnostics strict. The control
+hosts an 8,192-row synthetic FFN projection, checks exact arithmetic at 1/2/128
+tokens, one repack, canonical readback, wrong-name refusal, non-finite-input
+no-result/recovery, changed-upload refusal and early/late runtime initialization.
+The policy, override strings and shared library must outlive every associated
+model/context/buffer; free the policy only after their teardown. Registry
+restoration passes repeated creation/free, not general lifecycle concurrency.
+
+Verification: 10 focused default adapter cases pass. The final required source
+gate passes **244 tests, 40 optional skips**, Ruff and whitespace; editor
+diagnostics are clean. The expanded bounded native command in the development
+guide passes **12 controls in 28.53 s**, including 25 v2 synthetic file refusals,
+unchanged v1 exact policy, the P3 frozen projection and eight dense/BitNet
+recurrent/full-attention zero-generation typed-prefill combinations. Those
+prefills remain the existing v1/synthetic route, not v2 model-prefill evidence.
+GCC ASan/UBSan/leak early/late controls pass; cached GGML is uninstrumented.
+Compilation peak RSS was 570,884 KiB; early-control peak RSS was 56,240 KiB.
+Existing `fclose` deleter warnings remain. CTest discovery is empty and its tool
+cannot configure this workspace; no CTest result is claimed.
+
+Failed-check history: the first adapter probe used a nonexistent `ModelProfile`
+source accessor; removing that assumption and using the strict parser repaired
+it. The pinned PQ2 enum was verified as 142 before native dispatch. One test
+oracle incorrectly doubled the synthetic gated-query rows; the fixture's
+8 x 64 x 2 geometry corrected it to 1,024. The GGUF writer initially received
+logical rather than encoded PQ2 row-byte shapes; its documented raw dtype path
+repaired the fixture. A rejected tensor was reused for another allocation,
+triggering GGML's buffer assertion; fresh refusal tensors repaired the control.
+The static mapping probe first lacked `gguf-py`, then Transformers, then the
+converter's static block/MTP fields; the cached dense environment and explicit
+static fields resolved these, without installation or model initialization.
+The F32 convolution omission was found in pinned-source review and repaired
+before the final gates. The interrupted metadata patch was verified absent
+before applying it. No failed check was retried without diagnosis or relaxation.
+
+Inputs/resource check: cached source revisions and GGML CPU/base SHA-256 values
+match the development pins; tracked upstream sources are clean, and only our
+isolated wrapper was rebuilt. Entry headroom was about 20 GiB RAM available,
+8 GiB swap and 290 GiB disk. Editor Python is `/opt/venv/bin/python`; cached
+converter/dense environments were reused. Sanitizer scratch and the 591,872-byte
+fixture left by the diagnosed abort were removed. Synthetic pytest files remain
+ordinary disposable test scratch outside Git. No new conversion/download/fit,
+retained candidate, compensation promotion, held-out scoring or quality run
+occurred; the sole frozen artifact and user editor directory remain untouched.
+
+Limits: native profile/source digests are declarations, not authentication of
+source tensor bytes or untouched dense weights. The Python boundary checks
+profile/header identity and hashes the supplied PQ2 payload, not source weights.
+The policy retains an additional canonical reference byte array for upload
+comparison; compact resident tensor blocks do not imply zero total policy
+overhead or a whole-model 2.125-bpw budget. This is policy preparation plus
+isolated loader-graph proof, not complete-model v2 hosting, Defiant Fable
+inference, numerical acceptance, quality or edge performance. After resume,
+the next step is bounded synthetic actual-loader/typed-prefill integration
+through v2; real model inputs, conversion and scoring still need separate approval.
 
 ## Projection Geometry Checkpoint (2026-10-09)
 
@@ -1825,11 +1914,13 @@ tokenization parity, or a trained decision service.
 
 ## 16. Restart Brief
 
-Implementation is paused in this chat for the user's requested handoff. P0.1-P0.4
-and bounded P3 are complete through `db002c1`, with resident compaction at
-`cedaeec`. The next instructed coding chat should start P4's code-only synthetic
-preparation for a profile-driven complete-model policy beside strict v1
-factories. Read the [work queue](roadmap.md#generalization-work-queue) and updated
+Implementation is paused for today after the user's commit-and-stop request.
+P0.1-P0.4 and bounded P3 are complete through `db002c1`; bounded P4 policy
+preparation is committed as `6abb44c`. Read the
+[current checkpoint](#profile-model-policy-checkpoint-2026-10-09) before resuming.
+The next instructed coding chat should complete bounded synthetic actual-loader/
+typed-prefill integration through v2 beside strict v1 factories, not run another
+real model. Read the [work queue](roadmap.md#generalization-work-queue) and updated
 [coupling inventory](development.md#mimo-coupling-inventory), not an older
 paragraph's suggested next step.
 
@@ -1850,14 +1941,14 @@ For a fresh coding session:
 2. Preserve genuine BitNet-derived CPU execution, independent FP16 scales per
   output row/input group, and typed conditional option scores with zero
   generated answer tokens. PQ2 storage/dispatch alone does not meet BitNet.
-3. Anchor P4 in `prism_bitnet_cpu_model_override_from_gguf_v1` in
+3. Continue P4 from `prism_bitnet_cpu_model_override_from_gguf_v2` in
   [native/prism_group_scale.cpp](../native/prism_group_scale.cpp), its contract in
   [native/prism_bitnet_runtime.h](../native/prism_bitnet_runtime.h), and
   `test_pinned_prism_complete_model_policy_binds_exact_projection` in the
   [existing controls](../tests/test_prism_native_control.py). Reuse P0 verified
   profiles and P3's [manifest adapter](../embedded_jev/prism_codec.py), but do
   not confuse its owned v2 handle with a discoverable loader/model policy.
-  Add a separately versioned path rather than loosening v1. Preserve exact
+  Keep the separately versioned model policy and strict v1 comparator. Preserve exact
   target-byte checks, ordinary-PQ2/dummy-probe refusal, canonical readback,
   one repack, no-score failure/recovery, context reset/isolation and library/
   file lifetime requirements. Synthetic policy/hosting checks must stay bounded.
@@ -1875,8 +1966,8 @@ For a fresh coding session:
   expand scope. Use the terminal for environments, no subagents, no push, and
   no branch change.
 
-The last source gate at `db002c1` was 234 passed/39 optional skips; 11 selected
-compiled P3 controls and GCC ASan/UBSan/leak checks also passed. CTest integration
+The last source gate at `6abb44c` was 244 passed/40 optional skips; 12 selected
+compiled P3/P4 controls and GCC ASan/UBSan/leak checks also passed. CTest integration
 was unavailable. The [development guide](development.md#current-checkpoint-and-gates)
 contains the default test/Ruff/whitespace gate and exact bounded native command.
 Use focused checks after changes and the required gate before source commits;

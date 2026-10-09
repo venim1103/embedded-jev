@@ -1,7 +1,7 @@
 # Embedded Jev Design
 
 Status: proposed architecture, first written 2026-09-25; implementation status
-checked through `db002c1` on 2026-10-09; model-family portability and derivative support tiers
+checked through `6abb44c` on 2026-10-09; model-family portability and derivative support tiers
 reviewed 2026-10-09. Bounded ternary quantizers, the streamed BF16 text
 reference, and a frozen BitNet-derived FFN inside real native MiMo now exist.
 Strict profiles, verified MiMo report identity and compact, profile-manifest-gated
@@ -641,7 +641,7 @@ execution layout. Report resident packed bytes and scratch separately: expanding
 trits to two bits at load time changes RAM and bandwidth, even without FP16
 expansion. A compact file is not proof of compact execution.
 
-**Profile generalization limits.** The native policy and trait are deliberately
+**Profile generalization limits.** The native v1 policy and trait are deliberately
 MiMo- and one-projection-specific. The v1 complete-model factory requires MiMo's
 revision and model tags, 427 tensors, `qwen35` 32/4,096/12,288 geometry,
 248,320-row BF16 vocabularies, at most 19 GiB and the single
@@ -653,10 +653,16 @@ Do not loosen v1. The P3 owned-projection v2 API now admits declared larger
 projection shapes beside unchanged v1 factories. Its Python adapter binds
 profile-derived geometry/eligibility and exact artifact-manifest payload bytes;
 the native trait binds the declared name/shape and canonical reference bytes.
-This is not automatic loader selection or a complete-model policy. P4 must add
-a versioned model policy whose geometry and every quantized target's exact
-bytes come from a verified profile and artifact manifest, not
-from file tags alone. The P3 resident compaction now keeps one 34-byte block per
+This is not automatic loader selection. P4 now adds a separate owned v2 model
+policy whose entire text tensor table, typed attention/SSM/rotary metadata and
+single quantized target bytes come from the verified profile and P3 manifest
+adapter, not file tags alone. Native profile/source digests remain declarations,
+not source-byte authentication. Exact canonical target bytes are compared both
+at factory validation and during upload; policy reference storage is additional
+to compact resident weights. Synthetic policy/refusal and isolated loader-graph
+arithmetic pass, but actual complete-model loading/prefill through v2 remains
+untested and does not authorize another profile's execution. The v1 factories
+remain strict. The P3 resident compaction now keeps one 34-byte block per
 128 weights: original FP16 scale bits plus in-place BitNet code lanes, with
 canonical PQ2 reads reconstructed on demand. The former 34-byte PQ2 copy plus
 32-byte lanes and four-byte FP32 scale (about 4.4 bpw) are no longer all resident.

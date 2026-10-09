@@ -73,7 +73,7 @@ item touches.
 | P1 | Metadata-only preflight of the selected Defiant Fable source: pinned files, header inventory, tokenizer/template label probe, plus the `plusIQ` header-and-sample comparison | Done 2026-10-09 within the approved bounds; see the [results](development.md#preflight-results) | Reconciled inventory and budgets, verified non-thinking suffix and label IDs, sampled GGUF comparison; no other weights read |
 | P2 | Dense streamed reference, vocabulary-only and BF16 native prefill, and precision traces for that profile | Full download and temporary conversion; approval needed | Acceptance criteria written first; zero generation; resources and cleanup recorded |
 | P3 | Implemented bounded owned-projection proof 2026-10-09: compact FP16/BitNet blocks, larger v2 geometry and profile/manifest-driven tensor gate beside strict v1 | None (synthetic plus the existing MiMo artifact) | Exact 8,192/12,288-row and frozen-v2 parity, reference/manifest/bound refusals, unchanged v1/native-prefill controls; zero auxiliary weight arrays; complete-model policy remains P4 |
-| P4 | Versioned profile-driven complete-model policy beside the unchanged MiMo v1 factory | Real checks need temporary-model approval | Geometry and target bytes come from verified profile and artifact manifests; all v1 refusals unchanged |
+| P4 | Bounded policy preparation implemented 2026-10-09: owned v2 exact tensor table/typed metadata/target upload policy beside unchanged MiMo v1; actual-loader/prefill integration remains open | Synthetic follow-up after explicit resume; real checks need temporary-model approval | 10 adapter cases, 25 synthetic file refusals, isolated 8,192-row BitNet loader arithmetic, 12 compiled controls and sanitizer gates; all v1 refusals unchanged; no v2 complete-model prefill claim |
 | P5 | Float-GGUF source adapter (Tier C): header and tensor-table identity, BF16 eligibility, explicit `nextn` exclusion, inverse value-head permutation, independent layout anchor | Header-and-sample range reads, then the full file; separate approval for each | Synthetic GGUF fixtures pass; sampled, then all, eligible tensors byte-identical to a sibling conversion, or refusal |
 | P6 | Wrapped-decoder adapter (Tier B): static nested-configuration reader, declared prefix rename, text-only conversion, no repository code | Metadata for fixtures; real conversion needs approval | Renamed tensors keep payload hashes; geometry comes from the nested configuration; licence terms recorded |
 | P7 | Depth variants (Tier D): layer count and pattern from the profile throughout Python, traces and native policy; explicit recurrent-layer array for irregular patterns | None for synthetic fixtures; real models need approval | Synthetic 48-layer and irregular-pattern fixtures; MiMo results unchanged; budgets recomputed |
@@ -82,8 +82,10 @@ The user resumed code-only implementation on 2026-10-09 under AGENTS.md and
 paused this chat for handoff after `db002c1`. P0.1-P0.4 provide strict records,
 bound MiMo reports and offline Tier A packaging. P3 provides compact, larger
 owned projections, not a generic model loader or execution CLI. Once the next
-chat is instructed to resume, the next step is P4's code-only synthetic policy
-work beside unchanged v1 factories, using existing inputs. No new download,
+chat resumed, P4's bounded v2 policy preparation was committed as `6abb44c`.
+The user then requested a commit and stop for today. After explicit resume,
+the next step is code-only synthetic actual-loader/typed-prefill integration
+through v2 beside unchanged v1 factories, using existing inputs. No new download,
 complete-model conversion, fit or model-quality experiment is authorized.
 Synthetic P4 preparation needs no additional model; real P4 checks need separate
 approval. P5-P7 still follow the user's priorities and are not authorized yet.
