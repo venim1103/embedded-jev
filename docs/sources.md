@@ -16,10 +16,12 @@ The broader target is multiple Qwen3.5 9B-class models, not MiMo alone. The
 sources and real-model evidence in this register remain tied to the first
 subject's pinned revision. No successor model/revision has been selected or
 validated; the base Qwen3.5-9B and other derivatives received only the
-[metadata review](#qwen35-family-observations) below. Add separate source/license,
-configuration, tokenizer/template, weight-hash and runtime evidence for each
-new model using the [support gate](roadmap.md#model-scope-and-support-gate);
-family membership does not establish compatibility or transfer measurements.
+[metadata review](#qwen35-family-observations) below, and the user's preferred
+releases the [derivative observations](#derivative-release-observations). Add
+separate source/license, configuration, tokenizer/template, weight-hash and
+runtime evidence for each new model using the
+[support gate](roadmap.md#model-scope-and-support-gate); family membership does
+not establish compatibility or transfer measurements.
 
 Observed HF revision: `2367e865d009c13ac81713a2878291d33ab28177`.
 
@@ -94,6 +96,27 @@ The MiMo repository head was still `2367e865d009c13ac81713a2878291d33ab28177` on
 [research audit](research-audit.md#qwen35-9b-class-family-review). Pin a selected
 profile's revision and verify every file before use; these observations do not
 establish compatibility.
+
+### Derivative Release Observations
+
+Also on 2026-10-09, metadata for the releases the user prefers was read without
+downloading weights, shard headers, tokenizers or repository code. Hub heads are
+recorded as observed, not pinned; model cards are self-declared. Deductions are
+in the [research audit](research-audit.md#derivative-release-review).
+
+| Source | What it establishes | Limit |
+| --- | --- | --- |
+| [Defiant Fable source API](https://huggingface.co/api/models/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP) | Head `7af0a9c4e221e01b246b3c577fbb7110b79823e8` (modified 2026-09-16), Apache-2.0, 9,653,104,368 BF16 parameters, four numbered shards plus `model-mtp-restored.safetensors`, 7,756-byte `chat_template.jinja` with the base blob `a585dec894e63da457d9440ec6aa7caa16d20860` | Moving `main`; no headers, tokenizer or weights read |
+| [Source configuration](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP/blob/7af0a9c4e221e01b246b3c577fbb7110b79823e8/config.json) | `Qwen3_5ForConditionalGeneration`, 9B-class text values, one configured MTP layer, Transformers 5.12.1, Unsloth 2026.5.8 | Configuration only |
+| [Source weight index](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP/blob/7af0a9c4e221e01b246b3c577fbb7110b79823e8/model.safetensors.index.json) | mergekit 0.1.4 metadata, `model.language_model.*`, vision and complete `mtp.*` names, `mtp.fc.weight` mapped to the restored file, `total_size` 19,239,099,872 | Read on `main` while at that head; index only |
+| [Defiant Fable GGUF API](https://huggingface.co/api/models/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF) and [model card](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF) | Head `8b192a8e203440d6492a133f6cdfa4bf7bffac98` (modified 2026-10-02), Apache-2.0, `qwen35` GGUF files, `plusIQ-NEO-MAX-MTP-bf16.gguf` of 18,407,330,272 bytes, separate `mmproj` files; the card describes a multi-model fine-tune and merge, Heretic refusal removal, 16-bit output tensors and Q8_0 MTP tensors in quantized files, and `plusIQ` reasoning modes | Self-reported card and benchmarks; GGUF metadata shown for one representative file; `plusIQ` template and weights unverified; not downloaded |
+| [ZDTaichu5.0-9B configuration](https://huggingface.co/TaichuAI/ZDTaichu5.0-9B/blob/bc125a9819a421755f4dcebe498eb81c139b65a3/config.json) and [index](https://huggingface.co/TaichuAI/ZDTaichu5.0-9B/blob/bc125a9819a421755f4dcebe498eb81c139b65a3/model.safetensors.index.json) | Revision `bc125a9819a421755f4dcebe498eb81c139b65a3` (modified 2026-09-20), custom-code wrapper with a nested 9B-class `llm_config`, `language_model.model.*` text names, C-RADIOv4-H vision, `mlp1.*` projector, five unpadded shards, 19,588,395,036 index bytes, template blob equal to base | Repository code not executed; no headers read |
+| [ZDTaichu NOTICE](https://huggingface.co/TaichuAI/ZDTaichu5.0-9B/blob/bc125a9819a421755f4dcebe498eb81c139b65a3/NOTICE) and [licence index](https://huggingface.co/TaichuAI/ZDTaichu5.0-9B/blob/bc125a9819a421755f4dcebe498eb81c139b65a3/LICENSES/README.md) | Apache-2.0 Qwen3.5-9B backbone, NVIDIA Open Model License vision encoder from `nvidia/C-RADIOv4-H`, MIT InternVL-derived code; the root `LICENSE` is named the primary weight licence | Read while `main` was at that revision; not a legal review |
+| DavidAU 48-layer [Deckard](https://huggingface.co/DavidAU/Qwen3.5-13B-Deckard-Heretic-Uncensored-Thinking/blob/main/config.json) and [Polaris-Grande](https://huggingface.co/DavidAU/Qwen3.5-13B-GLM-4.7-Flash-DeepSeek-Polaris-Grande-Deep-Thinking/blob/main/config.json) configurations | 48 layers, `full_attention_interval` 4, otherwise 9B-class values; Hub totals 12,869,594,608 and 13,079,330,800 BF16 parameters | Moving `main`; configuration only; MTP content deduced from totals |
+| [Merge listing](https://huggingface.co/api/models?filter=base_model:merge:Qwen/Qwen3.5-9B&sort=downloads&limit=25&expand%5B%5D=safetensors) | Same-shape merges with base-like totals (9,653,100,528 BF16 + 3,840 F32) or no MTP (9,409,813,744 BF16) | Truncated listing; self-declared relations |
+| Pinned Prism `conversion/qwen.py` and `src/models/qwen35.cpp` | Converter value-head permutation, `-exp(A_log)`, `dt_bias` rename, convolution squeeze and RMSNorm +1 transforms; only `full_attention_interval` written. Loader reads an optional `qwen35.attention.recurrent_layers` array and skips `nextn` tensors unless MTP loading is requested | Source inspection; no other model converted |
+
+None of these releases is selected, pinned for use or validated.
 
 ## Public Intent Proxy
 

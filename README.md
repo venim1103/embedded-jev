@@ -1,9 +1,10 @@
 # Embedded Jev
 
 An experimental on-device decision engine intended to support multiple
-Qwen3.5 9B-class models through a SemIf-style typed decision interface. Given
-evidence, a question and described options, it returns option IDs and conditional
-scores instead of generating an answer.
+Qwen3.5 9B-class models, including fine-tuned and merged derivatives, through a
+SemIf-style typed decision interface. Given evidence, a question and described
+options, it returns option IDs and conditional scores instead of generating an
+answer.
 
 The goal is ternary-quantized models running through **genuine BitNet-derived
 CPU kernels**. [`MiMo-V2.6-Distill-Qwen-9B`](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B)

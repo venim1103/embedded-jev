@@ -5,7 +5,8 @@ intent, not a working implementation or reliable benchmark. This audit separates
 source-backed facts, mathematical deductions, and hypotheses requiring experiments.
 No MiMo weights were downloaded or quantized during that initial audit.
 A metadata-only [Qwen3.5 9B-class family review](#qwen35-9b-class-family-review)
-followed on 2026-10-09.
+followed on 2026-10-09, then a [derivative release review](#derivative-release-review)
+of the releases the user prefers.
 Subsequent source downloads, streamed text inference, and bounded native
 integration controls are recorded in the
 [current handover](handover.md#current-checkpoint-2026-10-08). This document's
@@ -37,6 +38,9 @@ geometry, tokenizer behavior, quantization sensitivity, budgets or quality.
 The [model support gate](roadmap.md#model-scope-and-support-gate) applies to
 each new subject. The [family review](#qwen35-9b-class-family-review) inspected
 metadata for the base Qwen3.5-9B and other derivatives, but selected no successor.
+The [derivative review](#derivative-release-review) adds support tiers for
+fine-tuned, merged, wrapped, GGUF-only and depth-expanded releases and recommends
+a first non-MiMo candidate, still pending the user's choice.
 
 The most important missing work is a **group-scaled ternary kernel integration**
 for Qwen3.5, not another Python wrapper around a stock BitNet installation.
@@ -198,6 +202,78 @@ MiMo-only native work so hidden assumptions surface early. The base
 the converter's own example; a deployment-motivated derivative may still be
 preferred. Begin with the profile identity work in the
 [roadmap queue](roadmap.md#generalization-work-queue), which needs no download.
+The [derivative review](#derivative-release-review) below refines this choice
+for the releases the user prefers.
+
+## Derivative Release Review
+
+Reviewed on 2026-10-09 at the user's request, without downloading weights,
+headers, tokenizers or repository code. Evidence: Hub metadata, configurations,
+indexes, licence files and model cards for DavidAU's Defiant Fable GGUF
+repository (head `8b192a8e`) and its safetensors source (head `7af0a9c4`),
+ZDTaichu5.0-9B at `bc125a98`, two 48-layer DavidAU releases and the Hub merge
+listing, plus the pinned Prism converter and loader source. Model-card statements
+and benchmarks are self-reported. Sources and limits are in the
+[register](sources.md#derivative-release-observations).
+
+| Property | Defiant Fable source | Defiant Fable GGUF repository | ZDTaichu5.0-9B | 48-layer releases |
+| --- | --- | --- | --- | --- |
+| Declared licence | Apache-2.0 | Apache-2.0 | Mixed: NVIDIA Open Model License named primary for weights; Apache-2.0 backbone; MIT code | Not inspected |
+| Format | BF16 safetensors written by mergekit 0.1.4 | `qwen35` GGUF: quantized files plus one 18,407,330,272-byte `plusIQ` BF16 file | BF16 safetensors plus two I64 values; custom code | BF16 safetensors |
+| Architecture | `Qwen3_5ForConditionalGeneration` | Text model; vision only in separate `mmproj` files | `ZDTaichu5_0_ForConditionalGeneration` wrapping `Qwen3_5ForCausalLM` | `Qwen3_5ForConditionalGeneration` |
+| Text geometry | 9B-class configuration | GGUF metadata only | 9B-class `llm_config` | 48 layers, interval 4, otherwise 9B-class |
+| Hub parameters | 9,653,104,368, all BF16 | 8,953,803,264 for the representative file | 9,794,197,510 BF16 | 12,869,594,608 and 13,079,330,800 BF16 |
+| Text prefix and shards | `model.language_model.`; `model-0000N-of-00004` plus `model-mtp-restored.safetensors` | GGUF names; single files | `language_model.model.`; `model-N-of-5` | Not inspected |
+| MTP | Complete `mtp.*`; fusion projection only in the restored file | Q8_0 in quantized MTP files; present in the BF16 file | None indexed; configured as `mtp_num_layers` | None, or all but the fusion projection (deduced) |
+| Template | Base template (Git blob `a585dec8`) | Base template reported for the representative file; `plusIQ` templates unverified | Base template (same blob) | Not inspected |
+
+Deduced consistency checks:
+
+- The source's all-BF16 total equals the base total, so the base's 3,840 F32
+  parameters are stored as BF16 here. Its index `total_size` of 19,239,099,872
+  bytes is exactly 67,108,864 bytes, one 4,096 x 8,192 BF16 fusion projection,
+  below the bytes implied by that total; the index maps `mtp.fc.weight` alone to
+  the restored file. Current inventory code would refuse both the extra shard and
+  the stale total.
+- The `plusIQ` BF16 file is 13,568 bytes larger than our MiMo BF16 GGUF plus one
+  MTP block stored as BF16 matrices and F32 vectors (486,623,232 bytes). That fits
+  32 text layers, one MTP layer and no vision; metadata and templates differ.
+- An MTP block is a 33,554,432-parameter fusion projection, one full-attention
+  decoder layer and three norms. The 12.87-billion release equals the base
+  multimodal total without MTP plus 16 layers in 3:1 groups (4 x 864,945,216);
+  the 13.08-billion release adds that MTP block minus its fusion projection.
+- ZDTaichu's index total (19,588,395,036 bytes) equals its BF16 and I64 parameter
+  bytes. The Defiant Fable source records Transformers 5.12.1, Unsloth 2026.5.8
+  and a local path naming a `heretic-v2` checkpoint; ZDTaichu records
+  Transformers 5.3.0.
+
+Consequences:
+
+1. The Defiant Fable source is Tier A after packaging-adapter work: an extra
+   restored shard, a stale index total, complete MTP to exclude and the base
+   template. It records the Transformers version pinned in our dense environment.
+2. Whether the `plusIQ` BF16 file holds the source's weights is unknown. If its
+   eligible tensors match byte for byte, `plusIQ` is a template variant of a
+   Tier A profile; otherwise it needs the Tier C adapter and an independent anchor.
+3. `plusIQ` mode markers in message text are an injection surface for decision
+   evidence; the [template-control rules](design.md#templates-with-in-band-controls)
+   apply before such a template is used.
+4. ZDTaichu's text decoder is reachable without executing its code, but its mixed
+   licence must be reviewed before redistributing derived artifacts, and its
+   vision path is out of scope.
+5. Depth variants exist, regular in the observed cases; they need geometry-driven
+   code, larger budgets and their own quality evidence.
+6. Refusal removal and merging are weight edits with self-reported metrics; they
+   transfer no quantization robustness, calibration or decision quality.
+
+Recommendation, pending the user's choice: make the Defiant Fable safetensors
+source, pinned at `7af0a9c4e221e01b246b3c577fbb7110b79823e8`, the first non-MiMo
+profile. It matches the user's interest, is declared Apache-2.0, keeps 9B-class
+geometry and exercises the packaging adapters. Then run an approved
+header-and-sample comparison of the `plusIQ` BF16 file against it before deciding
+on Tier C. Treat ZDTaichu as the first Tier B case after licence review, and
+depth variants as a later tier. The base model remains a useful parent control
+with the same template.
 
 ## Corrections to the Conversation
 

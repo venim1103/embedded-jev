@@ -40,24 +40,26 @@ manual, approved metadata review.
 
 ### MiMo Coupling Inventory
 
-Checked on 2026-10-09 against `bc8e616`. "Effect" describes another 9B-class
-checkpoint passed to the current code; the last column names the profile field or
+Checked on 2026-10-09 against `bc8e616`; derivative effects were added the same
+day without code changes. "Effect" describes another Qwen3.5 checkpoint passed to
+the current code; the last column names the profile field or
 [work item](roadmap.md#generalization-work-queue) that replaces the assumption.
 
 | Location | MiMo-specific assumption | Effect on another checkpoint | Replacement |
 | --- | --- | --- | --- |
 | [inventory.py](../embedded_jev/inventory.py) `MODEL_ID`, `MODEL_REVISION`, `MODEL_URL` | Identity constants; remote fetch only for MiMo | Reports from any accepted `--local-dir` claim MiMo's identity | Identity verified from files (P0.2) |
-| inventory.py `_model_config`, `REQUIRED_METADATA` | `Qwen3_5ForConditionalGeneration`, untied embeddings, processor files and classes | Text-only `Qwen3_5ForCausalLM` exports refused | Architecture class and modality (P0.3) |
-| inventory.py `SHARD_NAME` | `model-NNNNN-of-NNNNN.safetensors` | Base Qwen3.5-9B `model.safetensors-*` shards refused | Shard names from the pinned index (P0.3) |
+| inventory.py `_model_config`, `REQUIRED_METADATA` | `Qwen3_5ForConditionalGeneration`, untied embeddings, processor files and classes | Text-only `Qwen3_5ForCausalLM` exports and custom-code wrappers such as ZDTaichu refused | Architecture class, modality and nested-configuration path (P0.3, P6) |
+| inventory.py `SHARD_NAME` | `model-NNNNN-of-NNNNN.safetensors` | Base `model.safetensors-*`, unpadded `model-N-of-M` and extra restored shards refused | Shard names from the pinned index (P0.3) |
+| inventory.py index reconciliation | `total_size` equals header tensor bytes; shards numbered 1 to N | A merge index with a stale total or an extra MTP shard refused | Recomputed totals with any mismatch recorded (P0.3) |
 | inventory.py `LAYER_NAME`, `_classify`, `_required_weights` | `model.language_model.` prefix, MiMo vision names, `lm_head.weight` | Text-only `model.*` names refused | Prefix rule (P0.3) |
-| [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | MiMo's `<think></think>` suffix, MiMo identity in reports, MiMo-only `--fetch` | Base template refused; other accepted tokenizers labelled MiMo | Profile template suffix and identity (P0.2, P0.3) |
+| [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | MiMo's `<think></think>` suffix, MiMo identity in reports, MiMo-only `--fetch`; template rendered with only `enable_thinking=False` | Base template refused; other accepted tokenizers labelled MiMo; no pinning of other rendering arguments or refusal of in-band markers | Profile template policy and identity (P0.2-P0.4) |
 | [dense_probe.py](../embedded_jev/dense_probe.py) `plan_text_prefix`, `plan_streamed_text` | Prefixed names; every text tensor BF16 | Profiles with F32 small tensors refused | Per-class dtype policy (P0.3) |
-| [streamed_text.py](../embedded_jev/streamed_text.py) | Layer-3 FFN-down substitution and capture, 4,096 x 12,288 shapes, untied `lm_head.weight` reader, 32 layers for full-vocabulary mass, seed-773 signs | Checkpoints packaged like MiMo run but inherit MiMo labels | Profile target list and head reader |
+| [streamed_text.py](../embedded_jev/streamed_text.py) | Layer-3 FFN-down substitution and capture, 4,096 x 12,288 shapes, untied `lm_head.weight` reader, 32 layers for full-vocabulary mass, seed-773 signs | Checkpoints packaged like MiMo run but inherit MiMo labels; depth variants unsupported | Profile target list, head reader and layer count (P7) |
 | [projection_artifact.py](../embedded_jev/projection_artifact.py), [evaluation.py](../embedded_jev/evaluation.py) | `PINNED_SHARD`, `PINNED_SHARD_SHA256`, MiMo identity and 32 layers | Artifacts and evaluations MiMo-only | Profile ID plus tensor payload SHA-256 |
 | [decision_dataset.py](../embedded_jev/decision_dataset.py) captures | `single_case_mimo_calibration_activations`, MiMo identity, layer-3 tensor, width 12,288 | Captures labelled MiMo | Capture manifest binds the verified profile |
 | [weight_slice.py](../embedded_jev/weight_slice.py), [ternary_artifact.py](../embedded_jev/ternary_artifact.py) | `DEFAULT_TENSOR`, MiMo-only fetch and identity, multimodal prefix | Refused or mislabelled | Profile tensor names and identity |
 | [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | At most 4,096 rows, 96 groups and 128 tokens; only `blk.3.ffn_down.weight` | FFN gate/up and `q_proj` cannot be represented | Geometry-driven bounds or row tiling (P3) |
-| Native v1 complete-model factory | MiMo revision and model tags, 427 tensors, 32/4,096/12,288, 248,320 vocabulary, at most 19 GiB, one layer-3 target | Every other file refused | Versioned profile-driven policy (P4) |
+| Native v1 complete-model factory | MiMo revision and model tags, 427 tensors, 32/4,096/12,288, 248,320 vocabulary, at most 19 GiB, one layer-3 target | Every other file refused, including MTP-bearing, third-party and 48-layer GGUF files | Versioned profile-driven policy (P4, P5, P7) |
 | Tests and documented commands | `MIMO_*` flags, cache paths, fixture prompts and expected IDs | MiMo evidence only | Keep names; add per-profile gates beside them |
 
 Model-independent today: [activation.py](../embedded_jev/activation.py),
@@ -67,7 +69,10 @@ comparator, the [BitNet-derived kernel](../native/bitnet_group_scale.cpp) and
 the [versioned runtime build](../native/CMakeLists.txt). The pinned Prism
 converter registers `Qwen3_5TextModel` for both Qwen3.5 architectures. It removes
 MTP tensors only with `--no-nextn`, which MiMo also needs because its configured
-MTP layer has no tensors.
+MTP layer has no tensors. No adapter exists yet for float-GGUF sources, wrapped
+decoders or depth variants; see the
+[support tiers](design.md#support-tiers-for-derivatives). Never execute code
+shipped in a model repository to inspect it.
 
 ## Current Checkpoint and Gates
 

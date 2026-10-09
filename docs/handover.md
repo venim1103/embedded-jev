@@ -16,9 +16,15 @@ original conversation. Read this first, then follow the links for detail.
    MiMo as the first test subject. Existing tools are MiMo-pinned and label output
    with MiMo's identity whatever directory they read; never point them at another
    checkpoint (see the [coupling inventory](development.md#mimo-coupling-inventory)).
+   The user is interested in DavidAU's Defiant Fable releases and ZDTaichu5.0-9B,
+   and hopes to cover most derivatives; read the
+   [support tiers](design.md#support-tiers-for-derivatives) and
+   [derivative review](research-audit.md#derivative-release-review).
 4. When resumed, ask whether to continue the MiMo layer-0 precision diagnostic
    (needs a new temporary-model approval) or begin the code-only P0 items of the
-   [generalization queue](roadmap.md#generalization-work-queue).
+   [generalization queue](roadmap.md#generalization-work-queue), and which
+   candidate to onboard first. The review recommends the Defiant Fable
+   safetensors source; its preflight and any GGUF range reads need approval.
 5. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
 
@@ -94,6 +100,41 @@ model as an early second profile does not select or authorize it. Checks passed
 for eight docs: 181 local links/anchors, balanced fences, consistent columns in
 33 tables, editor diagnostics and `git diff --check`. No source, native or model
 gates were rerun because no code changed.
+
+**Derivative release review, 2026-10-09:** Starting from local commit `e95ddcb`
+(one commit ahead of `origin/main`), the user asked about supporting DavidAU's
+Defiant Fable releases, especially `plusIQ-NEO-MAX-MTP-bf16.gguf`, possibly
+ZDTaichu5.0-9B, and most fine-tuned, merged or expanded Qwen3.5-9B derivatives.
+Research read Hub APIs, configurations, indexes, licence files and model cards
+only, plus the pinned Prism converter and loader source. Findings:
+
+- The Defiant Fable safetensors source (head `7af0a9c4`) has 9B-class
+  configuration, all-BF16 tensors, the base template blob and complete MTP, with
+  mergekit packaging quirks: an extra `model-mtp-restored.safetensors` shard and
+  a stale index total. Current inventory code refuses both.
+- The `plusIQ` BF16 GGUF size fits 32 text layers plus one MTP layer; whether its
+  weights or template differ from the source is unknown. Its card describes
+  in-band `{REASON:mode}` controls, an injection surface for decision evidence.
+- GGUF records no value-head layout or converter revision, so a GGUF-only source
+  needs an independent anchor; the converter only permutes eligible projections.
+  The pinned loader skips MTP unless requested and accepts an explicit
+  recurrent-layer array that the pinned converter cannot write.
+- ZDTaichu5.0-9B wraps a 9B-class decoder in custom code with mixed licences;
+  48-layer DavidAU depth variants exist with a regular pattern.
+
+Documentation now defines support tiers A-E with float-GGUF, wrapped-decoder,
+depth-variant, template-control and refusal-removal rules in the
+[design](design.md#support-tiers-for-derivatives), the
+[derivative review](research-audit.md#derivative-release-review) and its
+[source observations](sources.md#derivative-release-observations), queue items
+P0.4 and P5-P7, three verification rows, new coupling rows and an agent rule
+against executing model-repository code. The README now names fine-tuned and
+merged derivatives in its scope. Implementation remains paused; no release was
+selected, downloaded or converted, and no code, cache or user `.vscode/` changed.
+Checks passed for eight docs: 209 local links/anchors, balanced fences, consistent
+columns in 36 tables, recomputed parameter and byte arithmetic, editor
+diagnostics and `git diff --check`. No source, native or model gates were rerun
+because no code changed.
 
 ## Current Checkpoint (2026-10-08)
 
@@ -1372,7 +1413,10 @@ MiMo diagnostic or onboards a different Qwen3.5 9B-class subject. Use the
 the controls and artifacts below remain MiMo-specific, not a generic model API.
 Generalization starts with the code-only P0 items of the
 [work queue](roadmap.md#generalization-work-queue), which need no download; read
-the [coupling inventory](development.md#mimo-coupling-inventory) first.
+the [coupling inventory](development.md#mimo-coupling-inventory) first. For the
+user's preferred derivatives, read the
+[derivative review](research-audit.md#derivative-release-review); its
+recommended first non-MiMo profile still needs the user's choice and approval.
 
 For a fresh coding session:
 

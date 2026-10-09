@@ -1,14 +1,17 @@
 # Embedded Jev Design
 
 Status: proposed architecture, first written 2026-09-25; implementation status
-checked 2026-10-08; model-family portability reviewed 2026-10-09. Bounded ternary
-quantizers, the streamed BF16 text reference, and a frozen BitNet-derived FFN
-inside real native MiMo now exist. Whole-model ternary export, profile-aware
-model support and deployment services remain open.
+checked 2026-10-08; model-family portability and derivative support tiers
+reviewed 2026-10-09. Bounded ternary quantizers, the streamed BF16 text
+reference, and a frozen BitNet-derived FFN inside real native MiMo now exist.
+Whole-model ternary export, profile-aware model support and deployment services
+remain open.
 The [current handover](handover.md#current-checkpoint-2026-10-08) records the
 tested implementation checkpoint, cache paths, constraints, and next native task.
 The [family review](research-audit.md#qwen35-9b-class-family-review) records the
-Qwen3.5 9B-class evidence behind the profile requirements below.
+Qwen3.5 9B-class evidence behind the profile requirements below, and the
+[derivative review](research-audit.md#derivative-release-review) the evidence
+behind the support tiers.
 See [docs/research-audit.md](research-audit.md) for evidence and corrections,
 [docs/roadmap.md](roadmap.md) for delivery gates, and
 [docs/sources.md](sources.md) for inspected upstream revisions.
@@ -24,9 +27,12 @@ to one model's identity.
 
 MiMo-V2.6-Distill-Qwen-9B is the first test subject, not a permanent model
 requirement. Other Qwen3.5 9B-class checkpoints and derivatives are planned
-targets, not validated compatibility. Other architecture families require their
-own adapters and evidence. A model change need not wait for MiMo's full-model
-ternary work to finish; the next model must pass its own support gates.
+targets, not validated compatibility. The aim is to cover most fine-tuned,
+refusal-removed and merged derivatives, plus some wrapped, GGUF-only or
+depth-expanded releases through declared adapters; see the
+[support tiers](#support-tiers-for-derivatives). Other architecture families
+require their own adapters and evidence. A model change need not wait for MiMo's
+full-model ternary work to finish; the next model must pass its own support gates.
 
 The intended target is a Linux edge computer with gigabytes of RAM, not a
 microcontroller. Start on available x86-64 hardware, then validate ARM64. RISC-V
@@ -69,8 +75,9 @@ current MiMo-specific assumption in code.
 `model_type`; for example, a Qwen3.6 27B release also reports `qwen3_5`. A
 checkpoint is a candidate only when its own reconciled configuration and
 safetensors headers show these values. On 2026-10-09 MiMo's configuration and
-headers matched them, as did the base `Qwen/Qwen3.5-9B` configuration; the base
-text-tensor count is deduced from parameter totals, not headers:
+headers matched them, as did the configurations of the base `Qwen/Qwen3.5-9B`,
+DavidAU's Defiant Fable source and ZDTaichu5.0-9B's nested text decoder. Only
+MiMo's text-tensor count is confirmed from headers:
 
 | Property | Required value |
 | --- | --- |
@@ -84,7 +91,9 @@ text-tensor count is deduced from parameter totals, not headers:
 Matching geometry allows geometry-bound code, synthetic controls and resource
 formulas to be reused after the profile gate. It does not transfer weights,
 tokenizer or template behaviour, dtype layout, packaging, licence, numerical
-evidence, calibration or quality.
+evidence, calibration or quality. Releases with these per-layer shapes but
+another layer count are [depth variants](#wrapped-decoders-and-depth-variants),
+not 9B-class profiles.
 
 #### Packaging Variation Within the Class
 
@@ -94,15 +103,16 @@ explicitly or fail closed:
 
 | Axis | Observed variants | Profile requirement |
 | --- | --- | --- |
-| Architecture and prefixes | Multimodal `Qwen3_5ForConditionalGeneration` (`model.language_model.*`, `model.visual.*`) or text-only `Qwen3_5ForCausalLM` (`model.*`) | Declared name-prefix rule; text-only profiles claim no vision |
-| Shard names | `model-0000N-of-0000M` (MiMo) or `model.safetensors-0000N-of-0000M` (base) | Accept exactly the names in the pinned index; hash every file |
-| MTP tensors | Absent (MiMo despite its configured MTP layer; a text-only export) or present as `mtp.*` (base, 243,290,624 parameters) | Exclude explicitly with `--no-nextn` and report separately |
-| Small-tensor dtype | All BF16 (MiMo) or 3,840 F32 parameters (base, a text-only export) | Allowed dtype per tensor class; never cast silently |
-| Template | Different turn separators and non-thinking suffixes (below) | Bind template hash, exact suffix, prompt hashes and label IDs |
+| Architecture and prefixes | Multimodal `Qwen3_5ForConditionalGeneration` (`model.language_model.*`, `model.visual.*`), text-only `Qwen3_5ForCausalLM` (`model.*`), or a custom-code wrapper (ZDTaichu: `language_model.model.*`, text configuration nested as `llm_config`) | Declared name-prefix and configuration-path rule; text-only profiles claim no vision; never execute repository code |
+| Shard names | `model-0000N-of-0000M` (MiMo), `model.safetensors-0000N-of-0000M` (base), unpadded `model-N-of-M` (ZDTaichu), or an extra `model-mtp-restored.safetensors` (one merge) | Accept exactly the names in the pinned index; hash every file |
+| Index metadata | Exact `total_size` (MiMo), or a stale total omitting a later-added tensor plus tool keys such as `mergekit_version` | Recompute totals from headers and record any mismatch; index metadata is never identity |
+| MTP tensors | Absent (MiMo despite its configured MTP layer; text-only exports), complete `mtp.*` (base, 243,290,624 parameters), or with the fusion projection missing or stored in a separate file; configured as `mtp_num_hidden_layers` or `mtp_num_layers` | Exclude explicitly with `--no-nextn`; report presence and completeness separately |
+| Small-tensor dtype | All BF16 (MiMo, one merge) or 3,840 F32 parameters (base, a text-only export, another merge) | Allowed dtype per tensor class; never cast silently |
+| Template | Different turn separators and non-thinking suffixes (below); some releases add [in-band controls](#templates-with-in-band-controls) | Bind template hash, rendering arguments, exact suffix, prompt hashes and label IDs |
 | Tokenizer files | Equal vocabulary and merge sizes, different `tokenizer.json` bytes | Hash files and re-verify HF and native token IDs |
-| Licence | MIT, Apache-2.0 or custom terms (one listing declares `apple-amlr`) | Record terms and carry notices into derived artifacts |
-| Extra assets | LoRA adapters, auxiliary decision heads, calibration files | Out of scope until their semantics are designed and validated |
-| Weight format | FP8, GGUF or other repackaged releases | Refuse as PTQ sources; require original floating-point safetensors |
+| Licence | MIT, Apache-2.0, custom terms (one listing declares `apple-amlr`), or mixed per component (ZDTaichu names the NVIDIA Open Model License as primary for its weights) | Record terms per component and carry notices into derived artifacts |
+| Extra assets | LoRA adapters, auxiliary decision heads, calibration files, separate `mmproj` vision files | Out of scope until their semantics are designed and validated |
+| Weight format | Quantized releases (GGUF Q2-Q8 and IQ, FP8 and similar) or float GGUF files | Never quantize from quantized weights; float GGUF only through the [GGUF-source adapter](#float-gguf-sources) |
 
 The same single-message decision request ends differently in the two inspected
 templates, so prompt bytes, token counts, hashes and activations differ:
@@ -112,6 +122,123 @@ MiMo:  ...<|im_end|><|im_start|>assistant\n<think></think>
 Base:  ...<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n
 ```
 
+#### Support Tiers for Derivatives
+
+Most Hub releases built on Qwen3.5-9B are fine-tunes, refusal-removed
+("abliterated" or "Heretic") edits, same-shape merges, often made with mergekit,
+or repackagings of such weights. The aim is to support most of them, but names,
+tags and declared base models are not evidence: a release joins a tier only after
+its own files are inspected, and every tier still needs the full profile record
+and [support gate](roadmap.md#model-scope-and-support-gate). The examples are
+2026-10-09 metadata observations from the
+[derivative review](research-audit.md#derivative-release-review), not selections.
+
+| Tier | Source provides | Observed examples | Path and added requirements |
+| --- | --- | --- | --- |
+| A. 9B-class safetensors | Floating-point safetensors with the geometry above | MiMo; base Qwen3.5-9B; DavidAU's Defiant Fable source; same-shape merges | Packaging adapter, then the pinned converter with `--no-nextn`; the primary target |
+| B. Wrapped decoder | A 9B-class text decoder inside a custom-code wrapper | ZDTaichu5.0-9B (C-RADIOv4-H vision, InternVL-style projector) | Static configuration and header reading, declared rename to canonical text names, text-only profile |
+| C. Float GGUF only | BF16 GGUF without matching safetensors | The Defiant Fable `plusIQ` BF16 file, unless it matches its safetensors sibling | [GGUF-source adapter](#float-gguf-sources) with an independent layout anchor |
+| D. Depth variant | Qwen3.5 blocks of 9B-class width with another layer count | DavidAU's 48-layer "13B" depth expansions | Profile-driven layer count, pattern, tensor counts and budgets |
+| E. Not a source | Quantized weights, unmerged adapters, drafts, other widths, vocabularies or MoE | Q2-Q8 and IQ GGUF files, FP8, LoRA bundles, speculative-decoding drafts, 27B and 35B-A3B models | Refused for PTQ; quantized files may serve only as labelled comparison baselines |
+
+Tier A needs the P0 profile work plus each profile's gates; most fine-tunes and
+merges are expected there. Tiers B-D each add one adapter with its own fixtures
+and evidence, ordered in the [work queue](roadmap.md#generalization-work-queue).
+Tier E is refused rather than approximated.
+
+#### Float GGUF Sources
+
+A BF16 GGUF holds converter output, not the original tensors. For Qwen3.5 the
+pinned Prism converter permutes linear-attention value heads from grouped to
+tiled order in the value rows of `in_proj_qkv`, in `in_proj_z`, `in_proj_a`,
+`in_proj_b`, the convolution's value channels, `A_log`, `dt_bias` and the
+`out_proj` columns. It also stores `-exp(A_log)`, renames `dt_bias`, squeezes the
+convolution and adds 1 to every RMSNorm weight except the gated linear-attention
+norm. Eligible projections are therefore only permuted, so their BF16 values are
+exactly recoverable; transformed small tensors need per-tensor exactness checks.
+
+A GGUF-only source is weaker than safetensors in three ways:
+
+- No GGUF key records the value-head order or converter revision; the loader
+   assumes tiled order. Inverting with our mapping and converting again always
+   round-trips, and native output agrees with a reference rebuilt from that
+   inversion because both see one consistent relabelling. Neither check detects
+   a producer that used another convention.
+- Identity is the whole file: hash it and each tensor's data, and bind the
+   metadata, embedded template, tensor types and any `nextn` tensors. The pinned
+   loader skips MTP tensors unless MTP loading is requested; a profile still
+   records and excludes them explicitly. A BF16 type label does not prove that
+   values were never rounded through another format.
+- The streamed Transformers reference needs reconstructed HF-layout tensors.
+   Until that inverse is implemented and proven, only native runs of the file
+   itself exist, and they cannot reveal conversion errors.
+
+Accept a float GGUF only with an independent layout anchor, preferably
+byte-identical eligible tensors from our own pinned conversion of a sibling
+safetensors release. A cheap first check reads the GGUF header and a few eligible
+tensors by byte range and compares them with the sibling's tensors; FFN matrices
+need no transform. Without an anchor the profile is refused, not approximated.
+
+#### Wrapped Decoders and Depth Variants
+
+A wrapped decoder keeps 9B-class text geometry under another architecture.
+ZDTaichu5.0-9B declares `ZDTaichu5_0_ForConditionalGeneration` with an `auto_map`
+to repository code and nests a `Qwen3_5ForCausalLM` text configuration as
+`llm_config`, using `mtp_num_layers` rather than `mtp_num_hidden_layers`. Its
+text tensors are `language_model.model.*` and `language_model.lm_head.weight`,
+beside `vision_model.*` and projector `mlp1.*` tensors. A profile may read that
+JSON and the safetensors headers statically, map the declared prefix to canonical
+text names and convert a text-only subset. It must never execute repository code,
+must record the rename as a declared transform with unchanged tensor payload
+hashes, and claims no vision: no pinned converter supports that vision tower.
+
+A depth variant keeps every per-layer shape but changes `num_hidden_layers`. Two
+observed 48-layer releases declare `full_attention_interval` 4, and their
+displayed `layer_types` follow the regular 3:1 pattern. That implies 639 text
+tensors and 24,827,168,256 bytes of BF16 text weights. Kernel and codec shapes
+are unchanged, but layer counts, tensor totals, trace and capture indices, the
+native policy and memory budgets must come from the profile. The pinned
+converter writes only `full_attention_interval`, and its `gguf-py` defines no
+per-layer key, while the loader also accepts an explicit
+`attention.recurrent_layers` array. An irregular pattern therefore needs a
+converter extension that writes that array, checked against `layer_types`, or
+refusal. Added layers are not added evidence and need their own quality
+measurements.
+
+#### Templates With In-Band Controls
+
+Some derivative templates change the rendered prompt according to message text
+or extra arguments. The Defiant Fable model card describes `plusIQ` GGUF files
+with five reasoning and five instruct modes, selected through `reasoning_effort`
+and `enable_thinking` arguments or a `{REASON:mode}` marker anywhere in a
+message; the card says the marker is removed from the message stream and persists
+until changed. Decision evidence is untrusted text, so such a marker would become
+a control channel. A profile must:
+
+- Pin the template hash and every rendering argument, including the mode, and
+   verify the suffix and label IDs for exactly that configuration.
+- Refuse untrusted fields containing declared control syntax rather than
+   stripping it silently, and record the refusal.
+- Treat a template embedded in GGUF metadata as a separate file to hash, and
+   compare its native rendering and token IDs with the reference renderer.
+
+#### Refusal-Removed and Merged Releases
+
+Refusal removal edits weights to suppress refusal behaviour. The Defiant Fable
+card reports, unverified, a KL divergence of 0.0793 and 6/100 refusals for its
+Heretic step, followed by further training and merging. Such edits change
+activation statistics, so quantization sensitivity is measured per profile.
+Decision safety never relies on a model refusing: the advisory, log-only loop and
+deterministic limits outside the model still apply, and adversarial instructions
+embedded in evidence remain mandatory test cases for every profile.
+
+Merges are structurally Tier A when their tensors keep the 9B-class geometry,
+but they inherit no quality or calibration evidence from their parents. Their
+packaging is often irregular: the Defiant Fable source index omits the MTP fusion
+projection from its total and maps that tensor to a separate restored file.
+Profiles exclude MTP, so a stale or restored MTP head affects accounting, not
+scoring.
+
 #### Profile Record and Identity Binding
 
 A profile record is small, versioned, non-secret metadata; weights, captures and
@@ -119,12 +246,14 @@ quantized artifacts stay outside Git. It should contain at least:
 
 - **Identity:** profile ID and schema version, repository/revision, licence, and
    size plus Git blob ID or SHA-256 for every file used, including each shard.
-- **Packaging:** architecture class, tensor-name prefix rule, shard list, MTP and
-   vision handling, expected text-tensor count and allowed dtype per tensor class.
+- **Packaging:** source format and support tier, architecture class, tensor-name
+   prefix or rename rule, shard list, MTP and vision handling, expected
+   text-tensor count and allowed dtype per tensor class.
 - **Geometry:** the class values above, read from configuration and confirmed
    against headers rather than copied from another profile.
 - **Tokenization:** tokenizer, configuration and template hashes, special-token
-   IDs, rendered non-thinking suffix, decision prompt formatter version and
+   IDs, every rendering argument (including any reasoning mode), refused control
+   syntax, rendered non-thinking suffix, decision prompt formatter version and
    context-verified A-P label IDs.
 - **Runtime:** pinned converter/runtime revisions, converter flags, expected GGUF
    metadata and tensor geometry, and the native policy version that accepts it.
@@ -550,7 +679,9 @@ renders different separators and suffixes (see
 [packaging variation](#packaging-variation-within-the-class)). Assert
 GGUF/native tokenization matches
 that model's reference tokenizer, including special-token handling. Reject
-overlong inputs rather than silently truncating important evidence.
+overlong inputs rather than silently truncating important evidence. Where a
+profile's template interprets markers in message text, refuse untrusted fields
+containing them; see [template controls](#templates-with-in-band-controls).
 
 Score final requested-position logits, with no generation loop, sampling,
 repetition penalty, top-k, or top-p processing. Apply stable softmax restricted
@@ -635,13 +766,20 @@ No networking or camera devices are exposed by the research container by default
 ## Open Decisions
 
 - Next model ID/revision and modality; MiMo remains the first measured subject,
-  not a requirement for later deployment. The family review recommends an early
-  packaging-different second profile, but none is selected.
+  not a requirement for later deployment. The user is interested in DavidAU's
+  Defiant Fable releases and ZDTaichu5.0-9B; the
+  [derivative review](research-audit.md#derivative-release-review) recommends the
+  Defiant Fable safetensors source first, but none is selected.
+- Which support tiers beyond A to fund, and in what order: float GGUF sources,
+  wrapped decoders or depth variants.
+- Policy for templates with in-band controls and for refusal-removed models in
+  decision deployments.
 - Where versioned profile records live and who approves a new record.
 - Per-profile numerical acceptance criteria for native-versus-reference agreement,
   decided before a new profile's native comparison rather than after it.
 - Whether text-only exports, adapter bundles or auxiliary decision heads are in
-  scope, and the licence policy for redistributing derived ternary artifacts.
+  scope, and the licence policy for redistributing derived ternary artifacts,
+  including releases with mixed per-component licences.
 - Host CPU, RAM, GPU/VRAM, driver, storage budget, and permitted download budget.
 - First target device and acceptable p95 latency, context size, and power budget.
 - Text-only versus image-enabled first deployment, and number of criteria/state.

@@ -25,8 +25,9 @@ first. No successor checkpoint has been selected by this plan.
 
 For each new model/revision:
 
-1. Record the selected ID/revision, license, capabilities and resource budget.
-   Obtain separate approval for downloads, conversion and larger experiments.
+1. Record the selected ID/revision, support tier, license, capabilities and
+   resource budget. Obtain separate approval for downloads, conversion and larger
+   experiments.
 2. Reconcile configuration, tensor headers, names/shapes, tied embeddings,
    recurrent/attention layout and modality. Validate the architecture/converter
    adapter; do not reuse MiMo's geometry or loosen its current loader policy.
@@ -42,9 +43,10 @@ For each new model/revision:
    applicable quality, calibration, export and device gates below before making
    their claims; architecture-family membership does not transfer results.
 
-Planned profiles and adapters are described in the
-[design](design.md#model-profiles-and-portability). Shared arithmetic controls
-remain reusable, but model-specific artifacts and evidence remain distinct.
+Planned profiles, adapters and [support tiers](design.md#support-tiers-for-derivatives)
+are described in the [design](design.md#model-profiles-and-portability). Shared
+arithmetic controls remain reusable, but model-specific artifacts and evidence
+remain distinct.
 
 ### Generalization Work Queue
 
@@ -52,21 +54,32 @@ This ordered queue turns MiMo into one profile among several. It is a plan, not
 authorization: every item needs the user's resume instruction, and items marked
 as needing approval need that separate approval. The
 [family review](research-audit.md#qwen35-9b-class-family-review) motivates the
-order, and the [coupling inventory](development.md#mimo-coupling-inventory) lists
-the code each item touches.
+order, the [derivative review](research-audit.md#derivative-release-review) adds
+P0.4 and the tier items P5-P7, and the
+[coupling inventory](development.md#mimo-coupling-inventory) lists the code each
+item touches.
 
 | Order | Work | Downloads or compute | Acceptance evidence |
 | --- | --- | --- | --- |
 | P0.1 | Strict, versioned profile record schema; MiMo's record built from existing verified hashes and geometry | None | Record reproduces every pinned MiMo hash and geometry value; malformed, duplicate and unknown fields are refused |
 | P0.2 | Derive identity from verified local files in inventory, label probe, streamed reports, captures and evaluation; refuse unmatched directories | None | Synthetic second-profile header fixtures can never be labelled MiMo; MiMo results unchanged apart from recorded identity and source hashes |
-| P0.3 | Packaging adapters: prefix rule, index-listed shard names, MTP accounting, per-class dtype policy, profile-supplied template suffix | None | Offline fixtures for multimodal, text-only, MTP-bearing and F32-norm layouts pass or refuse exactly as declared |
+| P0.3 | Packaging adapters: prefix rule, index-listed shard names (padded, unpadded or extra), recomputed index totals, MTP presence and completeness, per-class dtype policy, profile-supplied template suffix | None | Offline fixtures for multimodal, text-only, MTP-bearing, incomplete-MTP, restored-shard and F32-norm layouts pass or refuse exactly as declared |
+| P0.4 | Template policy: pinned rendering arguments and mode, declared control syntax refused in untrusted fields, separate hash for GGUF-embedded templates | None | Synthetic templates with in-band markers refuse marked evidence; MiMo prompt bytes, hashes and label IDs unchanged |
 | P1 | Metadata-only preflight of the chosen second profile: pinned files, header inventory, tokenizer/template label probe | Small metadata fetch; approval needed | Reconciled inventory and budgets, verified non-thinking suffix and label IDs; no weights read |
 | P2 | Dense streamed reference, vocabulary-only and BF16 native prefill, and precision traces for that profile | Full download and temporary conversion; approval needed | Acceptance criteria written first; zero generation; resources and cleanup recorded |
 | P3 | Geometry-driven kernel bounds or row tiling for 12,288- and 8,192-row projections, manifest-driven tensor gate, no resident PQ2/scale duplication | None (synthetic plus the existing MiMo artifact) | Golden parity for new shapes; MiMo frozen-projection parity unchanged; resident bytes reported |
 | P4 | Versioned profile-driven complete-model policy beside the unchanged MiMo v1 factory | Real checks need temporary-model approval | Geometry and target bytes come from verified profile and artifact manifests; all v1 refusals unchanged |
+| P5 | Float-GGUF source adapter (Tier C): header and tensor-table identity, BF16 eligibility, explicit `nextn` exclusion, inverse value-head permutation, independent layout anchor | Header-and-sample range reads, then the full file; separate approval for each | Synthetic GGUF fixtures pass; sampled, then all, eligible tensors byte-identical to a sibling conversion, or refusal |
+| P6 | Wrapped-decoder adapter (Tier B): static nested-configuration reader, declared prefix rename, text-only conversion, no repository code | Metadata for fixtures; real conversion needs approval | Renamed tensors keep payload hashes; geometry comes from the nested configuration; licence terms recorded |
+| P7 | Depth variants (Tier D): layer count and pattern from the profile throughout Python, traces and native policy; explicit recurrent-layer array for irregular patterns | None for synthetic fixtures; real models need approval | Synthetic 48-layer and irregular-pattern fixtures; MiMo results unchanged; budgets recomputed |
 
-P0 and P3 can proceed without another model. Milestones 2-6 below still apply to
-each profile before quantization, quality, calibration or device claims.
+P0, P3 and the synthetic parts of P5-P7 can proceed without another model.
+Milestones 2-6 below still apply to each profile before quantization, quality,
+calibration or device claims. The
+[derivative review](research-audit.md#derivative-release-review) recommends the
+Defiant Fable safetensors source as the P1 subject, followed by a header-and-sample
+comparison of its `plusIQ` BF16 GGUF that decides whether P5 is needed at all.
+P5-P7 follow the user's priorities; none is authorized yet.
 
 ## Milestone 0: Research Environment
 
@@ -470,7 +483,7 @@ Do not create empty implementations merely to match this table.
 
 | Proposed command/module | Responsibility | Key output |
 | --- | --- | --- |
-| `model-profiles` / `models.qwen35` | Strict versioned profile records, local-file identity verification, and packaging/prefix/dtype/template adapters separate from validated architecture code | Verified profile ID or explicit refusal report |
+| `model-profiles` / `models.qwen35` | Strict versioned profile records, local-file identity verification, and packaging/prefix/dtype/template adapters separate from validated architecture code; later float-GGUF, wrapped-decoder and depth-variant adapters | Verified profile ID or explicit refusal report |
 | `inspect-model` / `inventory` | Pinned metadata/header inventory and tensor policy | Inventory and byte budget |
 | `prepare-calibration` / `calibration` | Real records, split checks, exact template, bounded token packing | Safe token tensors and provenance |
 | `quantization.rotation` | Matching input/weight transforms and serialization | Transform specification |
@@ -492,6 +505,9 @@ code is justified only where existing tooling does not implement our contract.
 | --- | --- | --- |
 | Wrong model/profile | Source/revision, geometry, tokenizer/template and artifact provenance binding | Reject mismatched or unsupported profile |
 | Mislabeled provenance | Report identity from verified local files; synthetic second-profile fixture | Refuse until identity is derived, not constant |
+| Wrong GGUF tensor layout | Independent anchor: eligible tensors byte-identical to a sibling safetensors conversion | Refuse the GGUF-only profile |
+| In-band template control | Pinned rendering arguments; fixtures with control markers inside evidence | Refuse the input, or the profile if the markers cannot be declared |
+| Repository code execution | Static configuration and header reading only; no `trust_remote_code` | Refuse the release |
 | Changed dense function | Dense vs rotated intermediate and final outputs | Fix transforms before PTQ |
 | Wrong scale or packing | Python/native codec golden vectors and round trips | Block export |
 | Changed graph semantics | Actual full and recurrent block replay | Fix architecture adapter |
@@ -536,7 +552,10 @@ Select the next model/revision and refresh the quantization host's GPU/VRAM and
 RAM, initial device, download/storage budget, deployment modality, and acceptable
 quality/latency tradeoffs. Approve a second profile's metadata-only preflight
 separately from any weight download, and decide its numerical acceptance criteria
-before its native comparison. Reuse existing compatible environments and cache inputs;
-do not assume MiMo's measured budget fits another checkpoint. After the user
-resumes implementation, inspect and estimate first, then request approval for
-model downloads, conversions or compute that exceeds the agreed scope.
+before its native comparison. Choose the first non-MiMo candidate and which
+support tiers beyond A to fund; a GGUF-only release also needs separate approval
+for its header-and-sample comparison before any full download. Reuse existing
+compatible environments and cache inputs; do not assume MiMo's measured budget
+fits another checkpoint. After the user resumes implementation, inspect and
+estimate first, then request approval for model downloads, conversions or
+compute that exceeds the agreed scope.
