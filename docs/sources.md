@@ -116,13 +116,42 @@ in the [research audit](research-audit.md#derivative-release-review).
 | DavidAU 48-layer [Deckard](https://huggingface.co/DavidAU/Qwen3.5-13B-Deckard-Heretic-Uncensored-Thinking/blob/main/config.json) and [Polaris-Grande](https://huggingface.co/DavidAU/Qwen3.5-13B-GLM-4.7-Flash-DeepSeek-Polaris-Grande-Deep-Thinking/blob/main/config.json) configurations | 48 layers, `full_attention_interval` 4, otherwise 9B-class values; Hub totals 12,869,594,608 and 13,079,330,800 BF16 parameters | Moving `main`; configuration only; MTP content deduced from totals |
 | [Merge listing](https://huggingface.co/api/models?filter=base_model:merge:Qwen/Qwen3.5-9B&sort=downloads&limit=25&expand%5B%5D=safetensors) | Same-shape merges with base-like totals (9,653,100,528 BF16 + 3,840 F32) or no MTP (9,409,813,744 BF16) | Truncated listing; self-declared relations |
 | Pinned Prism `conversion/qwen.py` and `src/models/qwen35.cpp` | Converter value-head permutation, `-exp(A_log)`, `dt_bias` rename, convolution squeeze and RMSNorm +1 transforms; only `full_attention_interval` written. Loader reads an optional `qwen35.attention.recurrent_layers` array and skips `nextn` tensors unless MTP loading is requested | Source inspection; no other model converted |
-| [Source file listing](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP/tree/7af0a9c4e221e01b246b3c577fbb7110b79823e8) and [`backup/` listing](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP/tree/7af0a9c4e221e01b246b3c577fbb7110b79823e8/backup) | Four shards of about 4.94, 4.99, 4.95 and 4.35 GB; 67.1 MB restored shard; 71.2 kB index; configuration, generation configuration and template; 20 MB `tokenizer.json`, `tokenizer_config.json` and 6.72 MB `vocab.json`; image and video preprocessor configurations; README and two images. No `merges.txt` or `processor_config.json` shown. `backup/` holds another configuration, generation configuration, template and tokenizer pair | Rendered pages read 2026-10-09; approximate sizes; exact listing awaits the preflight |
-| [`plusIQ` BF16 file page](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF/blob/8b192a8e203440d6492a133f6cdfa4bf7bffac98/Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf) | Exact name `Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf`, uploaded by head commit `8b192a8e`; SHA-256 `6a772118b107772fb83d111fec59e54b139c993fe6dc4906288a3bb81178705d`; Xet hash `a60519059ae2e25ba936f35118e63f0d1295eced50e5e6f43a06c1dd9bb0dcb8` | Hub-displayed text; verify through the API and any download |
+| [Source file listing](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP/tree/7af0a9c4e221e01b246b3c577fbb7110b79823e8) and [`backup/` listing](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP/tree/7af0a9c4e221e01b246b3c577fbb7110b79823e8/backup) | Four shards of about 4.94, 4.99, 4.95 and 4.35 GB; 67.1 MB restored shard; 71.2 kB index; configuration, generation configuration and template; 20 MB `tokenizer.json`, `tokenizer_config.json` and 6.72 MB `vocab.json`; image and video preprocessor configurations; README and two images. No `merges.txt` or `processor_config.json` shown. `backup/` holds another configuration, generation configuration, template and tokenizer pair | Rendered pages read 2026-10-09; exact values are in the [preflight evidence](#defiant-fable-preflight-evidence) |
+| [`plusIQ` BF16 file page](https://huggingface.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF/blob/8b192a8e203440d6492a133f6cdfa4bf7bffac98/Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf) | Exact name `Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf`, uploaded by head commit `8b192a8e`; SHA-256 `6a772118b107772fb83d111fec59e54b139c993fe6dc4906288a3bb81178705d`; Xet hash `a60519059ae2e25ba936f35118e63f0d1295eced50e5e6f43a06c1dd9bb0dcb8` | Hub-displayed text; size and SHA-256 later matched the API's LFS metadata |
 
 Only the Defiant Fable safetensors source is selected (2026-10-09); none of these
 releases is pinned in code or validated. The approved
-[preflight](development.md#defiant-fable-preflight-procedure) verifies the listed
-values once HTTPS verification works in the container.
+[preflight](development.md#defiant-fable-preflight-procedure) verified the
+Defiant Fable values the same day; its evidence follows.
+
+### Defiant Fable Preflight Evidence
+
+On 2026-10-09, after the container rebuild, the approved preflight read both Hub
+tree listings at the pinned revisions, downloaded and verified the source's
+non-weight files, read all five safetensors headers and the `plusIQ` GGUF header
+by byte range, and compared the enumerated tensor samples. Results and retained
+paths are in the [development guide](development.md#preflight-results).
+
+| File at the pinned revision | Bytes | Content hash | Header SHA-256 |
+| --- | --- | --- | --- |
+| `model-00001-of-00004.safetensors` | 4,942,706,128 | LFS `9c8d053d013fdc681f4aac84f18be2ae48e7ced9a4b5e7395dbf6975c509249e` | `c512838efbc24e40a50285f25c3451bce824f50d3edff2bcd1f458ba6a6e09b2` |
+| `model-00002-of-00004.safetensors` | 4,987,758,072 | LFS `c166dda141e2bc36ed79a02cb7c4c93ae8a21e187d7aa4dbd92feade78dbeaf0` | `cf0c415590e45b8bd87a709da063d48dd9a61c3acc82085e8719522d89079ded` |
+| `model-00003-of-00004.safetensors` | 4,954,219,624 | LFS `7140d0d130eaf3a98fc9105e2aba5c8bebadf16f34f4396492d66c1db5924c6e` | `b5b612f9e66b987b48682511d46e55e649a05fda7505c538c31400839090c00b` |
+| `model-00004-of-00004.safetensors` | 4,354,511,264 | LFS `abff669313bf942926582ded3c27de0a5a9a4da42e257e0543d6d5eb9768fc3b` | `70f10a7f033c1004e32e9e722421c8557c7df835ee6130a1cfcc0a056a34d8d7` |
+| `model-mtp-restored.safetensors` | 67,108,960 | LFS `244e0ecaa9599825163f1787480228ed4be81ea52ac52b70af161a0750f7013f` | `1dc46cfb01f227c4d015d67e56f083855d1459165d133ff75eb67b51631d870f` |
+| `tokenizer.json` (also `backup/`) | 19,989,343 | LFS `87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4` | - |
+| `config.json` (also `backup/`) | 2,932 | Git blob `3222bd84de41b9f64bd7178b5cf3e1e74fee02c9` | - |
+| `chat_template.jinja` (also `backup/`) | 7,756 | Git blob `a585dec894e63da457d9440ec6aa7caa16d20860` | - |
+| `tokenizer_config.json` (also `backup/`) | 15,210 | Git blob `42659baad00d61be27498932500767168836fde8` | - |
+| `model.safetensors.index.json` | 71,170 | Git blob `56af35683dad813d07b10f2fdaaf773ed94ff283` | - |
+| `vocab.json` | 6,722,759 | Git blob `0aa0ce0658d60ac4a5d609f4eadb0e8e43514176` | - |
+| `Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-plusIQ-NEO-MAX-MTP-bf16.gguf` (GGUF repository) | 18,407,330,272 | LFS `6a772118b107772fb83d111fec59e54b139c993fe6dc4906288a3bb81178705d` | 10,977,760-byte header read by range |
+
+Downloaded files were checked against these hashes. Shard and GGUF content hashes
+are the Hub's LFS metadata: their headers and samples were read, but no complete
+weight file was downloaded or hashed locally. The report also records the
+remaining small files, the GGUF metadata and tensor table, and the tokenizer and
+template probe.
 
 ## Public Intent Proxy
 

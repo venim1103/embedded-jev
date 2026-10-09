@@ -213,7 +213,9 @@ with five reasoning and five instruct modes, selected through `reasoning_effort`
 and `enable_thinking` arguments or a `{REASON:mode}` marker anywhere in a
 message; the card says the marker is removed from the message stream and persists
 until changed. Decision evidence is untrusted text, so such a marker would become
-a control channel. A profile must:
+a control channel. The 2026-10-09 preflight confirmed it: a `{REASON:ispoon}`
+marker in user text vanished from the rendered prompt and expanded it from 202 to
+4,219 characters, while the unmarked default rendered unchanged. A profile must:
 
 - Pin the template hash and every rendering argument, including the mode, and
    verify the suffix and label IDs for exactly that configuration.
@@ -767,9 +769,9 @@ No networking or camera devices are exposed by the research container by default
 
 - Decided 2026-10-09: the first non-MiMo profile is DavidAU's Defiant Fable
   safetensors source at `7af0a9c4`, text path first as for MiMo; MiMo remains the
-  first measured subject. Whether the `plusIQ` GGUF joins as a template variant
-  or a Tier C source awaits the approved
-  [preflight](development.md#defiant-fable-preflight-procedure).
+  first measured subject. The [preflight](development.md#preflight-results)
+  found sampled `plusIQ` GGUF tensors identical to the source and only its
+  template different; a full comparison decides whether it is a template variant.
 - Which support tiers beyond A to fund, and in what order: float GGUF sources,
   wrapped decoders or depth variants.
 - Policy for templates with in-band controls and for refusal-removed models in

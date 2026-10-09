@@ -255,6 +255,8 @@ Consequences:
 2. Whether the `plusIQ` BF16 file holds the source's weights is unknown. If its
    eligible tensors match byte for byte, `plusIQ` is a template variant of a
    Tier A profile; otherwise it needs the Tier C adapter and an independent anchor.
+   The later preflight found identical samples, tiled linear-attention rows and a
+   different template, so the template-variant reading is likely but unproven.
 3. `plusIQ` mode markers in message text are an injection surface for decision
    evidence; the [template-control rules](design.md#templates-with-in-band-controls)
    apply before such a template is used.
@@ -272,9 +274,11 @@ profile, as recommended here. It matches the user's interest, is declared
 Apache-2.0, keeps 9B-class geometry and exercises the packaging adapters. The
 user also approved the bounded
 [preflight](development.md#defiant-fable-preflight-procedure), whose
-header-and-sample comparison of the `plusIQ` BF16 file decides on Tier C. It has
-not run: HTTPS verification failed in the container, and the host-certificate
-provisioning added afterwards awaits a rebuild. ZDTaichu remains the
+header-and-sample comparison of the `plusIQ` BF16 file decides on Tier C. After a
+container rebuild with host certificates it ran the same day: the source's 427
+text tensors match MiMo's names, shapes and dtypes, the base template yields
+single-token labels 32-47, and the sampled `plusIQ` tensors equal the source; see
+the [results](development.md#preflight-results). ZDTaichu remains the
 first Tier B candidate after licence review, and depth variants a later tier.
 The base model remains a useful parent control with the same template.
 

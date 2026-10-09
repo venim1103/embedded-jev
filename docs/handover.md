@@ -10,7 +10,7 @@ original conversation. Read this first, then follow the links for detail.
 
 1. Implementation is paused in this session. The user plans to have another model
    implement the queue; begin implementation only when the user instructs that
-   session. No download, conversion or new artifact is authorized beyond item 4.
+   session. No further download, conversion or new artifact is authorized.
 2. The last tested implementation commit is `9408f3f`; read the dated paragraphs
    below, then the [current checkpoint](#current-checkpoint-2026-10-08).
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
@@ -20,17 +20,15 @@ original conversation. Read this first, then follow the links for detail.
    read; never point them at another checkpoint (see the
    [coupling inventory](development.md#mimo-coupling-inventory)).
 4. The user selected DavidAU's Defiant Fable safetensors source at `7af0a9c4` as
-   the first non-MiMo profile and approved its bounded
-   [preflight](development.md#defiant-fable-preflight-procedure), including the
-   `plusIQ` GGUF header-and-sample comparison. It has not run because HTTPS
-   certificate verification failed in this container. Host-certificate
-   provisioning now exists: rebuild the container, confirm verified HTTPS, then
-   run it. Never disable verification.
+   the first non-MiMo profile. Its approved
+   [preflight](development.md#preflight-results) ran on 2026-10-09 after the
+   container rebuild with host certificates. Verified files and headers are
+   cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
+   in-band controls. Never disable certificate verification.
 5. Suggested order: the code-only P0.1-P0.4 and P3 items of the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
-   fixtures mirroring the Defiant Fable packaging; the preflight once HTTPS
-   verifies; then P2 only with new approval. The MiMo layer-0 precision diagnostic
-   also needs new approval.
+   fixtures mirroring the verified Defiant Fable packaging; then P2 only with new
+   approval. The MiMo layer-0 precision diagnostic also needs new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
 
@@ -179,6 +177,37 @@ not tested here; the user must rebuild the container. AGENTS.md now forbids
 committing or publishing the generated file or images built with it. The default
 gate passed (163 passed, 39 skipped, Ruff and `git diff --check` clean), and the
 eight docs passed link/anchor, fence and table checks (231 local links, 37 tables).
+
+**Rebuild verified and preflight run, 2026-10-09:** The user rebuilt the container
+from `5a58cd8`. It holds 110 exported host roots, 231 certificates in the system
+bundle and the four CA variables; `curl` and Python both reached the Hub with
+verified HTTPS (200), and the external cache, MiMo snapshot, frozen candidate and
+dense environment survived. The approved Defiant Fable preflight then ran with
+two throwaway scripts: 291,402,916 bytes in 49 requests and 48 s, plus a 5.6 s
+offline tokenizer probe. Findings, detailed in the
+[development guide](development.md#preflight-results):
+
+- The source has 774 BF16 tensors (427 text, 333 vision, 15 MTP); the text names,
+  shapes and dtypes equal MiMo's. The index total omits exactly `mtp.fc.weight`,
+  alone in the restored shard; there is no `processor_config.json` or
+  `merges.txt`.
+- The base template renders the expected suffix, and A-P are tokens 32-47 as
+  for MiMo; `vocab.json` matches MiMo's while `tokenizer.json` differs by 18 bytes.
+- The `plusIQ` BF16 GGUF has 442 tensors including 15 MTP tensors. Its sampled
+  FFN, embedding and output bytes equal the source, and its linear-attention rows
+  match in tiled order. Its template renders the same default prompt, but a
+  `{REASON:ispoon}` marker silently expands the prompt from 202 to 4,219
+  characters.
+
+Retained: 47.2 MB of verified files, headers and the `plusIQ` template under
+`models/defiant-fable-7af0a9c4-metadata/` in the external cache, a 93 KB report
+and the two scripts beside it. Sampled tensor bytes stayed in memory; the
+temporary directory was deleted. No repository code, frozen candidate or user
+`.vscode/` changed, and no further download is authorized. In the rebuilt
+container the smoke check reported `ok` and the default gate passed (163 passed,
+39 skipped, Ruff clean). The eight docs passed link/anchor, fence and table checks
+(237 local links, 38 tables) with the checker recreated after the rebuild, which
+a self-test showed still detects a broken anchor.
 
 ## Current Checkpoint (2026-10-08)
 
@@ -487,12 +516,12 @@ guide's command, including the two pinned internal-header include paths.
 
 ### Resume Contract
 
-**Currently paused:** this session's October 9 requests authorize documentation,
-planning and the bounded Defiant Fable preflight only. The user plans to have
-another model implement the generalization queue; that session starts work only
-on the user's instruction. The selected first non-MiMo profile is the Defiant
-Fable safetensors source at `7af0a9c4`; its full download, conversion and any
-artifact still need separate approval.
+**Currently paused:** this session's October 9 requests authorized documentation,
+planning and the bounded Defiant Fable preflight, which is complete. The user
+plans to have another model implement the generalization queue; that session
+starts work only on the user's instruction. The selected first non-MiMo profile
+is the Defiant Fable safetensors source at `7af0a9c4`; its full download,
+conversion and any artifact still need separate approval.
 
 The user authorized routine bounded experiments, the existing full source
 download, quantization scratch space, and periodic **local commits**. Keep only
@@ -1401,8 +1430,8 @@ only after a workload/target is chosen.
   the external web tool are text, not byte-exact downloads. Do not disable
   verification or change trust settings as a workaround. At the user's request,
   the devcontainer now trusts the host's exported roots
-  ([host certificates](development.md#host-certificates)); this takes effect
-  only after a rebuild.
+  ([host certificates](development.md#host-certificates)). After the rebuild on
+  the same day, `curl` and Python reached the Hub with verified HTTPS.
 - Dev Containers CLI 0.87.0 accepts `info`, `debug`, and `trace` log levels,
   not `error`. The initial unsupported flag was corrected.
 - Direct rootless Podman bind mounts used for one-off tooling needed
@@ -1476,8 +1505,7 @@ the controls and artifacts below remain MiMo-specific, not a generic model API.
 Generalization starts with the code-only P0 items of the
 [work queue](roadmap.md#generalization-work-queue), which need no download; read
 the [coupling inventory](development.md#mimo-coupling-inventory) first. The
-approved [preflight](development.md#defiant-fable-preflight-procedure) waits for
-a rebuilt container with verified HTTPS, and the
+approved [preflight](development.md#preflight-results) is complete, and the
 [derivative review](research-audit.md#derivative-release-review) explains the
 choice. Continuing the MiMo diagnostic instead needs new approval.
 

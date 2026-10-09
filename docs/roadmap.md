@@ -67,7 +67,7 @@ item touches.
 | P0.2 | Derive identity from verified local files in inventory, label probe, streamed reports, captures and evaluation; refuse unmatched directories | None | Synthetic second-profile header fixtures can never be labelled MiMo; MiMo results unchanged apart from recorded identity and source hashes |
 | P0.3 | Packaging adapters: prefix rule, index-listed shard names (padded, unpadded or extra), recomputed index totals, MTP presence and completeness, per-class dtype policy, profile-supplied template suffix | None | Offline fixtures for multimodal, text-only, MTP-bearing, incomplete-MTP, restored-shard and F32-norm layouts pass or refuse exactly as declared |
 | P0.4 | Template policy: pinned rendering arguments and mode, declared control syntax refused in untrusted fields, separate hash for GGUF-embedded templates | None | Synthetic templates with in-band markers refuse marked evidence; MiMo prompt bytes, hashes and label IDs unchanged |
-| P1 | Metadata-only preflight of the selected Defiant Fable source: pinned files, header inventory, tokenizer/template label probe, plus the `plusIQ` header-and-sample comparison | Bounded reads approved 2026-10-09 and specified in the [procedure](development.md#defiant-fable-preflight-procedure); waiting for a container rebuilt with [host certificates](development.md#host-certificates) and verified HTTPS | Reconciled inventory and budgets, verified non-thinking suffix and label IDs, sampled GGUF comparison; no other weights read |
+| P1 | Metadata-only preflight of the selected Defiant Fable source: pinned files, header inventory, tokenizer/template label probe, plus the `plusIQ` header-and-sample comparison | Done 2026-10-09 within the approved bounds; see the [results](development.md#preflight-results) | Reconciled inventory and budgets, verified non-thinking suffix and label IDs, sampled GGUF comparison; no other weights read |
 | P2 | Dense streamed reference, vocabulary-only and BF16 native prefill, and precision traces for that profile | Full download and temporary conversion; approval needed | Acceptance criteria written first; zero generation; resources and cleanup recorded |
 | P3 | Geometry-driven kernel bounds or row tiling for 12,288- and 8,192-row projections, manifest-driven tensor gate, no resident PQ2/scale duplication | None (synthetic plus the existing MiMo artifact) | Golden parity for new shapes; MiMo frozen-projection parity unchanged; resident bytes reported |
 | P4 | Versioned profile-driven complete-model policy beside the unchanged MiMo v1 factory | Real checks need temporary-model approval | Geometry and target bytes come from verified profile and artifact manifests; all v1 refusals unchanged |
@@ -79,9 +79,13 @@ P0, P3 and the synthetic parts of P5-P7 can proceed without another model.
 Milestones 2-6 below still apply to each profile before quantization, quality,
 calibration or device claims. The user selected the Defiant Fable safetensors
 source as the P1 subject, as the
-[derivative review](research-audit.md#derivative-release-review) recommended;
-its `plusIQ` BF16 comparison decides whether P5 is needed at all. P0 and P3 can
-start before P1 runs. P5-P7 follow the user's priorities; none is authorized yet.
+[derivative review](research-audit.md#derivative-release-review) recommended.
+P1 found its 427 text tensors identical in names, shapes and dtypes to MiMo's,
+and sampled `plusIQ` BF16 tensors identical to the source in tiled order with only
+the template differing. P5 is therefore likely unnecessary for that file if a
+full comparison confirms equality, while P0.4 must cover its template markers.
+P0 and P3 need no further download. P5-P7 follow the user's priorities; none is
+authorized yet.
 
 ## Milestone 0: Research Environment
 
@@ -552,9 +556,8 @@ declared numerical differences and report margin-sensitive decision flips.
 
 Decided on 2026-10-09: the first non-MiMo profile is the Defiant Fable
 safetensors source at `7af0a9c4`, and its bounded preflight, including the
-`plusIQ` header-and-sample comparison, is approved but waits for a container
-rebuilt with host certificates and verified HTTPS.
-Still open: the quantization host's GPU/VRAM and RAM, initial device,
+`plusIQ` header-and-sample comparison, ran the same day. Still open: the
+quantization host's GPU/VRAM and RAM, initial device,
 download/storage budget, deployment modality and acceptable quality/latency
 tradeoffs; the Defiant Fable numerical acceptance criteria, decided before its
 native comparison; approval for its roughly 19.3 GB snapshot and temporary
