@@ -10,14 +10,15 @@ original conversation. Read this first, then follow the links for detail.
 
 1. The user resumed autonomous code-only implementation on 2026-10-09 under
   AGENTS.md. No further download, conversion or new artifact is authorized.
-2. Read the [verified identity checkpoint](#verified-identity-checkpoint-2026-10-09)
+2. Read the [packaging checkpoint](#packaging-checkpoint-2026-10-09)
   below, then the [native checkpoint](#current-checkpoint-2026-10-08), whose
   last tested implementation commit remains `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
    MiMo as the first test subject and most derivatives as the eventual aim (see
   the [support tiers](design.md#support-tiers-for-derivatives)). Existing real-model
-  tools verify MiMo's profile before loading; other packagings and execution
-  profiles remain unsupported. Never point them at another checkpoint (see the
+  scoring tools verify MiMo's profile before loading; explicit offline inventory
+  accepts the selected Defiant Fable metadata profile. Other-model execution
+  remains unsupported (see the
    [coupling inventory](development.md#mimo-coupling-inventory)).
 4. The user selected DavidAU's Defiant Fable safetensors source at `7af0a9c4` as
    the first non-MiMo profile. Its approved
@@ -25,12 +26,69 @@ original conversation. Read this first, then follow the links for detail.
    container rebuild with host certificates. Verified files and headers are
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
-5. P0.1-P0.2 are implemented; next are the code-only P0.3-P0.4 and P3 items of the
+5. P0.1-P0.3 are implemented; next are the code-only P0.4 and P3 items of the
    [generalization queue](roadmap.md#generalization-work-queue), with synthetic
    fixtures mirroring the verified Defiant Fable packaging; then P2 only with new
    approval. The MiMo layer-0 precision diagnostic also needs new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
+
+## Packaging Checkpoint (2026-10-09)
+
+P0.2 was committed locally as `c0c8547`. P0.3 now validates declared architecture
+and static text-config paths, text/vision/MTP prefixes, index-listed shard names,
+exact tokenizer/processor classes, every text/MTP shape, per-class float dtypes,
+text count and explicit projection eligibility. Offline prefix/streamed planners
+use the same profile rules; real scoring remains MiMo-only. Bound records can
+declare a recomputed index total, whose exact difference is reported, not hidden.
+MTP presence, missing names, complete/incomplete status and explicit text
+exclusion are separate accounting fields; unexpected names/shapes/status refuse.
+
+The separate [Defiant Fable record](../embedded_jev/profiles/defiant-fable.json)
+comes from the approved preflight cache, not another download. It declares
+`TokenizersBackend`, `Qwen2VLImageProcessorFast`, no processor-config/merges file,
+the restored MTP shard, complete MTP and the base-template suffix. Its native
+policy is null: metadata inventory/tokenization is not a dense/native execution
+or quality claim. Complete shard SHA-256 values are remote LFS pins, not locally
+verified payloads. The MiMo record gained exact metadata-class declarations;
+its canonical fingerprint changed, not its source files or numerical policy.
+No real v2 capture had been retained; legacy v1 captures are unchanged.
+
+The inventory CLI supports explicit `--profile` and `--header-dir` with
+`--local-dir`, never another remote download. Sidecars contain raw JSON; the
+reader reconstructs the eight-byte safetensors length prefix and checks its
+size/hash, reporting `profile_pinned_remote_sizes` rather than `local_stat`.
+Prefix hashes in the new record therefore differ from the historical preflight
+table's raw-JSON hashes. No weight file needs to exist for sidecar inspection.
+
+Verification: 114 focused inventory/label/data/evaluation cases passed, and the
+default gate passed with **206 tests and 39 optional skips**, Ruff, whitespace
+and editor diagnostics clean. Synthetic controls cover multimodal/text-only,
+padded/alternate/unpadded/restored shards, F32 norms, stale totals, absent/complete/
+incomplete MTP, explicit eligibility and undeclared-variation refusals. Cached
+Defiant Fable reconciles 775 tensors (427 text, 333 vision, 15 MTP),
+19,306,208,736 tensor bytes and a 67,108,864-byte index shortfall. Every text/MTP
+shape matches its own configuration; all 11 recorded nonweight files verify.
+The historical preflight's `774` total was a prose/count typo, not another
+tensor layout; its category counts already sum to 775 and its bytes agree.
+
+The cached tokenizer-only check passes 49 tokens and A-P 32-47, prompt SHA-256
+`299d512e3217660f75b5fe9d384f5b0357b205e2dbf9c3aaace5a351c3a4b612`,
+zero generation. MiMo still reconciles 760 tensors, 427 text and
+18,819,627,488 tensor bytes. No weight payload was read, model run, refit,
+conversion, new candidate or native gate followed.
+
+Failed-check history: the first cached-source probe refused the then-hardcoded
+tokenizer/image classes. The actual cached declarations were read, pinned into
+records and retested; no broad unknown-class allowance was added. Two early
+scoring-refusal tests then exposed a changed error message when undeclared
+shards were rejected earlier. The specific profile-mismatch error was preserved
+and the same slice passed. Numerical tolerances and resource bounds are unchanged.
+
+Next: P0.4 template-control refusals and separate GGUF-template provenance;
+then P3 geometry/resident-storage controls. No further download, full-model
+conversion or quality experiment is authorized. Nothing was pushed, branched
+or delegated; the user's `.vscode/` directory and caches remain untouched.
 
 ## Verified Identity Checkpoint (2026-10-09)
 

@@ -8,7 +8,9 @@ from pathlib import Path
 from embedded_jev.inventory import (
     InventoryError, _json_object, build_inventory, read_local_headers,
 )
-from embedded_jev.model_profile import ProfileError, mimo_profile, profile_source, verify_profile_files
+from embedded_jev.model_profile import (
+    ModelProfile, ProfileError, mimo_profile, profile_source, profile_text_config, verify_profile_files,
+)
 
 
 MAX_PREFIX_LAYERS = 4
@@ -18,26 +20,27 @@ MAX_STREAM_LAYER_BYTES = 512 * 1024**2
 MAX_STREAM_EMBED_BYTES = 2304 * 1024**2
 
 
-def plan_text_prefix(metadata_files, shard_headers, *, layers: int = 4) -> dict:
+def plan_text_prefix(metadata_files, shard_headers, *, layers: int = 4, profile: ModelProfile | None = None) -> dict:
     """Select only the embedding, first layers, and text final norm."""
-    report = build_inventory(metadata_files, shard_headers)
-    text = _json_object(metadata_files["config.json"], "config.json")["text_config"]
+    report = build_inventory(metadata_files, shard_headers, profile=profile)
+    config = _json_object(metadata_files["config.json"], "config.json")
+    text = profile_text_config(profile, config) if profile is not None else config["text_config"]
+    prefix = profile.packaging["text_prefix"] if profile is not None else "model.language_model."
     if type(layers) is not int or not 1 <= layers <= min(MAX_PREFIX_LAYERS, len(text["layer_types"])):
         raise InventoryError("unsupported dense text prefix length")
     names = {
-        "model.language_model.embed_tokens.weight",
-        "model.language_model.norm.weight",
+        prefix + "embed_tokens.weight", prefix + "norm.weight",
     }
     names.update(
         tensor["name"] for tensor in report["tensors"]
-        if tensor["name"].startswith("model.language_model.layers.")
-        and int(tensor["name"].split(".")[3]) < layers
+        if tensor["name"].startswith(prefix + "layers.")
+        and int(tensor["name"].removeprefix(prefix + "layers.").split(".")[0]) < layers
     )
     selected = [tensor for tensor in report["tensors"] if tensor["name"] in names]
     total_bytes = sum(tensor["storage_bytes"] for tensor in selected)
     if (
         len(selected) != len(names)
-        or any(tensor["dtype"] != "BF16" for tensor in selected)
+        or any(tensor["dtype"] not in (profile.packaging["dtype_policy"][tensor["category"]] if profile is not None else ("BF16",)) for tensor in selected)
         or total_bytes > MAX_PREFIX_WEIGHT_BYTES
     ):
         raise InventoryError("dense text prefix is missing or exceeds BF16 budget")
@@ -54,31 +57,33 @@ def plan_text_prefix(metadata_files, shard_headers, *, layers: int = 4) -> dict:
     }
 
 
-def plan_streamed_text(metadata_files, shard_headers, *, layers: int = 32) -> dict:
+def plan_streamed_text(metadata_files, shard_headers, *, layers: int = 32, profile: ModelProfile | None = None) -> dict:
     """Bound each text layer independently without budgeting the full model in RAM."""
-    report = build_inventory(metadata_files, shard_headers)
-    text = _json_object(metadata_files["config.json"], "config.json")["text_config"]
+    report = build_inventory(metadata_files, shard_headers, profile=profile)
+    config = _json_object(metadata_files["config.json"], "config.json")
+    text = profile_text_config(profile, config) if profile is not None else config["text_config"]
+    prefix = profile.packaging["text_prefix"] if profile is not None else "model.language_model."
     if type(layers) is not int or not 1 <= layers <= len(text["layer_types"]):
         raise InventoryError("unsupported streamed text layer count")
     indexed = {tensor["name"]: tensor for tensor in report["tensors"]}
-    embedding = "model.language_model.embed_tokens.weight"
-    final_norm = "model.language_model.norm.weight"
+    embedding = prefix + "embed_tokens.weight"
+    final_norm = prefix + "norm.weight"
     if embedding not in indexed or final_norm not in indexed:
         raise InventoryError("missing streamed text embedding or norm")
     layer_names = [
         sorted(
             name for name in indexed
-            if name.startswith(f"model.language_model.layers.{layer}.")
+            if name.startswith(f"{prefix}layers.{layer}.")
         )
         for layer in range(layers)
     ]
     layer_bytes = [sum(indexed[name]["storage_bytes"] for name in names) for names in layer_names]
     if (
-        indexed[embedding]["dtype"] != "BF16"
+        indexed[embedding]["dtype"] not in (profile.packaging["dtype_policy"]["input_embedding"] if profile is not None else ("BF16",))
         or indexed[embedding]["storage_bytes"] > MAX_STREAM_EMBED_BYTES
-        or indexed[final_norm]["dtype"] != "BF16"
+        or indexed[final_norm]["dtype"] not in (profile.packaging["dtype_policy"]["sensitive"] if profile is not None else ("BF16",))
         or any(not names or size > MAX_STREAM_LAYER_BYTES for names, size in zip(layer_names, layer_bytes))
-        or any(indexed[name]["dtype"] != "BF16" for names in layer_names for name in names)
+        or any(indexed[name]["dtype"] not in (profile.packaging["dtype_policy"][indexed[name]["category"]] if profile is not None else ("BF16",)) for names in layer_names for name in names)
     ):
         raise InventoryError("streamed text weights missing or exceed per-layer BF16 budget")
     return {

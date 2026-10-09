@@ -21,7 +21,7 @@ from embedded_jev.inventory import (
     parse_safetensors_header,
 )
 from embedded_jev.model_profile import (
-    GEOMETRY_INTS, MAX_PROFILE_BYTES, ProfileError, mimo_profile, parse_model_profile,
+    GEOMETRY_INTS, MAX_PROFILE_BYTES, ProfileError, defiant_fable_profile, mimo_profile, parse_model_profile,
     verify_profile_files, verify_profile_headers,
 )
 from embedded_jev.ternary import quantize_ternary_rtn
@@ -109,17 +109,26 @@ def test_header_rejects_unsupported_dtype_and_overlapping_offsets():
         parse_safetensors_header(prefix, shard_bytes)
 
 
+def _fixture_geometry():
+    geometry = dict.fromkeys(GEOMETRY_INTS, 1)
+    geometry.update({
+        "hidden_size": 1024, "intermediate_size": 2048, "vocab_size": 32,
+        "num_attention_heads": 8, "num_key_value_heads": 2, "head_dim": 64,
+        "linear_num_key_heads": 16, "linear_num_value_heads": 32,
+        "linear_key_head_dim": 128, "linear_value_head_dim": 128,
+        "linear_conv_kernel_dim": 4, "layer_types": ["full_attention"],
+        "mamba_ssm_dtype": "float32", "partial_rotary_factor": 0.25,
+        "rms_norm_eps": 1e-6, "tie_word_embeddings": False, "attn_output_gate": True,
+        "rope_parameters": {
+            "mrope_interleaved": True, "mrope_section": [3, 3, 2],
+            "partial_rotary_factor": 0.25, "rope_theta": 10000000, "rope_type": "default",
+        },
+    })
+    return geometry
+
+
 def _model_fixture():
-    text = {
-        "hidden_size": 1024,
-        "vocab_size": 32,
-        "intermediate_size": 2048,
-        "num_hidden_layers": 1,
-        "layer_types": ["full_attention"],
-        "num_key_value_heads": 2,
-        "head_dim": 64,
-        "mtp_num_hidden_layers": 1,
-    }
+    text = {**_fixture_geometry(), "mtp_num_hidden_layers": 1}
     config = {
         "architectures": ["Qwen3_5ForConditionalGeneration"],
         "tie_word_embeddings": False,
@@ -150,7 +159,7 @@ def _model_fixture():
         ("self_attn.q_proj.weight", [1024, 1024]),
         ("self_attn.k_proj.weight", [128, 1024]),
         ("self_attn.v_proj.weight", [128, 1024]),
-        ("self_attn.o_proj.weight", [1024, 1024]),
+        ("self_attn.o_proj.weight", [1024, 512]),
         ("self_attn.q_norm.weight", [64]),
         ("self_attn.k_norm.weight", [64]),
     ):
@@ -198,20 +207,7 @@ def _profile_fixture():
             "bytes": size, "sha256": "a" * 64,
             "header_bytes": len(prefix), "header_sha256": hashlib.sha256(prefix).hexdigest(),
         }
-    geometry = dict.fromkeys(GEOMETRY_INTS, 1)
-    geometry.update({
-        "hidden_size": 1024, "intermediate_size": 2048, "vocab_size": 32,
-        "num_attention_heads": 8, "num_key_value_heads": 2, "head_dim": 64,
-        "linear_num_key_heads": 16, "linear_num_value_heads": 32,
-        "linear_key_head_dim": 128, "linear_value_head_dim": 128,
-        "linear_conv_kernel_dim": 4, "layer_types": ["full_attention"],
-        "mamba_ssm_dtype": "float32", "partial_rotary_factor": 0.25,
-        "rms_norm_eps": 1e-6, "tie_word_embeddings": False, "attn_output_gate": True,
-        "rope_parameters": {
-            "mrope_interleaved": True, "mrope_section": [3, 3, 2],
-            "partial_rotary_factor": 0.25, "rope_theta": 10000000, "rope_type": "default",
-        },
-    })
+    geometry = _fixture_geometry()
     return {
         "schema_version": 1, "profile_id": "synthetic-profile",
         "source": {
@@ -225,6 +221,10 @@ def _profile_fixture():
             "output_head": "lm_head.weight", "shards": list(headers), "metadata_files": list(metadata),
             "mtp_prefix": "mtp.", "mtp_status": "absent", "mtp_handling": "exclude",
             "index_total_policy": "exact", "text_tensor_count": 14,
+            "metadata_classes": {
+                "tokenizer": "Qwen2Tokenizer", "processor": "Qwen3VLProcessor",
+                "image_processor": "Qwen2VLImageProcessor", "video_processor": "Qwen3VLVideoProcessor",
+            },
             "dtype_policy": dict.fromkeys((
                 "input_embedding", "output_head", "language_projection", "sensitive", "vision", "optional_mtp",
             ), ["BF16"]),
@@ -244,10 +244,146 @@ def _profile_fixture():
         },
         "quantization": {
             "group_size": 128, "scale_dtype": "F16", "activation_contract": "group128-dynamic-a8-v1",
-            "eligible_suffixes": ["mlp.down_proj.weight", "mlp.gate_proj.weight", "mlp.up_proj.weight"],
+            "eligible_suffixes": [
+                "mlp.down_proj.weight", "mlp.gate_proj.weight", "mlp.up_proj.weight",
+                "self_attn.q_proj.weight", "self_attn.k_proj.weight", "self_attn.v_proj.weight", "self_attn.o_proj.weight",
+            ],
         },
         "evidence": [],
     }
+
+
+def _packaging_fixture(*, text_only=False, shard_name="model-1-of-1.safetensors", dtype="BF16", mtp="absent", stale_total=False):
+    metadata, headers = _model_fixture()
+    record = _profile_fixture()
+    specs = json.loads(next(iter(headers.values()))[0][8:])
+    config = json.loads(metadata["config.json"])
+    if text_only:
+        config = {"architectures": ["Qwen3_5ForCausalLM"], **config["text_config"]}
+        specs = {name.replace("model.language_model.", "model."): spec for name, spec in specs.items() if not name.startswith("model.visual.")}
+        for name in ("processor_config.json", "preprocessor_config.json", "video_preprocessor_config.json"):
+            metadata.pop(name)
+        record["packaging"].update(architecture="Qwen3_5ForCausalLM", text_config_path=[], text_prefix="model.", vision_prefix=None)
+        record["packaging"]["metadata_classes"].update(processor=None, image_processor=None, video_processor=None)
+    prefix = record["packaging"]["text_prefix"]
+    specs[prefix + "norm.weight"]["dtype"] = dtype
+    record["packaging"]["dtype_policy"]["sensitive"] = ["BF16", "F32"]
+    record["packaging"]["mtp_status"] = mtp
+    if mtp != "absent":
+        hidden = record["geometry"]["hidden_size"]
+        shapes = {
+            "mtp.fc.weight": [hidden, 2 * hidden], "mtp.norm.weight": [hidden],
+            "mtp.pre_fc_norm_embedding.weight": [hidden], "mtp.pre_fc_norm_hidden.weight": [hidden],
+            **{"mtp.layers.0." + name: list(shape) for name, shape in inventory._layer_shapes(record["geometry"], "full_attention").items()},
+        }
+        if mtp == "incomplete":
+            shapes.pop("mtp.fc.weight")
+        specs.update({name: {"dtype": "BF16", "shape": shape} for name, shape in shapes.items()})
+    entries, weight_map, offset = {}, {}, 0
+    restored = {}
+    for name, spec in sorted(specs.items()):
+        count = int(np.prod(spec["shape"])) * inventory.DTYPE_BYTES[spec["dtype"]]
+        target = restored if name == "mtp.fc.weight" else entries
+        start = 0 if target is restored else offset
+        target[name] = {**spec, "data_offsets": [start, start + count]}
+        weight_map[name] = "model-mtp-restored.safetensors" if target is restored else shard_name
+        if target is entries:
+            offset += count
+    main_header = _header(entries, offset)
+    headers = {shard_name: main_header}
+    if restored:
+        headers["model-mtp-restored.safetensors"] = _header(restored, next(iter(restored.values()))["data_offsets"][1])
+    total = sum(size - len(header) for header, size in headers.values())
+    if stale_total:
+        total -= next(iter(restored.values()))["data_offsets"][1] if restored else 2
+        record["packaging"]["index_total_policy"] = "recomputed"
+    metadata["config.json"] = json.dumps(config).encode()
+    metadata["model.safetensors.index.json"] = json.dumps({"metadata": {"total_size": total, "mergekit_version": "fixture"}, "weight_map": weight_map}).encode()
+    record["packaging"]["metadata_files"] = list(metadata)
+    record["packaging"]["shards"] = list(headers)
+    record["files"] = {name: spec for name, spec in record["files"].items() if name == "tokenizer.json"}
+    record["files"].update({name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for name, data in metadata.items()})
+    record["files"].update({name: {"bytes": size, "sha256": "a" * 64, "header_bytes": len(header), "header_sha256": hashlib.sha256(header).hexdigest()} for name, (header, size) in headers.items()})
+    return metadata, headers, record
+
+
+@pytest.mark.parametrize("text_only,shard_name,dtype,mtp,stale_total", [
+    (False, "model-00001-of-00001.safetensors", "BF16", "absent", False),
+    (False, "model.safetensors-00001-of-00001.safetensors", "F32", "complete", True),
+    (True, "model-1-of-1.safetensors", "F32", "absent", False),
+    (True, "model-00001-of-00001.safetensors", "BF16", "incomplete", False),
+])
+def test_profile_packaging_adapters_reconcile_declared_variations(text_only, shard_name, dtype, mtp, stale_total):
+    metadata, headers, record = _packaging_fixture(text_only=text_only, shard_name=shard_name, dtype=dtype, mtp=mtp, stale_total=stale_total)
+    profile = parse_model_profile(json.dumps(record).encode())
+    report = build_inventory(metadata, headers, profile=profile)
+    assert report["source"]["model"] == "example/Synthetic"
+    assert report["native_reference_plan"]["text_tensor_count"] == 14
+    assert report["accounting"]["optional_mtp_status"] == mtp
+    assert report["accounting"]["index_total_matches_headers"] is not stale_total
+    assert (report["accounting"]["index_total_difference_bytes"] > 0) is stale_total
+    if mtp == "incomplete":
+        assert report["accounting"]["optional_mtp_missing_weights"] == ["mtp.fc.weight"]
+    assert (report["memory_estimates"]["vision_original_bytes"] == 0) is text_only
+    prefix_plan = plan_text_prefix(metadata, headers, layers=1, profile=profile)
+    stream_plan = plan_streamed_text(metadata, headers, layers=1, profile=profile)
+    assert prefix_plan["model"] == stream_plan["model"] == profile.model
+    assert prefix_plan["profile_sha256"] == stream_plan["profile_sha256"] == profile.sha256
+    assert stream_plan["embedding_name"] == profile.packaging["text_prefix"] + "embed_tokens.weight"
+
+
+@pytest.mark.parametrize("defect", ["dtype", "mtp", "count", "geometry", "total"])
+def test_profile_packaging_adapters_refuse_undeclared_variations(defect):
+    metadata, headers, record = _packaging_fixture(dtype="F32", mtp="complete", stale_total=True)
+    if defect == "dtype":
+        record["packaging"]["dtype_policy"]["sensitive"] = ["BF16"]
+    elif defect == "mtp":
+        record["packaging"]["mtp_status"] = "incomplete"
+    elif defect == "count":
+        record["packaging"]["text_tensor_count"] = 15
+    elif defect == "geometry":
+        record["geometry"]["intermediate_size"] = 1024
+    else:
+        record["packaging"]["index_total_policy"] = "exact"
+    with pytest.raises(InventoryError):
+        build_inventory(metadata, headers, profile=parse_model_profile(json.dumps(record).encode()))
+
+
+def test_profile_sidecar_headers_are_explicit_bounded_and_payload_free(tmp_path):
+    metadata, headers, record = _packaging_fixture(text_only=True, mtp="complete", stale_total=True)
+    profile = parse_model_profile(json.dumps(record).encode())
+    header_directory = tmp_path / "headers"
+    header_directory.mkdir()
+    for name, data in metadata.items():
+        (tmp_path / name).write_bytes(data)
+    for name, (prefix, _) in headers.items():
+        (header_directory / (name + ".header.json")).write_bytes(prefix[8:])
+    assert not any(tmp_path.glob("*.safetensors"))
+    with pytest.raises(InventoryError, match="explicit verified model profile"):
+        inventory.read_local_headers(tmp_path, header_directory=header_directory)
+    actual_metadata, actual_headers = inventory.read_local_headers(tmp_path, profile=profile, header_directory=header_directory)
+    assert actual_metadata == metadata and actual_headers == headers
+    report = build_inventory(actual_metadata, actual_headers, profile=profile)
+    assert report["accounting"]["optional_mtp_status"] == "complete"
+    name = next(iter(headers))
+    path = header_directory / (name + ".header.json")
+    raw = path.read_bytes()
+    path.write_bytes(b" " + raw[1:])
+    with pytest.raises(InventoryError, match="header identity"):
+        inventory.read_local_headers(tmp_path, profile=profile, header_directory=header_directory)
+    path.write_bytes(raw + b" ")
+    with pytest.raises(InventoryError, match="profile bounds"):
+        inventory.read_local_headers(tmp_path, profile=profile, header_directory=header_directory)
+
+
+def test_profile_quantization_eligibility_is_explicit_not_inherited():
+    metadata, headers, record = _packaging_fixture()
+    record["quantization"]["eligible_suffixes"] = ["mlp.down_proj.weight"]
+    report = build_inventory(metadata, headers, profile=parse_model_profile(json.dumps(record).encode()))
+    eligible = [tensor["name"] for tensor in report["tensors"] if tensor["quantization_eligible"]]
+    assert eligible == ["model.language_model.layers.0.mlp.down_proj.weight"]
+    omitted = next(tensor for tensor in report["tensors"] if tensor["name"].endswith("mlp.up_proj.weight"))
+    assert omitted["policy_reason"] == "projection_not_declared_by_profile"
 
 
 def test_profile_record_is_strict_immutable_and_canonically_hashed():
@@ -358,6 +494,20 @@ def test_mimo_profile_preserves_existing_source_and_geometry_pins():
     )
     assert sum(profile.files[name].bytes for name in profile.packaging["shards"]) == 18819720848
     assert sum(profile.files[name].header_bytes for name in profile.packaging["shards"]) == 93360
+
+
+def test_defiant_fable_record_is_separate_metadata_evidence_not_runtime_support():
+    profile = defiant_fable_profile()
+    assert profile.model.startswith("DavidAU/") and profile.model != mimo_profile().model
+    assert profile.revision == "7af0a9c4e221e01b246b3c577fbb7110b79823e8"
+    assert profile.license == "Apache-2.0" and len(profile.files) == 16
+    assert profile.packaging["mtp_status"] == "complete"
+    assert profile.packaging["index_total_policy"] == "recomputed"
+    assert "processor_config.json" not in profile.files and "merges.txt" not in profile.files
+    assert profile.files["model-mtp-restored.safetensors"].header_bytes == 96
+    assert profile.runtime["native_policy"] is None
+    assert profile.tokenization["non_thinking_suffix"] != mimo_profile().tokenization["non_thinking_suffix"]
+    assert sum(profile.files[name].bytes for name in profile.packaging["shards"]) == 19306304048
 
 
 def test_inventory_reconciles_and_estimates_bytes_deterministically():

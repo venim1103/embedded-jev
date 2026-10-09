@@ -1,81 +1,79 @@
 {
   "schema_version": 1,
-  "profile_id": "mimo-2367e865",
+  "profile_id": "defiant-fable-7af0a9c4",
   "source": {
-    "model": "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B",
-    "revision": "2367e865d009c13ac81713a2878291d33ab28177",
-    "license": "MIT",
+    "model": "DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP",
+    "revision": "7af0a9c4e221e01b246b3c577fbb7110b79823e8",
+    "license": "Apache-2.0",
     "format": "safetensors",
     "support_tier": "A"
   },
   "files": {
     ".gitattributes": {
-      "bytes": 1570,
-      "sha256": "34448b82c17d60fec9b65b1f093c115ddbaadc04beb1b0140b6bfed2e012a930"
+      "bytes": 1678,
+      "sha256": "dfda5964d68b58656c1b0f0c0b6295457c12ad9f0a7b0e05b9e181412dc38514"
     },
     "README.md": {
-      "bytes": 3030,
-      "sha256": "09f915ac8116db54ca78586cfdf9ddb14209cba1ca23561a202f38039eac95ca"
+      "bytes": 147429,
+      "sha256": "8a45a6fb6cd75250309675183e5765a445c071d11bb7249595295159f455944a"
     },
     "chat_template.jinja": {
-      "bytes": 3916,
-      "sha256": "59a64ebb4df6d1489d09a91267cf3ceb106162d4a893c4f84833cfb8c897ff63"
+      "bytes": 7756,
+      "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
     },
     "config.json": {
-      "bytes": 2784,
-      "sha256": "407c46388b8fa2ae9bf69fe27d40af236d373e86a6b48f5284c86df5cd183633"
+      "bytes": 2932,
+      "sha256": "c95e76c9da0700a4662c39259ad3f648df4bc295a4e1315b10854ae5a448b44f"
     },
     "generation_config.json": {
-      "bytes": 126,
-      "sha256": "aaed5b26f1cae55c1ceb58fc483c3cd65ee8d386b61daec3d7a9df82432d9205"
-    },
-    "merges.txt": {
-      "bytes": 3353259,
-      "sha256": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+      "bytes": 141,
+      "sha256": "48529c8185fdb59d38b0691d89f58327086f32533752bcd5e5cf19cb592c9ecb"
     },
     "model-00001-of-00004.safetensors": {
-      "bytes": 5276436216,
-      "sha256": "aab052180118aee34abc3029b54eaa49096aac606b97d703866b420dceb703c3",
-      "header_bytes": 1784,
-      "header_sha256": "b9a4eb7e269fed6f83f046413693444f83581583ef7d10fcdd2123174295340b"
+      "bytes": 4942706128,
+      "sha256": "9c8d053d013fdc681f4aac84f18be2ae48e7ced9a4b5e7395dbf6975c509249e",
+      "header_bytes": 4688,
+      "header_sha256": "6c3af064d3c04d8450ce673221bc951f126f15eb788e45e934392641a5de5a93"
     },
     "model-00002-of-00004.safetensors": {
-      "bytes": 5033171280,
-      "sha256": "7a0486565f06d25ac4628e9dba470dc3f604353471d240d5a0bf7128f64df396",
-      "header_bytes": 6480,
-      "header_sha256": "4446e06139df99a4b1456b52cafc72ccac28035d82fe2d6baef695d580a6d6b1"
+      "bytes": 4987758072,
+      "sha256": "c166dda141e2bc36ed79a02cb7c4c93ae8a21e187d7aa4dbd92feade78dbeaf0",
+      "header_bytes": 19704,
+      "header_sha256": "da34e191ee9488af9e008e62bff49169e672214d4d66add8abbb82c31aa5fc6d"
     },
     "model-00003-of-00004.safetensors": {
-      "bytes": 5234499504,
-      "sha256": "6c73207563d1879bfd6c143a028cc70be68edff56280458c71a43df4240300f4",
-      "header_bytes": 8112,
-      "header_sha256": "0bdfb937253ee825744db5e76e3925bd013f0d6af2c3bbfda69d16d4f69afad1"
+      "bytes": 4954219624,
+      "sha256": "7140d0d130eaf3a98fc9105e2aba5c8bebadf16f34f4396492d66c1db5924c6e",
+      "header_bytes": 19560,
+      "header_sha256": "3a5e10284d371e3eeedcec3712ef2571ce54a4a5b72be33658e435a1ffbc10e3"
     },
     "model-00004-of-00004.safetensors": {
-      "bytes": 3275613848,
-      "sha256": "1379a7cf8c0b8555a39ab65a47e830e0eb45e776b46045734da3afd73c09eea2",
-      "header_bytes": 76984,
-      "header_sha256": "7d2c7f4b2eaa619eb6b539a018adb78c3daa826a34e68548a2738625c5a0041e"
+      "bytes": 4354511264,
+      "sha256": "abff669313bf942926582ded3c27de0a5a9a4da42e257e0543d6d5eb9768fc3b",
+      "header_bytes": 51264,
+      "header_sha256": "4758d6c344c00530b9c1082278b48e590af8f73b4ca13843b5ee1486c2f09e41"
+    },
+    "model-mtp-restored.safetensors": {
+      "bytes": 67108960,
+      "sha256": "244e0ecaa9599825163f1787480228ed4be81ea52ac52b70af161a0750f7013f",
+      "header_bytes": 96,
+      "header_sha256": "b7d0ef4fa36559a9bc2a355af01a728fb742fe4aebe782a407fc9e4f4584aafd"
     },
     "model.safetensors.index.json": {
-      "bytes": 69217,
-      "sha256": "4a24d25e902169c0393a2ca58b697c03b27efc40dcddbc2b59c42e5e1e2b1d90"
+      "bytes": 71170,
+      "sha256": "0faf8647b2565e43515858fec62c5f2f0cdb03e7a513bcd1e3721dfa20cfd2f9"
     },
     "preprocessor_config.json": {
-      "bytes": 443,
-      "sha256": "3a159dfec9978a186a72ba085e0ad6a050f3968d8b364218d7bd13f5c89381f2"
-    },
-    "processor_config.json": {
-      "bytes": 1191,
-      "sha256": "d89ef49ce9cd37fbf510158e13c1ef063d9286411c1ec9049932dbe0487143b1"
+      "bytes": 390,
+      "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
     },
     "tokenizer.json": {
-      "bytes": 19989325,
-      "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+      "bytes": 19989343,
+      "sha256": "87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4"
     },
     "tokenizer_config.json": {
-      "bytes": 1165,
-      "sha256": "792fa3f0cb88b111e54ef3134c873531008c4df471d108da17903426e308aa7b"
+      "bytes": 15210,
+      "sha256": "9fb2ebb472a0e8befa6d4e6e5a595e7b8bfd3e7521d8959a7ec2dcd2cf283d0f"
     },
     "video_preprocessor_config.json": {
       "bytes": 385,
@@ -93,32 +91,27 @@
     "vision_prefix": "model.visual.",
     "output_head": "lm_head.weight",
     "shards": [
-      "model-00001-of-00004.safetensors",
-      "model-00002-of-00004.safetensors",
-      "model-00003-of-00004.safetensors",
-      "model-00004-of-00004.safetensors"
+      "model-00001-of-00004.safetensors", "model-00002-of-00004.safetensors",
+      "model-00003-of-00004.safetensors", "model-00004-of-00004.safetensors",
+      "model-mtp-restored.safetensors"
     ],
     "metadata_files": [
       "config.json", "model.safetensors.index.json", "tokenizer_config.json",
-      "processor_config.json", "preprocessor_config.json", "chat_template.jinja",
-      "video_preprocessor_config.json"
+      "preprocessor_config.json", "chat_template.jinja", "video_preprocessor_config.json"
     ],
     "mtp_prefix": "mtp.",
-    "mtp_status": "absent",
+    "mtp_status": "complete",
     "mtp_handling": "exclude",
-    "index_total_policy": "exact",
+    "index_total_policy": "recomputed",
     "text_tensor_count": 427,
     "metadata_classes": {
-      "tokenizer": "Qwen2Tokenizer", "processor": "Qwen3VLProcessor",
-      "image_processor": "Qwen2VLImageProcessor", "video_processor": "Qwen3VLVideoProcessor"
+      "tokenizer": "TokenizersBackend", "processor": "Qwen3VLProcessor",
+      "image_processor": "Qwen2VLImageProcessorFast", "video_processor": "Qwen3VLVideoProcessor"
     },
     "dtype_policy": {
-      "input_embedding": ["BF16"],
-      "output_head": ["BF16"],
-      "language_projection": ["BF16"],
-      "sensitive": ["BF16"],
-      "vision": ["BF16"],
-      "optional_mtp": ["BF16"]
+      "input_embedding": ["BF16"], "output_head": ["BF16"],
+      "language_projection": ["BF16"], "sensitive": ["BF16"],
+      "vision": ["BF16"], "optional_mtp": ["BF16"]
     }
   },
   "geometry": {
@@ -149,11 +142,8 @@
     "partial_rotary_factor": 0.25,
     "rms_norm_eps": 0.000001,
     "rope_parameters": {
-      "mrope_interleaved": true,
-      "mrope_section": [11, 11, 10],
-      "partial_rotary_factor": 0.25,
-      "rope_theta": 10000000,
-      "rope_type": "default"
+      "mrope_interleaved": true, "mrope_section": [11, 11, 10],
+      "partial_rotary_factor": 0.25, "rope_theta": 10000000, "rope_type": "default"
     },
     "tie_word_embeddings": false,
     "attn_output_gate": true
@@ -162,14 +152,11 @@
     "template_file": "chat_template.jinja",
     "gguf_template_file": null,
     "render_arguments": {"add_generation_prompt": true, "enable_thinking": false},
-    "non_thinking_suffix": "<|im_start|>assistant\n<think></think>",
+    "non_thinking_suffix": "<|im_start|>assistant\n<think>\n\n</think>\n\n",
     "control_markers": [],
     "special_token_ids": {
-      "<|endoftext|>": 248044,
-      "<|im_start|>": 248045,
-      "<|im_end|>": 248046,
-      "<think>": 248068,
-      "</think>": 248069
+      "<|endoftext|>": 248044, "<|im_start|>": 248045, "<|im_end|>": 248046,
+      "<think>": 248068, "</think>": 248069
     },
     "label_token_ids": {
       "A": 32, "B": 33, "C": 34, "D": 35, "E": 36, "F": 37, "G": 38, "H": 39,
@@ -182,7 +169,7 @@
     "converter_revision": "842b1880415d6f508f03b789e5ce70194def7bfd",
     "runtime_revision": "842b1880415d6f508f03b789e5ce70194def7bfd",
     "converter_flags": ["--no-nextn"],
-    "native_policy": "mimo-qwen35-layer3-ffn-down-v1"
+    "native_policy": null
   },
   "quantization": {
     "group_size": 128,
@@ -195,8 +182,7 @@
     ]
   },
   "evidence": [
-    "docs/development.md#pinned-bf16-snapshot",
-    "docs/sources.md#model",
-    "docs/handover.md#current-checkpoint-2026-10-08"
+    "docs/development.md#preflight-results",
+    "docs/sources.md#defiant-fable-preflight-evidence"
   ]
 }

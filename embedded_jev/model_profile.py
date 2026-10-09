@@ -13,6 +13,7 @@ from typing import Mapping
 MAX_PROFILE_BYTES = 1 << 20
 MAX_PROFILE_FILE_BYTES = 32 << 20
 MIMO_PROFILE_PATH = Path(__file__).with_name("profiles") / "mimo.json"
+DEFIANT_FABLE_PROFILE_PATH = Path(__file__).with_name("profiles") / "defiant-fable.json"
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 PROFILE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
@@ -175,7 +176,7 @@ def parse_model_profile(data: bytes) -> ModelProfile:
     packaging = _fields(record["packaging"], (
         "architecture", "text_config_path", "text_prefix", "vision_prefix", "output_head",
         "shards", "metadata_files", "mtp_prefix", "mtp_status", "mtp_handling",
-        "index_total_policy", "text_tensor_count", "dtype_policy",
+        "index_total_policy", "text_tensor_count", "dtype_policy", "metadata_classes",
     ), "packaging")
     architecture = packaging["architecture"]
     if architecture not in ("Qwen3_5ForConditionalGeneration", "Qwen3_5ForCausalLM"):
@@ -204,6 +205,16 @@ def parse_model_profile(data: bytes) -> ModelProfile:
     if packaging["index_total_policy"] not in ("exact", "recomputed"):
         raise ProfileError("unsupported profile index total policy")
     _integer(packaging["text_tensor_count"], "text_tensor_count")
+    classes = _fields(packaging["metadata_classes"], ("tokenizer", "processor", "image_processor", "video_processor"), "metadata_classes")
+    supported_classes = {
+        "tokenizer": ("Qwen2Tokenizer", "TokenizersBackend"),
+        "processor": (None, "Qwen3VLProcessor"),
+        "image_processor": (None, "Qwen2VLImageProcessor", "Qwen2VLImageProcessorFast"),
+        "video_processor": (None, "Qwen3VLVideoProcessor"),
+    }
+    for name, declared in classes.items():
+        if declared not in supported_classes[name]:
+            raise ProfileError(f"unsupported profile metadata class: {name}")
     dtypes = _fields(packaging["dtype_policy"], TENSOR_CLASSES, "dtype_policy")
     for category, allowed in dtypes.items():
         if not set(_strings(allowed, category)) <= {"BF16", "F16", "F32"}:
@@ -305,6 +316,25 @@ def load_model_profile(path: Path) -> ModelProfile:
 def mimo_profile() -> ModelProfile:
     """Return the checked-in record of the previously verified MiMo snapshot."""
     return load_model_profile(MIMO_PROFILE_PATH)
+
+
+def defiant_fable_profile() -> ModelProfile:
+    """Return the selected metadata-only profile, not runtime compatibility."""
+    return load_model_profile(DEFIANT_FABLE_PROFILE_PATH)
+
+
+def profile_text_config(profile: ModelProfile, config: dict) -> dict:
+    """Read a declared static configuration path and verify its geometry."""
+    text = config
+    for name in profile.packaging["text_config_path"]:
+        text = text.get(name) if isinstance(text, dict) else None
+    if not isinstance(text, dict):
+        raise ProfileError("missing profile text configuration")
+    for name, expected in profile.geometry.items():
+        actual = text.get(name)
+        if _freeze(actual) != expected or (type(expected) is int and type(actual) is not int):
+            raise ProfileError(f"configuration geometry does not match the model profile: {name}")
+    return text
 
 
 def verify_profile_headers(

@@ -10,8 +10,8 @@ The intended system supports multiple Qwen3.5 9B-class models.
 MiMo-V2.6-Distill-Qwen-9B is the first test subject, not a permanent model
 requirement. Broader compatibility is planned, not implemented by changing a
 model path. On 2026-10-09 the user selected DavidAU's Defiant Fable safetensors
-source as the first non-MiMo profile. It is not validated and no repository
-command supports it yet; its approved metadata preflight ran the same day (see
+source as the first non-MiMo profile. Explicit offline inventory now supports its
+verified metadata/headers, not model execution; its approved preflight ran the same day (see
 the [preflight results](#preflight-results)).
 
 The commands, `MIMO_*` environment variables, cached snapshot, fixed tensor
@@ -38,8 +38,9 @@ header/tokenizer fixtures without a verified record have null model/revision,
 not an assumed MiMo identity. Header checks do not authenticate weight payloads;
 full shard hashing remains an onboarding/artifact gate. Existing CLI execution,
 remote downloads and native policy are still MiMo-only. Never pass another
-checkpoint to `--local-dir`, `MIMO_LOCAL_DIR` or the native MiMo policy; P0.3
-packaging adapters and other profiles' runtime gates remain open.
+checkpoint to a MiMo scoring `--local-dir`, `MIMO_LOCAL_DIR` or the native MiMo
+policy. The inventory-only profile command below is a separate offline path;
+other profiles' runtime gates remain open.
 
 ### Offline Model Profile Records
 
@@ -67,10 +68,49 @@ inputs remain unbound, while unmatched directories are refused. The original
 MiMo Prism-width mapper remains MiMo-only; `profile_prism_expected_widths()`
 requires an inventory bound to the supplied record.
 
-The current default gate is 194 passed, 39 optional skips; 102 focused
-inventory/label/data/evaluation cases pass. Cached MiMo metadata, tokenizer and
+The current default gate is 206 passed, 39 optional skips; 114 focused
+inventory/label/data/evaluation cases pass. Cached MiMo and Defiant Fable metadata, tokenizers and
 legacy captures were verified without full-model inference. Full weight hashes
 and optional native/model gates were not rerun for this Python-only change.
+
+### Offline Packaging Adapters
+
+P0.3 validates architecture/configuration paths, declared prefixes, exact
+index-listed shards, metadata classes, text/MTP shapes and counts, per-class
+float dtype and explicit eligible-projection policies. A declared stale index
+total is reported as `index_total_difference_bytes`; undeclared mismatches still
+refuse. MTP status is `absent`, `complete` or `incomplete`, with missing names
+reported and `--no-nextn` recorded. Norm/convolution/SSM parameters stay outside
+projection eligibility. Offline planners honor dtype/prefix policies but do not
+enable another model's execution or change MiMo's BF16 numerical contracts.
+
+The [Defiant Fable record](../embedded_jev/profiles/defiant-fable.json) binds the
+11 used nonweight files and five shard identities from the existing preflight.
+Its full shard hashes are remote LFS pins; only headers/samples were read. The
+record's header hashes include the safetensors eight-byte length, unlike the
+preflight's raw-JSON header hashes in the source register. Its native policy is
+null. Reproduce the metadata-only inventory without weights or HTTPS:
+
+```bash
+metadata="$HOME/.cache/huggingface/embedded-jev/models/defiant-fable-7af0a9c4-metadata"
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.inventory \
+   --local-dir "$metadata" --profile embedded_jev/profiles/defiant-fable.json \
+   --header-dir "$metadata/headers" | jq '{source, accounting, totals, native_reference_plan}'
+```
+
+`--profile` and `--header-dir` require `--local-dir`; sidecars require an explicit
+record and never enable a remote profile. Each raw JSON sidecar is named
+`SHARD.safetensors.header.json`. The reader reconstructs/validates the complete
+prefix and uses the record's verified remote size, reported as
+`profile_pinned_remote_sizes`, not a local weight-file stat or payload hash.
+Ordinary local snapshots still use real shard stats and bounded headers.
+
+Current evidence: Defiant Fable has 775 tensors, including 427 text/333 vision/
+15 complete MTP, 19,306,208,736 tensor bytes and a 67,108,864-byte index shortfall.
+Its cached bound tokenizer yields 49 tokens for the default label prompt, A-P
+32-47 and zero generation. MiMo's original 760-tensor accounting is unchanged.
+These are inventory/tokenization gates, not inference, native compatibility or
+quality. Template-control refusal remains P0.4.
 
 ### MiMo Coupling Inventory
 
@@ -83,11 +123,11 @@ the current code; the last column names the profile field or
 | --- | --- | --- | --- |
 | [inventory.py](../embedded_jev/inventory.py) `MODEL_ID`, `MODEL_REVISION`, `MODEL_URL` | Remote URL remains MiMo-only; reports now match verified files to a profile | Unmatched directories refuse; unbound raw fixtures have null identity | P0.2 implemented; packaging/selection still P0.3 |
 | inventory.py `_model_config`, `REQUIRED_METADATA` | `Qwen3_5ForConditionalGeneration`, untied embeddings, processor files and classes | Text-only `Qwen3_5ForCausalLM` exports, custom-code wrappers such as ZDTaichu, and releases without `processor_config.json`, such as the Defiant Fable source, refused | Architecture class, modality and nested-configuration path (P0.3, P6) |
-| inventory.py `SHARD_NAME` | `model-NNNNN-of-NNNNN.safetensors` | Base `model.safetensors-*`, unpadded `model-N-of-M` and extra restored shards refused | Shard names from the pinned index (P0.3) |
-| inventory.py index reconciliation | `total_size` equals header tensor bytes; shards numbered 1 to N | A merge index with a stale total or an extra MTP shard refused | Recomputed totals with any mismatch recorded (P0.3) |
-| inventory.py `LAYER_NAME`, `_classify`, `_required_weights` | `model.language_model.` prefix, MiMo vision names, `lm_head.weight` | Text-only `model.*` names refused | Prefix rule (P0.3) |
+| inventory.py `SHARD_NAME` | Unbound legacy inputs retain MiMo numbering; bound profiles use exact index-listed shard names | Explicit offline profiles accept alternate/unpadded/restored names; undeclared names refuse | P0.3 implemented |
+| inventory.py index reconciliation | Bound profiles declare exact/recomputed totals and MTP status; raw legacy totals remain exact | Stale totals are recorded only as declared, MTP completeness validated, never used as identity | P0.3 implemented |
+| inventory.py `_classify`, `_required_weights` | Bound prefixes, geometry, counts and per-class dtypes are profile-driven | Explicit text-only and multimodal fixtures validate; unknown names/shapes/dtypes refuse | P0.3 implemented |
 | [label_probe.py](../embedded_jev/label_probe.py) `NON_THINKING_SUFFIX` | Unbound fixtures retain the fallback suffix; explicit profiles pin template/suffix/arguments/IDs; CLI fetch remains MiMo-only | Raw tokenizers are unbound; explicit records verify rendering, but in-band controls are not yet refused | P0.2 implemented; control refusal still P0.4 |
-| [dense_probe.py](../embedded_jev/dense_probe.py) `plan_text_prefix`, `plan_streamed_text` | Prefixed names; every text tensor BF16 | Profiles with F32 small tensors refused | Per-class dtype policy (P0.3) |
+| [dense_probe.py](../embedded_jev/dense_probe.py) `plan_text_prefix`, `plan_streamed_text` | Bound offline plans use profile prefixes and dtype policy; real execution remains MiMo BF16 | F32 small-tensor plans validate without casting; another model's scoring remains refused | P0.3 planning implemented; P2 runtime gates remain |
 | [streamed_text.py](../embedded_jev/streamed_text.py) | Layer-3 FFN-down substitution and capture, 4,096 x 12,288 shapes, untied `lm_head.weight` reader, 32 layers for full-vocabulary mass, seed-773 signs | Checkpoints packaged like MiMo run but inherit MiMo labels; depth variants unsupported | Profile target list, head reader and layer count (P7) |
 | [projection_artifact.py](../embedded_jev/projection_artifact.py), [evaluation.py](../embedded_jev/evaluation.py) | `PINNED_SHARD`, `PINNED_SHARD_SHA256`, MiMo identity and 32 layers | Artifacts and evaluations MiMo-only | Profile ID plus tensor payload SHA-256 |
 | [decision_dataset.py](../embedded_jev/decision_dataset.py) captures | New v2 manifests bind a supplied profile or remain unbound; v1 MiMo remains read-only compatible; bounded layer-3 inputs | Cross-profile reuse and mixed capture banks refuse; raw arrays do not claim MiMo | P0.2 implemented; depth/target generalization still P7 |
@@ -188,7 +228,9 @@ directory was deleted.
 - **Files:** 16 non-weight files (46,974,575 bytes) matched their Git blob IDs
   or LFS SHA-256. There is no `merges.txt` or `processor_config.json`; `backup/`
   repeats the root configuration, template and tokenizer files byte for byte.
-- **Headers:** 774 BF16 tensors: 427 text, 333 vision and 15 MTP. Text names,
+- **Headers:** 775 BF16 tensors: 427 text, 333 vision and 15 MTP. The historical
+   preflight summary said 774; P0.3's exact header recount corrected that total
+   without changing category counts or bytes. Text names,
   shapes and dtypes equal MiMo's 427, and layer types match the configuration.
   Shards are contiguous and match their file sizes. Header tensor bytes exceed
   the index `total_size` by 67,108,864, exactly `mtp.fc.weight`, the only tensor

@@ -49,8 +49,8 @@ equate direct option scoring with the model's generated reasoning capabilities.
 
 A model profile separates checkpoint identity from shared decision,
 quantization and kernel contracts. The strict v1 record, bounded identity
-verifiers and MiMo report wiring are implemented; packaging adapters and broader
-model execution remain open, as described
+verifiers, MiMo report wiring and offline Tier A packaging adapters are
+implemented. Broader model execution remains open, as described
 in the [development guide](development.md#offline-model-profile-records).
 For each selected model, bind:
 
@@ -285,8 +285,11 @@ raw array inputs are unbound, not MiMo by default. Fitting requires a matching
 profile, and balanced banks cannot mix identities. Legacy v1 captures retain
 their historical declaration and format, without retroactive hash claims.
 Paired evaluation freezes and compares the profile record as well as existing
-data/candidate/runtime inputs. Packaging and template-control enforcement remain
-separate P0.3/P0.4 work; record parsing alone does not validate another model.
+data/candidate/runtime inputs. P0.3 validates profile-bound offline packaging,
+including every text/MTP shape, dtype and explicit eligible projection, without
+enabling another model's execution. MTP completeness and stale index accounting
+remain distinct from source identity. Template-control refusal is separate
+P0.4 work; metadata validation alone does not validate another model's runtime.
 
 #### Shared Versus Per-Profile Contracts
 
