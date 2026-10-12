@@ -15,7 +15,8 @@ original conversation. Read this first, then follow the links for detail.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [runtime file pin checkpoint](#runtime-file-pin-checkpoint-2026-10-12),
+2. Read the [symbol origin checkpoint](#symbol-origin-checkpoint-2026-10-12),
+   then the [runtime file pin checkpoint](#runtime-file-pin-checkpoint-2026-10-12),
    then the [verified file owner checkpoint](#verified-file-owner-checkpoint-2026-10-12),
    then the [metadata budget checkpoint](#metadata-budget-checkpoint-2026-10-12),
    then the [real comparison preparation](#real-comparison-preparation-2026-10-12),
@@ -64,6 +65,52 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Symbol Origin Checkpoint (2026-10-12)
+
+The user pushed `1426bce` and resumed continuous autonomous code-only
+caller/provenance preparation. `_model_runtime_library_paths()` now resolves
+the defining objects of known C symbols through libc `dladdr`, using the ABI
+verified in the installed system header. Bridge identity follows the v2 factory
+address, not mutable `CDLL._name`; CPU/base origins are cross-checked against
+the unchanged bridge witness. An alias-request regression reproduced the old
+filename lookup and now passes.
+
+With `scorer=...`, the standalone checker requires six exact records: bridge,
+GGML CPU/base, bounded prefill scorer, llama and GGML registry. All six paths
+come from defining symbol addresses. The owner accepts `runtime_scorer=...`,
+retains it through the context and requires corresponding runtime pins. It
+records `runtime_file_scope` and all six digests, rechecking on entry/yield/exit.
+Without a scorer the three-module mode remains available. The 64 MiB aggregate
+preflight ceiling is unchanged; cached six-module files total 7,439,312 bytes.
+No native source, ABI, factory, hook bound or library was changed/rebuilt.
+
+These are **selected inference-module file identities**, not transitive ELF
+dependency closure or loaded-page attestation. System/runtime libraries, pin
+issuer authenticity, concurrent writes, source weights and converted-tensor
+parity remain outside this proof. Runtime hashing still uses the existing EOF
+hasher after byte preflight; bounded reads/deadlines are the next local repair.
+The scorer witness refers to the existing synthetic test library, not a new
+production scoring API. No real-profile execution is authorized.
+
+Verification: **283 default passes, 53 optional skips** in 13.44 s, Ruff,
+whitespace and editor diagnostics clean. Thirty-two focused owner/runtime cases
+cover alias independence, both module scopes, incomplete pin sets and scorer
+without pins. Actual native FFN-down checks first verified the three-module
+ABI in 6.69 s, then six modules in 7.04 s. The complete synthetic caller gate
+passed **nine cases in 42.12 s**, peak process RSS 110,908 KiB, no swaps.
+Existing 2e-5 oracles, generation/dispatch checks and native refusals remain.
+No new sanitizer, CTest or full 25-control result is claimed; the earlier Python
+leak-check limitation remains.
+
+Failed-check history: the alias regression failed with `FileNotFoundError` at
+the requested filename before the actual-origin repair. Two positive six-module
+unit cases then omitted their scorer argument and hit the intended strict-key
+refusal; forwarding that argument repaired the same checks. No production
+model file or source/candidate weight payload was read. Only cached runtime
+files and bounded synthetic fixtures were used; generated model/payload files
+were deleted by fixtures. User editor files and immutable caches remain
+unchanged; no push, branch, download, conversion, fit or subagent.
 
 ## Runtime File Pin Checkpoint (2026-10-12)
 

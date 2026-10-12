@@ -646,7 +646,7 @@ def test_profile_model_policy_refuses_unpinned_runtime():
         profile_model_specification(profile, report, manifest, blocks)
 
 
-@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline"])
+@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins"])
 def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_path, defect, monkeypatch):
     from embedded_jev import prism_codec
 
@@ -662,6 +662,8 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
         arguments["maximum_bytes"] = arguments["expected_bytes"] - 1
     elif defect == "boolean":
         arguments["expected_bytes"] = True
+    elif defect == "scorer-pins":
+        arguments["runtime_scorer"] = object()
     else:
         monkeypatch.setattr(prism_codec.time, "monotonic", iter((0, 31)).__next__)
 
@@ -708,7 +710,7 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
         runtime_calls = []
         pins = {"bridge": {"sha256": "f" * 64}}
 
-        def verify_runtime(native, received):
+        def verify_runtime(native, received, **keywords):
             assert received["bridge"]["sha256"] == "f" * 64 and received is not pins
             runtime_calls.append(1)
             if defect == "runtime-change" and len(runtime_calls) == 3:
@@ -780,14 +782,16 @@ def test_verified_model_policy_refuses_nonregular_or_symlink_inputs(tmp_path, ki
             pytest.fail("invalid model file was accepted")
 
 
-@pytest.mark.parametrize("defect", [None, "digest", "size", "budget", "missing", "path"])
-def test_model_runtime_file_verification_binds_resolved_dependencies(tmp_path, monkeypatch, defect):
+@pytest.mark.parametrize("defect", [None, "digest", "size", "budget", "missing", "path", "requested-alias", "pin-set"])
+@pytest.mark.parametrize("with_scorer", [False, True])
+def test_model_runtime_file_verification_binds_resolved_dependencies(tmp_path, monkeypatch, defect, with_scorer):
     from types import SimpleNamespace
 
     from embedded_jev.prism_codec import verify_model_runtime_files
-    from embedded_jev import streamed_text
+    from embedded_jev import prism_codec, streamed_text
 
-    paths = {name: tmp_path / (name + ".so") for name in ("bridge", "ggml_cpu", "ggml_base")}
+    names = ("bridge", "ggml_cpu", "ggml_base") + (() if not with_scorer else ("scorer", "llama", "ggml_registry"))
+    paths = {name: tmp_path / (name + ".so") for name in names}
     for name, path in paths.items():
         path.write_bytes(name.encode())
     expected = {name: {"bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
@@ -799,8 +803,9 @@ def test_model_runtime_file_verification_binds_resolved_dependencies(tmp_path, m
             return None if defect == "missing" else str(paths[("ggml_cpu", "ggml_base")[index]]).encode()
 
     native = SimpleNamespace(_name=str(paths["bridge"]), prism_group_scale_library_path=Locator())
+    monkeypatch.setattr(prism_codec, "_model_runtime_library_paths", lambda *arguments: paths.copy(), raising=False)
     monkeypatch.setattr(streamed_text, "native_backend_dependencies", lambda *arguments: observed.copy())
-    arguments = {}
+    arguments = {"scorer": SimpleNamespace()} if with_scorer else {}
     if defect == "digest":
         expected["bridge"]["sha256"] = "0" * 64
     elif defect == "size":
@@ -809,11 +814,15 @@ def test_model_runtime_file_verification_binds_resolved_dependencies(tmp_path, m
         arguments["maximum_bytes"] = 1
     elif defect == "path":
         observed["ggml_cpu"]["path"] = str(tmp_path / "other.so")
-    if defect is not None:
+    elif defect == "requested-alias":
+        native._name = str(tmp_path / "not-the-loaded-bridge.so")
+    elif defect == "pin-set":
+        expected.pop("llama" if with_scorer else "ggml_base")
+    if defect not in (None, "requested-alias"):
         with pytest.raises(ValueError):
             verify_model_runtime_files(native, expected, **arguments)
     else:
-        result = verify_model_runtime_files(native, expected)
+        result = verify_model_runtime_files(native, expected, **arguments)
         assert result == {name: {"path": str(paths[name]), **expected[name]} for name in paths}
 
 

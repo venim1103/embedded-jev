@@ -302,12 +302,13 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-12 optional runtime-file pins,
+The latest tested source checkpoint is the 2026-10-12 defining-symbol origins
+and optional six-module inference file pins, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#runtime-file-pin-checkpoint-2026-10-12) records
-272 default passes/53 optional skips, 21 focused owner/runtime cases and nine
+[latest handover](handover.md#symbol-origin-checkpoint-2026-10-12) records
+283 default passes/53 optional skips, 32 focused owner/runtime cases and nine
 synthetic caller cases with verified full/parallel/recovery modes. The unchanged
 native metadata checkpoint retains 23 compiled controls and GCC sanitizer
 early/late plus four tiny v2 prefill cases. The large metadata
@@ -1349,14 +1350,22 @@ Optional `expected_runtime_files` supplies exact `bytes`/`sha256` records for
 same check separately. Records must total <=64 MiB (a smaller `maximum_bytes`
 can be supplied to the standalone checker). Regular-file sizes are preflighted,
 then the existing dependency hasher resolves actual GGML CPU/base paths through
-the bridge's `dladdr` function. The bridge file is the resolved CDLL filename.
-Paths/bytes/digests must match; pin dictionaries are snapshotted. The owner
+the bridge's `dladdr` function. The checker resolves bridge/CPU/base defining symbols through
+libc `dladdr` and cross-checks the CPU/base witness. `CDLL._name` is not used
+as bridge identity. Paths/bytes/digests must match; pin dictionaries are snapshotted. The owner
 rechecks before yielding and at exit, with cleanup on refusal, and adds flat
 runtime digests to its immutable receipt. Without pins it reports `not_checked`.
 
+For the bounded prefill provider, standalone `scorer=...` or owner
+`runtime_scorer=...` additionally requires `scorer`, `llama` and
+`ggml_registry` byte/hash records. All six defining modules are located through
+their known symbols, under the same 64 MiB aggregate ceiling. Passing a scorer
+without pins refuses. `runtime_file_scope` distinguishes the three/six-module
+cases; the library stays alive through cleanup. The test hook itself remains
+unchanged and synthetic-only.
+
 These are file matches against caller pins, not full runtime attestation:
-loaded pages and the bridge's symbol origin are not independently attested,
-llama/registry/scorer binaries are not included, and the byte preflight is not
+loaded pages and transitive system libraries are not attested, and the byte preflight is not
 a hard read deadline or concurrent-growth limit in the existing hasher.
 Keep runtime files immutable; concurrent writers are unsupported. No model
 execution approval or source/converted-tensor provenance follows.

@@ -874,6 +874,7 @@ try:
             native, model_path, profile, inventory, manifest, blocks,
             expected_bytes=int(sys.argv[5]), expected_sha256=sys.argv[6],
             expected_runtime_files=json.loads(sys.argv[7]),
+            runtime_scorer=control,
         ))
         handle, overrides, record = owner.handle, owner.overrides, owner.record
         model_path = owner.model_path
@@ -881,6 +882,9 @@ try:
         assert owner.verification["model_sha256"] == sys.argv[6]
         assert owner.verification["runtime_approval"] == "not_granted_by_file_verification"
         assert owner.verification["runtime_file_verification"] == "sha256_matches_caller_supplied_runtime_files"
+        assert owner.verification["runtime_file_scope"] == "policy_cpu_base_scorer_llama_registry"
+        for name in ("bridge", "scorer", "llama", "ggml_registry"):
+            assert owner.verification[name + "_sha256"] == json.loads(sys.argv[7])[name]["sha256"]
         assert owner.verification["ggml_cpu_sha256"] == "adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150"
         assert owner.verification["ggml_base_sha256"] == "57a9b6060d3bc902c30fd97fb271ae7f027054d4a9f8b50e27dd6fe91951847d"
         mode = mode.removeprefix("verified-")
@@ -960,6 +964,11 @@ sys.exit(status)
         with bridge.open("rb") as source:
             bridge_digest = hashlib.file_digest(source, "sha256").hexdigest()
         expected_runtime["bridge"] = {"bytes": bridge.stat().st_size, "sha256": bridge_digest}
+        for name, filename in (("scorer", "libprism_bitnet_prefill_test.so"), ("llama", "libllama.so"), ("ggml_registry", "libggml.so")):
+            library = Path(runtime_build) / "bin" / filename
+            with library.open("rb") as source:
+                digest = hashlib.file_digest(source, "sha256").hexdigest()
+            expected_runtime[name] = {"bytes": library.stat().st_size, "sha256": digest}
         for requested_mode in ("full", "chunked", "reset", "reordered", "parallel", "maximum", "kernel-recovery",
                                "verified-full", "verified-parallel", "verified-kernel-recovery"):
             control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, requested_mode,
