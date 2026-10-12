@@ -12,7 +12,8 @@ original conversation. Read this first, then follow the links for detail.
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [projection role checkpoint](#projection-role-checkpoint-2026-10-12),
+2. Read the [real comparison preparation](#real-comparison-preparation-2026-10-12),
+   then the [projection role checkpoint](#projection-role-checkpoint-2026-10-12),
    then the [profile caller checkpoint](#profile-caller-checkpoint-2026-10-12),
    then the [synthetic v2 prefill checkpoint](#synthetic-v2-prefill-checkpoint-2026-10-12),
   then the [profile model policy checkpoint](#profile-model-policy-checkpoint-2026-10-09)
@@ -37,7 +38,8 @@ original conversation. Read this first, then follow the links for detail.
   The Python profile/inventory/manifest adapter now reaches actual BF16/PQ2
   model prefill for all seven eligible FFN/full-attention roles with independent
   synthetic references. Bounded P4 code-only preparation is complete; the next
-  real-profile comparison needs approval and the prerequisites below. No real
+  real-profile comparison needs approval and the prerequisites below, including
+  the newly identified metadata-cap blocker. No real
   checkpoint execution is approved; P2,
   real-model P4 and the MiMo layer-0 diagnostic still need new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
@@ -59,7 +61,8 @@ the next chat must receive the user's explicit resume instruction.
 
 ## Projection Role Checkpoint (2026-10-12)
 
-Following caller checkpoint `d653efc`, synthetic profile/inventory/manifest-to-
+Committed as `fab3cc0`, following caller checkpoint `d653efc`.
+Synthetic profile/inventory/manifest-to-
 prefill checks cover FFN gate/up/down and full-attention Q/K/V/output. Runtime
 code, bounds and v1 factories are unchanged in this increment. All seven records
 verify exact retained payload bytes after garbage collection. Each role passes
@@ -122,9 +125,52 @@ authorized. Before requesting a real run:
   per-process counters from synthetic controls are not whole-model estimates.
   No new conversion, download, refit or retained candidate may begin implicitly.
 
-The current checkpoint stops at this authorization boundary. No new real-model
-approval has been granted; prepare a precise resource/cleanup plan for the user's
-chosen profile before undertaking that work.
+No new real-model approval has been granted. The preparation below identifies
+a metadata-budget blocker before a real run can be requested responsibly.
+
+## Real Comparison Preparation (2026-10-12)
+
+After `fab3cc0`, metadata-only planning exposed a real v2 prerequisite: both
+the Python specification and native factory allow only 1 MiB beyond tensor
+bytes. MiMo's full vocabulary needs 1,986,560 bytes for GGUF string-length
+prefixes alone, before token text or other metadata. The
+[research audit](research-audit.md#real-v2-planning-limits) records the pinned
+writer check and exact static BF16/F32/PQ2 byte accounting. This cap was not
+changed, and no real model was loaded, converted or payload-hashed.
+
+Two differently tagged mixed-model files have a **33.197 GiB payload floor**;
+retaining a dense base as well gives **49.877 GiB**, before metadata, alignment
+and staging. These are not final disk budgets. The F32 small-tensor conversion
+adds 2,122,752 bytes to the older source-dtype plan. Existing frozen-array sizes
+match their manifest; this size check is not fresh payload authentication.
+Current host observations were about 22 GiB available RAM, 8 GiB unused swap
+and 291 GiB available disk. Neither those values nor synthetic RSS guarantees
+whole-model runtime headroom.
+
+Next approval should first scope a bounded v2 metadata-budget correction using
+synthetic fixtures and cached tokenizer metadata only, keeping v1 and the
+16 MiB/1,024-width prefill hook unchanged. It must bound header bytes/counts,
+check the revised Python/native agreement and preserve oversized-file refusals;
+do not merely remove the cap. Real conversion/execution remains a separate
+later approval, with a production caller beside the test hook.
+
+For that later MiMo comparison, keep only the two necessary tagged files if
+possible, reuse cached source and frozen codes/scales, authenticate their tensor
+payload equality independently, and run conversion and inference serially.
+Set exact final disk/RAM/token/deadline budgets before launch; monitor host
+availability and swap growth rather than accepting per-process RSS as proof.
+On a budget or numerical refusal, stop and diagnose, not rerun seeking green.
+Delete approved temporary models/staging after verifying the small report;
+preserve cached sources, libraries and the frozen candidate. Defiant Fable's
+weights/P2 execution and all quality experiments remain separately gated.
+
+Planning verification: static geometry/dtype accounting and frozen file sizes
+were checked without reading their payloads. The first in-memory writer probe
+omitted its required `add_vtype` argument and refused with `TypeError`; inspecting
+the pinned method and supplying `False` verified the eight-byte array-element
+prefix. No real-model failed check or new sanitizer result is claimed. The
+unchanged source gates at `fab3cc0` were not repeated for this documentation-only
+preparation; scoped documentation/link/table/whitespace checks apply instead.
 
 ## Profile Caller Checkpoint (2026-10-12)
 

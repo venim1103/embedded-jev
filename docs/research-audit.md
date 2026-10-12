@@ -88,6 +88,41 @@ execution. Likewise, guaranteed output types exclude malformed values, not wrong
 semantic decisions. TypeSafe's published "zero hallucinations" discussion uses
 schema validity; it must not be interpreted as zero factual or judgment errors.
 
+## Real V2 Planning Limits
+
+Metadata-only planning on 2026-10-12 used the pinned
+[MiMo profile](../embedded_jev/profiles/mimo.json),
+[inventory geometry](../embedded_jev/inventory.py) and the
+[complete-model adapter's dtype policy](../embedded_jev/prism_codec.py).
+These are static payload deductions, not measured GGUF sizes, source-payload
+authentication, converter memory peaks or authorization for real execution.
+
+| Quantity | Bytes | Evidence limit |
+| --- | ---: | --- |
+| Text source-dtype payload | 17,907,606,528 | Existing 427-tensor source plan |
+| Native BF16/F32 dense payload | 17,909,729,280 | Vectors and SSM convolution are F32 |
+| Frozen projection as canonical PQ2 | 13,369,344 | 4,096 rows x 96 groups x 34 bytes; independent FP16 scales |
+| Native mixed-model payload | 17,822,435,328 | Replace one BF16 layer-3 FFN-down matrix with that PQ2 payload |
+| Two independently tagged mixed payloads | 35,644,870,656 | 33.197 GiB floor, excluding metadata/alignment and staging |
+| Dense base plus two mixed payloads | 53,554,599,936 | 49.877 GiB floor; retaining a base is not assumed necessary |
+
+The native plan adds 2,122,752 bytes relative to the source-dtype floor. The
+frozen artifact's existing array file sizes match its manifest: 12,583,040 bytes
+for packed codes and 786,560 for scales, including NumPy headers. Only that
+manifest and file sizes were read; no weight/artifact payload was rehashed.
+
+The [v2 native factory](../native/prism_group_scale.cpp) and Python adapter cap
+the whole file at declared tensor bytes plus 1 MiB. A full 248,320-entry GGUF
+token array needs **1,986,560 bytes for string-length prefixes alone**. The
+cached pinned Prism writer was checked in memory: each string array element
+starts with an eight-byte unsigned length. Actual token text, types, merges,
+other metadata and tensor alignment add more. Thus the current v2 cap cannot
+admit the planned full-vocabulary MiMo file, despite its adequate weight budget.
+This is a preparation blocker, not a failed real-model conversion or inference.
+No cap was raised; the next separately scoped correction must budget and bound
+metadata explicitly, preserve v1 and test-hook refusals, and precede any real
+conversion/execution approval. Source tags remain declarations, not authentication.
+
 ## Verified Model Facts
 
 The facts and numerical accounting in this audit are scoped to the pinned MiMo

@@ -1319,6 +1319,10 @@ loading. Policy creation/teardown is not general concurrent lifecycle safety.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 1 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
+That whole-file reserve cannot accommodate MiMo's full tokenizer: its string
+length prefixes alone exceed 1 MiB. See the metadata-only
+[planning limit](research-audit.md#real-v2-planning-limits); a separately scoped
+bounded metadata correction is required before real v2 execution preparation.
 The policy retains a canonical reference array in addition to compact resident
 tensor blocks. Do not extend P3's zero auxiliary tensor-array count to total
 policy/process memory. Synthetic table/refusal, isolated 8,192-row loader
