@@ -1420,6 +1420,25 @@ extern "C" int prism_bitnet_cpu_tensor_status_v2(
     return traits->kernel.status;
 }
 
+extern "C" int prism_bitnet_cpu_tensor_last_input_tokens_v2(
+    void* policy, const ggml_tensor* weight, std::size_t* input_tokens) {
+    if (!input_tokens) {
+        return 1;
+    }
+    *input_tokens = 0;
+    const auto* owned = static_cast<bitnet_model_policy_v2*>(policy);
+    if (!owned || !weight || !weight->buffer || weight->buffer->buft != &owned->runtime.type) {
+        return 1;
+    }
+    auto* traits = bitnet_loader_buffer_v1::state(weight->buffer)->find(weight);
+    if (!traits || weight->extra != traits) {
+        return 1;
+    }
+    const std::lock_guard<std::mutex> lock(traits->mutex);
+    *input_tokens = traits->last_input_tokens;
+    return traits->kernel.status;
+}
+
 extern "C" int prism_bitnet_registered_projection_compute(
     void* handle, const float* inputs, float* output,
     std::size_t* dispatch_calls, std::size_t* weight_repacks) {

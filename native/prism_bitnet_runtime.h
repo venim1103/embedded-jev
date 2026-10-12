@@ -96,6 +96,9 @@ void prism_bitnet_cpu_model_policy_free_v2(void* policy);
 int prism_bitnet_cpu_tensor_status_v2(
     void* policy, const struct ggml_tensor* weight, size_t* dispatch_calls, size_t* weight_repacks);
 
+int prism_bitnet_cpu_tensor_last_input_tokens_v2(
+    void* policy, const struct ggml_tensor* weight, size_t* input_tokens);
+
 #ifdef __cplusplus
 }
 #endif

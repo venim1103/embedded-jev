@@ -13,7 +13,7 @@ PRISM_REVISION = "842b1880415d6f508f03b789e5ce70194def7bfd"
 BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
 
 
-@pytest.mark.parametrize("backend", ["dense", "bitnet"])
+@pytest.mark.parametrize("backend", ["dense", "bitnet", "bitnet-profile"])
 @pytest.mark.parametrize("recurrent", [False, True])
 @pytest.mark.parametrize("attention", [False, True])
 def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_path, backend, recurrent, attention):
@@ -26,12 +26,26 @@ def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_p
         pytest.skip("requires pinned source, GGUF environment, and versioned full runtime build")
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     model_file = tmp_path / "tiny-qwen35-prefill.gguf"
+    reference_file = tmp_path / "tiny-projection-reference.gguf"
+    bitnet = backend.startswith("bitnet")
+    profile_policy = backend == "bitnet-profile"
     writer_code = """
 import json
 import sys
 import gguf
 import numpy as np
 writer = gguf.GGUFWriter(sys.argv[1], "qwen35")
+if sys.argv[2].startswith("bitnet-profile"):
+    for key, value in {
+        "jev.model.profile_id": "synthetic-qwen35-prefill-v2",
+        "jev.model.profile_sha256": "a" * 64,
+        "jev.model.source_revision": "1" * 40,
+        "jev.model.converter_revision": "842b1880415d6f508f03b789e5ce70194def7bfd",
+        "jev.bitnet.source_tensor_sha256": "f" * 64,
+        "jev.bitnet.model": "profile-qwen35-single-projection-v2",
+        "jev.bitnet.execution": "group128-a8-fp32-nearest-even-identity-v1",
+    }.items():
+        writer.add_string(key, "other-profile" if key == "jev.model.profile_id" and sys.argv[2].endswith("_wrong_profile") else value)
 for key, value in {
     "context_length": 256, "embedding_length": 32, "block_count": 4,
     "feed_forward_length": 256, "attention.head_count": 4, "attention.head_count_kv": 2,
@@ -114,23 +128,34 @@ for layer in range(4):
         writer.add_tensor(prefix + "ffn_down.weight", np.zeros((32, 256), dtype=np.float32))
     elif sys.argv[2].startswith("bitnet"):
         fields = (codes.reshape(32, 2, 32, 4) + 1).astype(np.uint8)
-        if sys.argv[2] == "bitnet_invalid_code":
+        if sys.argv[2].endswith("_invalid_code"):
             fields[0, 0, 0, 0] = 3
-        elif sys.argv[2] == "bitnet_negative_scale":
+        elif sys.argv[2].endswith("_negative_scale"):
             scales[0, 0] = -1
-        elif sys.argv[2] == "bitnet_nonfinite_scale":
+        elif sys.argv[2].endswith("_nonfinite_scale"):
             scales[0, 0] = np.nan
+        elif sys.argv[2].endswith("_changed_scale"):
+            scales[0, 0] = np.float16(0.25)
         payload = np.bitwise_or.reduce(fields << (2 * np.arange(4, dtype=np.uint8)), axis=-1)
         encoded = np.concatenate((scales.view(np.uint8).reshape(32, 2, 2), payload), axis=-1)
         writer.add_tensor(prefix + "ffn_down.weight", encoded.reshape(32, 68),
                           raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+        if sys.argv[2] == "bitnet-profile":
+            reference = gguf.GGUFWriter(sys.argv[5], "qwen35")
+            reference.add_string("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1")
+            reference.add_tensor(prefix + "ffn_down.weight", encoded.reshape(32, 68),
+                                 raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+            reference.write_header_to_file()
+            reference.write_kv_data_to_file()
+            reference.write_tensors_to_file()
+            reference.close()
     else:
         writer.add_tensor(prefix + "ffn_down.weight", codes.astype(np.float32) * np.repeat(scales, 128, axis=1))
 writer.write_header_to_file()
 writer.write_kv_data_to_file()
 writer.write_tensors_to_file()
 writer.close()
-if sys.argv[2] not in ("dense", "bitnet"):
+if sys.argv[2] not in ("dense", "bitnet", "bitnet-profile"):
     sys.exit(0)
 def reference_logits(token_ids):
     sequence = embedding[token_ids].copy()
@@ -190,7 +215,7 @@ def reference_logits(token_ids):
     normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
     gated = gate @ normalized
     activation = (gated / (np.float32(1) + np.exp(-gated))) * (up @ normalized)
-    if sys.argv[2] == "bitnet":
+    if sys.argv[2].startswith("bitnet"):
         groups = activation.reshape(2, 128)
         activation_scales = np.max(np.abs(groups), axis=1) / np.float32(127)
         activation_scales[activation_scales == 0] = 1
@@ -208,18 +233,20 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
 """
     try:
         writer = subprocess.run([converter, "-c", writer_code, str(model_file), backend,
-                                 "nonzero" if recurrent else "zero", "nonzero" if attention else "zero"], capture_output=True, text=True,
+                                 "nonzero" if recurrent else "zero", "nonzero" if attention else "zero", str(reference_file)], capture_output=True, text=True,
                                 timeout=30, env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
                                                 "PYTHONDONTWRITEBYTECODE": "1"})
         assert writer.returncode == 0, writer.stderr
         expected = json.loads(writer.stdout)
+        command = ("--prefill-profile-bitnet-control" if profile_policy else
+               "--prefill-bitnet-control" if bitnet else "--prefill-control")
+        model_arguments = [str(model_file), str(reference_file)] if profile_policy else [str(model_file)]
         modes = ("full", "chunked", "reset", "reordered", "parallel", "maximum")
-        if backend == "bitnet":
+        if bitnet:
             modes += ("kernel-recovery",)
         for mode in modes:
             control = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-                                      "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control",
-                                      str(model_file), mode], capture_output=True, text=True, timeout=30)
+                                      command, *model_arguments, mode], capture_output=True, text=True, timeout=30)
             assert control.returncode == 0, control.stderr
             report = json.loads(control.stdout)
             if mode == "full":
@@ -227,15 +254,16 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
             token_ids = [2] * 128 if mode == "maximum" else [3, 5, 7]
             assert report["prefilled_tokens"] == len(token_ids) and report["generated_answer_tokens"] == 0
             assert report["input_tokens"] == token_ids
-            assert report["backend"] == backend and report["mode"] == mode
+            assert report["backend"] == ("bitnet" if bitnet else "dense") and report["mode"] == mode
+            assert report.get("model_policy_abi") == (2 if profile_policy else None)
             calls = 3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1
             assert report["prefill_calls"] == calls
             assert report["rejected_prefill_calls"] == (mode == "kernel-recovery")
             assert report["kernel_error_status"] == (1 if mode == "kernel-recovery" else 0)
-            assert report["bitnet_dispatch_calls"] == (calls if backend == "bitnet" else 0)
-            assert report["weight_repacks"] == (backend == "bitnet")
+            assert report["bitnet_dispatch_calls"] == (calls if bitnet else 0)
+            assert report["weight_repacks"] == bitnet
             input_count = 2 if mode == "chunked" else len(token_ids)
-            assert report["bitnet_last_input_tokens"] == (input_count if backend == "bitnet" else 0)
+            assert report["bitnet_last_input_tokens"] == (input_count if bitnet else 0)
             assert report["memory_position_min"] == report["memory_position_max"] == len(token_ids) - 1
             order = [2, 0, 1] if mode == "reordered" else [0, 1, 2]
             assert report["option_ids"] == [(["inspect", "edit", "ask"][index]) for index in order]
@@ -252,11 +280,11 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                     assert not np.allclose(expected["peer_logits"], expected["logits"], rtol=1e-4, atol=1e-4)
             else:
                 assert report["peer_logits"] == []
-        command = "--prefill-bitnet-control" if backend == "bitnet" else "--prefill-control"
         trace_path = tmp_path / "trace"
-        trace_command = "--prefill-bitnet-trace-control" if backend == "bitnet" else "--prefill-trace-control"
+        trace_command = ("--prefill-profile-bitnet-trace-control" if profile_policy else
+                 "--prefill-bitnet-trace-control" if bitnet else "--prefill-trace-control")
         traced = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-                                 trace_command, str(model_file), str(trace_path)],
+                     trace_command, *model_arguments, str(trace_path)],
                                 capture_output=True, text=True, timeout=30)
         assert traced.returncode == 0, traced.stderr
         trace = json.loads((trace_path / "manifest.json").read_text())
@@ -271,9 +299,37 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
         np.testing.assert_allclose(json.loads(traced.stdout)["logits"], expected["logits"], rtol=2e-5, atol=2e-5)
         assert json.loads(traced.stdout) == untraced_report
         refused = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-                                  trace_command, str(model_file), str(trace_path)],
+                                  trace_command, *model_arguments, str(trace_path)],
                                  capture_output=True, text=True, timeout=30)
         assert refused.returncode == 35 and refused.stdout == ""
+        if profile_policy:
+            for missing_arguments in ([str(model_file)], [str(model_file), str(tmp_path / "missing.gguf")]):
+                rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                           command, *missing_arguments], capture_output=True, text=True, timeout=30)
+                assert rejected.returncode == (2 if len(missing_arguments) == 1 else 27)
+                assert rejected.stdout == ""
+            rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                       "--prefill-model-bitnet-control", str(model_file), str(reference_file), "aba"],
+                                      capture_output=True, text=True, timeout=30)
+            assert rejected.returncode == 27 and rejected.stdout == "", rejected.stderr
+            reference_bytes = reference_file.read_bytes()
+            with reference_file.open("r+b") as oversized:
+                oversized.truncate(1024 * 1024 + 1)
+            rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                       command, *model_arguments], capture_output=True, text=True, timeout=30)
+            assert rejected.returncode == 27 and rejected.stdout == ""
+            reference_file.write_bytes(reference_bytes[:-1])
+            rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                       command, *model_arguments], capture_output=True, text=True, timeout=30)
+            assert rejected.returncode == 27 and rejected.stdout == ""
+            reference_file.write_bytes(reference_bytes)
+            model_bytes = model_file.read_bytes()
+            with model_file.open("r+b") as oversized:
+                oversized.truncate(1024 * 1024 + 1)
+            rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                       command, *model_arguments], capture_output=True, text=True, timeout=30)
+            assert rejected.returncode == 27 and rejected.stdout == ""
+            model_file.write_bytes(model_bytes)
         if backend == "dense":
             for prompt, token_ids, expected_key in (("aba", [4, 2], "text_logits"),
                                                     ("a" * 128, [2] * 128, "maximum_logits")):
@@ -297,22 +353,24 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                                            "--prefill-text-control", str(model_file), prompt],
                                           capture_output=True, text=True, timeout=30)
                 assert rejected.returncode == 34 and rejected.stdout == "", rejected.stderr
-        if backend == "bitnet":
+        if bitnet:
             rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-                                       command, str(model_file), "kernel-error"], capture_output=True, text=True, timeout=30)
+                                       command, *model_arguments, "kernel-error"], capture_output=True, text=True, timeout=30)
             assert rejected.returncode == 29 and rejected.stdout == "", rejected.stderr
         rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-                                   command, str(model_file), "unknown"], capture_output=True, text=True, timeout=30)
+                                   command, *model_arguments, "unknown"], capture_output=True, text=True, timeout=30)
         assert rejected.returncode == 32 and rejected.stdout == ""
-        for arguments in ([command], [command, str(model_file), "full", "extra"],
+        for arguments in ([command], [command, *model_arguments, "full", "extra"],
                           ["--unknown"], ["--vocab-only", str(model_file)]):
             rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                        *arguments], capture_output=True, text=True, timeout=30)
             assert rejected.returncode == 2 and rejected.stdout == ""
         corruptions = (
-            ("bitnet_invalid_code", "bitnet_negative_scale", "bitnet_nonfinite_scale")
-            if backend == "bitnet" else ("dense_nan",)
+            tuple(backend + suffix for suffix in ("_invalid_code", "_negative_scale", "_nonfinite_scale"))
+            if bitnet else ("dense_nan",)
         )
+        if profile_policy:
+            corruptions += (backend + "_wrong_profile", backend + "_changed_scale")
         for corruption in corruptions:
             writer = subprocess.run([converter, "-c", writer_code, str(model_file), corruption,
                                      "nonzero" if recurrent else "zero", "nonzero" if attention else "zero"],
@@ -321,7 +379,7 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                                          "PYTHONDONTWRITEBYTECODE": "1"})
             assert writer.returncode == 0, writer.stderr
             rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
-                                       command, str(model_file)], capture_output=True, text=True, timeout=30)
+                                       command, *model_arguments], capture_output=True, text=True, timeout=30)
             assert rejected.returncode in (27, 30), rejected.stderr
             assert rejected.stdout == ""
             if backend == "dense":
@@ -337,6 +395,7 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                 assert rejected.returncode == 34 and rejected.stdout == "", rejected.stderr
     finally:
         model_file.unlink(missing_ok=True)
+        reference_file.unlink(missing_ok=True)
 
 
 def test_pinned_prism_complete_model_policy_binds_exact_projection(tmp_path):

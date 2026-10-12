@@ -1,18 +1,20 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-09. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-12. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**Quick orientation (2026-10-09):**
+**Quick orientation (2026-10-12):**
 
-1. Implementation is paused in this chat at the user's request while preparing
-  a stopping handoff after source checkpoint `6abb44c`. Resume only when the user instructs the next chat. No further
-   download, complete-model conversion, fit or new retained candidate is authorized.
-2. Read the [profile model policy checkpoint](#profile-model-policy-checkpoint-2026-10-09)
-  at `6abb44c`, then the [projection geometry checkpoint](#projection-geometry-checkpoint-2026-10-09)
+1. The user explicitly resumed autonomous work on 2026-10-12. The bounded
+  synthetic v2 actual-loader/typed-prefill checkpoint below is verified.
+  No further download, complete-model conversion, fit or new retained candidate
+  is authorized; synthetic execution does not grant real-profile approval.
+2. Read the [synthetic v2 prefill checkpoint](#synthetic-v2-prefill-checkpoint-2026-10-12),
+  then the [profile model policy checkpoint](#profile-model-policy-checkpoint-2026-10-09)
+  at `6abb44c` and the [projection geometry checkpoint](#projection-geometry-checkpoint-2026-10-09)
    at `db002c1`, with resident compaction at `cedaeec`; then read the historical
    [real-model checkpoint](#current-checkpoint-2026-10-08) at `9408f3f`.
 3. The goal is profile-based support for multiple Qwen3.5 9B-class models, with
@@ -29,11 +31,12 @@ original conversation. Read this first, then follow the links for detail.
    cached; sampled `plusIQ` GGUF tensors match the source, but its template adds
    in-band controls. Never disable certificate verification.
 5. P0.1-P0.4, bounded P3 and P4's separately versioned complete-model policy
-  preparation are implemented. V2 policy/table/refusal and isolated loader-graph
-  arithmetic pass; actual complete-model loading/prefill through v2 is not
-  tested. After explicit resume, the next code-only step is that bounded synthetic
-  integration in the [generalization queue](roadmap.md#generalization-work-queue).
-  P2, real-model P4 and the MiMo layer-0 diagnostic still need new approval.
+  preparation plus synthetic actual-loader/prefill integration are implemented.
+  This exercises a fixed independent tiny native specification, not the Python
+  profile/manifest adapter end to end or another real checkpoint. Next: the
+  synthetic profile/manifest-to-prefill caller boundary with converted BF16
+  matrices and a non-layer-3 target. P2, real-model P4 and the MiMo layer-0
+  diagnostic still need new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
 
@@ -50,6 +53,68 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Synthetic V2 Prefill Checkpoint (2026-10-12)
+
+The user resumed autonomous bounded work from user-pushed `06a1fa2`/`6abb44c`.
+The owned v2 policy now feeds the actual `llama_model_load_from_file` and
+`llama_decode` path in the existing compiled control. The fixed native synthetic
+specification declares all 53 F32/PQ2 tensors and 14 typed metadata requirements
+for the four-layer, hidden-32, FFN-256, vocabulary-64 fixture. A separately
+supplied single-projection GGUF provides the exact independent FP16 row/group
+scales and codes. Each file is capped at 1 MiB before parsing. The target remains
+`blk.3.ffn_down.weight`; this is a synthetic integration proof, not a generic
+execution CLI or the Python profile/manifest adapter's BF16 plan end to end.
+
+`prism_bitnet_cpu_tensor_last_input_tokens_v2` requires the owning policy,
+preserving the v1 diagnostic refusal. The shared prefill control uses v2 status
+only when it owns that policy; every old CLI route remains intact. Policy teardown
+follows all model/context/buffer teardown, including failure paths. Reports add
+`model_policy_abi: 2` only for the v2 route, with zero generated answer tokens.
+The existing NumPy oracle and 2e-5 relative/absolute tolerances are unchanged.
+Full, chunked, reset, reordered, parallel-context and 128-token modes pass with
+all four recurrent/full-attention combinations. Traced/untraced scores agree;
+kernel failure emits no score report and recovery retains one weight repack.
+Missing/truncated/oversized references, oversized models, wrong profile tags,
+changed scales and corrupt PQ2 refuse; the MiMo v1 model factory rejects the v2
+tags with no report. Independent canonical bytes remain owned by the policy;
+synthetic digest strings are declarations, not source-weight authentication.
+
+Verification: the default source gate passes **244 tests, 44 optional skips**,
+Ruff and whitespace. Editor diagnostics are clean. The pinned bounded native
+command passes **16 controls in 34.30 s**, including twelve dense/v1/v2 synthetic
+prefill combinations and the unchanged complete-model v1 policy control.
+Peak process RSS was 944,816 KiB, with no swaps; this is not a host/device memory
+guarantee. GCC ASan/UBSan/leak early/late controls and all four v2 model-prefill
+cases pass (5.84 s for the latter). Both our bridge and full-runtime control were
+instrumented; cached llama/GGML libraries were not. Instrumented compile peak
+RSS was 569,188 KiB and the prefill gate peak was 84,524 KiB. GCC's existing
+`fclose` deleter-attribute warning pattern remains. Manual compiled controls
+were used; no new CMake Tools/CTest result is claimed.
+
+Failed-check history: the first expanded refusal run failed four test cases
+because its v1 CLI invocation omitted the required prompt and returned usage
+status 2, not policy status 27. The actual route was inspected, the invocation
+was corrected, and the valid model was restored after the oversized-file probe
+before testing kernel failure. The same four-case gate then passed. No tolerance,
+bound, numerical assertion or runtime refusal was relaxed.
+
+Restart/end checks: pinned upstream sources were clean; Prism and BitNet revisions
+and GGML CPU/base hashes matched. Only project-owned wrappers were rebuilt.
+Pylance selected `/opt/venv/bin/python`; existing converter/dense environments and
+the sole frozen candidate were reused. RAM available remained about 23 GiB,
+swap unused and disk available 290 GiB. Disposable sanitizer binaries and the
+synthetic raw trace directories from the selected native and sanitizer runs were
+removed; generated model/reference files were deleted by the fixture. No source
+copy, download, real-model conversion/inference, fitting, retained candidate,
+compensation promotion, held-out scoring or quality experiment occurred. User
+`.vscode/` remains untouched; nothing was pushed or branched and no subagent ran.
+
+Next concrete step: bounded synthetic caller integration from the Python
+profile/manifest-derived specification through actual model prefill, including
+BF16 converted matrices and a non-layer-3 eligible target. The fixed tiny F32
+native fixture does not establish that boundary. Real-profile P4/P2 and broader
+P5-P7 work remain separately gated; the historical MiMo numerical gap is unchanged.
 
 ## Profile Model Policy Checkpoint (2026-10-09)
 

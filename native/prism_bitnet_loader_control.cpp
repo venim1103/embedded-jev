@@ -472,7 +472,12 @@ static int test_model_policy_execution_v2(bool late_refusal = false) {
             return 36;
         }
     }
-    if (prism_bitnet_cpu_tensor_status_v2(policy.get(), weight, &calls, &repacks) != 0 || calls != 12 || repacks != 1) {
+    std::size_t last_input_tokens = 99;
+    if (prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 1 || last_input_tokens != 0 ||
+        prism_bitnet_cpu_tensor_last_input_tokens_v2(nullptr, weight, &last_input_tokens) != 1 || last_input_tokens != 0 ||
+        prism_bitnet_cpu_tensor_last_input_tokens_v2(policy.get(), weight, nullptr) != 1 ||
+        prism_bitnet_cpu_tensor_last_input_tokens_v2(policy.get(), weight, &last_input_tokens) != 0 || last_input_tokens != 128 ||
+        prism_bitnet_cpu_tensor_status_v2(policy.get(), weight, &calls, &repacks) != 0 || calls != 12 || repacks != 1) {
         return 36;
     }
     auto* other = ggml_new_tensor_2d(context.get(), GGML_TYPE_PQ2_0, columns, rows);
@@ -718,9 +723,117 @@ struct prefill_trace {
     }
 };
 
+static int create_synthetic_prefill_policy_v2(
+    const char* path, const char* reference_path, void** policy,
+    const llama_model_tensor_buft_override** overrides) {
+    std::error_code error;
+    const auto model_bytes = std::filesystem::file_size(path, error);
+    if (error || model_bytes > 1024 * 1024) {
+        return 27;
+    }
+    const auto reference_bytes = std::filesystem::file_size(reference_path, error);
+    if (error || reference_bytes > 1024 * 1024) {
+        return 27;
+    }
+    gguf_init_params params = { true, nullptr };
+    std::unique_ptr<gguf_context, decltype(&gguf_free)> reference(
+        gguf_init_from_file(reference_path, params), gguf_free);
+    if (!reference || gguf_get_version(reference.get()) != GGUF_VERSION || gguf_get_n_tensors(reference.get()) != 1 ||
+        std::strcmp(gguf_get_tensor_name(reference.get(), 0), "blk.3.ffn_down.weight") != 0 ||
+        gguf_get_tensor_type(reference.get(), 0) != GGML_TYPE_PQ2_0) {
+        return 27;
+    }
+    const int64_t expected_shape[] = { 256, 32, 1, 1 };
+    if (!std::equal(expected_shape, expected_shape + 4, gguf_get_tensor_ne(reference.get(), 0))) {
+        return 27;
+    }
+    const auto execution = gguf_find_key(reference.get(), "jev.bitnet.execution");
+    if (execution < 0 || gguf_get_kv_type(reference.get(), execution) != GGUF_TYPE_STRING ||
+        std::strcmp(gguf_get_val_str(reference.get(), execution), "group128-a8-fp32-nearest-even-identity-v1") != 0) {
+        return 27;
+    }
+    const auto data_offset = gguf_get_data_offset(reference.get());
+    const auto tensor_offset = gguf_get_tensor_offset(reference.get(), 0);
+    constexpr std::size_t payload_bytes = 32 * 2 * 34;
+    if (data_offset > reference_bytes || tensor_offset > reference_bytes - data_offset ||
+        payload_bytes > reference_bytes - data_offset - tensor_offset ||
+        gguf_get_tensor_size(reference.get(), 0) != payload_bytes) {
+        return 27;
+    }
+    std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(reference_path, "rb"), std::fclose);
+    std::vector<uint8_t> blocks(payload_bytes);
+    if (!file || std::fseek(file.get(), static_cast<long>(data_offset + tensor_offset), SEEK_SET) != 0 ||
+        std::fread(blocks.data(), 1, blocks.size(), file.get()) != blocks.size()) {
+        return 27;
+    }
+    std::vector<std::string> names;
+    std::vector<jev_bitnet_model_tensor_v2> tensors;
+    names.reserve(53);
+    tensors.reserve(53);
+    const auto add_tensor = [&](std::string name, int64_t columns, int64_t rows, uint32_t type = GGML_TYPE_F32) {
+        names.push_back(std::move(name));
+        tensors.push_back({ names.back().c_str(), type, { columns, rows, 1, 1 } });
+    };
+    add_tensor("token_embd.weight", 32, 64);
+    add_tensor("output.weight", 32, 64);
+    add_tensor("output_norm.weight", 32, 1);
+    for (std::size_t layer = 0; layer < 4; ++layer) {
+        const std::string prefix = "blk." + std::to_string(layer) + ".";
+        add_tensor(prefix + "attn_norm.weight", 32, 1);
+        add_tensor(prefix + "post_attention_norm.weight", 32, 1);
+        add_tensor(prefix + "ffn_gate.weight", 32, 256);
+        add_tensor(prefix + "ffn_up.weight", 32, 256);
+        add_tensor(prefix + "ffn_down.weight", 256, 32, layer == 3 ? GGML_TYPE_PQ2_0 : GGML_TYPE_F32);
+        if (layer % 2) {
+            add_tensor(prefix + "attn_q.weight", 32, 64);
+            add_tensor(prefix + "attn_k.weight", 32, 16);
+            add_tensor(prefix + "attn_v.weight", 32, 16);
+            add_tensor(prefix + "attn_output.weight", 32, 32);
+            add_tensor(prefix + "attn_q_norm.weight", 8, 1);
+            add_tensor(prefix + "attn_k_norm.weight", 8, 1);
+        } else {
+            add_tensor(prefix + "attn_qkv.weight", 32, 64);
+            add_tensor(prefix + "attn_gate.weight", 32, 32);
+            add_tensor(prefix + "ssm_conv1d.weight", 3, 64);
+            add_tensor(prefix + "ssm_beta.weight", 32, 4);
+            add_tensor(prefix + "ssm_alpha.weight", 32, 4);
+            add_tensor(prefix + "ssm_out.weight", 32, 32);
+            add_tensor(prefix + "ssm_norm.weight", 8, 1);
+            add_tensor(prefix + "ssm_dt.bias", 4, 1);
+            add_tensor(prefix + "ssm_a", 4, 1);
+        }
+    }
+    const char* integer_names[] = {
+        "qwen35.attention.head_count", "qwen35.attention.head_count_kv", "qwen35.attention.key_length",
+        "qwen35.attention.value_length", "qwen35.rope.dimension_count", "qwen35.ssm.conv_kernel",
+        "qwen35.ssm.inner_size", "qwen35.ssm.state_size", "qwen35.ssm.time_step_rank",
+        "qwen35.ssm.group_count", "qwen35.full_attention_interval"
+    };
+    const uint32_t integer_values[] = { 4, 2, 8, 8, 8, 3, 32, 8, 4, 2, 2 };
+    const float epsilon = 1e-5f;
+    const float theta = 10000.0f;
+    const int32_t sections[] = { 2, 1, 1, 0 };
+    std::vector<jev_bitnet_model_metadata_v2> metadata;
+    metadata.reserve(14);
+    for (std::size_t index = 0; index < 11; ++index) {
+        metadata.push_back({ integer_names[index], 1, 1, &integer_values[index] });
+    }
+    metadata.push_back({ "qwen35.attention.layer_norm_rms_epsilon", 2, 1, &epsilon });
+    metadata.push_back({ "qwen35.rope.freq_base", 2, 1, &theta });
+    metadata.push_back({ "qwen35.rope.dimension_sections", 3, 4, sections });
+    const jev_bitnet_model_spec_v2 specification {
+        2, "synthetic-qwen35-prefill-v2", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "1111111111111111111111111111111111111111", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        4, 32, 256, 64, tensors.data(), tensors.size(), metadata.data(), metadata.size(),
+        { 2, "blk.3.ffn_down.weight", 32, 256, blocks.data(), blocks.size() }
+    };
+    return prism_bitnet_cpu_model_override_from_gguf_v2(path, &specification, JEV_PRISM_SOURCE_REVISION, 2,
+        policy, overrides) == 0 ? 0 : 27;
+}
+
 static int test_prefill_control(
     const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr,
-    const char* projection_path = nullptr, const char* trace_path = nullptr) {
+    const char* projection_path = nullptr, const char* trace_path = nullptr, const char* profile_reference = nullptr) {
     const bool chunked = std::strcmp(mode, "chunked") == 0;
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
@@ -755,6 +868,7 @@ static int test_prefill_control(
         backend_guard() { llama_backend_init(); }
         ~backend_guard() { llama_backend_free(); }
     } backend;
+    std::unique_ptr<void, decltype(&prism_bitnet_cpu_model_policy_free_v2)> policy(nullptr, prism_bitnet_cpu_model_policy_free_v2);
     auto params = llama_model_default_params();
     params.n_gpu_layers = 0;
     params.load_mode = LLAMA_LOAD_MODE_NONE;
@@ -763,7 +877,13 @@ static int test_prefill_control(
         { "^blk\\.3\\.ffn_down\\.weight$", buffer_type }, { nullptr, nullptr },
     };
     if (use_bitnet) {
-        if (projection_path) {
+        if (profile_reference) {
+            void* owned = nullptr;
+            if (create_synthetic_prefill_policy_v2(path, profile_reference, &owned, &params.tensor_buft_overrides) != 0) {
+                return 27;
+            }
+            policy.reset(owned);
+        } else if (projection_path) {
             if (prism_bitnet_cpu_model_override_from_gguf_v1(
                     path, projection_path, JEV_PRISM_SOURCE_REVISION, JEV_BITNET_RUNTIME_ABI_V1,
                     &params.tensor_buft_overrides) != 0) {
@@ -787,11 +907,19 @@ static int test_prefill_control(
     std::size_t dispatch_calls = 0;
     std::size_t weight_repacks = 0;
     std::size_t last_input_tokens = 0;
+    const auto weight_status = [&] {
+        return policy ? prism_bitnet_cpu_tensor_status_v2(policy.get(), weight, &dispatch_calls, &weight_repacks)
+            : prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks);
+    };
+    const auto input_status = [&] {
+        return policy ? prism_bitnet_cpu_tensor_last_input_tokens_v2(policy.get(), weight, &last_input_tokens)
+            : prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens);
+    };
         if (use_bitnet && (!weight || model->hparams.n_layer() != (projection_path ? 32 : 4) ||
             weight->ne[0] != (projection_path ? 12288 : 256) || weight->ne[1] != (projection_path ? 4096 : 32) ||
-            prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks) != 0 ||
+            weight_status() != 0 ||
             dispatch_calls != 0 || weight_repacks != 1 ||
-            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0 || last_input_tokens != 0)) {
+            input_status() != 0 || last_input_tokens != 0)) {
         return 30;
     }
     const auto* vocab = llama_model_get_vocab(model.get());
@@ -870,10 +998,10 @@ static int test_prefill_control(
         if (std::fesetround(rounding.saved) != 0) {
             return 33;
         }
-        kernel_error_status = prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks);
+        kernel_error_status = weight_status();
         const float* failed_logits = llama_get_logits_ith(context.get(), -1);
         if (decode_status != 0 || kernel_error_status <= 0 || dispatch_calls != 0 || weight_repacks != 1 ||
-            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != kernel_error_status ||
+            input_status() != kernel_error_status ||
             last_input_tokens != rejected.size() ||
                 !failed_logits || std::all_of(failed_logits, failed_logits + vocab_size,
                     [](float value) { return std::isfinite(value); })) {
@@ -954,9 +1082,9 @@ static int test_prefill_control(
             !std::all_of(peer_logits, peer_logits + vocab_size, [](float value) { return std::isfinite(value); }))) {
         return 29;
     }
-    if (use_bitnet && (prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks) != 0 ||
+    if (use_bitnet && (weight_status() != 0 ||
             dispatch_calls != prefill_calls || weight_repacks != 1 ||
-            prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens) != 0)) {
+            input_status() != 0)) {
         return 30;
     }
     if (trace_path && !trace.finish(model->hparams.n_layer())) {
@@ -984,8 +1112,8 @@ static int test_prefill_control(
         scores.push_back(std::exp(value - maximum));
         denominator += scores.back();
     }
-    std::printf("{\"prefilled_tokens\":%zu,\"generated_answer_tokens\":0,\"input_tokens\":[",
-        tokens.size());
+    std::printf("{%s\"prefilled_tokens\":%zu,\"generated_answer_tokens\":0,\"input_tokens\":[",
+        policy ? "\"model_policy_abi\":2," : "", tokens.size());
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         std::printf("%s%d", index ? "," : "", tokens[index]);
     }
@@ -1074,6 +1202,12 @@ static int test_vocab_only(const char* path, const char* prompt) {
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_FULL_RUNTIME
+    if ((argc == 4 || argc == 5) && std::strcmp(argv[1], "--prefill-profile-bitnet-control") == 0) {
+        return test_prefill_control(argv[2], true, argc == 5 ? argv[4] : "full", nullptr, nullptr, nullptr, argv[3]);
+    }
+    if (argc == 5 && std::strcmp(argv[1], "--prefill-profile-bitnet-trace-control") == 0) {
+        return test_prefill_control(argv[2], true, "full", nullptr, nullptr, argv[4], argv[3]);
+    }
     if (argc == 6 && std::strcmp(argv[1], "--prefill-model-bitnet-trace-control") == 0) {
         return test_prefill_control(argv[2], true, "full", argv[4], argv[3], argv[5]);
     }

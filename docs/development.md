@@ -170,7 +170,7 @@ implemented or remaining profile field or
 | [projection_artifact.py](../embedded_jev/projection_artifact.py), [evaluation.py](../embedded_jev/evaluation.py) | `PINNED_SHARD`, `PINNED_SHARD_SHA256`, MiMo identity and 32 layers | Artifacts and evaluations MiMo-only | Profile ID plus tensor payload SHA-256 |
 | [decision_dataset.py](../embedded_jev/decision_dataset.py) captures | New v2 manifests bind a supplied profile or remain unbound; v1 MiMo remains read-only compatible; bounded layer-3 inputs | Cross-profile reuse and mixed capture banks refuse; raw arrays do not claim MiMo | P0.2 implemented; depth/target generalization still P7 |
 | [weight_slice.py](../embedded_jev/weight_slice.py), [ternary_artifact.py](../embedded_jev/ternary_artifact.py) | Default target/fetch remains MiMo-only; bounded local APIs and width mapper can bind explicit profiles | Unmatched local sources refuse rather than acquiring MiMo identity; no generic remote fetch | P0.2 identity implemented; broader workflow/targets remain separate |
-| [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | Legacy codec/v1 APIs retain 4,096-row bounds; v2 owned path and model policy are profile/manifest-gated | Bounded larger projections and v2 policy/isolated loader graphs pass; v1 remains MiMo-only; no v2 complete-model prefill yet | Bounded P3/P4 policy preparation implemented; actual-loader integration remains P4 |
+| [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | Legacy codec/v1 APIs retain 4,096-row bounds; v2 owned path and model policy are profile/manifest-gated | Larger projections, v2 policy/isolated graphs and fixed tiny v2 model-prefill controls pass; v1 real execution remains MiMo-only | Bounded P3/P4 synthetic integration implemented; profile/manifest-to-prefill caller boundary and real checks remain |
 | Native v1 complete-model factory | MiMo revision and model tags, 427 tensors, 32/4,096/12,288, 248,320 vocabulary, at most 19 GiB, one layer-3 target | Every other file refused, including MTP-bearing, third-party and 48-layer GGUF files | Versioned profile-driven policy (P4, P5, P7) |
 | Tests and documented commands | `MIMO_*` flags, cache paths, fixture prompts and expected IDs | MiMo evidence only | Keep names; add per-profile gates beside them |
 
@@ -302,16 +302,16 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is `6abb44c` (2026-10-09), following P0.1-P0.4,
-bounded P3 and P4 policy preparation; resident compaction is `cedaeec`. The
-[latest handover](handover.md#profile-model-policy-checkpoint-2026-10-09) records
-244 default passes/40 optional skips, 10 model-policy adapter cases, 12 selected
-compiled native controls and GCC ASan/UBSan/leak checks. The old v1 factories
-remain strict. CMake Tools/CTest were unavailable in that session; no new CTest
-result or real complete-model inference is claimed. Implementation is paused for
-today. Actual-loader/typed-prefill integration through v2 is the next bounded
-synthetic step after an explicit resume; policy validation does not approve it
-for a real checkpoint.
+The latest tested source checkpoint is the 2026-10-12 synthetic v2 actual-loader/
+typed-prefill integration, following `6abb44c`'s P4 policy preparation, P0.1-P0.4
+and bounded P3; resident compaction is `cedaeec`. The
+[latest handover](handover.md#synthetic-v2-prefill-checkpoint-2026-10-12) records
+244 default passes/44 optional skips, 16 selected compiled native controls and
+GCC ASan/UBSan/leak checks including four v2 synthetic model-prefills. V1 factories
+remain strict. No new CTest result or real complete-model inference is claimed.
+The user resumed autonomous work on 2026-10-12. The fixed tiny native F32 fixture
+does not yet establish the Python profile/manifest-to-prefill caller boundary or
+approve real-profile execution.
 Do not recreate environments or download another source/model copy to resume.
 
 **Historical 2026-10-08 evidence:** `9408f3f` followed the MiMo complete-model
@@ -351,7 +351,7 @@ ruff check --no-cache embedded_jev tests
 git diff --check
 ```
 
-The focused P3/P4 command below reproduces the 12 selected compiled controls using
+The focused P3/P4 command below reproduces the 16 selected compiled controls using
 only pinned cached sources/environments, synthetic fixtures and the sole frozen
 projection. It does not run a real complete model or convert/download one.
 Rebuild our isolated wrapper first only if its tracked native sources changed;
@@ -1306,7 +1306,8 @@ weights. The Python adapter hashes the supplied payload, not source tensor bytes
 The policy-bound buffer checks upload bytes against its own canonical reference,
 including chunked transfers after factory validation, and reuses the compact
 FP16-block/BitNet-derived kernel lifecycle. `prism_bitnet_cpu_tensor_status_v2`
-requires the policy handle; v1 status APIs still refuse this distinct buffer.
+and `prism_bitnet_cpu_tensor_last_input_tokens_v2` require the policy handle;
+v1 status APIs still refuse this distinct buffer.
 The caller must retain the shared library and policy through every model/context/
 buffer lifetime, then call `prism_bitnet_cpu_model_policy_free_v2`. Overrides and
 their strings belong to the policy. Inputs/specifications are copied as needed
@@ -1317,10 +1318,22 @@ Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 1 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 The policy retains a canonical reference array in addition to compact resident
 tensor blocks. Do not extend P3's zero auxiliary tensor-array count to total
-policy/process memory. Synthetic table/refusal and isolated 8,192-row loader
-arithmetic pass; complete-model loading/prefill through v2 remains untested.
+policy/process memory. Synthetic table/refusal, isolated 8,192-row loader
+arithmetic and fixed tiny complete-model loading/prefill through v2 pass.
 No generic execution CLI, new source authentication or per-model runtime approval
 is introduced. All MiMo v1 factories and refusals remain unchanged.
+
+The compiled test control's `--prefill-profile-bitnet-control MODEL REFERENCE [MODE]`
+and `--prefill-profile-bitnet-trace-control MODEL REFERENCE TRACE_DIRECTORY` routes
+accept only the fixed four-layer F32 synthetic table, `synthetic-qwen35-prefill-v2`
+declarations and its layer-3 FFN-down projection. Both files are capped at 1 MiB.
+The reference must be a GGUF v3 single PQ2 tensor with the identity execution
+contract and exact 32 x 256 geometry. It is supplied separately, never extracted
+from the model under validation. These are test routes, not other-model execution
+tools. Policy ownership lasts through all model/context/buffer lifetimes. The
+shared prefill oracle exercises 1-128 tokens, recurrence/attention, context reset/
+isolation, tracing, error/recovery and typed conditional scores with zero generation.
+The Python profile/manifest adapter's BF16 plan is not yet integrated end to end.
 
 ### Tagged Single-Tensor GGUF Import
 
