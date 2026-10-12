@@ -6,6 +6,15 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Paused by user, 2026-10-12:** Stop at tested source checkpoint `b6a9f0d`,
+following `c18e90f` and `4973863`. The user pushed all three; `main` matched
+`origin/main` before this documentation-only pause note. The default gate has
+322 passes/54 optional skips, and both pinned BF16/F32 vector controls pass.
+The planned synthetic GGUF vector-view binding has not started: the interrupted
+read produced no result and made no edits. Resume only after an explicit user
+instruction. No tracked source changes or background jobs remain; the untracked
+user `.vscode/` directory is untouched. Real-model authorization is unchanged.
+
 **Quick orientation (2026-10-12):**
 
 1. The user explicitly resumed autonomous work on 2026-10-12. The bounded
