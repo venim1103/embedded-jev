@@ -80,6 +80,11 @@ target_compile_definitions(prism_bitnet_loader_control PRIVATE JEV_TEST_REAL_LOA
 target_include_directories(prism_bitnet_loader_control PRIVATE "${PRISM_SOURCE_DIR}/src")
 target_link_libraries(prism_bitnet_loader_control PRIVATE prism_group_scale llama Threads::Threads)
 
+add_library(prism_bitnet_prefill_test SHARED prism_bitnet_loader_control.cpp)
+target_compile_definitions(prism_bitnet_prefill_test PRIVATE JEV_TEST_FULL_RUNTIME=1)
+target_include_directories(prism_bitnet_prefill_test PRIVATE "${PRISM_SOURCE_DIR}/src")
+target_link_libraries(prism_bitnet_prefill_test PRIVATE prism_group_scale llama Threads::Threads)
+
 enable_testing()
 add_test(NAME jev_runtime_early_init COMMAND prism_bitnet_loader_control)
 add_test(NAME jev_runtime_late_init COMMAND prism_bitnet_loader_control --late)

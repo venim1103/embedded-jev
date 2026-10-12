@@ -640,6 +640,251 @@ for kind in ("valid", "profile", "fingerprint", "revision", "converter", "source
     assert handle.value is overrides.value is None
 
 
+@pytest.mark.parametrize("target", ["down", "up", "full-only", "large-state"])
+def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_path, target):
+    import sys
+    import numpy as np
+
+    from embedded_jev.prism_codec import profile_model_specification
+    from test_inventory import _prefill_model_policy_fixture
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    converter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+    if not all((source_dir, converter, runtime_build)):
+        pytest.skip("requires pinned GGUF environment and bounded prefill test library; synthetic inputs only")
+    assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    assert (Path(runtime_build) / "bin" / "libprism_bitnet_prefill_test.so").is_file()
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
+        target if target in ("down", "up") else "down", hybrid=target != "full-only", state_size=256 if target == "large-state" else 32,
+    )
+    specification = profile_model_specification(profile, inventory, manifest, blocks)
+    payload_file = tmp_path / "projection.bin"
+    model_file = tmp_path / "profile-prefill.gguf"
+    payload_file.write_bytes(blocks.tobytes())
+    writer_code = """
+import json
+import sys
+from pathlib import Path
+import gguf
+import numpy as np
+from embedded_jev.prism_codec import unpack_ternary_pq2_0
+spec = json.loads(sys.argv[1])
+payload = np.frombuffer(Path(sys.argv[3]).read_bytes(), dtype=np.uint8).copy().reshape(1024, 8, 34)
+codes, scales = unpack_ternary_pq2_0(payload)
+writer = gguf.GGUFWriter(sys.argv[2], "qwen35")
+for key, value in {
+    "jev.model.profile_id": spec["profile_id"], "jev.model.profile_sha256": spec["profile_sha256"],
+    "jev.model.source_revision": spec["source_revision"], "jev.bitnet.source_tensor_sha256": spec["source_tensor_sha256"],
+    "jev.model.converter_revision": "842b1880415d6f508f03b789e5ce70194def7bfd",
+    "jev.bitnet.model": "profile-qwen35-single-projection-v2",
+    "jev.bitnet.execution": "group128-a8-fp32-nearest-even-identity-v1",
+}.items():
+    writer.add_string(key, value)
+for key, value in {"block_count": spec["layers"], "embedding_length": spec["hidden"],
+                   "feed_forward_length": spec["intermediate"], "context_length": 256}.items():
+    writer.add_uint32("qwen35." + key, value)
+for item in spec["metadata"]:
+    if item["kind"] == "u32":
+        writer.add_uint32(item["name"], item["values"][0])
+    elif item["kind"] == "f32":
+        writer.add_float32(item["name"], item["values"][0])
+    else:
+        writer.add_array(item["name"], item["values"])
+writer.add_tokenizer_model("gpt2")
+writer.add_tokenizer_pre("qwen2")
+vocabulary = ["token_" + str(index) for index in range(32)]
+vocabulary[2:5] = ["a", "b", "ab"]
+for label, token in spec["label_token_ids"].items():
+    vocabulary[token] = label
+writer.add_token_list(vocabulary)
+writer.add_token_merges(["a b"])
+writer.add_bos_token_id(0)
+writer.add_eos_token_id(1)
+writer.add_add_bos_token(False)
+generator = np.random.default_rng(1407)
+arrays = {
+    "token_embd.weight": generator.normal(0, 0.2, (32, 1024)).astype(np.float32),
+    "output.weight": generator.normal(0, 0.1, (32, 1024)).astype(np.float32),
+    "blk.0.ffn_gate.weight": np.zeros((1024, 1024), dtype=np.float32),
+    "blk.0.ffn_up.weight": np.zeros((1024, 1024), dtype=np.float32),
+    "blk.0.ffn_down.weight": np.eye(1024, dtype=np.float32) * np.float32(0.125),
+}
+arrays["blk.0.ffn_gate.weight"][:, 0] = 0.25
+arrays["blk.0.ffn_up.weight"][np.arange(1024), (np.arange(1024) * 7) % 1024] = np.repeat([0.125, 0.375], 512)
+for item in spec["tensors"]:
+    name = item["name"]
+    shape = list(reversed(item["ne"][:1 if item["ne"][1] == 1 else 2]))
+    if item["type"] == "PQ2_0":
+        writer.add_tensor(name, payload.reshape(1024, 272), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+        continue
+    values = arrays.get(name)
+    if values is None:
+        values = np.ones(shape, dtype=np.float32) if name.endswith("norm.weight") else np.zeros(shape, dtype=np.float32)
+    if item["type"] == "BF16":
+        encoded = gguf.quants.quantize(values, gguf.GGMLQuantizationType.BF16)
+        arrays[name] = gguf.quants.dequantize(encoded, gguf.GGMLQuantizationType.BF16)
+        writer.add_tensor(name, encoded, raw_dtype=gguf.GGMLQuantizationType.BF16)
+    else:
+        writer.add_tensor(name, values)
+writer.write_header_to_file()
+writer.write_kv_data_to_file()
+writer.write_tensors_to_file()
+writer.close()
+def bitnet_projection(inputs):
+    groups = inputs.reshape(8, 128)
+    activation_scales = np.max(np.abs(groups), axis=1) / np.float32(127)
+    activation_scales[activation_scales == 0] = 1
+    quantized = np.clip(np.rint(groups / activation_scales[:, None]), -127, 127).astype(np.int32)
+    partials = np.sum(codes.astype(np.int32) * quantized[None], axis=-1)
+    return np.sum(partials.astype(np.float32) * scales.astype(np.float32) * activation_scales, axis=1)
+def dense_projection(name, inputs):
+    encoded = gguf.quants.quantize(inputs, gguf.GGMLQuantizationType.BF16)
+    rounded = gguf.quants.dequantize(encoded, gguf.GGMLQuantizationType.BF16)
+    return arrays[name] @ rounded
+def reference(token):
+    hidden = arrays["token_embd.weight"][token].copy()
+    normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-6))
+    gate = dense_projection("blk.0.ffn_gate.weight", normalized)
+    up = bitnet_projection(normalized) if spec["projection"]["tensor_name"] == "blk.0.ffn_up.weight" else dense_projection("blk.0.ffn_up.weight", normalized)
+    activation = (gate / (np.float32(1) + np.exp(-gate))) * up
+    projected = bitnet_projection(activation) if spec["projection"]["tensor_name"] == "blk.0.ffn_down.weight" else dense_projection("blk.0.ffn_down.weight", activation)
+    assert np.linalg.norm(projected) > 0.01
+    hidden += projected
+    hidden /= np.sqrt(np.mean(hidden * hidden) + np.float32(1e-6))
+    return dense_projection("output.weight", hidden)[[11, 17, 23]].tolist()
+print(json.dumps({"logits": reference(7), "maximum_logits": reference(2)}))
+"""
+    driver_code = """
+import ctypes
+import gc
+import sys
+from pathlib import Path
+from embedded_jev.prism_codec import create_profile_model_policy, native_model_specification, NativeModelSpecification
+from test_inventory import _prefill_model_policy_fixture
+profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
+    sys.argv[2] if sys.argv[2] in ("down", "up") else "down", hybrid=sys.argv[2] != "full-only", state_size=256 if sys.argv[2] == "large-state" else 32)
+directory = Path(sys.argv[3]) / "bin"
+native = ctypes.CDLL(str(directory / "libprism_group_scale.so"))
+control = ctypes.CDLL(str(directory / "libprism_bitnet_prefill_test.so"))
+initialize = native.prism_bitnet_cpu_runtime_init_v1
+initialize.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
+buffer_type = ctypes.c_void_p()
+assert initialize(b"842b1880415d6f508f03b789e5ce70194def7bfd", 1, ctypes.byref(buffer_type)) == 0
+registry = native.prism_bitnet_registered_tensor_registry_size
+registry.restype = ctypes.c_size_t
+baseline = registry()
+free = native.prism_bitnet_cpu_model_policy_free_v2
+free.argtypes = [ctypes.c_void_p]
+free.restype = None
+handle, overrides, specification = create_profile_model_policy(native, sys.argv[1], profile, inventory, manifest, blocks)
+record = native_model_specification(specification, blocks)
+function = control.prism_bitnet_test_prefill_policy_v2
+function.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p]
+function.restype = ctypes.c_int
+status = 27
+other_handle = None
+try:
+    assert registry() == baseline + 1
+    mode = sys.argv[4]
+    if mode == "null-policy":
+        handle_for_call = None
+        mode = "full"
+    else:
+        handle_for_call = handle
+    overrides_for_call = overrides
+    record_for_call = ctypes.byref(record)
+    if mode == "wrong-policy":
+        other_handle, overrides_for_call, _ = create_profile_model_policy(native, sys.argv[1], profile, inventory, manifest, blocks)
+        mode = "full"
+    if mode == "null-overrides":
+        overrides_for_call = None
+        mode = "full"
+    if mode == "null-specification":
+        record_for_call = None
+        mode = "full"
+    if mode == "shape-mismatch":
+        record.projection.columns = 512
+        mode = "full"
+    if mode == "hidden-mismatch":
+        record.hidden = 512
+        mode = "full"
+    if mode == "vocabulary-mismatch":
+        record.vocabulary = 24
+        mode = "full"
+    if mode == "intermediate-mismatch":
+        record.intermediate = 512
+        mode = "full"
+    if mode == "oversized-file":
+        with open(sys.argv[1], "r+b") as oversized:
+            oversized.truncate(16 * 1024 * 1024 + 1)
+        mode = "full"
+    if mode == "oversized-geometry":
+        record.hidden = 1025
+        mode = "full"
+    del profile, inventory, manifest, blocks, specification
+    gc.collect()
+    status = function(sys.argv[1].encode(), record_for_call, handle_for_call, overrides_for_call, mode.encode())
+    assert registry() == baseline + 1 + (other_handle is not None)
+finally:
+    if other_handle is not None:
+        free(other_handle)
+    free(handle)
+assert registry() == baseline
+ctypes.CDLL(None).fflush(None)
+sys.exit(status)
+"""
+    try:
+        writer = subprocess.run([converter, "-c", writer_code, json.dumps({**specification, "label_token_ids": dict(profile.tokenization["label_token_ids"])}), str(model_file), str(payload_file)],
+                                capture_output=True, text=True, timeout=30,
+                                env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(source_dir) / "gguf-py"), str(Path.cwd()))),
+                                     "PYTHONDONTWRITEBYTECODE": "1", "OPENBLAS_NUM_THREADS": "1"})
+        assert writer.returncode == 0, writer.stderr
+        expected = json.loads(writer.stdout)
+        environment = {**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path.cwd()))),
+                       "PYTHONDONTWRITEBYTECODE": "1", "OPENBLAS_NUM_THREADS": "1"}
+        if target in ("full-only", "large-state"):
+            control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, "full"],
+                                     capture_output=True, text=True, timeout=30, env=environment)
+            assert control.returncode == 27 and control.stdout == "", control.stderr
+            return
+        for mode in ("full", "chunked", "reset", "reordered", "parallel", "maximum", "kernel-recovery"):
+            control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, mode],
+                                     capture_output=True, text=True, timeout=30, env=environment)
+            assert control.returncode == 0, control.stderr
+            report = json.loads(control.stdout)
+            tokens = [2] * 128 if mode == "maximum" else [3, 5, 7]
+            assert report["model_policy_abi"] == 2 and report["generated_answer_tokens"] == 0
+            assert report["input_tokens"] == tokens and report["prefilled_tokens"] == len(tokens)
+            calls = 3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1
+            assert report["bitnet_dispatch_calls"] == report["prefill_calls"] == calls
+            assert report["weight_repacks"] == 1
+            assert report["bitnet_last_input_tokens"] == (2 if mode == "chunked" else len(tokens))
+            assert report["rejected_prefill_calls"] == (mode == "kernel-recovery")
+            assert report["kernel_error_status"] == (mode == "kernel-recovery")
+            order = [2, 0, 1] if mode == "reordered" else [0, 1, 2]
+            assert report["option_ids"] == [["inspect", "edit", "ask"][index] for index in order]
+            assert report["option_labels"] == [["A", "B", "C"][index] for index in order]
+            assert report["option_token_ids"] == [profile.tokenization["label_token_ids"]["ABC"[index]] for index in order]
+            logits = np.asarray(expected["maximum_logits" if mode == "maximum" else "logits"])[order]
+            np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
+            scores = np.exp(logits - logits.max())
+            scores /= scores.sum()
+            np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+            if mode == "parallel":
+                np.testing.assert_allclose(report["peer_logits"], expected["logits"], rtol=2e-5, atol=2e-5)
+        for mode, status in (("unknown", 32), ("kernel-error", 29), ("null-policy", 27), ("oversized-geometry", 27),
+                     ("null-overrides", 27), ("null-specification", 27), ("wrong-policy", 30),
+                             ("shape-mismatch", 30), ("hidden-mismatch", 27), ("vocabulary-mismatch", 27),
+                             ("intermediate-mismatch", 27), ("oversized-file", 27)):
+            control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, mode],
+                                     capture_output=True, text=True, timeout=30, env=environment)
+            assert control.returncode == status and control.stdout == "", control.stderr
+    finally:
+        model_file.unlink(missing_ok=True)
+        payload_file.unlink(missing_ok=True)
+
+
 @pytest.mark.parametrize("use_bitnet,mode", [(False, "full"), (True, "full"),
                                  (True, "kernel-error"), (True, "kernel-recovery"), (True, "trace")],
                     ids=["dense-bf16", "one-bitnet", "one-bitnet-kernel-error", "one-bitnet-kernel-recovery",

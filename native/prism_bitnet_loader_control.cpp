@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <future>
 #include <limits>
@@ -833,7 +834,23 @@ static int create_synthetic_prefill_policy_v2(
 
 static int test_prefill_control(
     const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr,
-    const char* projection_path = nullptr, const char* trace_path = nullptr, const char* profile_reference = nullptr) {
+    const char* projection_path = nullptr, const char* trace_path = nullptr, const char* profile_reference = nullptr,
+    const jev_bitnet_model_spec_v2* caller_spec = nullptr, void* caller_policy = nullptr,
+    const llama_model_tensor_buft_override* caller_overrides = nullptr) {
+    if (caller_spec) {
+        std::error_code error;
+        const auto file_bytes = std::filesystem::file_size(path, error);
+        if (!use_bitnet || !caller_policy || !caller_overrides || !mode ||
+            caller_spec->abi_version != 2 || caller_spec->projection.abi_version != 2 ||
+            !caller_spec->projection.tensor_name || !caller_spec->layers || caller_spec->layers > 4 ||
+            !caller_spec->hidden || caller_spec->hidden > 1024 || !caller_spec->intermediate || caller_spec->intermediate > 1024 ||
+            caller_spec->vocabulary < 24 || caller_spec->vocabulary > 64 ||
+            !caller_spec->projection.rows || caller_spec->projection.rows > 1024 ||
+            !caller_spec->projection.columns || caller_spec->projection.columns > 1024 ||
+            error || file_bytes > 16 * 1024 * 1024) {
+            return 27;
+        }
+    }
     const bool chunked = std::strcmp(mode, "chunked") == 0;
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
@@ -877,7 +894,9 @@ static int test_prefill_control(
         { "^blk\\.3\\.ffn_down\\.weight$", buffer_type }, { nullptr, nullptr },
     };
     if (use_bitnet) {
-        if (profile_reference) {
+        if (caller_spec) {
+            params.tensor_buft_overrides = caller_overrides;
+        } else if (profile_reference) {
             void* owned = nullptr;
             if (create_synthetic_prefill_policy_v2(path, profile_reference, &owned, &params.tensor_buft_overrides) != 0) {
                 return 27;
@@ -903,20 +922,43 @@ static int test_prefill_control(
     if (!model) {
         return 27;
     }
-    const ggml_tensor* weight = use_bitnet ? model->get_tensor("blk.3.ffn_down.weight") : nullptr;
+    if (caller_spec) {
+        const auto& geometry = model->hparams;
+        if (geometry.n_embd != caller_spec->hidden || geometry.n_embd_inp() > 1024 || geometry.n_embd_out() > 1024 ||
+            geometry.ssm_d_conv > 4 || geometry.ssm_d_inner > 4096 || geometry.ssm_d_state > 128 ||
+            geometry.ssm_dt_rank > 32 || geometry.ssm_n_group > 32) {
+            return 27;
+        }
+        bool has_recurrent = false;
+        bool has_attention = false;
+        for (uint32_t layer = 0; layer < model->hparams.n_layer(); ++layer) {
+            if (geometry.n_ff(layer) != caller_spec->intermediate || geometry.n_head(layer) > 16 || geometry.n_head_kv(layer) > 4 ||
+                geometry.n_embd_head_k(layer) > 256 || geometry.n_embd_head_v(layer) > 256) {
+                return 27;
+            }
+            has_recurrent |= model->hparams.is_recr(layer);
+            has_attention |= !model->hparams.is_recr(layer);
+        }
+        if (!has_recurrent || !has_attention) {
+            return 27;
+        }
+    }
+    const ggml_tensor* weight = use_bitnet ? model->get_tensor(caller_spec ? caller_spec->projection.tensor_name : "blk.3.ffn_down.weight") : nullptr;
     std::size_t dispatch_calls = 0;
     std::size_t weight_repacks = 0;
     std::size_t last_input_tokens = 0;
+    void* active_policy = caller_spec ? caller_policy : policy.get();
     const auto weight_status = [&] {
-        return policy ? prism_bitnet_cpu_tensor_status_v2(policy.get(), weight, &dispatch_calls, &weight_repacks)
+        return active_policy ? prism_bitnet_cpu_tensor_status_v2(active_policy, weight, &dispatch_calls, &weight_repacks)
             : prism_bitnet_cpu_tensor_status_v1(weight, &dispatch_calls, &weight_repacks);
     };
     const auto input_status = [&] {
-        return policy ? prism_bitnet_cpu_tensor_last_input_tokens_v2(policy.get(), weight, &last_input_tokens)
+        return active_policy ? prism_bitnet_cpu_tensor_last_input_tokens_v2(active_policy, weight, &last_input_tokens)
             : prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens);
     };
-        if (use_bitnet && (!weight || model->hparams.n_layer() != (projection_path ? 32 : 4) ||
-            weight->ne[0] != (projection_path ? 12288 : 256) || weight->ne[1] != (projection_path ? 4096 : 32) ||
+        if (use_bitnet && (!weight || model->hparams.n_layer() != (caller_spec ? caller_spec->layers : projection_path ? 32 : 4) ||
+            weight->ne[0] != (caller_spec ? caller_spec->projection.columns : projection_path ? 12288 : 256) ||
+            weight->ne[1] != (caller_spec ? caller_spec->projection.rows : projection_path ? 4096 : 32) ||
             weight_status() != 0 ||
             dispatch_calls != 0 || weight_repacks != 1 ||
             input_status() != 0 || last_input_tokens != 0)) {
@@ -924,7 +966,7 @@ static int test_prefill_control(
     }
     const auto* vocab = llama_model_get_vocab(model.get());
     const int32_t vocab_size = llama_vocab_n_tokens(vocab);
-    if (vocab_size < 24) {
+    if (vocab_size < 24 || (caller_spec && vocab_size != static_cast<int32_t>(caller_spec->vocabulary))) {
         return 27;
     }
     std::vector<llama_token> tokens = { 3, 5, 7 };
@@ -1113,7 +1155,7 @@ static int test_prefill_control(
         denominator += scores.back();
     }
     std::printf("{%s\"prefilled_tokens\":%zu,\"generated_answer_tokens\":0,\"input_tokens\":[",
-        policy ? "\"model_policy_abi\":2," : "", tokens.size());
+        active_policy ? "\"model_policy_abi\":2," : "", tokens.size());
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         std::printf("%s%d", index ? "," : "", tokens[index]);
     }
@@ -1149,6 +1191,19 @@ static int test_prefill_control(
         use_bitnet ? "bitnet" : "dense", mode, prefill_calls, dispatch_calls, weight_repacks,
         position_min, position_max, rejected_prefill_calls, kernel_error_status, last_input_tokens);
     return 0;
+}
+
+extern "C" int prism_bitnet_test_prefill_policy_v2(
+    const char* path, const jev_bitnet_model_spec_v2* specification, void* policy,
+    const llama_model_tensor_buft_override* overrides, const char* mode) {
+    if (!path || !specification) {
+        return 27;
+    }
+    try {
+        return test_prefill_control(path, true, mode, nullptr, nullptr, nullptr, nullptr, specification, policy, overrides);
+    } catch (const std::exception&) {
+        return 27;
+    }
 }
 
 static int test_vocab_only(const char* path, const char* prompt) {

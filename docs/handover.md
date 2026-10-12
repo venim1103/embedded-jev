@@ -9,10 +9,11 @@ original conversation. Read this first, then follow the links for detail.
 **Quick orientation (2026-10-12):**
 
 1. The user explicitly resumed autonomous work on 2026-10-12. The bounded
-  synthetic v2 actual-loader/typed-prefill checkpoint below is verified.
+  synthetic profile/manifest-to-prefill caller checkpoint below is verified.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [synthetic v2 prefill checkpoint](#synthetic-v2-prefill-checkpoint-2026-10-12),
+2. Read the [profile caller checkpoint](#profile-caller-checkpoint-2026-10-12),
+   then the [synthetic v2 prefill checkpoint](#synthetic-v2-prefill-checkpoint-2026-10-12),
   then the [profile model policy checkpoint](#profile-model-policy-checkpoint-2026-10-09)
   at `6abb44c` and the [projection geometry checkpoint](#projection-geometry-checkpoint-2026-10-09)
    at `db002c1`, with resident compaction at `cedaeec`; then read the historical
@@ -32,11 +33,11 @@ original conversation. Read this first, then follow the links for detail.
    in-band controls. Never disable certificate verification.
 5. P0.1-P0.4, bounded P3 and P4's separately versioned complete-model policy
   preparation plus synthetic actual-loader/prefill integration are implemented.
-  This exercises a fixed independent tiny native specification, not the Python
-  profile/manifest adapter end to end or another real checkpoint. Next: the
-  synthetic profile/manifest-to-prefill caller boundary with converted BF16
-  matrices and a non-layer-3 target. P2, real-model P4 and the MiMo layer-0
-  diagnostic still need new approval.
+  The Python profile/inventory/manifest adapter now reaches actual BF16/PQ2
+  model prefill for synthetic layer-0 FFN-down/up targets. Next: the remaining
+  eligible FFN-gate and full-attention projection roles with independent
+  synthetic references. No real checkpoint execution is approved; P2,
+  real-model P4 and the MiMo layer-0 diagnostic still need new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
 
@@ -53,6 +54,80 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Profile Caller Checkpoint (2026-10-12)
+
+Following `c825cfc`, Python profile/header-inventory/manifest validation now
+reaches actual BF16/PQ2 model loading and typed zero-generation prefill.
+`native_model_specification()` retains its ctypes backing arrays; default tests
+delete the original payload, collect garbage and verify its exact retained hash.
+The project-owned `libprism_bitnet_prefill_test.so` accepts the checked record,
+borrowed policy and overrides. The caller frees its policy only after every
+model/context/buffer is destroyed. C++ exceptions do not cross this test-only C
+boundary. Registry restoration passes success, refusal and distinct-policy cases.
+No generic CLI or per-model execution approval was introduced.
+
+The synthetic hybrid fixture has two layers, hidden/FFN widths 1,024, vocabulary
+32 and 28 text tensors. Layer-0 FFN-down/up each dispatch the grouped BitNet-derived
+kernel with exact independent FP16 scales. Ordinary matrices use the pinned
+GGUF BF16 codec, with F32 norms/convolution/state parameters. Declared profile
+A/B/C IDs match its toy vocabulary. Rotation-1024 eligibility remains unchanged.
+Attention/recurrence weights are zero in this fixture; existing nonzero tiny
+controls remain separate arithmetic coverage. Full/chunked/reset/reordered/
+parallel/128-token/recovery modes match grouped-A8/BF16 references at unchanged
+2e-5 relative/absolute tolerance, with one repack and zero generated tokens.
+BF16 dense references round both weights and inputs, matching the pinned CPU
+dot type; this does not resolve historical real-model numerical differences.
+
+The hook caps files at 16 MiB, layers at four, hidden/FFN/target dimensions at
+1,024 and vocabulary at 64. Loaded embedding/FFN/vocabulary agreement and
+attention/SSM bounds are checked before context allocation: heads <=16/4,
+head dimensions <=256, convolution <=4, inner <=4,096, state <=128 and rank/
+groups <=32. Both layer types must exist. Full-attention-only and oversized-SSM
+fixtures refuse before context creation. Null arguments, wrong-policy buffers,
+shape/hidden/FFN/vocabulary mismatches, oversized files/widths, unknown modes and
+kernel errors refuse without scores. Policy tags/digests remain declarations,
+not authentication of source bytes or untouched dense weights.
+
+Verification: **246 default passes, 48 optional skips**, Ruff, whitespace and
+editor diagnostics. The expanded pinned native gate passed **20 controls in
+43.29 s**, peak process RSS 946,360 KiB, no swaps. The final FFN-agreement guard
+then passed four focused caller cases in 9.71 s and the refreshed default gate.
+Earlier local checks covered 11 adapter/native-policy cases and two retained-
+storage cases. Only isolated project wrappers/test libraries were rebuilt;
+no new CTest result is claimed.
+
+Sanitizer results are separated: Python-loaded prefill computed the expected
+report but exit-time leak detection failed with 1,345,553 bytes in 1,239 CPython/
+NumPy allocations. The no-prefill baseline had exactly the same counts, and
+neither report had project-source allocation frames; this is not a leak-clean
+Python gate. A standalone driver mechanically derived from the identical checked
+native specification passed nine full/chunked/reset/reordered/parallel/maximum/
+recovery/error/unknown modes with ASan, UBSan and leak detection enabled. Bridge
+and test library were instrumented; cached llama/GGML were not. Compile peak RSS
+was 569,700 KiB; the last native replay peak was 100,232 KiB. No leak check was
+disabled or suppressed. That replay preceded the final simple FFN-agreement
+guard, whose compiled refusal checks are recorded above.
+
+Failed-check history: 128/256 widths failed unchanged rotation-1024 eligibility;
+eligible bounded widths repaired the fixture. The GGUF writer omitted an empty
+merge array and Prism refused it; the existing one-merge vocabulary repaired it.
+GDB traced the all-attention fixture's abort to an empty recurrent-state input,
+not symbol visibility; valid hybrid data and pre-decode refusal avoid that pinned
+runtime limitation without upstream edits. A weights-only BF16 oracle left
+0.003-0.005 logit differences; pinned CPU traits proved BF16 input conversion,
+and correcting the oracle passed without tolerance relaxation. The disposable
+sanitizer generator replaced a macro substring and emitted an invalid float
+literal; explicit template placeholders/float formatting repaired it. Python
+allocator failures remain recorded, not rewritten as successes.
+
+Synthetic models/payloads were deleted by fixtures/probes. Disposable instrumented
+libraries, generated driver, allocator reports and raw traces were removed after
+recording the evidence. No download, source copy, real-model conversion/inference,
+fit, retained candidate, promotion, held-out scoring or quality experiment ran.
+Frozen candidate and user `.vscode/` remain untouched; no push, branch or subagent.
+Next: remaining eligible FFN-gate/full-attention roles through the same synthetic
+caller boundary. Real P4/P2 and P5-P7 remain separately gated.
 
 ## Synthetic V2 Prefill Checkpoint (2026-10-12)
 

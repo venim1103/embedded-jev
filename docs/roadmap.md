@@ -73,7 +73,7 @@ item touches.
 | P1 | Metadata-only preflight of the selected Defiant Fable source: pinned files, header inventory, tokenizer/template label probe, plus the `plusIQ` header-and-sample comparison | Done 2026-10-09 within the approved bounds; see the [results](development.md#preflight-results) | Reconciled inventory and budgets, verified non-thinking suffix and label IDs, sampled GGUF comparison; no other weights read |
 | P2 | Dense streamed reference, vocabulary-only and BF16 native prefill, and precision traces for that profile | Full download and temporary conversion; approval needed | Acceptance criteria written first; zero generation; resources and cleanup recorded |
 | P3 | Implemented bounded owned-projection proof 2026-10-09: compact FP16/BitNet blocks, larger v2 geometry and profile/manifest-driven tensor gate beside strict v1 | None (synthetic plus the existing MiMo artifact) | Exact 8,192/12,288-row and frozen-v2 parity, reference/manifest/bound refusals, unchanged v1/native-prefill controls; zero auxiliary weight arrays; complete-model policy remains P4 |
-| P4 | Bounded policy preparation implemented 2026-10-09; fixed tiny v2 actual-loader/typed-prefill integration verified 2026-10-12 beside unchanged MiMo v1 | Synthetic profile/manifest-to-prefill caller boundary remains; real checks need temporary-model approval | 10 adapter cases, 25 synthetic file refusals, isolated 8,192-row arithmetic, 16 compiled controls, four v2 model-prefill combinations and sanitizer gates; no real-profile execution approval |
+| P4 | Bounded policy preparation implemented 2026-10-09; synthetic actual-loader and profile/manifest-to-BF16-prefill caller integration verified 2026-10-12 beside unchanged MiMo v1 | Remaining eligible projection-role controls; real checks need temporary-model approval | Layer-0 FFN-down/up, exact scales/typed scores, caller/cache bounds, 20 compiled controls and standalone native sanitizer replay; Python leak baseline limitation recorded; no real-profile execution approval |
 | P5 | Float-GGUF source adapter (Tier C): header and tensor-table identity, BF16 eligibility, explicit `nextn` exclusion, inverse value-head permutation, independent layout anchor | Header-and-sample range reads, then the full file; separate approval for each | Synthetic GGUF fixtures pass; sampled, then all, eligible tensors byte-identical to a sibling conversion, or refusal |
 | P6 | Wrapped-decoder adapter (Tier B): static nested-configuration reader, declared prefix rename, text-only conversion, no repository code | Metadata for fixtures; real conversion needs approval | Renamed tensors keep payload hashes; geometry comes from the nested configuration; licence terms recorded |
 | P7 | Depth variants (Tier D): layer count and pattern from the profile throughout Python, traces and native policy; explicit recurrent-layer array for irregular patterns | None for synthetic fixtures; real models need approval | Synthetic 48-layer and irregular-pattern fixtures; MiMo results unchanged; budgets recomputed |
@@ -86,8 +86,9 @@ chat resumed, P4's bounded v2 policy preparation was committed as `6abb44c`.
 The user then requested a commit and stop for today, and explicitly resumed
 autonomous implementation on 2026-10-12. Fixed tiny synthetic actual-loader/
 typed-prefill integration through v2 now passes beside unchanged v1 factories.
-Next is the bounded Python profile/manifest-to-prefill caller boundary, including
-converted BF16 matrices and a non-layer-3 target. No new download, complete-model
+The Python profile/manifest-to-prefill boundary now passes with converted BF16
+matrices and layer-0 FFN-down/up targets. Next are the remaining eligible
+FFN-gate/full-attention roles with independent synthetic references. No new download, complete-model
 conversion, fit or model-quality experiment is authorized.
 Synthetic P4 preparation needs no additional model; real P4 checks need separate
 approval. P5-P7 still follow the user's priorities and are not authorized yet.

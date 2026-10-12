@@ -238,9 +238,8 @@ class NativeModelSpecification(ctypes.Structure):
     ]
 
 
-def create_profile_model_policy(native, model_path, profile, inventory: dict, manifest: dict, pq2_blocks):
-    """Caller retains the library and frees the policy only after all model buffers and contexts."""
-    specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
+def native_model_specification(specification: dict, pq2_blocks):
+    """Marshal a checked specification, retaining backing arrays for the record's lifetime."""
     blocks = np.asarray(pq2_blocks)
     projection = specification["projection"]
     table = (NativeModelTensor * len(specification["tensors"]))(*(
@@ -255,12 +254,20 @@ def create_profile_model_policy(native, model_path, profile, inventory: dict, ma
         for item, value in zip(specification["metadata"], values, strict=True)
     ))
     record = NativeModelSpecification(
-        2, profile.profile_id.encode("ascii"), profile.sha256.encode("ascii"), profile.revision.encode("ascii"),
+        2, specification["profile_id"].encode("ascii"), specification["profile_sha256"].encode("ascii"), specification["source_revision"].encode("ascii"),
         projection["source_tensor_sha256"].encode("ascii"), specification["layers"], specification["hidden"],
         specification["intermediate"], specification["vocabulary"], table, len(table), metadata, len(metadata),
         NativeProjectionSpecification(2, projection["tensor_name"].encode("ascii"), projection["rows"], projection["columns"],
                                       blocks.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)), blocks.nbytes),
     )
+    record._keepalive = (blocks, table, values, metadata)
+    return record
+
+
+def create_profile_model_policy(native, model_path, profile, inventory: dict, manifest: dict, pq2_blocks):
+    """Caller retains the library and frees the policy only after all model buffers and contexts."""
+    specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
+    record = native_model_specification(specification, pq2_blocks)
     function = native.prism_bitnet_cpu_model_override_from_gguf_v2
     function.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), ctypes.c_char_p, ctypes.c_uint32,
                         ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p)]

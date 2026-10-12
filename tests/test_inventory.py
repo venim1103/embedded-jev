@@ -474,6 +474,78 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32):
+    from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
+
+    metadata, _, record = _packaging_fixture(text_only=True)
+    geometry = record["geometry"]
+    geometry.update(hidden_size=1024, intermediate_size=1024, num_attention_heads=4, num_key_value_heads=2, head_dim=32)
+    geometry.update(num_hidden_layers=2, full_attention_interval=2 if hybrid else 1,
+                    layer_types=["linear_attention", "full_attention"] if hybrid else ["full_attention", "full_attention"],
+                    linear_num_key_heads=2, linear_num_value_heads=4, linear_key_head_dim=state_size, linear_value_head_dim=32)
+    geometry["rope_parameters"]["mrope_section"] = [2, 1, 1]
+    record["packaging"]["text_tensor_count"] = 28 if hybrid else 25
+    record["tokenization"]["label_token_ids"] = dict(zip("ABCDEFGHIJKLMNOP", [11, 17, 23, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19], strict=True))
+    config = json.loads(metadata["config.json"])
+    config.update(geometry)
+    metadata["config.json"] = json.dumps(config, sort_keys=True).encode()
+    shapes = {
+        "model.embed_tokens.weight": (32, 1024), "lm_head.weight": (32, 1024), "model.norm.weight": (1024,),
+          **{f"model.layers.{layer}." + name: shape for layer, kind in enumerate(geometry["layer_types"])
+              for name, shape in inventory._layer_shapes(geometry, kind).items()},
+    }
+    entries, offset = {}, 0
+    for name, shape in sorted(shapes.items()):
+        count = int(np.prod(shape)) * 2
+        entries[name] = {"dtype": "BF16", "shape": shape, "data_offsets": [offset, offset + count]}
+        offset += count
+    shard = record["packaging"]["shards"][0]
+    headers = {shard: _header(entries, offset)}
+    metadata["model.safetensors.index.json"] = json.dumps({
+        "metadata": {"total_size": offset}, "weight_map": dict.fromkeys(entries, shard),
+    }).encode()
+    for name, data in metadata.items():
+        record["files"][name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    header, size = headers[shard]
+    record["files"][shard] = {"bytes": size, "sha256": "a" * 64, "header_bytes": len(header),
+                              "header_sha256": hashlib.sha256(header).hexdigest()}
+    record["runtime"].update(converter_revision=PRISM_SOURCE_REVISION, runtime_revision=PRISM_SOURCE_REVISION)
+    profile = parse_model_profile(json.dumps(record).encode())
+    report = build_inventory(metadata, headers, profile=profile)
+    tensor = f"model.layers.0.mlp.{target}_proj.weight"
+    rows, columns = shapes[tensor]
+    codes = ((np.arange(rows * columns).reshape(rows, columns // 128, 128) * 7) % 3 - 1).astype(np.int8)
+    scales = ((np.arange(rows * columns // 128).reshape(rows, columns // 128) % 7 + 1) / 256).astype(np.float16)
+    blocks = pack_ternary_pq2_0(codes, scales)
+    manifest = {
+        "schema_version": 2, "format": "jev-profile-projection-v2", "profile_id": profile.profile_id,
+        "profile_sha256": profile.sha256, "tensor": tensor, "gguf_tensor": f"blk.0.ffn_{target}.weight",
+        "shape": [rows, columns], "group_size": 128, "transform": "identity", "source_tensor_sha256": "f" * 64,
+        "payload_bytes": blocks.nbytes, "payload_sha256": hashlib.sha256(memoryview(blocks)).hexdigest(),
+    }
+    return profile, report, manifest, blocks
+
+
+@pytest.mark.parametrize("target", ["down", "up"])
+def test_profile_prefill_native_record_retains_checked_geometry_and_storage(target):
+    import ctypes
+    import gc
+
+    from embedded_jev.prism_codec import native_model_specification, profile_model_specification
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(target)
+    specification = profile_model_specification(profile, report, manifest, blocks)
+    record = native_model_specification(specification, blocks)
+    del blocks, specification
+    gc.collect()
+    assert record.hidden == 1024 and record.intermediate == 1024 and record.layers == 2
+    assert record.projection.tensor_name == f"blk.0.ffn_{target}.weight".encode()
+    assert record.tensor_count == 28 and record.metadata_count == 14
+    assert sum(item.type == 30 for item in record.tensors[:record.tensor_count]) == 16
+    assert hashlib.sha256(ctypes.string_at(record.projection.reference_pq2, record.projection.reference_bytes)).hexdigest() == manifest["payload_sha256"]
+    assert ctypes.cast(record.metadata[0].values, ctypes.POINTER(ctypes.c_uint32))[0] == 4
+
+
 def test_profile_model_policy_derives_complete_table_without_execution_approval():
     from embedded_jev.prism_codec import profile_model_specification
 
