@@ -2447,7 +2447,13 @@ print(json.dumps(results))
     assert all(result[2].endswith(".ssm_dt.bias") for result in renamed_biases)
 
 
-def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors():
+@pytest.mark.parametrize("vector_dtype", ["BF16", "F32"])
+def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype):
+    from dataclasses import asdict
+
+    from embedded_jev.prism_codec import profile_model_conversion_plan
+    from test_inventory import _prefill_model_policy_fixture
+
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
     if not source_dir or not interpreter:
@@ -2456,14 +2462,28 @@ def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors():
     assert subprocess.check_output(
         ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
     ).strip() == PRISM_REVISION
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture("down", vector_dtype=vector_dtype)
+    plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
+    record = {"schema_version": 1, "profile_id": profile.profile_id,
+              "source": {"model": profile.model, "revision": profile.revision, "license": profile.license,
+                         "format": "safetensors", "support_tier": "A"},
+              "files": {name: {key: value for key, value in asdict(item).items() if value is not None}
+                        for name, item in profile.files.items()},
+              **{name: getattr(profile, name) for name in ("packaging", "geometry", "tokenization", "runtime", "quantization", "evidence")}}
+    fixture = json.dumps({"profile": record, "inventory": inventory, "manifest": manifest,
+                          "payload_hex": blocks.tobytes().hex()}, default=dict)
+    assert len(fixture) < 1024**2
     code = """
 from __future__ import annotations
 import ast
+import hashlib
 import json
 import sys
 from pathlib import Path
 import numpy as np
 import torch
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.prism_codec import verify_profile_converted_vector
 
 module = ast.parse((Path(sys.argv[1]) / "conversion/qwen.py").read_text())
 next_model = next(node for node in module.body
@@ -2491,6 +2511,18 @@ model.hparams = {"linear_num_key_heads": 2, "linear_num_value_heads": 4,
                  "linear_key_head_dim": 2, "linear_value_head_dim": 2, "hidden_size": 8}
 model.hadamard_folded_names = lambda: []
 model._hadamard_gdn_v_grouped = False
+plan = json.loads(sys.argv[2])
+transforms = {item["name"]: item["transforms"] for item in plan["tensors"]}
+assert plan["linear_head_layout"]["linear_num_key_heads"] == model.hparams["linear_num_key_heads"]
+assert plan["linear_head_layout"]["linear_num_value_heads"] == model.hparams["linear_num_value_heads"]
+assert transforms["blk.0.attn_qkv.weight"] == ["v_rows_grouped_to_tiled", "encode_bf16"]
+assert transforms["blk.0.attn_gate.weight"] == ["v_heads_grouped_to_tiled", "encode_bf16"]
+assert transforms["blk.0.ssm_a"] == ["v_heads_grouped_to_tiled", "negative_exp", "encode_f32"]
+assert transforms["blk.0.ssm_dt.bias"] == ["v_heads_grouped_to_tiled", "encode_f32"]
+assert transforms["blk.0.ssm_alpha.weight"] == ["v_heads_grouped_to_tiled", "encode_bf16"]
+assert transforms["blk.0.ssm_beta.weight"] == ["v_heads_grouped_to_tiled", "encode_bf16"]
+assert transforms["blk.0.ssm_conv1d.weight"] == ["v_rows_grouped_to_tiled", "squeeze", "encode_f32"]
+assert transforms["blk.0.ssm_out.weight"] == ["v_columns_grouped_to_tiled", "encode_bf16"]
 name = "model.layers.0.linear_attn."
 qkv = torch.arange(16 * 8, dtype=torch.float32).reshape(16, 8)
 result = list(model.modify_tensors(qkv, name + "in_proj_qkv.weight", 0))
@@ -2511,6 +2543,17 @@ alpha = torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8)
 result_alpha = list(model.modify_tensors(alpha, name + "in_proj_a.weight", 0))
 expected_alpha = alpha.numpy().reshape(2, 2, 1, 8).transpose(1, 0, 2, 3).reshape(4, 8)
 assert np.array_equal(result_alpha[0][1].numpy(), expected_alpha)
+result_beta = list(model.modify_tensors(alpha, name + "in_proj_b.weight", 0))
+assert np.array_equal(result_beta[0][1].numpy(), expected_alpha)
+for norm_name, gguf_name in (("model.norm.weight", "output_norm.weight"),
+                             ("model.layers.0.input_layernorm.weight", "blk.0.attn_norm.weight"),
+                             ("model.layers.1.self_attn.q_norm.weight", "blk.1.attn_q_norm.weight"),
+                             (name + "norm.weight", "blk.0.ssm_norm.weight")):
+    values = torch.tensor([0, 2, -1], dtype=torch.float32)
+    add_one = not norm_name.endswith("linear_attn.norm.weight")
+    assert transforms[gguf_name] == (["add_one"] if add_one else []) + ["encode_f32"]
+    result_norm = list(model.modify_tensors(values, norm_name, 0))
+    assert np.array_equal(result_norm[0][1].numpy(), values.numpy() + int(add_one))
 conv = torch.arange(16 * 3, dtype=torch.float32).reshape(16, 1, 3)
 result_conv = list(model.modify_tensors(conv, name + "conv1d.weight", 0))
 conv_values = conv.numpy().reshape(16, 3)
@@ -2526,11 +2569,47 @@ model.hadamard_folded_names = lambda: [out_name]
 folded = list(model.modify_tensors(out, out_name, 0))
 assert np.array_equal(folded[0][1].numpy(), out.numpy())
 assert model._hadamard_gdn_v_grouped is True
+model.hadamard_folded_names = lambda: []
+fixture = json.loads(sys.stdin.read())
+profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+assert profile.sha256 == plan["profile_sha256"]
+payload = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(
+    fixture["manifest"]["shape"][0], fixture["manifest"]["shape"][1] // 128, 34)
+for source_name in ("model.norm.weight", "model.layers.0.input_layernorm.weight",
+                    "model.layers.1.self_attn.q_norm.weight", "model.layers.1.self_attn.k_norm.weight",
+                    name + "norm.weight", name + "A_log", name + "dt_bias"):
+    entry = next(item for item in plan["tensors"] if item["source_name"] == source_name)
+    source = torch.tensor(np.arange(entry["source_shape"][0]) % 5 - 2, dtype=torch.float32)
+    raw_source = source.to(torch.bfloat16).view(torch.uint16).numpy().copy() if entry["source_dtype"] == "BF16" else source.numpy().copy()
+    converted = list(model.modify_tensors(source, source_name, 0))[0][1].numpy().copy()
+    keywords = {"source_name": source_name, "source_values": raw_source, "converted_values": converted,
+                "expected_source_sha256": hashlib.sha256(memoryview(raw_source)).hexdigest()}
+    receipt = verify_profile_converted_vector(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+    assert receipt["converted_sha256"] == hashlib.sha256(memoryview(converted)).hexdigest()
+    assert receipt["source_file_verification"] == receipt["converted_file_verification"] == "not_checked"
+    assert receipt["runtime_approval"] == "not_granted_by_operand_verification"
+    try:
+        receipt["source_sha256"] = "0" * 64
+        raise AssertionError("mutable vector receipt")
+    except TypeError:
+        pass
+    changed = converted.copy()
+    zero = np.flatnonzero(changed == 0)
+    if zero.size:
+        changed[zero[0]] = np.float32(-0.0)
+    else:
+        changed.view(np.uint32)[0] ^= 1
+    keywords["converted_values"] = changed
+    try:
+        verify_profile_converted_vector(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+        raise AssertionError("changed vector bytes were accepted")
+    except ValueError as error:
+        assert "byte parity" in str(error)
 print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3]}))
 """
     result = subprocess.run(
-        [interpreter, "-c", code, str(source)], check=True,
-        capture_output=True, text=True, timeout=15,
+        [interpreter, "-c", code, str(source), json.dumps(plan)], check=True,
+        capture_output=True, text=True, input=fixture, timeout=15,
     )
     assert json.loads(result.stdout) == {"qkv_shape": [16, 8], "v_head_order": [0, 2, 1, 3]}
 

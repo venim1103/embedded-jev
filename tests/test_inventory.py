@@ -474,7 +474,7 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16"):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -482,7 +482,7 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32):
     geometry.update(hidden_size=1024, intermediate_size=1024, num_attention_heads=4, num_key_value_heads=2, head_dim=32)
     geometry.update(num_hidden_layers=2, full_attention_interval=2 if hybrid else 1,
                     layer_types=["linear_attention", "full_attention"] if hybrid else ["full_attention", "full_attention"],
-                    linear_num_key_heads=2, linear_num_value_heads=4, linear_key_head_dim=state_size, linear_value_head_dim=32)
+                    linear_num_key_heads=2, linear_num_value_heads=value_heads, linear_key_head_dim=state_size, linear_value_head_dim=32)
     if target == "o":
         geometry.update(hidden_size=128, intermediate_size=256, num_attention_heads=16, head_dim=64)
     hidden = geometry["hidden_size"]
@@ -499,8 +499,9 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32):
     }
     entries, offset = {}, 0
     for name, shape in sorted(shapes.items()):
-        count = int(np.prod(shape)) * 2
-        entries[name] = {"dtype": "BF16", "shape": shape, "data_offsets": [offset, offset + count]}
+        dtype = vector_dtype if len(shape) == 1 else "BF16"
+        count = int(np.prod(shape)) * (4 if dtype == "F32" else 2)
+        entries[name] = {"dtype": dtype, "shape": shape, "data_offsets": [offset, offset + count]}
         offset += count
     shard = record["packaging"]["shards"][0]
     headers = {shard: _header(entries, offset)}
@@ -636,6 +637,81 @@ def test_profile_model_policy_recurrent_table_matches_pinned_converter_float_pol
     assert table["blk.0.attn_qkv.weight"]["ne"] == [4096, 8192, 1, 1]
     assert table["blk.3.attn_q.weight"]["ne"] == [4096, 8192, 1, 1]
     assert table["blk.3.attn_k.weight"]["type"] == "PQ2_0"
+
+
+def test_profile_model_conversion_plan_declares_dense_transforms_without_parity():
+    from embedded_jev.prism_codec import profile_model_conversion_plan, profile_model_specification
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
+    plan = profile_model_conversion_plan(profile, report, manifest, blocks)
+    table = {item["name"]: item for item in plan["tensors"]}
+    assert table["blk.0.ffn_down.weight"]["transforms"] == ["frozen_projection_payload_not_dense_conversion"]
+    assert table["output_norm.weight"]["transforms"] == ["add_one", "encode_f32"]
+    assert table["blk.1.attn_q_norm.weight"]["transforms"] == ["add_one", "encode_f32"]
+    assert table["blk.0.ssm_norm.weight"]["transforms"] == ["encode_f32"]
+    assert table["blk.0.ssm_a"]["transforms"] == ["v_heads_grouped_to_tiled", "negative_exp", "encode_f32"]
+    assert table["blk.0.ssm_dt.bias"]["transforms"] == ["v_heads_grouped_to_tiled", "encode_f32"]
+    assert table["blk.0.ssm_conv1d.weight"]["transforms"] == ["v_rows_grouped_to_tiled", "squeeze", "encode_f32"]
+    assert table["blk.0.attn_qkv.weight"]["transforms"] == ["v_rows_grouped_to_tiled", "encode_bf16"]
+    assert table["blk.0.attn_gate.weight"]["transforms"] == ["v_heads_grouped_to_tiled", "encode_bf16"]
+    assert table["blk.0.ssm_out.weight"]["transforms"] == ["v_columns_grouped_to_tiled", "encode_bf16"]
+    assert table["blk.1.attn_q.weight"]["transforms"] == ["encode_bf16"]
+    expected = profile_model_specification(profile, report, manifest, blocks)
+    assert [{key: item[key] for key in ("name", "type", "ne")} for item in plan["tensors"]] == expected["tensors"]
+    assert all(item["arithmetic_dtype"] == ("not_applicable" if item["type"] == "PQ2_0" else "F32") for item in plan["tensors"])
+    assert plan["tensor_byte_verification"] == "not_checked"
+    assert plan["source_payload_verification"] == "declared_digest_not_rehashed_source_tensor"
+    assert plan["runtime_approval"] == "not_granted_by_conversion_plan"
+
+
+@pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o"])
+def test_profile_model_conversion_plan_equal_heads_preserves_frozen_projection(target):
+    from embedded_jev.prism_codec import profile_model_conversion_plan
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(target, value_heads=2)
+    plan = profile_model_conversion_plan(profile, report, manifest, blocks)
+    assert plan["linear_head_layout"]["linear_num_key_heads"] == plan["linear_head_layout"]["linear_num_value_heads"] == 2
+    assert plan["projection_payload_sha256"] == manifest["payload_sha256"]
+    assert plan["source_revision"] == profile.revision
+    assert len({item["source_name"] for item in plan["tensors"]}) == len(plan["tensors"]) == 28
+    target_row = next(item for item in plan["tensors"] if item["name"] == manifest["gguf_tensor"])
+    assert target_row["source_name"] == manifest["tensor"]
+    assert target_row["transforms"] == ["frozen_projection_payload_not_dense_conversion"]
+    assert not any("grouped_to_tiled" in step for item in plan["tensors"] for step in item["transforms"])
+    source_row = next(item for item in report["tensors"] if item["name"] == plan["tensors"][0]["source_name"])
+    old_shape = tuple(source_row["shape"])
+    plan["tensors"][0]["source_shape"][0] += 1
+    assert tuple(source_row["shape"]) == old_shape
+
+
+@pytest.mark.parametrize("defect", ["digest", "budget", "boolean-budget", "matrix", "dtype", "shape", "nonfinite"])
+def test_profile_converted_vector_refuses_invalid_operands_before_torch(tmp_path, monkeypatch, defect):
+    import sys
+
+    from embedded_jev.prism_codec import verify_profile_converted_vector
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
+    source = np.zeros(profile.geometry["hidden_size"], dtype="<u2")
+    converted = np.ones(source.size, dtype="<f4")
+    arguments = {"source_name": "model.norm.weight", "source_values": source, "converted_values": converted,
+                 "expected_source_sha256": hashlib.sha256(memoryview(source)).hexdigest()}
+    if defect == "digest":
+        arguments["expected_source_sha256"] = "0" * 64
+    elif defect == "budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "boolean-budget":
+        arguments["maximum_bytes"] = True
+    elif defect == "matrix":
+        arguments["source_name"] = manifest["tensor"]
+    elif defect == "dtype":
+        arguments["source_values"] = source.astype(np.float32)
+    elif defect == "shape":
+        arguments["converted_values"] = converted[:-1]
+    elif defect == "nonfinite":
+        converted[0] = np.inf
+    monkeypatch.setitem(sys.modules, "torch", None)
+    with pytest.raises(ValueError):
+        verify_profile_converted_vector(profile, report, manifest, blocks, **arguments)
 
 
 def test_profile_model_policy_refuses_unpinned_runtime():

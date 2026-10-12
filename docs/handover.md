@@ -15,7 +15,8 @@ original conversation. Read this first, then follow the links for detail.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [bounded runtime hashing checkpoint](#bounded-runtime-hashing-checkpoint-2026-10-12),
+2. Read the [conversion plan and vector parity checkpoint](#conversion-plan-and-vector-parity-checkpoint-2026-10-12),
+   then the [bounded runtime hashing checkpoint](#bounded-runtime-hashing-checkpoint-2026-10-12),
    then the [symbol origin checkpoint](#symbol-origin-checkpoint-2026-10-12),
    then the [runtime file pin checkpoint](#runtime-file-pin-checkpoint-2026-10-12),
    then the [verified file owner checkpoint](#verified-file-owner-checkpoint-2026-10-12),
@@ -66,6 +67,55 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Conversion Plan And Vector Parity Checkpoint (2026-10-12)
+
+Following bounded runtime hashing `c18e90f`, `profile_model_conversion_plan()`
+reuses the checked complete-model table and declares the pinned source-to-output
+mapping, arithmetic/storage dtypes, normalization +1, negative exponential,
+convolution squeeze and grouped-to-tiled V-head row/column transforms. It carries
+profile/source/converter declarations and the exact frozen payload hash. The
+selected PQ2 tensor is explicitly a frozen replacement, not dense conversion.
+The plan does not execute transforms or verify any source/converted bytes.
+
+`verify_profile_converted_vector()` adds a separate operand-array gate for
+one-dimensional F32 outputs from declared BF16/F32 sources. BF16 input is raw
+little-endian uint16; F32 source/output arrays must be little-endian float32.
+Exact shapes, contiguous layout, finite operands and caller source SHA-256 are
+checked before importing Torch. The operand/reference budget is
+`source.nbytes + 2 * converted.nbytes <= maximum_bytes`, default/cap 64 KiB;
+it is not a process-RAM bound or the separate PQ2 validation budget. Copied
+operands are transformed with Torch under inference mode and compared as bytes,
+including signed zero. An immutable receipt explicitly leaves source-file and
+converted-file verification `not_checked` and grants no runtime approval.
+
+Verification: **322 default passes, 54 optional skips** in 6.86 s, Ruff,
+whitespace and editor diagnostics clean. **15 focused default cases** cover
+the plan, equal-head/no-reorder profiles, all seven frozen projection roles and
+pre-import vector refusals. The reused pinned-source AST toy control now checks
+the plan plus seven exact vector roles for both BF16 and F32 sources: **two
+cases in 2.58 s**, peak process RSS 237,400 KiB, no swaps. It verifies exact
+normalization, recurrent norms, A_log and dt-bias bytes and rejects sign-bit or
+one-bit changes. Existing toy tolerances were not changed. Pinned upstream
+methods are exercised on synthetic operands only; model-repository code is
+never imported. The earlier nine-role actual-loader gate remains at `c18e90f`,
+43.53 s; it was not rerun unchanged for this operand-only increment.
+
+Failed-check history: the first plan test omitted the fixture's unequal K/V
+head reorder; its expectations were corrected against the fixture's 2/4 heads.
+Seven ownership cases then treated tuple inventory shapes as lists; a tuple
+snapshot of the matching source row repaired the assertion. The cached Torch
+environment lacks pytest, so the controller passes a verified synthetic fixture
+over bounded stdin rather than installing software there. Both optional cases
+now pass; no failures were hidden or numerical tolerances relaxed.
+
+No source weights, real converted checkpoint or frozen candidate bytes were
+read/refit. No new artifact was retained; synthetic stdin is <1 MiB. Native
+libraries/factories/hooks, caches and user settings are untouched. No downloads,
+push, branch, subagent, new sanitizer/CTest evidence or model-quality claim.
+Next: bind this bounded vector gate to actual synthetic GGUF tensor views;
+matrix/convolution parity, source-file authentication, full-model parity and
+production scoring remain open. Real-profile work still requires new approval.
 
 ## Bounded Runtime Hashing Checkpoint (2026-10-12)
 

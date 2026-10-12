@@ -302,15 +302,18 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-12 bounded runtime hashing,
+The latest tested source checkpoint is the 2026-10-12 conversion plan and
+bounded vector operand parity, following runtime hashing at `c18e90f`,
 following defining-symbol origins and optional six-module inference file pins
 at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#bounded-runtime-hashing-checkpoint-2026-10-12) records
-307 default passes/53 optional skips, 56 focused file/owner/runtime cases and nine
-synthetic caller cases with verified full/parallel/recovery modes. The unchanged
+[latest handover](handover.md#conversion-plan-and-vector-parity-checkpoint-2026-10-12) records
+322 default passes/54 optional skips, 15 focused plan/vector cases and two
+pinned-source synthetic vector controls. The preceding runtime hashing checkpoint
+retains 56 focused file/owner/runtime cases and nine synthetic caller cases
+with verified full/parallel/recovery modes. The unchanged
 native metadata checkpoint retains 23 compiled controls and GCC sanitizer
 early/late plus four tiny v2 prefill cases. The large metadata
 boundary controls were not sanitizer-replayed; the earlier standalone nine-mode
@@ -1375,6 +1378,33 @@ loaded pages and transitive system libraries are not attested, and the
 cooperative deadline is not a hard timeout on blocked I/O or native calls.
 Keep runtime files immutable; concurrent writers are unsupported. No model
 execution approval or source/converted-tensor provenance follows.
+
+`profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)`
+reuses the checked table and declares source names/shapes/dtypes, arithmetic
+dtype, output geometry/type and ordered converter transforms. It distinguishes
+norm +1 from unchanged recurrent norms, negative exponential of A_log, squeeze,
+and grouped-to-tiled linear V-head row/column transforms. The selected PQ2 row
+declares `frozen_projection_payload_not_dense_conversion`; codes/scales are
+not regenerated. The plan is metadata, not source or converted-byte proof.
+
+`verify_profile_converted_vector(..., source_name=..., source_values=...,
+converted_values=..., expected_source_sha256=...)` checks one-dimensional F32
+output arrays from BF16/F32 source arrays. BF16 operands are raw little-endian
+uint16; F32 operands are little-endian float32. Shapes/layout/finite values and
+the caller source digest must match. `maximum_bytes` defaults to and is capped
+at 64 KiB, bounding `source.nbytes + 2 * converted.nbytes`; this is not peak RAM
+and does not include the separately bounded frozen-payload validation. Matrices,
+convolution and the frozen PQ2 replacement refuse this vector-only gate.
+
+The API requires Torch, reusing the cached dense environment for optional
+synthetic controls. It copies operand arrays, computes the declared F32 vector
+transforms under inference mode, and compares exact bytes, not a float tolerance.
+Its immutable receipt marks `source_file_verification` and
+`converted_file_verification` as `not_checked`: the source hash authenticates
+only against the caller's expectation, and the output array is not yet bound
+to a GGUF file. Torch loaded pages are not attested. No model runtime approval
+or whole-model conversion parity follows; actual file binding and matrix parity
+are separate prerequisites.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

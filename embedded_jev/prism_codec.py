@@ -229,6 +229,105 @@ def profile_model_specification(profile, inventory: dict, manifest: dict, pq2_bl
     }
 
 
+def profile_model_conversion_plan(profile, inventory: dict, manifest: dict, pq2_blocks) -> dict:
+    """Declare pinned dense-source transforms; this does not verify source or converted bytes."""
+    specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
+    sources = sorted((item for item in inventory["tensors"] if item["category"] not in ("vision", "optional_mtp")),
+                     key=lambda item: item["name"])
+    reordered = profile.geometry["linear_num_key_heads"] != profile.geometry["linear_num_value_heads"]
+    table = []
+    for source, destination in zip(sources, specification["tensors"], strict=True):
+        name = source["name"]
+        transforms = []
+        if destination["type"] == "PQ2_0":
+            transforms.append("frozen_projection_payload_not_dense_conversion")
+        else:
+            if reordered and ".linear_attn." in name:
+                if name.endswith(("in_proj_qkv.weight", "conv1d.weight")):
+                    transforms.append("v_rows_grouped_to_tiled")
+                elif name.endswith("out_proj.weight"):
+                    transforms.append("v_columns_grouped_to_tiled")
+                elif name.endswith(("in_proj_z.weight", "in_proj_a.weight", "in_proj_b.weight", "A_log", "dt_bias")):
+                    transforms.append("v_heads_grouped_to_tiled")
+            if name.endswith("A_log"):
+                transforms.append("negative_exp")
+            elif name.endswith("norm.weight") and not name.endswith("linear_attn.norm.weight"):
+                transforms.append("add_one")
+            if name.endswith("conv1d.weight"):
+                transforms.append("squeeze")
+            transforms.append("encode_" + destination["type"].lower())
+        table.append({"source_name": name, "source_dtype": source["dtype"], "source_shape": list(source["shape"]),
+                  "arithmetic_dtype": "not_applicable" if destination["type"] == "PQ2_0" else "F16" if source["dtype"] == "F16" else "F32",
+                      **destination, "ne": destination["ne"].copy(), "transforms": transforms})
+    return {"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+            "source_revision": profile.revision, "converter_revision": PRISM_SOURCE_REVISION, "tensors": table,
+            "projection_payload_sha256": specification["projection"]["payload_sha256"],
+            "linear_head_layout": {key: profile.geometry[key] for key in (
+                "linear_num_key_heads", "linear_num_value_heads", "linear_key_head_dim", "linear_value_head_dim")},
+            "tensor_byte_verification": "not_checked", "source_payload_verification": specification["source_payload_verification"],
+            "runtime_approval": "not_granted_by_conversion_plan"}
+
+
+def verify_profile_converted_vector(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
+    source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,
+    maximum_bytes: int = 64 * 1024,
+):
+    """Compare bounded operand arrays, not whole source files or a converted GGUF file."""
+    from embedded_jev.model_profile import SHA256
+
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if (
+        entry is None or entry["type"] != "F32" or len(entry["source_shape"]) != 1 or entry["arithmetic_dtype"] != "F32"
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= 64 * 1024
+        or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
+        or not isinstance(source_values, np.ndarray) or not isinstance(converted_values, np.ndarray)
+    ):
+        raise ValueError("unsupported bounded converted vector or source identity")
+    source_dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+    if (
+        source_dtype is None or source_values.dtype != source_dtype or converted_values.dtype != np.dtype("<f4")
+        or source_values.shape != tuple(entry["source_shape"]) or converted_values.shape != source_values.shape
+        or not source_values.flags.c_contiguous or not converted_values.flags.c_contiguous
+        or source_values.nbytes + 2 * converted_values.nbytes > maximum_bytes
+    ):
+        raise ValueError("converted vector layout or byte budget mismatch")
+    source_values = source_values.copy()
+    converted_values = converted_values.copy()
+    if hashlib.sha256(memoryview(source_values)).hexdigest() != expected_source_sha256:
+        raise ValueError("source vector identity mismatch")
+    values = (source_values.astype(np.uint32) << 16).view(np.float32) if entry["source_dtype"] == "BF16" else source_values
+    if not np.isfinite(values).all() or not np.isfinite(converted_values).all():
+        raise ValueError("converted vector operands must be finite")
+    import torch
+
+    with torch.inference_mode():
+        reference = torch.from_numpy(values)
+        for transform in entry["transforms"][:-1]:
+            if transform == "v_heads_grouped_to_tiled":
+                heads = plan["linear_head_layout"]
+                groups = heads["linear_num_key_heads"]
+                reference = reference.reshape(groups, heads["linear_num_value_heads"] // groups).transpose(0, 1).contiguous().reshape(-1)
+            elif transform == "negative_exp":
+                reference = -torch.exp(reference)
+            elif transform == "add_one":
+                reference = reference + 1
+            else:
+                raise ValueError("unsupported converted vector transform")
+        expected = reference.numpy().astype("<f4", copy=False)
+    if not np.isfinite(expected).all() or not np.array_equal(expected.view(np.uint8), converted_values.view(np.uint8)):
+        raise ValueError("converted vector byte parity mismatch")
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_name": source_name, "tensor_name": entry["name"],
+                            "source_sha256": expected_source_sha256,
+                            "converted_sha256": hashlib.sha256(memoryview(converted_values)).hexdigest(),
+                            "converted_bytes": converted_values.nbytes,
+                            "operand_byte_verification": "exact_f32_bytes_match_pinned_transform_reference",
+                            "source_file_verification": "not_checked", "converted_file_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_operand_verification"})
+
+
 class NativeModelTensor(ctypes.Structure):
     _fields_ = [("name", ctypes.c_char_p), ("type", ctypes.c_uint32), ("ne", ctypes.c_int64 * 4)]
 
