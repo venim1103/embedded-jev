@@ -7,6 +7,7 @@ import stat
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 
 import numpy as np
@@ -310,11 +311,55 @@ class VerifiedModelPolicy:
         return self._record
 
 
+def verify_model_runtime_files(native, expected_files: dict, *, maximum_bytes: int = 64 * 1024**2) -> dict:
+    """Match bridge/dependency files to caller pins, not loaded pages or execution approval."""
+    names = ("bridge", "ggml_cpu", "ggml_base")
+    if (
+        not isinstance(expected_files, dict) or set(expected_files) != set(names)
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= 64 * 1024**2
+    ):
+        raise ValueError("invalid runtime file identity or budget")
+    for expected in expected_files.values():
+        if (
+            not isinstance(expected, dict) or set(expected) != {"bytes", "sha256"}
+            or type(expected["bytes"]) is not int or expected["bytes"] <= 0
+            or not isinstance(expected["sha256"], str) or len(expected["sha256"]) != 64
+            or any(character not in "0123456789abcdef" for character in expected["sha256"])
+        ):
+            raise ValueError("invalid runtime file identity or budget")
+    if sum(expected["bytes"] for expected in expected_files.values()) > maximum_bytes:
+        raise ValueError("runtime files exceed byte budget")
+    expected_files = {name: item.copy() for name, item in expected_files.items()}
+    locator = native.prism_group_scale_library_path
+    locator.argtypes = [ctypes.c_int]
+    locator.restype = ctypes.c_char_p
+    paths = {"bridge": Path(os.fsdecode(native._name)).resolve()}
+    for index, name in enumerate(names[1:]):
+        raw_path = locator(index)
+        if not raw_path:
+            raise ValueError("runtime did not identify its loaded dependency")
+        paths[name] = Path(os.fsdecode(raw_path)).resolve()
+    for name, path in paths.items():
+        observed = path.stat()
+        if not stat.S_ISREG(observed.st_mode) or observed.st_size != expected_files[name]["bytes"]:
+            raise ValueError("runtime file size or type mismatch")
+    from embedded_jev.streamed_text import native_backend_dependencies
+
+    result = native_backend_dependencies(paths["bridge"], "prism_ggml_registered")
+    with paths["bridge"].open("rb") as source:
+        digest = hashlib.file_digest(source, "sha256").hexdigest()
+    result["bridge"] = {"path": str(paths["bridge"]), "bytes": paths["bridge"].stat().st_size, "sha256": digest}
+    for name in names:
+        if result[name] != {"path": str(paths[name]), **expected_files[name]}:
+            raise ValueError("runtime file identity mismatch")
+    return result
+
+
 @contextmanager
 def verified_profile_model_policy(
     native, model_path, profile, inventory: dict, manifest: dict, pq2_blocks, *,
     expected_bytes: int, expected_sha256: str, maximum_bytes: int = 16 * 1024**2,
-    maximum_seconds: float = 30,
+    maximum_seconds: float = 30, expected_runtime_files: dict | None = None,
 ):
     """Verify file identity, not conversion provenance; destroy all native users before exit."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
@@ -328,6 +373,10 @@ def verified_profile_model_policy(
         raise ValueError("invalid verified model identity or resource budget")
     if not hasattr(os, "O_NOFOLLOW") or not os.path.isdir("/proc/self/fd"):
         raise ValueError("verified model policy requires Linux descriptor paths")
+    if expected_runtime_files is not None:
+        if not isinstance(expected_runtime_files, dict) or any(not isinstance(item, dict) for item in expected_runtime_files.values()):
+            raise ValueError("invalid runtime file identity or budget")
+        expected_runtime_files = {name: item.copy() for name, item in expected_runtime_files.items()}
     blocks = np.array(pq2_blocks, copy=True)
     blocks.setflags(write=False)
     with os.fdopen(os.open(model_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as model:
@@ -353,6 +402,7 @@ def verified_profile_model_policy(
         if identity(os.fstat(model.fileno())) != identity(before) or digest.hexdigest() != expected_sha256:
             raise ValueError("verified model file identity mismatch")
         descriptor_path = f"/proc/self/fd/{model.fileno()}"
+        runtime_files = None if expected_runtime_files is None else verify_model_runtime_files(native, expected_runtime_files)
         free = native.prism_bitnet_cpu_model_policy_free_v2
         free.argtypes = [ctypes.c_void_p]
         free.restype = None
@@ -369,13 +419,19 @@ def verified_profile_model_policy(
                 "model_file_verification": "sha256_matches_caller_supplied_identity",
                 "source_payload_verification": specification["source_payload_verification"],
                 "runtime_approval": "not_granted_by_file_verification",
+                "runtime_file_verification": "not_checked" if runtime_files is None else "sha256_matches_caller_supplied_runtime_files",
+                **({name + "_sha256": item["sha256"] for name, item in runtime_files.items()} if runtime_files is not None else {}),
             })
             if identity(os.fstat(model.fileno())) != identity(before):
                 raise ValueError("verified model changed during policy creation")
+            if expected_runtime_files is not None:
+                verify_model_runtime_files(native, expected_runtime_files)
             yield VerifiedModelPolicy(descriptor_path, handle, overrides, record, verification)
         finally:
             try:
                 changed = identity(os.fstat(model.fileno())) != identity(before)
+                if expected_runtime_files is not None:
+                    verify_model_runtime_files(native, expected_runtime_files)
             finally:
                 free(handle)
                 handle.value = overrides.value = None

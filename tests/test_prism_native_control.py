@@ -668,6 +668,7 @@ for kind in ("valid", "metadata-large", "metadata-near-limit", "metadata-keys-li
 
 @pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o", "full-only", "large-state"])
 def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_path, target):
+    import hashlib
     import sys
     import numpy as np
 
@@ -839,6 +840,7 @@ print(json.dumps({"logits": reference([3, 5, 7]), "peer_logits": reference([4, 9
     driver_code = """
 import ctypes
 import gc
+import json
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -871,12 +873,16 @@ try:
         owner = owners.enter_context(verified_profile_model_policy(
             native, model_path, profile, inventory, manifest, blocks,
             expected_bytes=int(sys.argv[5]), expected_sha256=sys.argv[6],
+            expected_runtime_files=json.loads(sys.argv[7]),
         ))
         handle, overrides, record = owner.handle, owner.overrides, owner.record
         model_path = owner.model_path
         specification = None
         assert owner.verification["model_sha256"] == sys.argv[6]
         assert owner.verification["runtime_approval"] == "not_granted_by_file_verification"
+        assert owner.verification["runtime_file_verification"] == "sha256_matches_caller_supplied_runtime_files"
+        assert owner.verification["ggml_cpu_sha256"] == "adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150"
+        assert owner.verification["ggml_base_sha256"] == "57a9b6060d3bc902c30fd97fb271ae7f027054d4a9f8b50e27dd6fe91951847d"
         mode = mode.removeprefix("verified-")
     else:
         handle, overrides, specification = create_profile_model_policy(native, model_path, profile, inventory, manifest, blocks)
@@ -944,10 +950,20 @@ sys.exit(status)
                                      capture_output=True, text=True, timeout=30, env=environment)
             assert control.returncode == 27 and control.stdout == "", control.stderr
             return
+        from embedded_jev.streamed_text import native_backend_dependencies
+
+        bridge = Path(runtime_build) / "bin" / "libprism_group_scale.so"
+        dependencies = native_backend_dependencies(bridge, "prism_ggml_registered")
+        expected_runtime = {name: {"bytes": item["bytes"], "sha256": item["sha256"]} for name, item in dependencies.items()}
+        expected_runtime["ggml_cpu"]["sha256"] = "adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150"
+        expected_runtime["ggml_base"]["sha256"] = "57a9b6060d3bc902c30fd97fb271ae7f027054d4a9f8b50e27dd6fe91951847d"
+        with bridge.open("rb") as source:
+            bridge_digest = hashlib.file_digest(source, "sha256").hexdigest()
+        expected_runtime["bridge"] = {"bytes": bridge.stat().st_size, "sha256": bridge_digest}
         for requested_mode in ("full", "chunked", "reset", "reordered", "parallel", "maximum", "kernel-recovery",
                                "verified-full", "verified-parallel", "verified-kernel-recovery"):
             control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, requested_mode,
-                                      str(expected["model_bytes"]), expected["model_sha256"]],
+                                      str(expected["model_bytes"]), expected["model_sha256"], json.dumps(expected_runtime)],
                                      capture_output=True, text=True, timeout=30, env=environment)
             assert control.returncode == 0, control.stderr
             report = json.loads(control.stdout)

@@ -302,11 +302,12 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-12 verified-file policy owner,
+The latest tested source checkpoint is the 2026-10-12 optional runtime-file pins,
+following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#verified-file-owner-checkpoint-2026-10-12) records
-264 default passes/53 optional skips, thirteen focused owner cases and nine
+[latest handover](handover.md#runtime-file-pin-checkpoint-2026-10-12) records
+272 default passes/53 optional skips, 21 focused owner/runtime cases and nine
 synthetic caller cases with verified full/parallel/recovery modes. The unchanged
 native metadata checkpoint retains 23 compiled controls and GCC sanitizer
 early/late plus four tiny v2 prefill cases. The large metadata
@@ -1342,6 +1343,23 @@ grants no runtime approval. Larger real-file hashing, conversion and execution
 still require separately approved resource/provenance gates. The bare-handle
 factory and all v1 policies remain unchanged; this owner is not a production
 scoring API or permission to enlarge the compiled test hook.
+
+Optional `expected_runtime_files` supplies exact `bytes`/`sha256` records for
+`bridge`, `ggml_cpu` and `ggml_base`; `verify_model_runtime_files()` exposes the
+same check separately. Records must total <=64 MiB (a smaller `maximum_bytes`
+can be supplied to the standalone checker). Regular-file sizes are preflighted,
+then the existing dependency hasher resolves actual GGML CPU/base paths through
+the bridge's `dladdr` function. The bridge file is the resolved CDLL filename.
+Paths/bytes/digests must match; pin dictionaries are snapshotted. The owner
+rechecks before yielding and at exit, with cleanup on refusal, and adds flat
+runtime digests to its immutable receipt. Without pins it reports `not_checked`.
+
+These are file matches against caller pins, not full runtime attestation:
+loaded pages and the bridge's symbol origin are not independently attested,
+llama/registry/scorer binaries are not included, and the byte preflight is not
+a hard read deadline or concurrent-growth limit in the existing hasher.
+Keep runtime files immutable; concurrent writers are unsupported. No model
+execution approval or source/converted-tensor provenance follows.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

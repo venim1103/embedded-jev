@@ -674,7 +674,7 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
             pytest.fail("unverified model policy was yielded")
 
 
-@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record"])
+@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record", "runtime-change", "runtime-pins"])
 def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_path, monkeypatch, defect):
     import ctypes
     from types import SimpleNamespace
@@ -703,16 +703,31 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
             events.append("free")
 
     monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
+    arguments = {}
+    if defect in ("runtime-change", "runtime-pins"):
+        runtime_calls = []
+        pins = {"bridge": {"sha256": "f" * 64}}
+
+        def verify_runtime(native, received):
+            assert received["bridge"]["sha256"] == "f" * 64 and received is not pins
+            runtime_calls.append(1)
+            if defect == "runtime-change" and len(runtime_calls) == 3:
+                raise ValueError("runtime file identity mismatch")
+            return {"bridge": {"sha256": "f" * 64}}
+
+        monkeypatch.setattr(prism_codec, "verify_model_runtime_files", verify_runtime)
+        arguments["expected_runtime_files"] = pins
     if defect == "record":
         def record_failure(*arguments):
             raise RuntimeError("record failure")
 
         monkeypatch.setattr(prism_codec, "native_model_specification", record_failure)
     native = SimpleNamespace(prism_bitnet_cpu_model_policy_free_v2=Free())
-    with pytest.raises(RuntimeError if defect in ("caller", "record") else ValueError):
+    with pytest.raises(RuntimeError if defect in ("caller", "record", "runtime-pins") else ValueError):
         with prism_codec.verified_profile_model_policy(
             native, path, profile, report, manifest, blocks,
             expected_bytes=len(payload), expected_sha256=hashlib.sha256(payload).hexdigest(),
+            **arguments,
         ) as owner:
             saved_bytes = ctypes.string_at(owner.record.projection.reference_pq2, owner.record.projection.reference_bytes)
             blocks.flat[-1] ^= 1
@@ -726,7 +741,9 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
                 path.unlink()
                 path.write_bytes(b"replacement")
                 assert Path(owner.model_path).read_bytes() == payload
-            else:
+            elif defect != "runtime-change":
+                if defect == "runtime-pins":
+                    pins["bridge"]["sha256"] = "0" * 64
                 raise RuntimeError("caller failure")
     assert events == ["create", "free"] and handles[0].value is handles[1].value is None
     assert not Path(descriptors[0]).exists()
@@ -761,6 +778,43 @@ def test_verified_model_policy_refuses_nonregular_or_symlink_inputs(tmp_path, ki
         with verified_profile_model_policy(NeverCalled(), path, profile, report, manifest, blocks,
                                            expected_bytes=1, expected_sha256=hashlib.sha256(b"x").hexdigest()):
             pytest.fail("invalid model file was accepted")
+
+
+@pytest.mark.parametrize("defect", [None, "digest", "size", "budget", "missing", "path"])
+def test_model_runtime_file_verification_binds_resolved_dependencies(tmp_path, monkeypatch, defect):
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import verify_model_runtime_files
+    from embedded_jev import streamed_text
+
+    paths = {name: tmp_path / (name + ".so") for name in ("bridge", "ggml_cpu", "ggml_base")}
+    for name, path in paths.items():
+        path.write_bytes(name.encode())
+    expected = {name: {"bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                for name, path in paths.items()}
+    observed = {name: {"path": str(paths[name]), **expected[name]} for name in ("ggml_cpu", "ggml_base")}
+
+    class Locator:
+        def __call__(self, index):
+            return None if defect == "missing" else str(paths[("ggml_cpu", "ggml_base")[index]]).encode()
+
+    native = SimpleNamespace(_name=str(paths["bridge"]), prism_group_scale_library_path=Locator())
+    monkeypatch.setattr(streamed_text, "native_backend_dependencies", lambda *arguments: observed.copy())
+    arguments = {}
+    if defect == "digest":
+        expected["bridge"]["sha256"] = "0" * 64
+    elif defect == "size":
+        expected["ggml_cpu"]["bytes"] += 1
+    elif defect == "budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "path":
+        observed["ggml_cpu"]["path"] = str(tmp_path / "other.so")
+    if defect is not None:
+        with pytest.raises(ValueError):
+            verify_model_runtime_files(native, expected, **arguments)
+    else:
+        result = verify_model_runtime_files(native, expected)
+        assert result == {name: {"path": str(paths[name]), **expected[name]} for name in paths}
 
 
 def test_profile_record_is_strict_immutable_and_canonically_hashed():

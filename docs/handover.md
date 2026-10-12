@@ -15,7 +15,8 @@ original conversation. Read this first, then follow the links for detail.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [verified file owner checkpoint](#verified-file-owner-checkpoint-2026-10-12),
+2. Read the [runtime file pin checkpoint](#runtime-file-pin-checkpoint-2026-10-12),
+   then the [verified file owner checkpoint](#verified-file-owner-checkpoint-2026-10-12),
    then the [metadata budget checkpoint](#metadata-budget-checkpoint-2026-10-12),
    then the [real comparison preparation](#real-comparison-preparation-2026-10-12),
    then the [projection role checkpoint](#projection-role-checkpoint-2026-10-12),
@@ -64,9 +65,57 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Runtime File Pin Checkpoint (2026-10-12)
+
+Following verified owner `e6f6824`, the same approved code-only scope now adds
+`verify_model_runtime_files()` and optional `expected_runtime_files` owner
+inputs. Strict caller records declare bytes/SHA-256 for `bridge`, `ggml_cpu`
+and `ggml_base`, with a 64 MiB aggregate preflight ceiling. The existing
+`native_backend_dependencies()` helper hashes actual GGML paths returned by
+the bridge's `dladdr` witness; the bridge file uses the supplied CDLL's resolved
+filename. Regular-file sizes are checked before that existing hasher runs, and
+observed paths/bytes/digests must match. Pin records are copied so caller
+mutations cannot alter the active comparison.
+
+When requested, the owner checks these files before policy creation, before
+yielding and at exit, and records flat bridge/CPU/base digests in its immutable
+receipt. Exit-time runtime refusal still frees the policy and closes its model
+descriptor. Omitting runtime pins explicitly records `runtime_file_verification:
+not_checked`; it never becomes inferred approval. The seven-role fixture binds
+the independently recorded bridge digest and unchanged pinned GGML hashes in
+verified full/parallel/recovery modes.
+
+This is **partial file provenance**, not complete loaded-runtime attestation.
+It does not prove loaded memory pages equal current disk bytes, attest bridge
+symbol origin independently of the requested CDLL filename, bind llama/registry/
+scorer binaries, authenticate the expected pins' issuer or enforce immutable
+libraries. The byte ceiling is preflight validation around the existing hasher,
+not a hard read/deadline limit under concurrent file growth. Concurrent library
+changes are unsupported. Full dependency closure, independent converted-tensor
+equality, source payload authentication and production scoring remain open;
+there is no new real-model execution authorization.
+
+Verification: **272 default passes, 53 optional skips** in 8.37 s, Ruff,
+whitespace and editor diagnostics clean. **21 focused owner/runtime cases**
+cover digest/size/budget/missing-path/path mismatch, exit-time failure cleanup
+and mutable caller pins. The updated synthetic caller gate passed **nine cases
+in 42.75 s**, peak process RSS 110,872 KiB, no swaps. Existing oracle tolerances,
+hook bounds, native code and all v1 paths are unchanged. No runtime rebuild,
+new sanitizer/CTest or full 25-control gate is claimed. The prior Python leak
+limitation remains.
+
+Failed-check history: the initial runtime-pin fixture raised `NameError` for a
+missing parent `hashlib` import before native execution; adding the local import
+repaired the same FFN-down check, which passed in 5.54 s. A patch initially listed
+driver fragments out of file order and was refused; the reordered patch applied.
+No source-weight inputs, downloads, conversions, fits, new candidates or quality
+experiments ran. Synthetic model/payload files were deleted by fixture cleanup;
+only small existing runtime-library files were read for hashes. User editor
+files and immutable cached libraries remain unchanged; no push/branch/subagent.
+
 ## Verified File Owner Checkpoint (2026-10-12)
 
-The user resumed from pushed `af62d7e` and explicitly approved code-only
+Committed as `e6f6824`. The user resumed from pushed `af62d7e` and explicitly approved code-only
 production-caller/provenance preparation using bounded synthetic fixtures,
 without real conversions/execution, downloads or test-hook widening.
 `verified_profile_model_policy()` is a separate context-managed preparation
