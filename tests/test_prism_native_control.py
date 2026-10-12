@@ -640,7 +640,7 @@ for kind in ("valid", "profile", "fingerprint", "revision", "converter", "source
     assert handle.value is overrides.value is None
 
 
-@pytest.mark.parametrize("target", ["down", "up", "full-only", "large-state"])
+@pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o", "full-only", "large-state"])
 def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_path, target):
     import sys
     import numpy as np
@@ -656,7 +656,7 @@ def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_pat
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     assert (Path(runtime_build) / "bin" / "libprism_bitnet_prefill_test.so").is_file()
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
-        target if target in ("down", "up") else "down", hybrid=target != "full-only", state_size=256 if target == "large-state" else 32,
+        target if target in ("down", "up", "gate", "q", "k", "v", "o") else "down", hybrid=target != "full-only", state_size=256 if target == "large-state" else 32,
     )
     specification = profile_model_specification(profile, inventory, manifest, blocks)
     payload_file = tmp_path / "projection.bin"
@@ -670,7 +670,12 @@ import gguf
 import numpy as np
 from embedded_jev.prism_codec import unpack_ternary_pq2_0
 spec = json.loads(sys.argv[1])
-payload = np.frombuffer(Path(sys.argv[3]).read_bytes(), dtype=np.uint8).copy().reshape(1024, 8, 34)
+rows, columns = spec["projection"]["rows"], spec["projection"]["columns"]
+hidden, intermediate = spec["hidden"], spec["intermediate"]
+metadata = {item["name"]: item["values"] for item in spec["metadata"]}
+heads, kv_heads = metadata["qwen35.attention.head_count"][0], metadata["qwen35.attention.head_count_kv"][0]
+head_dim = metadata["qwen35.attention.key_length"][0]
+payload = np.frombuffer(Path(sys.argv[3]).read_bytes(), dtype=np.uint8).copy().reshape(rows, columns // 128, 34)
 codes, scales = unpack_ternary_pq2_0(payload)
 writer = gguf.GGUFWriter(sys.argv[2], "qwen35")
 for key, value in {
@@ -704,19 +709,34 @@ writer.add_eos_token_id(1)
 writer.add_add_bos_token(False)
 generator = np.random.default_rng(1407)
 arrays = {
-    "token_embd.weight": generator.normal(0, 0.2, (32, 1024)).astype(np.float32),
-    "output.weight": generator.normal(0, 0.1, (32, 1024)).astype(np.float32),
-    "blk.0.ffn_gate.weight": np.zeros((1024, 1024), dtype=np.float32),
-    "blk.0.ffn_up.weight": np.zeros((1024, 1024), dtype=np.float32),
-    "blk.0.ffn_down.weight": np.eye(1024, dtype=np.float32) * np.float32(0.125),
+    "token_embd.weight": generator.normal(0, 0.2, (32, hidden)).astype(np.float32),
+    "output.weight": generator.normal(0, 0.1, (32, hidden)).astype(np.float32),
+    "blk.0.ffn_gate.weight": np.zeros((intermediate, hidden), dtype=np.float32),
+    "blk.0.ffn_up.weight": np.zeros((intermediate, hidden), dtype=np.float32),
+    "blk.0.ffn_down.weight": np.eye(hidden, intermediate, dtype=np.float32) * np.float32(0.125),
 }
+if spec["projection"]["tensor_name"] == "blk.1.attn_output.weight":
+    arrays["token_embd.weight"][:, 0] = 0.125
 arrays["blk.0.ffn_gate.weight"][:, 0] = 0.25
-arrays["blk.0.ffn_up.weight"][np.arange(1024), (np.arange(1024) * 7) % 1024] = np.repeat([0.125, 0.375], 512)
+arrays["blk.0.ffn_up.weight"][np.arange(intermediate), (np.arange(intermediate) * 7) % hidden] = np.repeat([0.125, 0.375], intermediate // 2)
+attention = spec["projection"]["tensor_name"].startswith("blk.1.attn_")
+if attention:
+    query = np.zeros((heads * head_dim * 2, hidden), dtype=np.float32)
+    query[np.arange(heads) * head_dim * 2, np.arange(heads)] = 0.25
+    key = np.zeros((kv_heads * head_dim, hidden), dtype=np.float32)
+    key[np.arange(kv_heads) * head_dim, np.arange(kv_heads) + 4] = 0.25
+    value = np.zeros((kv_heads * head_dim, hidden), dtype=np.float32)
+    value[np.arange(kv_heads * head_dim), (np.arange(kv_heads * head_dim) + 3) % hidden] = 0.375
+    output = np.zeros((hidden, heads * head_dim), dtype=np.float32)
+    diagonal = np.arange(min(hidden, heads * head_dim))
+    output[diagonal, diagonal] = 0.125
+    arrays.update({"blk.1.attn_q.weight": query, "blk.1.attn_k.weight": key,
+                   "blk.1.attn_v.weight": value, "blk.1.attn_output.weight": output})
 for item in spec["tensors"]:
     name = item["name"]
     shape = list(reversed(item["ne"][:1 if item["ne"][1] == 1 else 2]))
     if item["type"] == "PQ2_0":
-        writer.add_tensor(name, payload.reshape(1024, 272), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+        writer.add_tensor(name, payload.reshape(rows, columns // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
         continue
     values = arrays.get(name)
     if values is None:
@@ -732,7 +752,7 @@ writer.write_kv_data_to_file()
 writer.write_tensors_to_file()
 writer.close()
 def bitnet_projection(inputs):
-    groups = inputs.reshape(8, 128)
+    groups = inputs.reshape(columns // 128, 128)
     activation_scales = np.max(np.abs(groups), axis=1) / np.float32(127)
     activation_scales[activation_scales == 0] = 1
     quantized = np.clip(np.rint(groups / activation_scales[:, None]), -127, 127).astype(np.int32)
@@ -742,18 +762,50 @@ def dense_projection(name, inputs):
     encoded = gguf.quants.quantize(inputs, gguf.GGMLQuantizationType.BF16)
     rounded = gguf.quants.dequantize(encoded, gguf.GGMLQuantizationType.BF16)
     return arrays[name] @ rounded
-def reference(token):
+def pre_attention(token):
     hidden = arrays["token_embd.weight"][token].copy()
     normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-6))
-    gate = dense_projection("blk.0.ffn_gate.weight", normalized)
+    gate = bitnet_projection(normalized) if spec["projection"]["tensor_name"] == "blk.0.ffn_gate.weight" else dense_projection("blk.0.ffn_gate.weight", normalized)
     up = bitnet_projection(normalized) if spec["projection"]["tensor_name"] == "blk.0.ffn_up.weight" else dense_projection("blk.0.ffn_up.weight", normalized)
     activation = (gate / (np.float32(1) + np.exp(-gate))) * up
     projected = bitnet_projection(activation) if spec["projection"]["tensor_name"] == "blk.0.ffn_down.weight" else dense_projection("blk.0.ffn_down.weight", activation)
     assert np.linalg.norm(projected) > 0.01
     hidden += projected
+    return hidden
+def reference(tokens):
+    sequence = np.stack([pre_attention(token) for token in tokens])
+    if attention:
+        normalized = sequence / np.sqrt(np.mean(sequence * sequence, axis=1, keepdims=True) + np.float32(1e-6))
+        def project(name):
+            return np.stack([bitnet_projection(current) if name == spec["projection"]["tensor_name"] else dense_projection(name, current)
+                             for current in normalized])
+        query = project("blk.1.attn_q.weight")[:, np.arange(heads) * head_dim * 2]
+        query /= np.sqrt(query * query / np.float32(head_dim) + np.float32(1e-6))
+        key = project("blk.1.attn_k.weight")[:, np.arange(kv_heads) * head_dim]
+        key /= np.sqrt(key * key / np.float32(head_dim) + np.float32(1e-6))
+        positions = np.arange(len(tokens), dtype=np.float32)
+        key_cosine = (key * np.cos(positions[:, None])).astype(np.float16).astype(np.float32)
+        key_sine = (key * np.sin(positions[:, None])).astype(np.float16).astype(np.float32)
+        value = project("blk.1.attn_v.weight").astype(np.float16).astype(np.float32).reshape(len(tokens), kv_heads, head_dim)
+        original = sequence.copy()
+        for index in range(len(tokens)):
+            output = np.zeros((heads, head_dim), dtype=np.float32)
+            for head in range(heads):
+                key_head = head // (heads // kv_heads)
+                cosine = np.float32(np.float16(query[index, head] * np.cos(positions[index])))
+                sine = np.float32(np.float16(query[index, head] * np.sin(positions[index])))
+                scores = (cosine * key_cosine[:index + 1, key_head] + sine * key_sine[:index + 1, key_head]) / np.sqrt(np.float32(head_dim))
+                scores = np.exp(scores - np.max(scores))
+                scores /= np.sum(scores)
+                scores = scores.astype(np.float16).astype(np.float32)
+                output[head] = np.sum(value[:index + 1, key_head] * scores[:, None], axis=0)
+            gated = output.reshape(heads * head_dim) * np.float32(0.5)
+            sequence[index] += bitnet_projection(gated) if spec["projection"]["tensor_name"] == "blk.1.attn_output.weight" else dense_projection("blk.1.attn_output.weight", gated)
+        assert np.linalg.norm(sequence - original) > 0.01
+    hidden = sequence[-1]
     hidden /= np.sqrt(np.mean(hidden * hidden) + np.float32(1e-6))
     return dense_projection("output.weight", hidden)[[11, 17, 23]].tolist()
-print(json.dumps({"logits": reference(7), "maximum_logits": reference(2)}))
+print(json.dumps({"logits": reference([3, 5, 7]), "peer_logits": reference([4, 9, 19, 3, 5, 7]), "maximum_logits": reference([2] * 128)}))
 """
     driver_code = """
 import ctypes
@@ -763,7 +815,7 @@ from pathlib import Path
 from embedded_jev.prism_codec import create_profile_model_policy, native_model_specification, NativeModelSpecification
 from test_inventory import _prefill_model_policy_fixture
 profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
-    sys.argv[2] if sys.argv[2] in ("down", "up") else "down", hybrid=sys.argv[2] != "full-only", state_size=256 if sys.argv[2] == "large-state" else 32)
+    sys.argv[2] if sys.argv[2] in ("down", "up", "gate", "q", "k", "v", "o") else "down", hybrid=sys.argv[2] != "full-only", state_size=256 if sys.argv[2] == "large-state" else 32)
 directory = Path(sys.argv[3]) / "bin"
 native = ctypes.CDLL(str(directory / "libprism_group_scale.so"))
 control = ctypes.CDLL(str(directory / "libprism_bitnet_prefill_test.so"))
@@ -872,7 +924,7 @@ sys.exit(status)
             scores /= scores.sum()
             np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
             if mode == "parallel":
-                np.testing.assert_allclose(report["peer_logits"], expected["logits"], rtol=2e-5, atol=2e-5)
+                np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
         for mode, status in (("unknown", 32), ("kernel-error", 29), ("null-policy", 27), ("oversized-geometry", 27),
                      ("null-overrides", 27), ("null-specification", 27), ("wrong-policy", 30),
                              ("shape-mismatch", 30), ("hidden-mismatch", 27), ("vocabulary-mismatch", 27),

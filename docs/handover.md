@@ -9,10 +9,11 @@ original conversation. Read this first, then follow the links for detail.
 **Quick orientation (2026-10-12):**
 
 1. The user explicitly resumed autonomous work on 2026-10-12. The bounded
-  synthetic profile/manifest-to-prefill caller checkpoint below is verified.
+  synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [profile caller checkpoint](#profile-caller-checkpoint-2026-10-12),
+2. Read the [projection role checkpoint](#projection-role-checkpoint-2026-10-12),
+   then the [profile caller checkpoint](#profile-caller-checkpoint-2026-10-12),
    then the [synthetic v2 prefill checkpoint](#synthetic-v2-prefill-checkpoint-2026-10-12),
   then the [profile model policy checkpoint](#profile-model-policy-checkpoint-2026-10-09)
   at `6abb44c` and the [projection geometry checkpoint](#projection-geometry-checkpoint-2026-10-09)
@@ -34,9 +35,10 @@ original conversation. Read this first, then follow the links for detail.
 5. P0.1-P0.4, bounded P3 and P4's separately versioned complete-model policy
   preparation plus synthetic actual-loader/prefill integration are implemented.
   The Python profile/inventory/manifest adapter now reaches actual BF16/PQ2
-  model prefill for synthetic layer-0 FFN-down/up targets. Next: the remaining
-  eligible FFN-gate and full-attention projection roles with independent
-  synthetic references. No real checkpoint execution is approved; P2,
+  model prefill for all seven eligible FFN/full-attention roles with independent
+  synthetic references. Bounded P4 code-only preparation is complete; the next
+  real-profile comparison needs approval and the prerequisites below. No real
+  checkpoint execution is approved; P2,
   real-model P4 and the MiMo layer-0 diagnostic still need new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
@@ -54,6 +56,75 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Projection Role Checkpoint (2026-10-12)
+
+Following caller checkpoint `d653efc`, synthetic profile/inventory/manifest-to-
+prefill checks cover FFN gate/up/down and full-attention Q/K/V/output. Runtime
+code, bounds and v1 factories are unchanged in this increment. All seven records
+verify exact retained payload bytes after garbage collection. Each role passes
+full/chunked/reset/reordered/parallel/128-token/recovery and caller-refusal modes,
+with typed conditional scores, one repack and zero generated answer tokens.
+Attention roles include a nonzero sparse attention reference and a distinct
+peer-prefix reference; recurrence remains zero in these profile fixtures and is
+covered separately by the existing nonzero tiny controls.
+
+Q/K/V use 1,024-wide input and 32-dimensional heads, with sparse per-head codes;
+attention-output uses hidden 128, FFN 256 and 16 x 64 query heads so its 1,024-wide
+input satisfies unchanged rotation eligibility. No bound was raised. FP16 cache
+matmuls round rotated query and probability operands to FP16 as well as stored
+K/V; pinned CPU traits confirm the F16 dot operand type. BF16 dense operands and
+group-A8 BitNet arithmetic retain their separate contracts. These are bounded
+integration/arithmetic controls, not whole-model quantization or quality evidence.
+
+Verification: **251 default passes, 53 optional skips**, Ruff, whitespace and
+editor diagnostics. The focused joint role gate passed **16 cases in 32.85 s**:
+seven native-record cases, seven prefill roles and two resource/architecture
+refusals. Peak process RSS 96,380 KiB; no swaps. The prior unchanged 20-control
+native gate and standalone sanitizer evidence remain at `d653efc`; they were
+not rerun merely for reassurance. The development command now selects 25 controls
+if run in full; that expanded full command is not claimed as measured here.
+
+Failed-check history: Q/K differed by up to about 0.00062 when the reference
+rounded only cache values. Pinned F16 CPU dot traits justified rounding query/
+probability operands, and the same eight-case role gate passed without changing
+2e-5 tolerances. Attention-output's alternate small geometry initially failed a
+nonzero-FFN assertion for one random toy coordinate; setting its gate-driving
+embedding coordinate explicitly nonzero repaired the fixture, not the assertion.
+All model/payload files were deleted by fixture cleanup. No raw traces, new runtime
+builds, conversions of real weights, downloads, fits, retained candidates,
+held-out scores or quality experiments were introduced. User editor files,
+cached pins and the sole frozen candidate remain untouched; no push/branch/subagent.
+
+### Next Approval Boundary
+
+All agreed bounded synthetic P4 prerequisites are now implemented. A meaningful
+next runtime claim requires a separately approved real-profile comparison, not
+more repetitions of unchanged synthetic gates. P2 and P5-P7 are not implicitly
+authorized. Before requesting a real run:
+
+- Select the exact profile/revision and authorize runtime execution separately
+  from file verification. MiMo alone has existing execution evidence; Defiant
+  Fable still needs its own dense/tokenizer/native reference gates and weights.
+- Define a production caller beside the bounded test hook; never raise its
+  16 MiB/1,024-width limits to smuggle in a real checkpoint. Bind source-file
+  identity, converter flags, typed option IDs and artifact provenance explicitly.
+- For MiMo v1/v2 comparison, use the sole frozen codes/scales without refitting.
+  The two policies require different metadata tags, so approved temporary files
+  must have independently verified identical tensor payloads; native declarations
+  alone do not authenticate them. No another-profile artifact is approved.
+- Write numerical acceptance against the same frozen mixed-model execution,
+  separating v1/v2 parity from the unresolved dense-reference gap. Keep dispatch,
+  zero generation, exact independent scales and error/recovery checks mandatory;
+  do not relax existing tolerances to conceal a difference.
+- Budget conversions/files, serial inference, measured host RAM/swap/disk and
+  cleanup before launch. Recheck current headroom and exact artifact byte costs;
+  per-process counters from synthetic controls are not whole-model estimates.
+  No new conversion, download, refit or retained candidate may begin implicitly.
+
+The current checkpoint stops at this authorization boundary. No new real-model
+approval has been granted; prepare a precise resource/cleanup plan for the user's
+chosen profile before undertaking that work.
 
 ## Profile Caller Checkpoint (2026-10-12)
 

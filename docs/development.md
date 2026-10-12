@@ -170,7 +170,7 @@ implemented or remaining profile field or
 | [projection_artifact.py](../embedded_jev/projection_artifact.py), [evaluation.py](../embedded_jev/evaluation.py) | `PINNED_SHARD`, `PINNED_SHARD_SHA256`, MiMo identity and 32 layers | Artifacts and evaluations MiMo-only | Profile ID plus tensor payload SHA-256 |
 | [decision_dataset.py](../embedded_jev/decision_dataset.py) captures | New v2 manifests bind a supplied profile or remain unbound; v1 MiMo remains read-only compatible; bounded layer-3 inputs | Cross-profile reuse and mixed capture banks refuse; raw arrays do not claim MiMo | P0.2 implemented; depth/target generalization still P7 |
 | [weight_slice.py](../embedded_jev/weight_slice.py), [ternary_artifact.py](../embedded_jev/ternary_artifact.py) | Default target/fetch remains MiMo-only; bounded local APIs and width mapper can bind explicit profiles | Unmatched local sources refuse rather than acquiring MiMo identity; no generic remote fetch | P0.2 identity implemented; broader workflow/targets remain separate |
-| [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | Legacy codec/v1 APIs retain 4,096-row bounds; v2 owned path and model policy are profile/manifest-gated | Larger projections, v2 policy/graphs and synthetic profile-to-BF16 prefill pass for layer-0 FFN-down/up; v1 real execution remains MiMo-only | Bounded P3/P4 caller integration implemented; other eligible roles and real checks remain |
+| [prism_codec.py](../embedded_jev/prism_codec.py), [native trait and handles](../native/prism_group_scale.cpp) | Legacy codec/v1 APIs retain 4,096-row bounds; v2 owned path and model policy are profile/manifest-gated | Larger projections, v2 policy/graphs and synthetic profile-to-BF16 prefill pass for all seven eligible roles; v1 real execution remains MiMo-only | Bounded P3/P4 synthetic prerequisites implemented; real caller/provenance/runtime gates need approval |
 | Native v1 complete-model factory | MiMo revision and model tags, 427 tensors, 32/4,096/12,288, 248,320 vocabulary, at most 19 GiB, one layer-3 target | Every other file refused, including MTP-bearing, third-party and 48-layer GGUF files | Versioned profile-driven policy (P4, P5, P7) |
 | Tests and documented commands | `MIMO_*` flags, cache paths, fixture prompts and expected IDs | MiMo evidence only | Keep names; add per-profile gates beside them |
 
@@ -302,16 +302,17 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-12 synthetic profile/manifest-
-to-BF16-prefill caller integration, following `c825cfc`, `6abb44c`, P0.1-P0.4
+The latest tested source checkpoint is the 2026-10-12 seven-role synthetic
+profile/manifest-to-prefill proof, following `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#profile-caller-checkpoint-2026-10-12) records
-246 default passes/48 optional skips, 20 selected compiled native controls and
-standalone GCC ASan/UBSan/leak replay. Python leak checks fail with the same
+[latest handover](handover.md#projection-role-checkpoint-2026-10-12) records
+251 default passes/53 optional skips and 16 focused record/role cases. The
+unchanged runtime's prior 20-control native gate and standalone GCC sanitizer
+replay remain at `d653efc`. Python leak checks fail with the same
 CPython/NumPy allocations in a no-prefill baseline. V1 factories
 remain strict. No new CTest result or real complete-model inference is claimed.
 The user resumed autonomous work on 2026-10-12. The synthetic caller boundary
-covers layer-0 FFN-down/up, not all eligible roles or real-profile execution approval.
+covers all seven eligible roles, not real-profile execution approval.
 Do not recreate environments or download another source/model copy to resume.
 
 **Historical 2026-10-08 evidence:** `9408f3f` followed the MiMo complete-model
@@ -351,9 +352,11 @@ ruff check --no-cache embedded_jev tests
 git diff --check
 ```
 
-The focused P3/P4 command below reproduces the 20 selected compiled controls using
+The expanded P3/P4 command below selects 25 compiled controls using
 only pinned cached sources/environments, synthetic fixtures and the sole frozen
 projection. It does not run a real complete model or convert/download one.
+The latest role-only increment ran its 16 focused record/role checks, not this
+expanded full command; the preceding 20-control result remains historical evidence.
 Rebuild our isolated wrapper first only if its tracked native sources changed;
 do not overwrite pinned GGML libraries or change user editor settings to fix
 CMake Tools discovery. Run checks for a changed slice, not merely to repeat
@@ -1334,19 +1337,21 @@ tools. Policy ownership lasts through all model/context/buffer lifetimes. The
 shared prefill oracle exercises 1-128 tokens, recurrence/attention, context reset/
 isolation, tracing, error/recovery and typed conditional scores with zero generation.
 The Python profile/manifest adapter's BF16 plan is also tested end to end for
-synthetic layer-0 FFN-down/up projections. `native_model_specification()` retains
+all seven eligible synthetic FFN/full-attention projections. `native_model_specification()` retains
 backing arrays through the record's lifetime. `libprism_bitnet_prefill_test.so`
 is a test library, not a production execution ABI. Its C entry point borrows the
 checked record, policy and overrides, returning after all model buffers/contexts
 are destroyed. It requires both recurrent and full-attention layers and caps
 files at 16 MiB, layers at four, hidden/FFN/target dimensions at 1,024 and vocabulary
 at 64. Loaded geometry/attention/SSM bounds apply before context allocation.
-Other eligible roles remain separate synthetic checks; real-profile execution
-still requires its own approval.
+Real-profile execution still requires its own production caller, source/artifact
+provenance gate and separate approval; this hook must not be widened for it.
 
 Pinned BF16 CPU traits use BF16 dot operands and convert floating input rows to
 BF16. Dense synthetic references therefore round both weights and inputs using
-the pinned GGUF codec; group-A8 BitNet references retain their distinct contract.
+the pinned GGUF codec. F16 dot traits likewise round query/probability operands
+for FP16 K/V-cache matmuls, not only cache values. Group-A8 BitNet references
+retain their distinct contract.
 This does not resolve historical real-model numerical differences or validate
 quality. The all-attention-only Qwen3.5 fixture hit an empty recurrent-state
 assertion and is refused by this test hook, not silently treated as supported.
