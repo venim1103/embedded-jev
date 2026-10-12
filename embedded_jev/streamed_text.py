@@ -4,8 +4,11 @@ import argparse
 import gc
 import hashlib
 import json
+import os
 import re
 import resource
+import stat
+import time
 import weakref
 from pathlib import Path
 
@@ -24,6 +27,33 @@ from embedded_jev.label_probe import (
 MAX_SELECTED_HEAD_BYTES = 256 * 1024
 MAX_FULL_HEAD_BYTES = 3 * 1024**3
 FULL_HEAD_BATCH_ROWS = 256
+
+
+def bounded_native_file_record(path: Path, *, maximum_bytes: int, deadline: float) -> dict:
+    """Hash only the initial file extent with unbuffered reads and cooperative deadline checks."""
+    def identity(value):
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as source:
+        before = os.fstat(source.fileno())
+        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= maximum_bytes:
+            raise InventoryError("native dependency exceeds file byte budget or is not regular")
+        remaining = before.st_size
+        digest = hashlib.sha256()
+        while remaining:
+            if time.monotonic() > deadline:
+                raise InventoryError("native dependency hashing deadline exceeded")
+            chunk = source.read(min(65536, remaining))
+            if not chunk:
+                raise InventoryError("native dependency file truncated")
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if time.monotonic() > deadline:
+            raise InventoryError("native dependency hashing deadline exceeded")
+        after = os.fstat(source.fileno())
+        if identity(before) != identity(after) or identity(before) != identity(path.stat()):
+            raise InventoryError("native dependency changed while hashing")
+    return {"path": str(path), "bytes": before.st_size, "sha256": digest.hexdigest()}
 
 
 def native_backend_dependencies(library: Path, backend: str) -> dict:

@@ -340,12 +340,15 @@ def _model_runtime_library_paths(native, scorer=None):
     return paths
 
 
-def verify_model_runtime_files(native, expected_files: dict, *, maximum_bytes: int = 64 * 1024**2, scorer=None) -> dict:
+def verify_model_runtime_files(
+    native, expected_files: dict, *, maximum_bytes: int = 64 * 1024**2, maximum_seconds: float = 30, scorer=None,
+) -> dict:
     """Match bridge/dependency files to caller pins, not loaded pages or execution approval."""
     names = ("bridge", "ggml_cpu", "ggml_base") + (() if scorer is None else ("scorer", "llama", "ggml_registry"))
     if (
         not isinstance(expected_files, dict) or set(expected_files) != set(names)
         or type(maximum_bytes) is not int or not 0 < maximum_bytes <= 64 * 1024**2
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
     ):
         raise ValueError("invalid runtime file identity or budget")
     for expected in expected_files.values():
@@ -359,6 +362,7 @@ def verify_model_runtime_files(native, expected_files: dict, *, maximum_bytes: i
     if sum(expected["bytes"] for expected in expected_files.values()) > maximum_bytes:
         raise ValueError("runtime files exceed byte budget")
     expected_files = {name: item.copy() for name, item in expected_files.items()}
+    deadline = time.monotonic() + maximum_seconds
     locator = native.prism_group_scale_library_path
     locator.argtypes = [ctypes.c_int]
     locator.restype = ctypes.c_char_p
@@ -373,14 +377,10 @@ def verify_model_runtime_files(native, expected_files: dict, *, maximum_bytes: i
         observed = path.stat()
         if not stat.S_ISREG(observed.st_mode) or observed.st_size != expected_files[name]["bytes"]:
             raise ValueError("runtime file size or type mismatch")
-    from embedded_jev.streamed_text import native_backend_dependencies
+    from embedded_jev.streamed_text import bounded_native_file_record
 
-    result = native_backend_dependencies(paths["bridge"], "prism_ggml_registered")
-    for name in names:
-        if name not in result:
-            with paths[name].open("rb") as source:
-                digest = hashlib.file_digest(source, "sha256").hexdigest()
-            result[name] = {"path": str(paths[name]), "bytes": paths[name].stat().st_size, "sha256": digest}
+    result = {name: bounded_native_file_record(paths[name], maximum_bytes=expected_files[name]["bytes"], deadline=deadline)
+              for name in names}
     for name in names:
         if result[name] != {"path": str(paths[name]), **expected_files[name]}:
             raise ValueError("runtime file identity mismatch")
@@ -413,7 +413,7 @@ def verified_profile_model_policy(
         expected_runtime_files = {name: item.copy() for name, item in expected_runtime_files.items()}
     blocks = np.array(pq2_blocks, copy=True)
     blocks.setflags(write=False)
-    with os.fdopen(os.open(model_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as model:
+    with os.fdopen(os.open(model_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as model:
         before = os.fstat(model.fileno())
         def identity(value):
             return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns

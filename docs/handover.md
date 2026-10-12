@@ -15,7 +15,8 @@ original conversation. Read this first, then follow the links for detail.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [symbol origin checkpoint](#symbol-origin-checkpoint-2026-10-12),
+2. Read the [bounded runtime hashing checkpoint](#bounded-runtime-hashing-checkpoint-2026-10-12),
+   then the [symbol origin checkpoint](#symbol-origin-checkpoint-2026-10-12),
    then the [runtime file pin checkpoint](#runtime-file-pin-checkpoint-2026-10-12),
    then the [verified file owner checkpoint](#verified-file-owner-checkpoint-2026-10-12),
    then the [metadata budget checkpoint](#metadata-budget-checkpoint-2026-10-12),
@@ -65,6 +66,45 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Bounded Runtime Hashing Checkpoint (2026-10-12)
+
+Following symbol-origin checkpoint `4973863`, the strict runtime pin checker
+now uses `bounded_native_file_record()` rather than hashing to EOF after
+preflight. Each Linux regular-file descriptor is opened nonblocking/no-follow,
+with unbuffered reads of at most 64 KiB. Only its initial extent, capped by the
+corresponding caller pin, can be read. Descriptor and path device/inode/size/
+mtime/ctime must still match after hashing. Truncation, growth, replacement,
+FIFO and unexpected symlink inputs refuse. Resolved linker aliases remain
+supported through the defining-symbol paths.
+
+`maximum_seconds` defaults to 30 and is capped at 600; one cooperative deadline
+covers all three or six runtime files per check. Invalid, Boolean and nonfinite
+budgets refuse. The 64 MiB aggregate ceiling remains unchanged. This is not a
+hard timeout on blocked I/O or native calls, nor immutable-storage, loaded-page
+or transitive-dependency attestation. The model-file owner also now reads
+unbuffered; legacy `native_backend_dependencies()` behavior is unchanged.
+
+Verification: **307 default passes, 53 optional skips** in 11.71 s, Ruff and
+whitespace clean; **56 focused cases** in 0.59 s cover read ceilings, partial
+reads, mutation, aggregate/final deadlines, invalid budgets and owner cleanup
+on runtime deadline refusal. Editor diagnostics are clean. Pylance signature
+validation reports all five checker call sites compatible. Its first report
+flagged two heterogeneous test keyword dictionaries; explicit keyword arguments
+in the expanded deadline cases resolved that test-inference limitation.
+There were no failing runtime checks in this increment.
+
+The unchanged synthetic native caller gate passed **nine cases in 43.53 s**,
+peak process RSS 110,640 KiB, no swaps. Exact FP16 scales, 2e-5 oracles,
+generation/dispatch assertions and v1 refusals remain unchanged. No native
+source/library rebuild, new sanitizer/CTest evidence or real-profile run is
+claimed. Fixtures removed generated models/payloads; cached sources/libraries,
+frozen candidate and user editor files were untouched. No downloads, push,
+branches, source-weight hashing or subagents.
+
+Next bounded provenance prerequisite: independent converted-tensor equality
+against caller-provided synthetic source operands. Real source authentication,
+conversion/parity, production scoring and quality/runtime approval stay open.
 
 ## Symbol Origin Checkpoint (2026-10-12)
 

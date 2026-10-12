@@ -676,7 +676,7 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
             pytest.fail("unverified model policy was yielded")
 
 
-@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record", "runtime-change", "runtime-pins"])
+@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record", "runtime-change", "runtime-deadline", "runtime-pins"])
 def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_path, monkeypatch, defect):
     import ctypes
     from types import SimpleNamespace
@@ -706,7 +706,7 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
 
     monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
     arguments = {}
-    if defect in ("runtime-change", "runtime-pins"):
+    if defect in ("runtime-change", "runtime-deadline", "runtime-pins"):
         runtime_calls = []
         pins = {"bridge": {"sha256": "f" * 64}}
 
@@ -715,6 +715,8 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
             runtime_calls.append(1)
             if defect == "runtime-change" and len(runtime_calls) == 3:
                 raise ValueError("runtime file identity mismatch")
+            if defect == "runtime-deadline" and len(runtime_calls) == 3:
+                raise InventoryError("native dependency hashing deadline exceeded")
             return {"bridge": {"sha256": "f" * 64}}
 
         monkeypatch.setattr(prism_codec, "verify_model_runtime_files", verify_runtime)
@@ -743,7 +745,7 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
                 path.unlink()
                 path.write_bytes(b"replacement")
                 assert Path(owner.model_path).read_bytes() == payload
-            elif defect != "runtime-change":
+            elif defect not in ("runtime-change", "runtime-deadline"):
                 if defect == "runtime-pins":
                     pins["bridge"]["sha256"] = "0" * 64
                 raise RuntimeError("caller failure")
@@ -782,13 +784,14 @@ def test_verified_model_policy_refuses_nonregular_or_symlink_inputs(tmp_path, ki
             pytest.fail("invalid model file was accepted")
 
 
-@pytest.mark.parametrize("defect", [None, "digest", "size", "budget", "missing", "path", "requested-alias", "pin-set"])
+@pytest.mark.parametrize("defect", [None, "digest", "size", "budget", "missing", "path", "requested-alias", "pin-set",
+                                   "deadline", "seconds-zero", "seconds-boolean", "seconds-infinite", "seconds-nan", "seconds-cap"])
 @pytest.mark.parametrize("with_scorer", [False, True])
 def test_model_runtime_file_verification_binds_resolved_dependencies(tmp_path, monkeypatch, defect, with_scorer):
     from types import SimpleNamespace
 
     from embedded_jev.prism_codec import verify_model_runtime_files
-    from embedded_jev import prism_codec, streamed_text
+    from embedded_jev import prism_codec
 
     names = ("bridge", "ggml_cpu", "ggml_base") + (() if not with_scorer else ("scorer", "llama", "ggml_registry"))
     paths = {name: tmp_path / (name + ".so") for name in names}
@@ -796,34 +799,99 @@ def test_model_runtime_file_verification_binds_resolved_dependencies(tmp_path, m
         path.write_bytes(name.encode())
     expected = {name: {"bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
                 for name, path in paths.items()}
-    observed = {name: {"path": str(paths[name]), **expected[name]} for name in ("ggml_cpu", "ggml_base")}
-
     class Locator:
         def __call__(self, index):
-            return None if defect == "missing" else str(paths[("ggml_cpu", "ggml_base")[index]]).encode()
+            if defect == "missing":
+                return None
+            if defect == "path" and index == 0:
+                return str(tmp_path / "other.so").encode()
+            return str(paths[("ggml_cpu", "ggml_base")[index]]).encode()
 
     native = SimpleNamespace(_name=str(paths["bridge"]), prism_group_scale_library_path=Locator())
     monkeypatch.setattr(prism_codec, "_model_runtime_library_paths", lambda *arguments: paths.copy(), raising=False)
-    monkeypatch.setattr(streamed_text, "native_backend_dependencies", lambda *arguments: observed.copy())
-    arguments = {"scorer": SimpleNamespace()} if with_scorer else {}
+    scorer = SimpleNamespace() if with_scorer else None
+    maximum_bytes = 1 if defect == "budget" else 64 * 1024**2
+    maximum_seconds = {"seconds-zero": 0, "seconds-boolean": True, "seconds-infinite": float("inf"),
+                       "seconds-nan": float("nan"), "seconds-cap": 601}.get(defect, 30)
+    if defect == "deadline":
+        monkeypatch.setattr(prism_codec.time, "monotonic", iter((0, 0, 0, 31)).__next__)
     if defect == "digest":
         expected["bridge"]["sha256"] = "0" * 64
     elif defect == "size":
         expected["ggml_cpu"]["bytes"] += 1
-    elif defect == "budget":
-        arguments["maximum_bytes"] = 1
-    elif defect == "path":
-        observed["ggml_cpu"]["path"] = str(tmp_path / "other.so")
     elif defect == "requested-alias":
         native._name = str(tmp_path / "not-the-loaded-bridge.so")
     elif defect == "pin-set":
         expected.pop("llama" if with_scorer else "ggml_base")
     if defect not in (None, "requested-alias"):
         with pytest.raises(ValueError):
-            verify_model_runtime_files(native, expected, **arguments)
+            verify_model_runtime_files(native, expected, maximum_bytes=maximum_bytes, maximum_seconds=maximum_seconds, scorer=scorer)
     else:
-        result = verify_model_runtime_files(native, expected, **arguments)
+        result = verify_model_runtime_files(native, expected, maximum_bytes=maximum_bytes, maximum_seconds=maximum_seconds, scorer=scorer)
         assert result == {name: {"path": str(paths[name]), **expected[name]} for name in paths}
+
+
+@pytest.mark.parametrize("defect", [None, "short-read", "grow", "truncate", "replace", "deadline", "pre-deadline", "final-deadline", "budget", "fifo", "symlink"])
+def test_bounded_native_file_record_limits_reads_and_refuses_changes(tmp_path, monkeypatch, defect):
+    from embedded_jev import streamed_text
+
+    path = tmp_path / "native.so"
+    payload = b"a" * (2 * 65536 + 17)
+    path.write_bytes(payload)
+    if defect == "fifo":
+        path.unlink()
+        streamed_text.os.mkfifo(path)
+    elif defect == "symlink":
+        original = tmp_path / "original.so"
+        path.rename(original)
+        path.symlink_to(original)
+    reads = []
+    received = []
+    original_fdopen = streamed_text.os.fdopen
+
+    class Reader:
+        def __init__(self, *arguments, **keywords):
+            assert keywords["buffering"] == 0
+            self.source = original_fdopen(*arguments, **keywords)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *arguments):
+            return self.source.__exit__(*arguments)
+
+        def fileno(self):
+            return self.source.fileno()
+
+        def read(self, size):
+            reads.append(size)
+            chunk = self.source.read(min(size, 32768) if defect == "short-read" else size)
+            received.append(len(chunk))
+            if len(reads) == 1:
+                if defect == "grow":
+                    with path.open("ab") as output:
+                        output.write(b"growth")
+                elif defect == "truncate":
+                    path.write_bytes(b"")
+                elif defect == "replace":
+                    path.unlink()
+                    path.write_bytes(payload)
+            return chunk
+
+    monkeypatch.setattr(streamed_text.os, "fdopen", Reader)
+    times = {"pre-deadline": iter((31,)), "deadline": iter((0, 31)), "final-deadline": iter((0, 0, 0, 31))}.get(defect)
+    monkeypatch.setattr(streamed_text.time, "monotonic", times.__next__ if times else lambda: 0)
+    arguments = {"maximum_bytes": len(payload) - (defect == "budget"), "deadline": 30}
+    if defect in (None, "short-read"):
+        assert streamed_text.bounded_native_file_record(path, **arguments) == {
+            "path": str(path), "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+    else:
+        with pytest.raises((ValueError, OSError)):
+            streamed_text.bounded_native_file_record(path, **arguments)
+    assert max(reads, default=0) <= 65536 and sum(received) <= len(payload)
+    if defect in ("budget", "fifo", "symlink", "pre-deadline"):
+        assert reads == []
 
 
 def test_profile_record_is_strict_immutable_and_canonically_hashed():

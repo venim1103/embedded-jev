@@ -302,13 +302,14 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-12 defining-symbol origins
-and optional six-module inference file pins, following `1426bce`,
+The latest tested source checkpoint is the 2026-10-12 bounded runtime hashing,
+following defining-symbol origins and optional six-module inference file pins
+at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#symbol-origin-checkpoint-2026-10-12) records
-283 default passes/53 optional skips, 32 focused owner/runtime cases and nine
+[latest handover](handover.md#bounded-runtime-hashing-checkpoint-2026-10-12) records
+307 default passes/53 optional skips, 56 focused file/owner/runtime cases and nine
 synthetic caller cases with verified full/parallel/recovery modes. The unchanged
 native metadata checkpoint retains 23 compiled controls and GCC sanitizer
 early/late plus four tiny v2 prefill cases. The large metadata
@@ -1327,7 +1328,7 @@ pq2_blocks, expected_bytes=..., expected_sha256=...)` provides a separate
 context-managed file-verification boundary. It defaults to a 16 MiB hashing
 budget (`maximum_bytes`), bounded by the checked complete-model file maximum,
 and a cooperative hashing deadline (`maximum_seconds`, default 30, at most 600).
-The Linux-only API hashes a regular, non-symlink file in 64 KiB chunks, verifies
+The Linux-only API hashes a regular, non-symlink file in unbuffered 64 KiB chunks, verifies
 descriptor identity, and exposes an anchored `/proc/self/fd/N` path while open.
 Its owner retains the library, copied read-only blocks, native record, handle,
 overrides and an immutable verification receipt. Use `owner.model_path`,
@@ -1348,11 +1349,16 @@ scoring API or permission to enlarge the compiled test hook.
 Optional `expected_runtime_files` supplies exact `bytes`/`sha256` records for
 `bridge`, `ggml_cpu` and `ggml_base`; `verify_model_runtime_files()` exposes the
 same check separately. Records must total <=64 MiB (a smaller `maximum_bytes`
-can be supplied to the standalone checker). Regular-file sizes are preflighted,
-then the existing dependency hasher resolves actual GGML CPU/base paths through
-the bridge's `dladdr` function. The checker resolves bridge/CPU/base defining symbols through
+can be supplied to the standalone checker). Regular-file sizes are preflighted.
+The checker resolves bridge/CPU/base defining symbols through
 libc `dladdr` and cross-checks the CPU/base witness. `CDLL._name` is not used
-as bridge identity. Paths/bytes/digests must match; pin dictionaries are snapshotted. The owner
+as bridge identity. Each regular-file descriptor is opened nonblocking/no-follow
+and hashed using unbuffered reads <=64 KiB, never beyond its initial extent or
+declared pin size. Descriptor/path identity must match after hashing. One
+cooperative deadline covers all files per check (`maximum_seconds`, default 30,
+at most 600 for the standalone checker); the owner uses that default for each
+entry/yield/exit runtime check. Paths/bytes/digests must match; pin dictionaries
+are snapshotted. The owner
 rechecks before yielding and at exit, with cleanup on refusal, and adds flat
 runtime digests to its immutable receipt. Without pins it reports `not_checked`.
 
@@ -1365,8 +1371,8 @@ cases; the library stays alive through cleanup. The test hook itself remains
 unchanged and synthetic-only.
 
 These are file matches against caller pins, not full runtime attestation:
-loaded pages and transitive system libraries are not attested, and the byte preflight is not
-a hard read deadline or concurrent-growth limit in the existing hasher.
+loaded pages and transitive system libraries are not attested, and the
+cooperative deadline is not a hard timeout on blocked I/O or native calls.
 Keep runtime files immutable; concurrent writers are unsupported. No model
 execution approval or source/converted-tensor provenance follows.
 
