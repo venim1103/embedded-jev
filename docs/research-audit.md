@@ -111,17 +111,30 @@ frozen artifact's existing array file sizes match its manifest: 12,583,040 bytes
 for packed codes and 786,560 for scales, including NumPy headers. Only that
 manifest and file sizes were read; no weight/artifact payload was rehashed.
 
-The [v2 native factory](../native/prism_group_scale.cpp) and Python adapter cap
+At planning checkpoint `7cbc1ff`, the
+[v2 native factory](../native/prism_group_scale.cpp) and Python adapter capped
 the whole file at declared tensor bytes plus 1 MiB. A full 248,320-entry GGUF
 token array needs **1,986,560 bytes for string-length prefixes alone**. The
 cached pinned Prism writer was checked in memory: each string array element
 starts with an eight-byte unsigned length. Actual token text, types, merges,
 other metadata and tensor alignment add more. Thus the current v2 cap cannot
 admit the planned full-vocabulary MiMo file, despite its adequate weight budget.
-This is a preparation blocker, not a failed real-model conversion or inference.
-No cap was raised; the next separately scoped correction must budget and bound
-metadata explicitly, preserve v1 and test-hook refusals, and precede any real
-conversion/execution approval. Source tags remain declarations, not authentication.
+That was a preparation blocker, not a failed real-model conversion or inference;
+the planning checkpoint did not raise the cap.
+
+The user then separately approved a code-only correction, recorded in the
+[metadata checkpoint](handover.md#metadata-budget-checkpoint-2026-10-12):
+32 MiB overhead, <=256 keys, pre-parse header checks and size-bounded callbacks,
+with v1 and test-hook limits unchanged. Synthetic boundary/refusal checks pass.
+Only the cached tokenizer JSON was subsequently payload-authenticated: its
+19,989,325 bytes match the profile pin. Source token strings and merge strings
+encode to 4,848,741 and 5,086,368 bytes; configured token types add 993,280.
+The 10,928,389-byte subtotal excludes fallback vocabulary entries, other
+metadata, tensor table/alignment and converter-specific token handling. It is
+headroom evidence, not a final GGUF-size measurement or native tokenizer gate.
+No weight/candidate payload was read or hashed for that check. Source tags
+remain declarations, not authentication; real conversion/execution still needs
+separate approval and production-caller/provenance preparation.
 
 ## Verified Model Facts
 

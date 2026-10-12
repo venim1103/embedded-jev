@@ -7,6 +7,8 @@ import os
 import numpy as np
 
 PRISM_SOURCE_REVISION = "842b1880415d6f508f03b789e5ce70194def7bfd"
+MODEL_METADATA_BYTES_V2 = 32 * 1024**2
+MODEL_METADATA_KEYS_V2 = 256
 
 
 def pack_ternary_pq2_0(codes, scales) -> np.ndarray:
@@ -213,7 +215,9 @@ def profile_model_specification(profile, inventory: dict, manifest: dict, pq2_bl
         "source_revision": profile.revision, "source_tensor_sha256": projection["source_tensor_sha256"],
         "layers": geometry["num_hidden_layers"], "hidden": geometry["hidden_size"],
         "intermediate": geometry["intermediate_size"], "vocabulary": geometry["vocab_size"],
-        "tensors": table, "metadata": metadata, "projection": projection, "maximum_file_bytes": weight_bytes + 1024**2,
+        "tensors": table, "metadata": metadata, "projection": projection,
+        "maximum_file_bytes": weight_bytes + MODEL_METADATA_BYTES_V2,
+        "maximum_metadata_bytes": MODEL_METADATA_BYTES_V2, "maximum_metadata_keys": MODEL_METADATA_KEYS_V2,
         "source_payload_verification": projection["source_payload_verification"],
         "runtime_approval": "not_granted_by_policy_validation",
     }

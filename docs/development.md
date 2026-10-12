@@ -302,13 +302,14 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-12 seven-role synthetic
-profile/manifest-to-prefill proof, following `d653efc`, `c825cfc`, P0.1-P0.4
+The latest tested source checkpoint is the 2026-10-12 bounded v2 metadata
+correction, following the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#projection-role-checkpoint-2026-10-12) records
-251 default passes/53 optional skips and 16 focused record/role cases. The
-unchanged runtime's prior 20-control native gate and standalone GCC sanitizer
-replay remain at `d653efc`. Python leak checks fail with the same
+[latest handover](handover.md#metadata-budget-checkpoint-2026-10-12) records
+251 default passes/53 optional skips, 23 applicable synthetic native controls,
+and GCC sanitizer early/late plus four tiny v2 prefill cases. The large metadata
+boundary controls were not sanitizer-replayed; the earlier standalone nine-mode
+caller replay remains at `d653efc`. Python leak checks fail with the same
 CPython/NumPy allocations in a no-prefill baseline. V1 factories
 remain strict. No new CTest result or real complete-model inference is claimed.
 The user resumed autonomous work on 2026-10-12. The synthetic caller boundary
@@ -1317,12 +1318,17 @@ their strings belong to the policy. Inputs/specifications are copied as needed
 during creation; keep the model file unchanged and available for subsequent
 loading. Policy creation/teardown is not general concurrent lifecycle safety.
 
-Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 1 MiB
+Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
-That whole-file reserve cannot accommodate MiMo's full tokenizer: its string
-length prefixes alone exceed 1 MiB. See the metadata-only
-[planning limit](research-audit.md#real-v2-planning-limits); a separately scoped
-bounded metadata correction is required before real v2 execution preparation.
+Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).
+The native factory checks magic/version, exact tensor count and <=256 metadata
+keys before parsing, then uses pinned GGUF callbacks capped at 32 MiB and 64 KiB
+per read. Padded data offset must fit 32 MiB; the whole file must fit tensor
+bytes plus that allowance. Valid near-limit metadata, exact-key/file ceilings
+and over-limit/header refusals pass. This corrects the historical 1 MiB reserve
+blocker without changing v1 or the prefill test hook. The cached tokenizer-only
+[planning evidence](research-audit.md#real-v2-planning-limits) is not a final
+GGUF-size, real tokenizer/runtime or source-weight authentication claim.
 The policy retains a canonical reference array in addition to compact resident
 tensor blocks. Do not extend P3's zero auxiliary tensor-array count to total
 policy/process memory. Synthetic table/refusal, isolated 8,192-row loader

@@ -568,6 +568,14 @@ def test_profile_model_policy_derives_complete_table_without_execution_approval(
     assert table["blk.0.ffn_down.weight"] == {"name": "blk.0.ffn_down.weight", "type": "PQ2_0", "ne": [2048, 1024, 1, 1]}
     assert table["blk.0.attn_q.weight"]["ne"] == [1024, 1024, 1, 1]
     assert table["output_norm.weight"]["type"] == "F32"
+    assert specification["maximum_metadata_bytes"] == 32 * 1024**2
+    assert specification["maximum_metadata_keys"] == 256
+    weight_bytes = sum(
+        item["ne"][0] * item["ne"][1] // 128 * 34 if item["type"] == "PQ2_0"
+        else item["ne"][0] * item["ne"][1] * (4 if item["type"] == "F32" else 2)
+        for item in table.values()
+    )
+    assert specification["maximum_file_bytes"] == weight_bytes + specification["maximum_metadata_bytes"]
     assert specification["runtime_approval"] == "not_granted_by_policy_validation"
     assert specification["source_payload_verification"] == "declared_digest_not_rehashed_source_tensor"
 

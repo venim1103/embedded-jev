@@ -1150,6 +1150,17 @@ extern "C" int prism_bitnet_cpu_model_override_from_gguf_v1(
     }
 }
 
+static size_t read_model_metadata_v2(void* userdata, void* output, uint64_t offset, size_t length) {
+    if (offset > JEV_BITNET_MODEL_METADATA_BYTES_V2 || length > JEV_BITNET_MODEL_METADATA_BYTES_V2 - offset) {
+        return 0;
+    }
+    auto* file = static_cast<FILE*>(userdata);
+    if (std::fseek(file, static_cast<long>(offset), SEEK_SET) != 0) {
+        return 0;
+    }
+    return std::fread(output, 1, length, file);
+}
+
 extern "C" int prism_bitnet_cpu_model_override_from_gguf_v2(
     const char* model_path, const jev_bitnet_model_spec_v2* specification,
     const char* prism_revision, uint32_t abi_version, void** policy,
@@ -1239,13 +1250,30 @@ extern "C" int prism_bitnet_cpu_model_override_from_gguf_v2(
             return 6;
         }
         const long length = std::ftell(file.get());
-        if (length <= 0 || static_cast<uint64_t>(length) > expected_bytes + 1024 * 1024 ||
+        if (length <= 0 || static_cast<uint64_t>(length) > expected_bytes + JEV_BITNET_MODEL_METADATA_BYTES_V2 ||
             std::fseek(file.get(), 0, SEEK_SET) != 0) {
+            return 6;
+        }
+        uint8_t header[24];
+        if (std::fread(header, 1, sizeof(header), file.get()) != sizeof(header) ||
+            std::memcmp(header, "GGUF\x03\0\0\0", 8) != 0) {
+            return 6;
+        }
+        const auto header_count = [&header](std::size_t first) {
+            uint64_t value = 0;
+            for (std::size_t byte = 0; byte < 8; ++byte) {
+                value |= static_cast<uint64_t>(header[first + byte]) << (byte * 8);
+            }
+            return value;
+        };
+        if (header_count(8) != specification->tensor_count ||
+            header_count(16) > JEV_BITNET_MODEL_METADATA_KEYS_V2) {
             return 6;
         }
         gguf_init_params params = { true, nullptr };
         std::unique_ptr<gguf_context, decltype(&gguf_free)> metadata(
-            gguf_init_from_file_ptr(file.get(), params), gguf_free);
+            gguf_init_from_callback(read_model_metadata_v2, file.get(), 65536,
+                                    std::min<uint64_t>(length, JEV_BITNET_MODEL_METADATA_BYTES_V2), params), gguf_free);
         if (!metadata || gguf_get_version(metadata.get()) != GGUF_VERSION ||
             gguf_get_n_tensors(metadata.get()) != static_cast<int64_t>(specification->tensor_count)) {
             return 6;
@@ -1322,7 +1350,7 @@ extern "C" int prism_bitnet_cpu_model_override_from_gguf_v2(
         }
         const auto data_offset = gguf_get_data_offset(metadata.get());
         const auto file_bytes = static_cast<std::size_t>(length);
-        if (data_offset > file_bytes) {
+        if (data_offset > file_bytes || data_offset > JEV_BITNET_MODEL_METADATA_BYTES_V2) {
             return 6;
         }
         std::vector<std::pair<std::size_t, std::size_t>> ranges;

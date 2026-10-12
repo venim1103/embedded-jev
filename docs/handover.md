@@ -10,9 +10,11 @@ original conversation. Read this first, then follow the links for detail.
 
 1. The user explicitly resumed autonomous work on 2026-10-12. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
+  The user separately approved the code-only v2 metadata-budget correction below.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [real comparison preparation](#real-comparison-preparation-2026-10-12),
+2. Read the [metadata budget checkpoint](#metadata-budget-checkpoint-2026-10-12),
+   then the [real comparison preparation](#real-comparison-preparation-2026-10-12),
    then the [projection role checkpoint](#projection-role-checkpoint-2026-10-12),
    then the [profile caller checkpoint](#profile-caller-checkpoint-2026-10-12),
    then the [synthetic v2 prefill checkpoint](#synthetic-v2-prefill-checkpoint-2026-10-12),
@@ -38,8 +40,8 @@ original conversation. Read this first, then follow the links for detail.
   The Python profile/inventory/manifest adapter now reaches actual BF16/PQ2
   model prefill for all seven eligible FFN/full-attention roles with independent
   synthetic references. Bounded P4 code-only preparation is complete; the next
-  real-profile comparison needs approval and the prerequisites below, including
-  the newly identified metadata-cap blocker. No real
+  real-profile comparison needs approval and the prerequisites below. The
+  metadata-cap blocker is corrected within explicit bounds; no real
   checkpoint execution is approved; P2,
   real-model P4 and the MiMo layer-0 diagnostic still need new approval.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
@@ -58,6 +60,66 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Metadata Budget Checkpoint (2026-10-12)
+
+Following planning commit `7cbc1ff`, the user explicitly approved a code-only
+v2 metadata-budget correction using synthetic fixtures and cached metadata,
+with v1/test-hook bounds unchanged and no real-model execution authorization.
+Python and the native header now declare **32 MiB metadata/table/alignment
+overhead and at most 256 keys**. The whole-file cap remains declared tensor
+bytes plus that allowance, with <=19 GiB of tensor data. A pinned GGUF callback
+limits parser reads to 32 MiB in <=64 KiB chunks; magic/version, exact tensor
+count and key count are checked in the first 24 bytes before parsing. Padded
+data offset must also fit 32 MiB. No v1 factory body or prefill-hook bound changed.
+
+The existing synthetic policy control accepts metadata over 1 MiB, near-32-MiB
+metadata, exactly 256 keys and the exact whole-file ceiling. It refuses 257 keys,
+metadata beyond the parser budget even when the whole file fits, one-byte file
+overflow and enormous header counts. Refusals clear both outputs and preserve
+the registry baseline; prior table, provenance-declaration and canonical-payload
+checks remain. The Python test recomputes tensor bytes and verifies cap agreement.
+
+The cached 19,989,325-byte MiMo tokenizer JSON was authenticated against its
+profile pin, without reading weight or frozen-artifact payloads. Static source
+token strings encode to 4,848,741 bytes and merges to 5,086,368; 248,320 token
+types add 993,280. This 10,928,389-byte subtotal excludes fallback vocabulary
+entries, other metadata, tensor information/alignment and converter-specific
+token handling. It supports headroom planning, not a measured final GGUF or
+native tokenizer compatibility result. The
+[research audit](research-audit.md#real-v2-planning-limits) preserves the original
+blocker and accounting limits.
+
+Verification: **251 default passes, 53 optional skips** in 5.19 s, Ruff,
+whitespace and editor diagnostics clean. The focused metadata/native-Python
+pair passed two cases; the applicable compiled gate passed **23 synthetic
+controls in 41.57 s**, including unchanged v1 complete-model refusals, twelve
+tiny dense/v1/v2 prefill combinations and all seven caller roles plus two
+resource/architecture refusals. Peak process RSS 197,284 KiB, no swaps. The
+full 25-control frozen-projection command was not rerun. Disposable GCC
+ASan/UBSan/leak early/late controls and **four tiny v2 prefill cases** passed
+in 6.30 s; peak replay RSS 86,284 KiB, no swaps. Project bridge/control were
+instrumented, cached llama/GGML were not. Large metadata boundary cases were
+not sanitizer-replayed, and the prior Python-loaded leak limitation remains.
+No new CTest result is claimed.
+
+Failed-check history: the initial >1-MiB regression reproduced native status 6
+at the old cap; the callback/budget correction passed that same check. A writer
+inspection probe requested a nonexistent `get_metadata` method; confirmed
+`kv_data` counting and controlled filler sizes were used instead. The first
+tokenizer planner treated `ProfileFile` as a dictionary and refused before any
+file read; verified `bytes`/`sha256` attributes repaired the check. No numerical
+tolerance or existing v1/test-hook safety gate was relaxed. Existing GCC
+`fclose` deleter-attribute warnings remain.
+
+Only isolated project wrappers were rebuilt. Upstream source revisions, clean
+worktrees and both immutable GGML hashes were rechecked. Synthetic policy files
+were removed by pytest's temporary-directory retention cleanup; prefill fixtures
+deleted their files. Disposable sanitizer binaries were removed after recording
+the results. No downloads, source copies, real conversion/inference, fit, new
+candidate, promotion or quality scoring occurred; user `.vscode/` is untouched.
+Next: separately scoped production caller/provenance preparation and explicit
+real MiMo comparison approval. Never widen the bounded test hook for this.
 
 ## Projection Role Checkpoint (2026-10-12)
 
@@ -126,7 +188,8 @@ authorized. Before requesting a real run:
   No new conversion, download, refit or retained candidate may begin implicitly.
 
 No new real-model approval has been granted. The preparation below identifies
-a metadata-budget blocker before a real run can be requested responsibly.
+a historical metadata-budget blocker, now corrected by the current checkpoint;
+production-caller, provenance and real-execution approvals remain open.
 
 ## Real Comparison Preparation (2026-10-12)
 
@@ -147,7 +210,7 @@ Current host observations were about 22 GiB available RAM, 8 GiB unused swap
 and 291 GiB available disk. Neither those values nor synthetic RSS guarantees
 whole-model runtime headroom.
 
-Next approval should first scope a bounded v2 metadata-budget correction using
+At planning commit `7cbc1ff`, next approval needed a bounded v2 metadata-budget correction using
 synthetic fixtures and cached tokenizer metadata only, keeping v1 and the
 16 MiB/1,024-width prefill hook unchanged. It must bound header bytes/counts,
 check the revised Python/native agreement and preserve oversized-file refusals;

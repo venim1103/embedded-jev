@@ -522,7 +522,9 @@ import numpy as np
 spec = json.loads(sys.argv[1])
 directory = Path(sys.argv[2])
 payload = (directory / "payload.bin").read_bytes()
-for kind in ("valid", "profile", "fingerprint", "revision", "converter", "source_digest", "tag", "execution",
+for kind in ("valid", "metadata-large", "metadata-near-limit", "metadata-keys-limit", "metadata-keys-over",
+             "metadata-over", "file-limit", "file-over", "header-tensors", "header-keys",
+             "profile", "fingerprint", "revision", "converter", "source_digest", "tag", "execution",
              "layers", "hidden", "intermediate", "architecture", "name", "shape", "dtype", "other_pq2",
              "target_shape", "payload", "transform", "truncated", "extra", "missing", "heads", "rope", "epsilon", "recurrent"):
     writer = gguf.GGUFWriter(directory / (kind + ".gguf"), "qwen3" if kind == "architecture" else "qwen35")
@@ -557,6 +559,15 @@ for kind in ("valid", "profile", "fingerprint", "revision", "converter", "source
     if kind == "transform":
         writer.add_uint32("prism.hadamard.version", 1)
     target = spec["projection"]["tensor_name"]
+    if kind == "metadata-large":
+        writer.add_string("jev.test.metadata", "x" * (1024**2 + 1))
+    if kind in ("metadata-near-limit", "metadata-over"):
+        size = spec["maximum_metadata_bytes"] + (1 if kind == "metadata-over" else -65536)
+        writer.add_string("jev.test.metadata", "x" * size)
+    if kind in ("metadata-keys-limit", "metadata-keys-over"):
+        count = spec["maximum_metadata_keys"] + (kind == "metadata-keys-over")
+        for index in range(count - len(writer.kv_data[0])):
+            writer.add_uint32("jev.test.key." + str(index), index)
     for item in spec["tensors"]:
         if kind == "missing" and item["name"] == "output_norm.weight":
             continue
@@ -595,6 +606,12 @@ for kind in ("valid", "profile", "fingerprint", "revision", "converter", "source
     output.write(encoded[:next(info.nbytes for name, info in infos if name == target)])
     if kind == "truncated":
         output.truncate(data_offset + offset + 1)
+    if kind in ("metadata-over", "file-limit", "file-over"):
+        output.truncate(spec["maximum_file_bytes"] + (kind == "file-over"))
+    if kind in ("header-tensors", "header-keys"):
+        import struct
+        output.seek(8 if kind == "header-tensors" else 16)
+        output.write(struct.pack("<Q", 2**64 - 1))
     writer.close()
 """
     writer = subprocess.run([converter, "-c", writer_code, json.dumps(specification), str(tmp_path)],
@@ -616,8 +633,9 @@ for kind in ("valid", "profile", "fingerprint", "revision", "converter", "source
     class Override(ctypes.Structure):
         _fields_ = [("pattern", ctypes.c_char_p), ("buffer_type", ctypes.c_void_p)]
 
-    for _ in range(2):
-        handle, overrides, result = create_profile_model_policy(native, tmp_path / "valid.gguf", profile, inventory, manifest, blocks)
+    accepted = {"valid", "metadata-large", "metadata-near-limit", "metadata-keys-limit", "file-limit"}
+    for kind in (*sorted(accepted), "valid"):
+        handle, overrides, result = create_profile_model_policy(native, tmp_path / (kind + ".gguf"), profile, inventory, manifest, blocks)
         try:
             rules = ctypes.cast(overrides, ctypes.POINTER(Override))
             assert rules[0].pattern == b"^blk\\.0\\.ffn_down\\.weight$" and rules[0].buffer_type != buffer_type.value
@@ -628,12 +646,20 @@ for kind in ("valid", "profile", "fingerprint", "revision", "converter", "source
             free(handle)
         assert registry() == baseline
     for path in sorted(tmp_path.glob("*.gguf")):
-        if path.name == "valid.gguf":
+        if path.stem in accepted:
             continue
         with pytest.raises(ValueError, match="policy failed: 6"):
             create_profile_model_policy(native, path, profile, inventory, manifest, blocks)
         assert registry() == baseline
     function = native.prism_bitnet_cpu_model_override_from_gguf_v2
+    from embedded_jev.prism_codec import native_model_specification
+
+    record = native_model_specification(specification, blocks)
+    for kind in ("metadata-keys-over", "metadata-over", "file-over", "header-tensors", "header-keys"):
+        handle, overrides = ctypes.c_void_p(123), ctypes.c_void_p(123)
+        assert function(os.fsencode(tmp_path / (kind + ".gguf")), ctypes.byref(record), PRISM_REVISION.encode(), 2,
+                        ctypes.byref(handle), ctypes.byref(overrides)) == 6
+        assert handle.value is overrides.value is None and registry() == baseline
     handle, overrides = ctypes.c_void_p(123), ctypes.c_void_p(123)
     assert function(os.fsencode(tmp_path / "valid.gguf"), None, PRISM_REVISION.encode(), 2,
                     ctypes.byref(handle), ctypes.byref(overrides)) == 1
