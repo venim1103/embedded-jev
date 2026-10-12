@@ -11,9 +11,12 @@ original conversation. Read this first, then follow the links for detail.
 1. The user explicitly resumed autonomous work on 2026-10-12. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   The user separately approved the code-only v2 metadata-budget correction below.
+  After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
+  the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [metadata budget checkpoint](#metadata-budget-checkpoint-2026-10-12),
+2. Read the [verified file owner checkpoint](#verified-file-owner-checkpoint-2026-10-12),
+   then the [metadata budget checkpoint](#metadata-budget-checkpoint-2026-10-12),
    then the [real comparison preparation](#real-comparison-preparation-2026-10-12),
    then the [projection role checkpoint](#projection-role-checkpoint-2026-10-12),
    then the [profile caller checkpoint](#profile-caller-checkpoint-2026-10-12),
@@ -60,6 +63,64 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Verified File Owner Checkpoint (2026-10-12)
+
+The user resumed from pushed `af62d7e` and explicitly approved code-only
+production-caller/provenance preparation using bounded synthetic fixtures,
+without real conversions/execution, downloads or test-hook widening.
+`verified_profile_model_policy()` is a separate context-managed preparation
+API beside the unchanged bare-handle factory. It requires caller-supplied exact
+file bytes and SHA-256, defaults to a 16 MiB hashing budget, and refuses budgets
+above the checked specification's whole-file maximum. Hashing uses 64 KiB reads
+with a cooperative 30-second default deadline, capped at 600 seconds; this is
+not a hard timeout for blocked filesystem I/O or native execution.
+
+The Linux-only owner rejects symlinks/nonregular inputs without blocking on
+FIFOs, verifies the opened descriptor's size/digest and device/inode/size/time
+identity, and passes `/proc/self/fd/N` to the unchanged native factory. It keeps
+the descriptor, library, copied read-only PQ2 blocks and ctypes record alive.
+Context exit frees the policy before closing the file, clears handle/override
+pointers, and refuses public path/record access afterwards. File changes during
+creation or use refuse; replacement cannot redirect the already-open descriptor.
+The immutable receipt binds profile/revision, converter declaration, expected
+model-file identity and projection digest, while explicitly marking source
+payload verification as declared and runtime approval as not granted.
+
+This authenticates file bytes against the caller's expected digest, not the
+digest's provenance, source weights, conversion correctness, loaded binary
+identity or tokenizer behavior. It does not make the file immutable, support
+concurrent writers or enforce cleanup of arbitrary caller-created contexts.
+Destroy every model/context/buffer before leaving the owner and publish scores
+only after successful context exit. There is still no production scoring ABI;
+the compiled test hook remains limited to synthetic geometry and files.
+
+Default tests cover wrong digest/size/budget/boolean/deadline, nonregular and
+symlink inputs, caller exceptions, creation-time changes, in-place changes,
+replacement, record-construction failure, cleanup ordering, immutable receipts,
+retained copied payload and post-exit guards. The existing seven-role fixture
+adds producer-recorded file hashes and verified full/parallel/recovery modes.
+Legacy refusal modes remain separate and unchanged. Each compiled call releases
+all native users before the owner; registry restoration and unchanged 2e-5
+arithmetic/conditional-score tolerances pass with zero generated tokens.
+
+Verification: **264 default passes, 53 optional skips** in 12.96 s, Ruff,
+whitespace and editor diagnostics clean. Thirteen focused owner cases pass.
+The joint caller gate passed **nine cases in 42.62 s**, peak process RSS
+110,540 KiB, no swaps; after the final post-exit property guard, a focused
+FFN-down replay passed in 6.72 s. No native code/library was changed or rebuilt,
+and no new sanitizer/CTest success is claimed. Prior Python-loaded leak-check
+limitations remain. Editor test discovery found no tests, so direct pytest was
+used without changing user settings. The first focused run passed six tests
+but Ruff rejected a local lambda (E731); a named helper repaired the same slice
+and the same checks then passed. No numerical or safety assertion was relaxed.
+
+Synthetic files were deleted by fixture cleanup. No new weights/source copies,
+real conversions/inference, source-payload hashes, retained candidates, fits,
+promotion or quality experiments ran. User `.vscode/` remains untouched; no push,
+branch or subagent. Next caller/provenance work must independently bind converted
+tensor payloads and loaded runtime provenance; a whole-file receipt alone cannot
+establish v1/v2 tensor parity or authorize a real profile's execution.
 
 ## Metadata Budget Checkpoint (2026-10-12)
 

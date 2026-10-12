@@ -646,6 +646,123 @@ def test_profile_model_policy_refuses_unpinned_runtime():
         profile_model_specification(profile, report, manifest, blocks)
 
 
+@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline"])
+def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_path, defect, monkeypatch):
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _model_policy_fixture()
+    path = tmp_path / "model.gguf"
+    path.write_bytes(b"synthetic file identity fixture")
+    arguments = {"expected_bytes": path.stat().st_size, "expected_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    if defect == "digest":
+        arguments["expected_sha256"] = "0" * 64
+    elif defect == "size":
+        arguments["expected_bytes"] += 1
+    elif defect == "budget":
+        arguments["maximum_bytes"] = arguments["expected_bytes"] - 1
+    elif defect == "boolean":
+        arguments["expected_bytes"] = True
+    else:
+        monkeypatch.setattr(prism_codec.time, "monotonic", iter((0, 31)).__next__)
+
+    class NeverCalled:
+        def __getattr__(self, name):
+            pytest.fail("unverified model file reached native dispatch")
+
+    with pytest.raises(ValueError):
+        with prism_codec.verified_profile_model_policy(NeverCalled(), path, profile, report, manifest, blocks, **arguments):
+            pytest.fail("unverified model policy was yielded")
+
+
+@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record"])
+def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_path, monkeypatch, defect):
+    import ctypes
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _model_policy_fixture()
+    path = tmp_path / "model.gguf"
+    payload = b"synthetic file identity fixture"
+    path.write_bytes(payload)
+    events = []
+    descriptors = []
+    handles = ctypes.c_void_p(123), ctypes.c_void_p(456)
+
+    def factory(native, descriptor, *arguments):
+        assert Path(descriptor).read_bytes() == payload
+        descriptors.append(descriptor)
+        events.append("create")
+        if defect == "factory-change":
+            path.write_bytes(payload + b"changed")
+        return *handles, prism_codec.profile_model_specification(*arguments)
+
+    class Free:
+        def __call__(self, handle):
+            assert handle.value == 123 and Path(descriptors[0]).is_file()
+            events.append("free")
+
+    monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
+    if defect == "record":
+        def record_failure(*arguments):
+            raise RuntimeError("record failure")
+
+        monkeypatch.setattr(prism_codec, "native_model_specification", record_failure)
+    native = SimpleNamespace(prism_bitnet_cpu_model_policy_free_v2=Free())
+    with pytest.raises(RuntimeError if defect in ("caller", "record") else ValueError):
+        with prism_codec.verified_profile_model_policy(
+            native, path, profile, report, manifest, blocks,
+            expected_bytes=len(payload), expected_sha256=hashlib.sha256(payload).hexdigest(),
+        ) as owner:
+            saved_bytes = ctypes.string_at(owner.record.projection.reference_pq2, owner.record.projection.reference_bytes)
+            blocks.flat[-1] ^= 1
+            assert ctypes.string_at(owner.record.projection.reference_pq2, owner.record.projection.reference_bytes) == saved_bytes
+            assert owner.verification["runtime_approval"] == "not_granted_by_file_verification"
+            with pytest.raises(TypeError):
+                owner.verification["model_sha256"] = "0" * 64
+            if defect == "change":
+                path.write_bytes(payload + b"changed")
+            elif defect == "replace":
+                path.unlink()
+                path.write_bytes(b"replacement")
+                assert Path(owner.model_path).read_bytes() == payload
+            else:
+                raise RuntimeError("caller failure")
+    assert events == ["create", "free"] and handles[0].value is handles[1].value is None
+    assert not Path(descriptors[0]).exists()
+    if defect not in ("factory-change", "record"):
+        for attribute in ("model_path", "record"):
+            with pytest.raises(ValueError, match="closed"):
+                getattr(owner, attribute)
+
+
+@pytest.mark.parametrize("kind", ["directory", "fifo", "symlink"])
+def test_verified_model_policy_refuses_nonregular_or_symlink_inputs(tmp_path, kind):
+    import os
+
+    from embedded_jev.prism_codec import verified_profile_model_policy
+
+    profile, report, manifest, blocks = _model_policy_fixture()
+    path = tmp_path / "model.gguf"
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(path)
+    else:
+        source = tmp_path / "source.gguf"
+        source.write_bytes(b"x")
+        path.symlink_to(source)
+
+    class NeverCalled:
+        def __getattr__(self, name):
+            pytest.fail("nonregular or symlink model reached native dispatch")
+
+    with pytest.raises((ValueError, OSError)):
+        with verified_profile_model_policy(NeverCalled(), path, profile, report, manifest, blocks,
+                                           expected_bytes=1, expected_sha256=hashlib.sha256(b"x").hexdigest()):
+            pytest.fail("invalid model file was accepted")
+
+
 def test_profile_record_is_strict_immutable_and_canonically_hashed():
     record = _profile_fixture()
     profile = parse_model_profile(json.dumps(record).encode())

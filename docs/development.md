@@ -302,12 +302,14 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-12 bounded v2 metadata
-correction, following the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
+The latest tested source checkpoint is the 2026-10-12 verified-file policy owner,
+following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#metadata-budget-checkpoint-2026-10-12) records
-251 default passes/53 optional skips, 23 applicable synthetic native controls,
-and GCC sanitizer early/late plus four tiny v2 prefill cases. The large metadata
+[latest handover](handover.md#verified-file-owner-checkpoint-2026-10-12) records
+264 default passes/53 optional skips, thirteen focused owner cases and nine
+synthetic caller cases with verified full/parallel/recovery modes. The unchanged
+native metadata checkpoint retains 23 compiled controls and GCC sanitizer
+early/late plus four tiny v2 prefill cases. The large metadata
 boundary controls were not sanitizer-replayed; the earlier standalone nine-mode
 caller replay remains at `d653efc`. Python leak checks fail with the same
 CPython/NumPy allocations in a no-prefill baseline. V1 factories
@@ -1317,6 +1319,29 @@ buffer lifetime, then call `prism_bitnet_cpu_model_policy_free_v2`. Overrides an
 their strings belong to the policy. Inputs/specifications are copied as needed
 during creation; keep the model file unchanged and available for subsequent
 loading. Policy creation/teardown is not general concurrent lifecycle safety.
+
+`verified_profile_model_policy(native, model_path, profile, inventory, manifest,
+pq2_blocks, expected_bytes=..., expected_sha256=...)` provides a separate
+context-managed file-verification boundary. It defaults to a 16 MiB hashing
+budget (`maximum_bytes`), bounded by the checked complete-model file maximum,
+and a cooperative hashing deadline (`maximum_seconds`, default 30, at most 600).
+The Linux-only API hashes a regular, non-symlink file in 64 KiB chunks, verifies
+descriptor identity, and exposes an anchored `/proc/self/fd/N` path while open.
+Its owner retains the library, copied read-only blocks, native record, handle,
+overrides and an immutable verification receipt. Use `owner.model_path`,
+`owner.record`, `owner.handle` and `owner.overrides` only inside the context;
+destroy all associated native users before exit. Cleanup frees the policy before
+closing the descriptor and invalidates public path/record access. Changed files
+refuse; no concurrent-writer or immutable-storage guarantee follows. Buffer
+scores until context exit succeeds.
+
+The receipt means SHA-256 matches **caller-supplied expected file identity**.
+It does not authenticate the expected digest's origin, source weights, converted
+tensor parity, loaded runtime binaries or tokenizer behavior, and explicitly
+grants no runtime approval. Larger real-file hashing, conversion and execution
+still require separately approved resource/provenance gates. The bare-handle
+factory and all v1 policies remain unchanged; this owner is not a production
+scoring API or permission to enlarge the compiled test hook.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

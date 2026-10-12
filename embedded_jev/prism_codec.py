@@ -3,6 +3,11 @@
 import ctypes
 import hashlib
 import os
+import stat
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass
+from types import MappingProxyType
 
 import numpy as np
 
@@ -282,6 +287,100 @@ def create_profile_model_policy(native, model_path, profile, inventory: dict, ma
     if status != 0 or not handle.value or not overrides.value:
         raise ValueError(f"native profile complete-model policy failed: {status}")
     return handle, overrides, specification
+
+
+@dataclass(frozen=True)
+class VerifiedModelPolicy:
+    _model_path: str
+    handle: ctypes.c_void_p
+    overrides: ctypes.c_void_p
+    _record: NativeModelSpecification
+    verification: MappingProxyType
+
+    @property
+    def model_path(self):
+        if self.handle.value is None:
+            raise ValueError("verified model policy is closed")
+        return self._model_path
+
+    @property
+    def record(self):
+        if self.handle.value is None:
+            raise ValueError("verified model policy is closed")
+        return self._record
+
+
+@contextmanager
+def verified_profile_model_policy(
+    native, model_path, profile, inventory: dict, manifest: dict, pq2_blocks, *,
+    expected_bytes: int, expected_sha256: str, maximum_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30,
+):
+    """Verify file identity, not conversion provenance; destroy all native users before exit."""
+    specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
+    if (
+        type(expected_bytes) is not int or type(maximum_bytes) is not int
+        or not 0 < expected_bytes <= maximum_bytes <= specification["maximum_file_bytes"]
+        or not isinstance(expected_sha256, str) or len(expected_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in expected_sha256)
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+    ):
+        raise ValueError("invalid verified model identity or resource budget")
+    if not hasattr(os, "O_NOFOLLOW") or not os.path.isdir("/proc/self/fd"):
+        raise ValueError("verified model policy requires Linux descriptor paths")
+    blocks = np.array(pq2_blocks, copy=True)
+    blocks.setflags(write=False)
+    with os.fdopen(os.open(model_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as model:
+        before = os.fstat(model.fileno())
+        def identity(value):
+            return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+        if not stat.S_ISREG(before.st_mode) or before.st_size != expected_bytes:
+            raise ValueError("verified model file size or type mismatch")
+        started = time.monotonic()
+        digest = hashlib.sha256()
+        remaining = expected_bytes
+        while remaining:
+            if time.monotonic() - started > maximum_seconds:
+                raise ValueError("verified model hashing deadline exceeded")
+            chunk = model.read(min(65536, remaining))
+            if not chunk:
+                raise ValueError("verified model file truncated")
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if time.monotonic() - started > maximum_seconds:
+            raise ValueError("verified model hashing deadline exceeded")
+        if identity(os.fstat(model.fileno())) != identity(before) or digest.hexdigest() != expected_sha256:
+            raise ValueError("verified model file identity mismatch")
+        descriptor_path = f"/proc/self/fd/{model.fileno()}"
+        free = native.prism_bitnet_cpu_model_policy_free_v2
+        free.argtypes = [ctypes.c_void_p]
+        free.restype = None
+        handle, overrides, specification = create_profile_model_policy(
+            native, descriptor_path, profile, inventory, manifest, blocks,
+        )
+        try:
+            record = native_model_specification(specification, blocks)
+            verification = MappingProxyType({
+                "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                "source_revision": profile.revision, "converter_revision": PRISM_SOURCE_REVISION,
+                "model_bytes": expected_bytes, "model_sha256": expected_sha256,
+                "projection_payload_sha256": manifest["payload_sha256"],
+                "model_file_verification": "sha256_matches_caller_supplied_identity",
+                "source_payload_verification": specification["source_payload_verification"],
+                "runtime_approval": "not_granted_by_file_verification",
+            })
+            if identity(os.fstat(model.fileno())) != identity(before):
+                raise ValueError("verified model changed during policy creation")
+            yield VerifiedModelPolicy(descriptor_path, handle, overrides, record, verification)
+        finally:
+            try:
+                changed = identity(os.fstat(model.fileno())) != identity(before)
+            finally:
+                free(handle)
+                handle.value = overrides.value = None
+            if changed:
+                raise ValueError("verified model changed while policy was active")
 
 
 def create_profile_projection(native, profile, inventory: dict, manifest: dict, pq2_blocks, *, tokens: int):

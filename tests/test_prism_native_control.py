@@ -831,14 +831,18 @@ def reference(tokens):
     hidden = sequence[-1]
     hidden /= np.sqrt(np.mean(hidden * hidden) + np.float32(1e-6))
     return dense_projection("output.weight", hidden)[[11, 17, 23]].tolist()
-print(json.dumps({"logits": reference([3, 5, 7]), "peer_logits": reference([4, 9, 19, 3, 5, 7]), "maximum_logits": reference([2] * 128)}))
+import hashlib
+model_bytes = Path(sys.argv[2]).read_bytes()
+print(json.dumps({"logits": reference([3, 5, 7]), "peer_logits": reference([4, 9, 19, 3, 5, 7]), "maximum_logits": reference([2] * 128),
+                  "model_bytes": len(model_bytes), "model_sha256": hashlib.sha256(model_bytes).hexdigest()}))
 """
     driver_code = """
 import ctypes
 import gc
 import sys
+from contextlib import ExitStack
 from pathlib import Path
-from embedded_jev.prism_codec import create_profile_model_policy, native_model_specification, NativeModelSpecification
+from embedded_jev.prism_codec import create_profile_model_policy, native_model_specification, NativeModelSpecification, verified_profile_model_policy
 from test_inventory import _prefill_model_policy_fixture
 profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
     sys.argv[2] if sys.argv[2] in ("down", "up", "gate", "q", "k", "v", "o") else "down", hybrid=sys.argv[2] != "full-only", state_size=256 if sys.argv[2] == "large-state" else 32)
@@ -855,16 +859,31 @@ baseline = registry()
 free = native.prism_bitnet_cpu_model_policy_free_v2
 free.argtypes = [ctypes.c_void_p]
 free.restype = None
-handle, overrides, specification = create_profile_model_policy(native, sys.argv[1], profile, inventory, manifest, blocks)
-record = native_model_specification(specification, blocks)
 function = control.prism_bitnet_test_prefill_policy_v2
 function.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p]
 function.restype = ctypes.c_int
 status = 27
-other_handle = None
+owners = ExitStack()
 try:
-    assert registry() == baseline + 1
     mode = sys.argv[4]
+    model_path = sys.argv[1]
+    if mode.startswith("verified-"):
+        owner = owners.enter_context(verified_profile_model_policy(
+            native, model_path, profile, inventory, manifest, blocks,
+            expected_bytes=int(sys.argv[5]), expected_sha256=sys.argv[6],
+        ))
+        handle, overrides, record = owner.handle, owner.overrides, owner.record
+        model_path = owner.model_path
+        specification = None
+        assert owner.verification["model_sha256"] == sys.argv[6]
+        assert owner.verification["runtime_approval"] == "not_granted_by_file_verification"
+        mode = mode.removeprefix("verified-")
+    else:
+        handle, overrides, specification = create_profile_model_policy(native, model_path, profile, inventory, manifest, blocks)
+        owners.callback(free, handle)
+        record = native_model_specification(specification, blocks)
+    other_handle = None
+    assert registry() == baseline + 1
     if mode == "null-policy":
         handle_for_call = None
         mode = "full"
@@ -874,6 +893,7 @@ try:
     record_for_call = ctypes.byref(record)
     if mode == "wrong-policy":
         other_handle, overrides_for_call, _ = create_profile_model_policy(native, sys.argv[1], profile, inventory, manifest, blocks)
+        owners.callback(free, other_handle)
         mode = "full"
     if mode == "null-overrides":
         overrides_for_call = None
@@ -902,12 +922,10 @@ try:
         mode = "full"
     del profile, inventory, manifest, blocks, specification
     gc.collect()
-    status = function(sys.argv[1].encode(), record_for_call, handle_for_call, overrides_for_call, mode.encode())
+    status = function(model_path.encode(), record_for_call, handle_for_call, overrides_for_call, mode.encode())
     assert registry() == baseline + 1 + (other_handle is not None)
 finally:
-    if other_handle is not None:
-        free(other_handle)
-    free(handle)
+    owners.close()
 assert registry() == baseline
 ctypes.CDLL(None).fflush(None)
 sys.exit(status)
@@ -926,11 +944,14 @@ sys.exit(status)
                                      capture_output=True, text=True, timeout=30, env=environment)
             assert control.returncode == 27 and control.stdout == "", control.stderr
             return
-        for mode in ("full", "chunked", "reset", "reordered", "parallel", "maximum", "kernel-recovery"):
-            control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, mode],
+        for requested_mode in ("full", "chunked", "reset", "reordered", "parallel", "maximum", "kernel-recovery",
+                               "verified-full", "verified-parallel", "verified-kernel-recovery"):
+            control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, requested_mode,
+                                      str(expected["model_bytes"]), expected["model_sha256"]],
                                      capture_output=True, text=True, timeout=30, env=environment)
             assert control.returncode == 0, control.stderr
             report = json.loads(control.stdout)
+            mode = requested_mode.removeprefix("verified-")
             tokens = [2] * 128 if mode == "maximum" else [3, 5, 7]
             assert report["model_policy_abi"] == 2 and report["generated_answer_tokens"] == 0
             assert report["input_tokens"] == tokens and report["prefilled_tokens"] == len(tokens)
