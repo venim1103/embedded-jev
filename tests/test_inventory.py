@@ -1420,7 +1420,7 @@ def test_profile_model_policy_refuses_unpinned_runtime():
         profile_model_specification(profile, report, manifest, blocks)
 
 
-@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins", "table-reader", "table-sources", "table-pins", "table-boolean", "table-budget", "table-file", "metadata-reader", "metadata-bool", "source-reader", "source-paths", "source-frozen", "source-budget", "source-extra", "source-clock"])
+@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins", "table-reader", "table-sources", "table-pins", "table-boolean", "table-budget", "table-file", "metadata-reader", "metadata-bool", "source-reader", "source-paths", "source-frozen", "source-budget", "source-extra", "source-clock", "exit-source", "exit-boolean", "exit-null"])
 def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_path, defect, monkeypatch):
     from embedded_jev import prism_codec
 
@@ -1438,6 +1438,8 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
         arguments["expected_bytes"] = True
     elif defect == "scorer-pins":
         arguments["runtime_scorer"] = object()
+    elif defect.startswith("exit-"):
+        arguments["verify_source_files_on_exit"] = True if defect == "exit-source" else 1 if defect == "exit-boolean" else None
     elif defect.startswith("metadata-"):
         arguments["verify_policy_metadata"] = True if defect == "metadata-reader" else 1
     elif defect.startswith("source-"):
@@ -1653,6 +1655,123 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
     if defect.startswith(("table-", "metadata-", "source-")):
         with pytest.raises(ValueError, match="closed"):
             _ = table_owner[0].model_path
+
+
+@pytest.mark.parametrize("defect", ["ok", "default-change", "change", "restored", "replace", "symlink", "missing", "deadline", "caller", "caller-change", "paths", "relative-path", "inventory"])
+def test_verified_model_policy_source_exit_recheck_is_opt_in_and_frees(tmp_path, monkeypatch, defect):
+    import ctypes
+    import os
+    from contextlib import nullcontext
+    from dataclasses import replace
+    from types import MappingProxyType, SimpleNamespace
+
+    from embedded_jev import prism_codec
+    from embedded_jev.model_profile import ProfileFile
+
+    profile, report, manifest, blocks = _model_policy_fixture()
+    model_path, source_path = tmp_path / "model.gguf", tmp_path / "source.safetensors"
+    model_bytes, source_bytes = b"synthetic model lifetime fixture", b"synthetic source lifetime fixture" * 3000
+    model_path.write_bytes(model_bytes)
+    source_path.write_bytes(source_bytes)
+    source_name, shard = report["tensors"][0]["name"], report["tensors"][0]["shard"]
+    profile = replace(profile, files=MappingProxyType({**profile.files, shard: ProfileFile(len(source_bytes), hashlib.sha256(source_bytes).hexdigest())}))
+    observed = source_path.stat()
+    source_identity = observed.st_dev, observed.st_ino, observed.st_size, observed.st_mtime_ns, observed.st_ctime_ns
+    table = MappingProxyType({"tensor_table_verification": "unit_test_table_gate"})
+    source = MappingProxyType({"source_table_verification": "unit_test_source_gate", "tensors": (
+        MappingProxyType({"source_name": source_name, "source_file_identity": source_identity}),
+    )})
+    evidence = MappingProxyType({"converted": table, "source": source, "source_conversion_table_verification": "unit_test_composed_gate"})
+    path_value = [str(source_path)]
+    class MutablePath:
+        def __fspath__(self):
+            return path_value[0]
+
+    source_paths = {shard: MutablePath()}
+    if defect == "relative-path":
+        monkeypatch.chdir(tmp_path)
+        path_value[0] = source_path.name
+    events, descriptors, reads = [], [], []
+    handles = ctypes.c_void_p(123), ctypes.c_void_p(456)
+    original_pread = os.pread
+    def pread(descriptor, size, offset):
+        assert size <= 65536
+        reads.append(size)
+        return original_pread(descriptor, size, offset)
+
+    def snapshot(*arguments, **keywords):
+        return None, {}, {}, keywords["source_paths"].copy(), None, 0
+
+    def factory(native, descriptor, *arguments):
+        descriptors.append(descriptor)
+        events.append("create")
+        return *handles, prism_codec.profile_model_specification(*arguments)
+
+    def verify_source(*arguments, **keywords):
+        events.append("source")
+        return evidence
+
+    class Free:
+        def __call__(self, handle):
+            assert handle.value == 123 and Path(descriptors[0]).is_file()
+            events.append("free")
+
+    monkeypatch.setattr(os, "pread", pread)
+    monkeypatch.setattr(prism_codec, "_profile_source_table_snapshot", snapshot)
+    monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
+    monkeypatch.setattr(prism_codec, "verify_profile_gguf_source_tensor_table", verify_source)
+    native = SimpleNamespace(prism_bitnet_cpu_model_policy_free_v2=Free())
+    expected_error = None if defect in ("ok", "default-change", "paths", "relative-path", "inventory") else OSError if defect in ("symlink", "missing") else RuntimeError if defect == "caller" else ValueError
+    with (nullcontext() if expected_error is None else pytest.raises(expected_error)):
+        with prism_codec.verified_profile_model_policy(
+            native, model_path, profile, report, manifest, blocks,
+            expected_bytes=len(model_bytes), expected_sha256=hashlib.sha256(model_bytes).hexdigest(),
+            tensor_reader=object(), source_values={}, expected_source_sha256={}, source_paths=source_paths,
+            frozen_source_values=np.zeros(1, dtype="<u2"), verify_source_files_on_exit=defect != "default-change",
+        ) as owner:
+            assert owner.verification["source_file_lifetime_verification"] == ("pre_yield_only" if defect == "default-change" else "entry_and_exit_checks_required")
+            if defect in ("change", "default-change", "caller-change"):
+                source_path.write_bytes(b"X" + source_bytes[1:])
+            elif defect == "restored":
+                source_path.write_bytes(b"X" + source_bytes[1:])
+                source_path.write_bytes(source_bytes)
+                os.utime(source_path, ns=(observed.st_atime_ns, observed.st_mtime_ns))
+            elif defect in ("replace", "symlink"):
+                replacement = tmp_path / "replacement"
+                replacement.write_bytes(source_bytes)
+                source_path.unlink()
+                if defect == "replace":
+                    replacement.rename(source_path)
+                else:
+                    source_path.symlink_to(replacement)
+            elif defect == "missing":
+                source_path.unlink()
+            elif defect == "paths":
+                source_paths.clear()
+                path_value[0] = str(tmp_path / "nonexistent")
+            elif defect == "relative-path":
+                other_directory = tmp_path / "other-cwd"
+                other_directory.mkdir()
+                monkeypatch.chdir(other_directory)
+            elif defect == "inventory":
+                report["tensors"].clear()
+            elif defect == "deadline":
+                clock = [0]
+                def expired():
+                    clock[0] += 31
+                    return clock[0]
+
+                monkeypatch.setattr(prism_codec.time, "monotonic", expired)
+            if defect in ("caller", "caller-change"):
+                raise RuntimeError("caller failed")
+    assert events == ["create", "source", "free"] and handles[0].value is handles[1].value is None
+    assert not Path(descriptors[0]).exists()
+    with pytest.raises(ValueError, match="closed"):
+        _ = owner.record
+    if defect == "default-change":
+        assert reads == []
+    elif defect in ("ok", "paths", "relative-path", "inventory", "caller"):
+        assert len(reads) >= 2
 
 
 @pytest.mark.parametrize("kind", ["directory", "fifo", "symlink"])

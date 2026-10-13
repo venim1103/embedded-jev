@@ -846,8 +846,6 @@ def verify_profile_safetensors_tensor_table(
     maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
 ):
     """Verify every selected source identity, not conversion, quantization or an atomic source snapshot."""
-    from embedded_jev.streamed_text import bounded_native_descriptor_record
-
     if type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600:
         raise ValueError("invalid source table deadline")
     deadline = time.monotonic() + maximum_seconds
@@ -864,9 +862,6 @@ def verify_profile_safetensors_tensor_table(
             raise ValueError("source table deadline exceeded")
         return duration
 
-    def identity(value):
-        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
-
     receipts, identities = [], {}
     for entry in plan["tensors"]:
         name = entry["source_name"]
@@ -881,8 +876,26 @@ def verify_profile_safetensors_tensor_table(
         if identities.setdefault(shard, receipt["source_file_identity"]) != receipt["source_file_identity"]:
             raise ValueError("source table shard identity changed between operands")
         receipts.append(receipt)
-    for shard in sorted(shards):
-        remaining()
+    _verify_profile_source_files(profile, paths, identities, deadline=deadline)
+    remaining()
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "tensor_count": len(receipts), "source_shard_count": len(shards), "operand_budget_bytes": total,
+                            "source_file_bytes": sum(profile.files[name].bytes for name in shards), "tensors": tuple(receipts),
+                            "source_table_verification": "all_selected_source_ranges_match_profile_pins_and_caller_operands",
+                            "source_to_frozen_quantization_verification": "not_checked", "converted_file_verification": "not_checked",
+                            "pin_issuer_verification": "not_checked", "cross_file_atomic_snapshot": "not_guaranteed",
+                            "runtime_approval": "not_granted_by_source_table_verification"})
+
+
+def _verify_profile_source_files(profile, paths: dict, identities: dict, *, deadline: float):
+    from embedded_jev.streamed_text import bounded_native_descriptor_record
+
+    def identity(value):
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    for shard in sorted(paths):
+        if time.monotonic() > deadline:
+            raise ValueError("source file recheck deadline exceeded")
         with os.fdopen(os.open(paths[shard], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as source:
             descriptor = source.fileno()
             pin = profile.files[shard]
@@ -892,14 +905,8 @@ def verify_profile_safetensors_tensor_table(
                 or identity(os.fstat(descriptor)) != identities[shard] or identity(Path(paths[shard]).lstat()) != identities[shard]
             ):
                 raise ValueError("source table shard identity changed after operands")
-    remaining()
-    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
-                            "tensor_count": len(receipts), "source_shard_count": len(shards), "operand_budget_bytes": total,
-                            "source_file_bytes": sum(profile.files[name].bytes for name in shards), "tensors": tuple(receipts),
-                            "source_table_verification": "all_selected_source_ranges_match_profile_pins_and_caller_operands",
-                            "source_to_frozen_quantization_verification": "not_checked", "converted_file_verification": "not_checked",
-                            "pin_issuer_verification": "not_checked", "cross_file_atomic_snapshot": "not_guaranteed",
-                            "runtime_approval": "not_granted_by_source_table_verification"})
+    if time.monotonic() > deadline:
+        raise ValueError("source file recheck deadline exceeded")
 
 
 def _profile_source_table_snapshot(
@@ -1451,6 +1458,7 @@ def verified_profile_model_policy(
     verify_policy_metadata: bool = False,
     source_paths: dict | None = None, frozen_source_values: np.ndarray | None = None,
     maximum_source_file_bytes: int = 16 * 1024**2,
+    verify_source_files_on_exit: bool = False,
 ):
     """Own a policy with explicit bounded evidence gates; destroy all native users before exit."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
@@ -1470,6 +1478,8 @@ def verified_profile_model_policy(
     if type(verify_policy_metadata) is not bool or (verify_policy_metadata and not requested_table):
         raise ValueError("policy metadata verification requires a tensor-table reader and inputs")
     requested_source = source_paths is not None or frozen_source_values is not None
+    if type(verify_source_files_on_exit) is not bool or (verify_source_files_on_exit and not requested_source):
+        raise ValueError("source file exit verification requires explicit source-table inputs")
     if requested_source and (not requested_table or not isinstance(source_paths, dict) or frozen_source_values is None):
         raise ValueError("source verification requires tensor-table inputs, source paths and frozen source values")
     if requested_table:
@@ -1489,6 +1499,8 @@ def verified_profile_model_policy(
             expected_source_sha256={**expected_source_sha256, manifest["tensor"]: manifest["source_tensor_sha256"]},
             maximum_bytes=maximum_tensor_bytes, maximum_file_bytes=maximum_source_file_bytes,
         )
+        if verify_source_files_on_exit:
+            source_paths = {name: Path(path).absolute() for name, path in source_paths.items()}
     if expected_runtime_files is not None:
         if not isinstance(expected_runtime_files, dict) or any(not isinstance(item, dict) for item in expected_runtime_files.values()):
             raise ValueError("invalid runtime file identity or budget")
@@ -1525,6 +1537,7 @@ def verified_profile_model_policy(
         handle, overrides, specification = create_profile_model_policy(
             native, descriptor_path, profile, inventory, manifest, blocks,
         )
+        source_identities = None
         try:
             record = native_model_specification(specification, blocks)
             verification = MappingProxyType({
@@ -1554,7 +1567,11 @@ def verified_profile_model_policy(
                     table = evidence["converted"]
                     verification = MappingProxyType({**verification, "source_conversion_table": evidence,
                                                      "source_table_verification": evidence["source"]["source_table_verification"],
-                                                     "source_conversion_table_verification": evidence["source_conversion_table_verification"]})
+                                                     "source_conversion_table_verification": evidence["source_conversion_table_verification"],
+                                                     "source_file_lifetime_verification": "entry_and_exit_checks_required" if verify_source_files_on_exit else "pre_yield_only"})
+                    if verify_source_files_on_exit:
+                        tensor_shards = {item["name"]: item["shard"] for item in inventory["tensors"]}
+                        source_identities = {tensor_shards[item["source_name"]]: item["source_file_identity"] for item in evidence["source"]["tensors"]}
                 else:
                     table = verify_profile_gguf_tensor_table(
                         profile, inventory, manifest, blocks, reader=tensor_reader,
@@ -1585,6 +1602,8 @@ def verified_profile_model_policy(
                 changed = identity(os.fstat(model.fileno())) != identity(before)
                 if expected_runtime_files is not None:
                     verify_model_runtime_files(native, expected_runtime_files, scorer=runtime_scorer)
+                if source_identities is not None:
+                    _verify_profile_source_files(profile, source_paths, source_identities, deadline=time.monotonic() + maximum_seconds)
             finally:
                 free(handle)
                 handle.value = overrides.value = None

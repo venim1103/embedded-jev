@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [source gated workflow checkpoint](#source-gated-workflow-checkpoint-2026-10-13),
+2. Read the [source exit owner checkpoint](#source-exit-owner-checkpoint-2026-10-13),
+   then the [source gated workflow checkpoint](#source-gated-workflow-checkpoint-2026-10-13),
    then the [source gated refusal checkpoint](#source-gated-refusal-checkpoint-2026-10-13),
    then the [source gated recovery checkpoint](#source-gated-recovery-checkpoint-2026-10-13),
    then the [nonzero source prefill checkpoint](#nonzero-source-prefill-checkpoint-2026-10-13),
@@ -105,6 +106,45 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Exit Owner Checkpoint (2026-10-13)
+
+User pushed `2290dc7` and explicitly resumed autonomous bounded code-only work.
+Added strict opt-in `verify_source_files_on_exit=False` to the verified owner;
+it requires existing complete source inputs and preserves defaults/v1. Source
+receipts now distinguish pre-yield-only evidence from required entry/exit checks.
+For the opt-in, absolute non-resolved paths and verified dev/inode/size/mtime/
+ctime identities are snapshotted before yield. Final no-follow/nonblocking
+selected-shard hashes and descriptor/path identities use the same bounded helper
+as the source table's final recheck. Aggregate source cap stays 16 MiB; <=64 KiB
+positional reads use one separate cooperative `maximum_seconds` exit phase
+(default 30, cap 600). This does not bound the whole caller/native session or
+prove continuous immutability/atomic storage. Exit/caller failure still frees
+the policy and clears pointers before model descriptor close.
+
+Verification: **36 focused controls** in 0.85 s include 13 tiny-real-file exit
+lifecycle cases and three new flag guards plus preserved refusals. Persistent/
+restored source changes, restored mtime, identical-byte replacement, symlink/
+missing file and deadline refuse; default pre-yield behavior remains unchanged.
+Caller exceptions and mutable path-map/path-like/inventory/cwd inputs exercise
+cleanup and snapshot isolation. Actual **2 paired BF16/F32 source-gated native
+loader controls pass** in 13.65 s, peak RSS 309,536 KiB, swaps zero; score buffers
+are parsed only after successful source-exit closure. Pylance finds all four
+resolved callers compatible, syntax/diagnostics clean. Gate **529 default passes,
+72 optional skips** in 12.96 s; Ruff/whitespace clean. First extraction passed
+105 tests but lint found one obsolete import; removed extraction leftovers and
+reran the same 105-test/lint slice successfully before new controls. No numerical
+failure or tolerance/deadline/cap relaxation.
+
+No native changes/rebuild/CTest/sanitizer, real model/source reads/hashes,
+conversion/execution/quality, downloads/refits/new candidates, push/branch or
+subagents. User settings/caches untouched; disposable fixtures cleaned. Locally
+generated pins are not issuer provenance; frozen source identity is not
+quantization equivalence. Real MiMo discrepancy remains open and Defiant Fable
+execution unapproved. Next bounded caller increment: nonzero source-gated native
+scores must be buffered until the source-exit gate succeeds; changed/restored
+sources after prefill must discard scores and restore registry/pointers. Real
+actions still need separate approval.
 
 ## Source Gated Workflow Checkpoint (2026-10-13)
 

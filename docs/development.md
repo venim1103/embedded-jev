@@ -1619,8 +1619,34 @@ to-frozen quantization equivalence, issuer or quality/runtime approval. Source
 files must be quiescent. Destroy native users before context exit and publish
 receipts/scores only after successful exit. Actual source-gated synthetic policy
 creation/free and bounded native prefill are tested through unchanged hooks.
-The source-gated prefill controls use zero dense sources: uniform logits/scores
-are an arithmetic/lifecycle check, not nonzero transform or quality evidence.
+The two paired source-gated prefill controls use zero dense sources: uniform
+logits/scores are an arithmetic/lifecycle check, not nonzero transform or quality
+evidence. Separate nonzero seven-role controls are described below.
+
+`verified_profile_model_policy(..., verify_source_files_on_exit=True)` separately
+opts a source-gated owner into final selected-shard identity/digest checks. The
+flag must be a strict boolean and requires the existing complete source inputs;
+default `False` preserves pre-yield-only source verification. Source-owner
+receipts explicitly distinguish `source_file_lifetime_verification` values
+`pre_yield_only` and `entry_and_exit_checks_required`. The latter is a required
+exit check, not a pre-yield assertion that exit succeeded: all evidence/scores
+remain provisional until successful context closure.
+
+The opt-in snapshots absolute source paths without resolving symlinks, plus
+the verified device/inode/size/mtime/ctime identities before yield. Exit reopens
+each selected shard no-follow/nonblocking, hashes against its profile pin in
+<=64 KiB positional chunks, and compares descriptor/path identities to the
+pre-yield records. Persistent changes, restored bytes/mtime, identical-byte
+replacements, symlinks and missing files refuse. Caller path-map/path-like/cwd
+or inventory changes cannot redirect the snapshotted exit checks. Source-file
+aggregate default/cap remains 16 MiB; this is one additional cooperative
+`maximum_seconds` phase (default 30, cap 600), not a whole-session or hard I/O/
+native deadline. Even exit failure or caller exception frees the policy and
+clears pointers before closing the model descriptor. Entry/exit checks do not
+prove immutable storage between observations or an atomic multi-file snapshot,
+issuer provenance, frozen quantization equivalence, quality or runtime approval.
+Both paired BF16/F32 source-gated actual-loader controls exercise this opt-in;
+nonzero seven-role caller exit-failure controls are the next separate increment.
 
 `verify_profile_safetensors_operand(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,

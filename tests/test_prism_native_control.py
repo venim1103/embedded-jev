@@ -867,10 +867,11 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
                 tensor_reader=reader, source_values=dense_sources,
                 expected_source_sha256={name: source_digests[name] for name in dense_sources},
                 source_paths={source_path.name: source_path}, frozen_source_values=source_arrays[manifest["tensor"]],
-                verify_policy_metadata=True,
+                verify_policy_metadata=True, verify_source_files_on_exit=True,
             ) as owner:
                 assert owner.handle.value and owner.overrides.value
                 assert owner.verification["source_table_verification"] == "all_selected_source_ranges_match_profile_pins_and_caller_operands"
+                assert owner.verification["source_file_lifetime_verification"] == "entry_and_exit_checks_required"
                 assert owner.verification["policy_metadata"]["model_metadata_verification"] == "selected_policy_records_only"
                 evidence = owner.verification["source_conversion_table"]
                 assert registry() == baseline + 1
