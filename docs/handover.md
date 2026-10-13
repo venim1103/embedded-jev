@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [BF16 matrix operand checkpoint](#bf16-matrix-operand-checkpoint-2026-10-13),
+2. Read the [BF16 matrix file checkpoint](#bf16-matrix-file-checkpoint-2026-10-13),
+   then the [BF16 matrix operand checkpoint](#bf16-matrix-operand-checkpoint-2026-10-13),
    then the [complete synthetic vector checkpoint](#complete-synthetic-vector-checkpoint-2026-10-13),
    then the [GGUF vector binding checkpoint](#gguf-vector-binding-checkpoint-2026-10-13),
    then the [conversion plan and vector parity checkpoint](#conversion-plan-and-vector-parity-checkpoint-2026-10-12),
@@ -83,6 +84,48 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Matrix File Checkpoint (2026-10-13)
+
+After `ef51266`, `verify_profile_gguf_matrix()` binds raw BF16 matrix views to
+caller file byte/SHA-256 pins. It shares `_verify_profile_gguf_operand()` with
+the unchanged public vector API. Matrix storage must be the reader's uint8
+encoded rows, with reversed GGUF dimensions, exact byte count, shared read-only
+mmap/range and a matching v3 tensor-info record. The raw little-endian uint16
+view is copied only after source geometry/dtype/pin syntax/contiguity and operand
+budget preflight. The shared file cap is 16 MiB (matrix default 16 MiB, vector
+default 64 KiB), with the existing cooperative deadline and two file hashes.
+Matrix `maximum_bytes` remains the 1 MiB default/16 MiB operand cap.
+
+Receipts bind one selected tensor range and retain `source_file_verification`
+and `gguf_reader_verification: not_checked`. Parser construction remains outside
+the wrapper budget. These are not complete-model table/tag/tokenizer parity,
+source issuer authentication, immutable storage, concurrent-writer safety or
+runtime approval. Frozen PQ2/F32 convolution remain separate and refused.
+
+Verification: **359 default passes, 54 optional skips** in 4.48 s, Ruff,
+whitespace and editor diagnostics clean. **37 focused matrix/file cases**
+passed in 0.75 s. The two pinned controls passed in **3.70 s**, peak process RSS
+295,260 KiB, no swaps: all 16 previously verified matrix operands are written
+to disposable <=16 MiB BF16 GGUF and checked through actual reader views.
+Wrong file pins, operand budgets, copied mappings, reversed/wrong shapes and
+changed payload bits refuse. Existing vector name/type/range, metadata,
+deadline and mutation controls continue to pass. The vector-enabled complete
+FFN-down native control passed in **6.61 s** after the shared refactor; the
+full nine-role result remains at `7326a14`, not a new all-role rerun.
+
+Failed-check history: review found operand budget validation after the mapped
+copy. Two new pre-import regressions reproduced `ModuleNotFoundError` rather
+than early `ValueError` for oversized inputs. Moving source/budget preflight
+ahead of reader import, file hashes and copies repaired both; the same checks
+and complete focused slice passed. No assertion, tolerance or deadline was
+relaxed. Temporary GGUFs are removed; no data is retained in Git or caches.
+
+No native changes/rebuilds, new sanitizer/CTest evidence, source/candidate
+weight reads, real model conversion/execution, fits, quality experiments,
+downloads, pushes, branches or subagents. Next code-only prerequisite: F32
+convolution squeeze/V-channel operand parity, then synthetic complete-table
+provenance integration. Real-source/runtime work still needs separate approval.
 
 ## BF16 Matrix Operand Checkpoint (2026-10-13)
 

@@ -302,8 +302,9 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-13 exact BF16 matrix operand
-gate, following complete synthetic vectors at `7326a14` and GGUF binding at `5240c26`
+The latest tested source checkpoint is the 2026-10-13 BF16 matrix file-range
+gate, following exact matrix operands at `ef51266`, complete synthetic vectors
+at `7326a14` and GGUF binding at `5240c26`
 and conversion planning/vector operand parity at `b6a9f0d`
 and runtime hashing at `c18e90f`,
 following defining-symbol origins and optional six-module inference file pins
@@ -311,9 +312,9 @@ at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#bf16-matrix-operand-checkpoint-2026-10-13) records
-350 default passes/54 optional skips, 21 focused matrix cases and two pinned-source
-controls including 16 exact matrix transforms. The preceding complete-vector
+[latest handover](handover.md#bf16-matrix-file-checkpoint-2026-10-13) records
+359 default passes/54 optional skips, 37 focused matrix/file cases and two
+pinned-source controls including 16 exact matrix/file ranges. The preceding complete-vector
 checkpoint retains nine vector-enabled synthetic complete-model cases. The file-binding
 checkpoint retains 22 focused plan/vector/file cases. The preceding runtime hashing checkpoint
 retains 56 focused file/owner/runtime cases and nine synthetic caller cases
@@ -1461,6 +1462,25 @@ The immutable receipt leaves both source/converted file verification
 remain separate gates. Its transforms use NumPy, not an implicit Torch/model
 dependency. Reviewed upstream Torch methods are exercised only by optional
 synthetic controls in the already cached environment.
+
+`verify_profile_gguf_matrix(..., reader=..., source_name=..., source_values=...,
+expected_source_sha256=..., expected_file_bytes=..., expected_file_sha256=...)`
+reuses the typed file-range checker behind the unchanged vector API. It requires
+BF16 storage with raw uint8 reader rows, reversed GGUF dimensions and an exact
+shared read-only mmap range. It independently rereads the v3 tensor-info record
+and payload, then compares a raw little-endian uint16 copy with the bounded
+matrix reference. Source layout and operand budgets refuse before optional
+reader import, file hashing or mapped copies. `maximum_file_bytes` defaults to
+16 MiB and is capped there; `maximum_bytes` defaults to 1 MiB and is capped at
+16 MiB independently. The existing 30 s/600 s cooperative deadline covers the
+two hashes and intervening comparison, not a hard I/O timeout.
+
+Its immutable receipt marks the selected converted-file range as caller-pin
+matched; source-file and reader-code verification remain `not_checked`.
+Parser construction is outside the budget, and other tensor bytes/model tags/
+tokenizer behavior are not proven. It is not permission for real-model reads,
+whole-model conversion parity, or executing another profile. F32 convolution
+still requires a separate operand/layout gate.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

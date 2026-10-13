@@ -2534,7 +2534,7 @@ import numpy as np
 import torch
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector, verify_profile_converted_matrix
+from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector, verify_profile_converted_matrix, verify_profile_gguf_matrix
 import embedded_jev.prism_codec as prism_codec
 
 module = ast.parse((Path(sys.argv[1]) / "conversion/qwen.py").read_text())
@@ -2786,6 +2786,7 @@ with TemporaryDirectory(prefix="jev-vector-gguf-") as directory:
                 output.write(original)
     del tensor, reader
 matrix_count = 0
+matrix_operands = {}
 if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "output_norm.weight") == "BF16":
     model.hparams.update(plan["linear_head_layout"])
     model.hparams["hidden_size"] = profile.geometry["hidden_size"]
@@ -2799,6 +2800,7 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         keywords = {"source_name": item["source_name"], "source_values": raw_source, "converted_values": raw_converted,
                     "expected_source_sha256": hashlib.sha256(memoryview(raw_source)).hexdigest(), "maximum_bytes": 16 * 1024**2}
         receipt = verify_profile_converted_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+        matrix_operands[item["name"]] = (item["source_name"], raw_source, raw_converted)
         assert receipt["converted_sha256"] == hashlib.sha256(memoryview(raw_converted)).hexdigest()
         assert receipt["source_file_verification"] == receipt["converted_file_verification"] == "not_checked"
         changed = raw_converted.copy()
@@ -2811,6 +2813,64 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
             assert "byte parity" in str(error)
         matrix_count += 1
     assert matrix_count == 16
+    with TemporaryDirectory(prefix="jev-matrix-gguf-") as directory:
+        path = Path(directory) / "matrices.gguf"
+        writer = gguf.GGUFWriter(path, "qwen35")
+        for tensor_name, (_, _, values) in matrix_operands.items():
+            writer.add_tensor(tensor_name, values.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
+        writer.write_header_to_file()
+        writer.write_kv_data_to_file()
+        writer.write_tensors_to_file()
+        writer.close()
+        assert path.stat().st_size <= 16 * 1024**2
+        file_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        reader = gguf.GGUFReader(path)
+        assert len(reader.tensors) == len(matrix_operands) == 16
+        for tensor in reader.tensors:
+            source_name, raw_source, raw_converted = matrix_operands[tensor.name]
+            keywords = {"reader": reader, "source_name": source_name, "source_values": raw_source,
+                        "expected_source_sha256": hashlib.sha256(memoryview(raw_source)).hexdigest(),
+                        "expected_file_bytes": path.stat().st_size, "expected_file_sha256": file_sha256,
+                        "maximum_bytes": 16 * 1024**2}
+            receipt = verify_profile_gguf_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+            assert receipt["converted_sha256"] == hashlib.sha256(memoryview(raw_converted)).hexdigest()
+            assert receipt["converted_file_verification"] == "caller_sha256_and_reader_range_match"
+            assert receipt["source_file_verification"] == receipt["gguf_reader_verification"] == "not_checked"
+            for defect in ("file-pin", "operand-budget", "copied-view", "shape"):
+                changed = keywords.copy()
+                original_tensors = reader.tensors
+                if defect == "file-pin":
+                    changed["expected_file_sha256"] = "0" * 64
+                elif defect == "operand-budget":
+                    changed["maximum_bytes"] = 1
+                else:
+                    modified = tensor._replace(data=tensor.data.copy()) if defect == "copied-view" else tensor._replace(shape=tensor.shape[::-1])
+                    if defect == "shape" and np.array_equal(modified.shape, tensor.shape):
+                        modified = tensor._replace(shape=tensor.shape + 1)
+                    reader.tensors = [modified if item.name == tensor.name else item for item in reader.tensors]
+                try:
+                    verify_profile_gguf_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
+                    raise AssertionError("invalid BF16 file binding accepted: " + defect)
+                except ValueError:
+                    pass
+                finally:
+                    reader.tensors = original_tensors
+            with path.open("r+b") as output:
+                output.seek(tensor.data_offset)
+                saved = output.read(1)
+                output.seek(tensor.data_offset)
+                output.write(bytes([saved[0] ^ 1]))
+            changed = {**keywords, "expected_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            try:
+                verify_profile_gguf_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
+                raise AssertionError("changed BF16 file payload accepted")
+            except ValueError as error:
+                assert "byte parity" in str(error)
+            finally:
+                with path.open("r+b") as output:
+                    output.seek(tensor.data_offset)
+                    output.write(saved)
+        del tensor, reader
 print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3], "matrix_operands": matrix_count}))
 """
     result = subprocess.run(

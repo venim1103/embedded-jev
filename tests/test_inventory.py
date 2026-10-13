@@ -714,14 +714,16 @@ def test_profile_converted_vector_refuses_invalid_operands_before_torch(tmp_path
         verify_profile_converted_vector(profile, report, manifest, blocks, **arguments)
 
 
-@pytest.mark.parametrize("defect", ["size", "budget", "boolean-budget", "digest", "deadline", "boolean-deadline", "matrix"])
-def test_profile_gguf_vector_refuses_invalid_file_budget_before_reader_import(monkeypatch, defect):
+@pytest.mark.parametrize("defect", ["size", "budget", "boolean-budget", "digest", "deadline", "boolean-deadline", "matrix", "operand-budget"])
+@pytest.mark.parametrize("matrix", [False, True])
+def test_profile_gguf_vector_refuses_invalid_file_budget_before_reader_import(monkeypatch, defect, matrix):
     import sys
 
-    from embedded_jev.prism_codec import verify_profile_gguf_vector
+    from embedded_jev.prism_codec import verify_profile_gguf_vector, verify_profile_gguf_matrix
 
     profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
-    arguments = {"reader": object(), "source_name": "model.norm.weight", "source_values": np.zeros(1024, dtype="<u2"),
+    arguments = {"reader": object(), "source_name": "model.layers.1.self_attn.k_proj.weight" if matrix else "model.norm.weight",
+                 "source_values": np.zeros((64, 1024) if matrix else 1024, dtype="<u2"),
                  "expected_source_sha256": "0" * 64, "expected_file_bytes": 1, "expected_file_sha256": "0" * 64}
     if defect == "size":
         arguments["expected_file_bytes"] = True
@@ -736,10 +738,16 @@ def test_profile_gguf_vector_refuses_invalid_file_budget_before_reader_import(mo
     elif defect == "boolean-deadline":
         arguments["maximum_seconds"] = True
     elif defect == "matrix":
-        arguments["source_name"] = manifest["tensor"]
+        arguments["source_name"] = "model.norm.weight" if matrix else manifest["tensor"]
+    elif defect == "operand-budget":
+        if matrix:
+            arguments["maximum_bytes"] = 1
+        else:
+            arguments["source_values"] = np.zeros(64 * 1024, dtype="<u2")
     monkeypatch.setitem(sys.modules, "gguf", None)
     with pytest.raises(ValueError):
-        verify_profile_gguf_vector(profile, report, manifest, blocks, **arguments)
+        verifier = verify_profile_gguf_matrix if matrix else verify_profile_gguf_vector
+        verifier(profile, report, manifest, blocks, **arguments)
 
 
 @pytest.mark.parametrize("defect", [None, "digest", "budget", "boolean-budget", "frozen", "vector", "convolution", "dtype", "shape", "nonfinite", "bits"])

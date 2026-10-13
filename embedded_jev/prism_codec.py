@@ -391,12 +391,13 @@ def verify_profile_converted_matrix(
                             "runtime_approval": "not_granted_by_operand_verification"})
 
 
-def verify_profile_gguf_vector(
+def _verify_profile_gguf_operand(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
     source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
     expected_file_sha256: str, maximum_file_bytes: int = 64 * 1024, maximum_seconds: float = 30,
+    matrix: bool = False, maximum_bytes: int = 64 * 1024,
 ):
-    """Bind a reader vector view to caller file identity, not whole-model parity."""
+    """Bind a typed reader view to caller file identity, not whole-model parity."""
     from embedded_jev.model_profile import SHA256
     from embedded_jev.streamed_text import bounded_native_file_record
 
@@ -405,12 +406,24 @@ def verify_profile_gguf_vector(
         or not 0 < expected_file_bytes <= maximum_file_bytes <= 16 * 1024**2
         or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= (16 * 1024**2 if matrix else 64 * 1024)
     ):
         raise ValueError("invalid GGUF vector file identity or budget")
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
     entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
-    if entry is None or entry["type"] != "F32" or len(entry["source_shape"]) != 1:
-        raise ValueError("GGUF vector requires a declared F32 vector")
+    storage = "BF16" if matrix else "F32"
+    if entry is None or entry["type"] != storage or len(entry["source_shape"]) != (2 if matrix else 1):
+        raise ValueError("GGUF operand requires its declared storage type and rank")
+    elements = int(np.prod(entry["source_shape"]))
+    size = elements * (2 if matrix else 4)
+    source_dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+    if (
+        source_dtype is None or not isinstance(source_values, np.ndarray) or source_values.dtype != source_dtype
+        or source_values.shape != tuple(entry["source_shape"]) or not source_values.flags.c_contiguous
+        or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
+        or source_values.nbytes + 2 * size > maximum_bytes
+    ):
+        raise ValueError("GGUF source operand layout, identity or byte budget mismatch")
     import gguf
 
     if (
@@ -423,15 +436,16 @@ def verify_profile_gguf_vector(
     if len(matches) != 1:
         raise ValueError("GGUF vector name is missing or duplicated")
     tensor = matches[0]
-    size = entry["source_shape"][0] * 4
+    dimensions = list(reversed(entry["source_shape"]))
+    stored_shape = [*entry["source_shape"][:-1], entry["source_shape"][-1] * 2] if matrix else entry["source_shape"]
     offset = int(tensor.data_offset)
     alignment = reader.fields.get("general.alignment")
     alignment = 32 if alignment is None else alignment.contents()
     table_end = max(item.field.offset + sum(part.nbytes for part in item.field.parts) for item in reader.tensors)
     if (
-        tensor.tensor_type != gguf.GGMLQuantizationType.F32 or list(tensor.shape) != entry["source_shape"]
-        or tensor.n_bytes != size or tensor.n_elements != entry["source_shape"][0]
-        or tensor.data.dtype != np.dtype("<f4") or tensor.data.shape != tuple(entry["source_shape"])
+        tensor.tensor_type != getattr(gguf.GGMLQuantizationType, storage) or list(tensor.shape) != dimensions
+        or tensor.n_bytes != size or tensor.n_elements != elements
+        or tensor.data.dtype != np.dtype("uint8" if matrix else "<f4") or tensor.data.shape != tuple(stored_shape)
         or not tensor.data.flags.c_contiguous or tensor.data.flags.writeable
         or not np.shares_memory(reader.data, tensor.data)
         or offset < reader.data_offset or offset + size > expected_file_bytes
@@ -446,9 +460,11 @@ def verify_profile_gguf_vector(
     before = bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline)
     if before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256:
         raise ValueError("GGUF vector file identity mismatch")
-    copied = tensor.data.copy()
+    copied = tensor.data.view("<u2").copy() if matrix else tensor.data.copy()
     name = tensor.name.encode("utf-8")
-    information = struct.pack("<Q", len(name)) + name + struct.pack("<IQIQ", 1, entry["source_shape"][0], 0, offset - reader.data_offset)
+    information = (struct.pack("<Q", len(name)) + name + struct.pack("<I", len(dimensions))
+                   + b"".join(struct.pack("<Q", dimension) for dimension in dimensions)
+                   + struct.pack("<IQ", int(getattr(gguf.GGMLQuantizationType, storage)), offset - reader.data_offset))
     field_offset = int(tensor.field.offset)
     if not 24 <= field_offset < field_offset + len(information) <= reader.data_offset:
         raise ValueError("GGUF vector tensor table range mismatch")
@@ -461,16 +477,46 @@ def verify_profile_gguf_vector(
         source.seek(offset)
         if source.read(size) != copied.tobytes():
             raise ValueError("GGUF vector mapping differs from file range")
-    receipt = verify_profile_converted_vector(
+    verifier = verify_profile_converted_matrix if matrix else verify_profile_converted_vector
+    receipt = verifier(
         profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
-        converted_values=copied, expected_source_sha256=expected_source_sha256,
+        converted_values=copied, expected_source_sha256=expected_source_sha256, maximum_bytes=maximum_bytes,
     )
     if bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) != before:
         raise ValueError("GGUF vector file changed during verification")
     return MappingProxyType({**receipt, "converted_file_verification": "caller_sha256_and_reader_range_match",
                             "gguf_reader_verification": "not_checked",
                             "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
-                            "converted_tensor_offset": offset, "runtime_approval": "not_granted_by_vector_file_verification"})
+                            "converted_tensor_offset": offset,
+                            "runtime_approval": "not_granted_by_matrix_file_verification" if matrix else "not_granted_by_vector_file_verification"})
+
+
+def verify_profile_gguf_vector(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
+    expected_file_sha256: str, maximum_file_bytes: int = 64 * 1024, maximum_seconds: float = 30,
+):
+    """Bind a reader F32 vector view to caller file identity, not whole-model parity."""
+    return _verify_profile_gguf_operand(
+        profile, inventory, manifest, pq2_blocks, reader=reader, source_name=source_name, source_values=source_values,
+        expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
+    )
+
+
+def verify_profile_gguf_matrix(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
+    expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
+    maximum_bytes: int = 1024**2,
+):
+    """Bind a reader BF16 matrix view to caller file identity, not whole-model parity."""
+    return _verify_profile_gguf_operand(
+        profile, inventory, manifest, pq2_blocks, reader=reader, source_name=source_name, source_values=source_values,
+        expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
+        matrix=True, maximum_bytes=maximum_bytes,
+    )
 
 
 class NativeModelTensor(ctypes.Structure):
