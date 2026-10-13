@@ -681,7 +681,7 @@ for kind in ("valid", "metadata-large", "metadata-near-limit", "metadata-keys-li
     assert handle.value is overrides.value is None
 
 
-@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32", "complete-owner-BF16", "complete-owner-F32"])
+@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32", "complete-owner-BF16", "complete-owner-F32", "norm-nonzero-BF16", "norm-nonzero-F32", "exp-nonzero-BF16", "exp-nonzero-F32"])
 def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
     from test_inventory import _prefill_model_policy_fixture
 
@@ -697,7 +697,7 @@ def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
         assert (Path(runtime_build) / "bin" / "libprism_bitnet_prefill_test.so").is_file()
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
-        pin_zero_source=True, vector_dtype="F32" if kind == "vector-F32" or (kind.startswith("complete") and kind.endswith("F32")) else "BF16", conv_dtype="F32" if kind == "convolution-F32" or (kind.startswith("complete") and kind.endswith("F32")) else "BF16",
+        pin_zero_source=True, vector_dtype="F32" if kind == "vector-F32" or (kind.startswith(("complete", "norm-nonzero", "exp-nonzero")) and kind.endswith("F32")) else "BF16", conv_dtype="F32" if kind == "convolution-F32" or (kind.startswith("complete") and kind.endswith("F32")) else "BF16",
     )
     code = """
 import hashlib
@@ -707,7 +707,7 @@ import tempfile
 from pathlib import Path
 import gguf
 import numpy as np
-from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.model_profile import parse_model_profile, profile_source
 from embedded_jev.prism_codec import profile_model_conversion_plan, profile_model_specification, verified_profile_model_policy, verify_profile_gguf_source_operand, verify_profile_frozen_source_tensor, verify_profile_gguf_source_tensor_table, _verify_profile_gguf_operand
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -717,9 +717,24 @@ plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
 frozen = sys.argv[1] == "frozen-BF16"
 complete = sys.argv[1].startswith("complete")
 owned = sys.argv[1].startswith("complete-owner")
+nonzero = sys.argv[1].startswith(("norm-nonzero", "exp-nonzero"))
+selected_transform = "negative_exp" if sys.argv[1].startswith("exp-nonzero") else "add_one"
 rank = 2 if frozen or sys.argv[1].startswith("matrix") else 3 if sys.argv[1].startswith("convolution") else 1
-entry = next(item for item in plan["tensors"] if (item["type"] == "PQ2_0") == frozen and len(item["source_shape"]) == rank)
+entry = next(item for item in plan["tensors"] if (item["type"] == "PQ2_0") == frozen and len(item["source_shape"]) == rank and (not nonzero or selected_transform in item["transforms"]))
 values = np.zeros(entry["source_shape"], dtype="<f4" if entry["source_dtype"] == "F32" else "<u2")
+if nonzero:
+    import torch
+    supplied = np.linspace(-0.5, 0.5, values.size, dtype="<f4").reshape(values.shape)
+    values = (supplied.view("<u4") >> 16).astype("<u2") if entry["source_dtype"] == "BF16" else supplied
+    decoded = (values.astype("<u4") << 16).view("<f4") if entry["source_dtype"] == "BF16" else values
+    with torch.inference_mode():
+        reference = torch.from_numpy(decoded)
+        if selected_transform == "negative_exp":
+            assert profile.geometry["linear_num_key_heads"] == 2 and profile.geometry["linear_num_value_heads"] == 4 and values.size == 4
+            expected_vector = -reference[[0, 2, 1, 3]].exp().numpy()
+        else:
+            expected_vector = (reference + 1).numpy()
+    assert not np.array_equal(expected_vector.view("u1"), decoded.view("u1"))
 if frozen:
     manifest["source_tensor_sha256"] = hashlib.sha256(memoryview(values)).hexdigest()
 if complete:
@@ -740,6 +755,15 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
     source_pin = profile.files[source_path.name]
     assert source_path.stat().st_size == source_pin.bytes <= 16 * 1024**2
     assert hashlib.sha256(source_path.read_bytes()).hexdigest() == source_pin.sha256
+    if nonzero:
+        with source_path.open("r+b") as output:
+            output.seek(len(prefix) + entries[entry["source_name"]]["data_offsets"][0])
+            output.write(values.tobytes())
+        fixture["profile"]["files"][source_path.name]["sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+        inventory["source"].update(profile_source(profile))
+        manifest["profile_sha256"] = profile.sha256
+        source_pin = profile.files[source_path.name]
     destination = directory / "selected.gguf"
     writer = gguf.GGUFWriter(destination, "qwen35")
     if owned:
@@ -773,7 +797,9 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
         writer.add_eos_token_id(1)
         writer.add_add_bos_token(False)
     for output_entry in plan["tensors"] if complete else [entry]:
-        if output_entry["type"] == "PQ2_0":
+        if nonzero:
+            writer.add_tensor(output_entry["name"], expected_vector)
+        elif output_entry["type"] == "PQ2_0":
             writer.add_tensor(output_entry["name"], blocks.reshape(manifest["shape"][0], manifest["shape"][1] // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
         elif output_entry["type"] == "BF16":
             encoded = gguf.quants.quantize(np.zeros(output_entry["source_shape"], dtype=np.float32), gguf.GGMLQuantizationType.BF16)
@@ -923,6 +949,26 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
         assert receipt["model_metadata_verification"] == receipt["pin_issuer_verification"] == "not_checked"
         assert receipt["source_file_rechecked_after_conversion"] is True and receipt["cross_file_atomic_snapshot"] == "not_guaranteed"
     tensor = next(item for item in reader.tensors if item.name == entry["name"])
+    if nonzero:
+        with torch.inference_mode():
+            wrong_vector = -torch.from_numpy(decoded).exp().numpy() if selected_transform == "negative_exp" else decoded
+        assert not np.array_equal(wrong_vector.view("u1"), expected_vector.view("u1"))
+        original_digest = arguments["expected_file_sha256"]
+        with destination.open("r+b") as output:
+            output.seek(tensor.data_offset)
+            output.write(wrong_vector.tobytes())
+        arguments["expected_file_sha256"] = hashlib.sha256(destination.read_bytes()).hexdigest()
+        try:
+            verify()
+            raise AssertionError("no-op or unpermuted vector accepted with fresh converted pin")
+        except ValueError as error:
+            assert "byte parity mismatch" in str(error), str(error)
+        finally:
+            with destination.open("r+b") as output:
+                output.seek(tensor.data_offset)
+                output.write(expected_vector.tobytes())
+            assert hashlib.sha256(destination.read_bytes()).hexdigest() == original_digest
+            arguments["expected_file_sha256"] = original_digest
     with destination.open("r+b") as output:
         output.seek(tensor.data_offset + (2 if frozen else 0))
         saved = output.read(1)

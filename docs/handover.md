@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [source gated prefill checkpoint](#source-gated-prefill-checkpoint-2026-10-13),
+2. Read the [nonzero source vector checkpoint](#nonzero-source-vector-checkpoint-2026-10-13),
+   then the [source gated prefill checkpoint](#source-gated-prefill-checkpoint-2026-10-13),
    then the [source gated owner checkpoint](#source-gated-owner-checkpoint-2026-10-13),
    then the [complete source conversion checkpoint](#complete-source-conversion-checkpoint-2026-10-13),
    then the [complete source table checkpoint](#complete-source-table-checkpoint-2026-10-13),
@@ -99,6 +100,34 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Nonzero Source Vector Checkpoint (2026-10-13)
+
+The user resumed after pushing `3e32444`; starting `main` matched `origin/main`,
+with only the untouched editor directory untracked. Four new cases reuse the
+existing paired-file control for actual nonzero BF16/F32 source vectors and
+selected typed GGUF ranges. The disposable source shard is changed and repinned;
+synthetic profile/inventory/manifest identity is updated, header geometry and
+frozen payload remain unchanged. Independent F32 norm-add and negative-exp
+expectations use fixed four-head ordering 0/2/1/3, not the verifier's transform
+implementation. Fresh-pin no-op norm and unpermuted exp outputs refuse alongside
+existing restored-write and converted-bit controls.
+
+Verification: **513 default passes, 68 optional skips** in 33.66 s; Ruff,
+whitespace and touched diagnostics clean. **Four nonzero paired controls pass**
+in 13.75 s, peak process RSS 245,524 KiB, swaps zero. Scratch empty after cleanup;
+no failures, source implementation/API changes, native prefill/build/sanitizer/
+CTest or unrelated optional reruns. Cached pinned Prism revision and existing
+dense environment verified. Host observation before checks: 29 GiB RAM, 19 GiB
+available, 8 GiB swap with 1.5 MiB used, 242 GiB free disk; these are not target
+device or per-job memory guarantees. No real weights, downloads, refit or retained
+candidate; source pins change only on disposable synthetic fixtures.
+
+This discriminates selected nonzero vector arithmetic/ranges, not nonzero native
+prefill, whole-model parity, independently issued provenance, frozen approximation
+or quality. Source-gated native controls remain zero-source historical evidence.
+Next bounded control: nonzero physical matrix row/column head permutations and
+convolution squeeze/ranges. Real-model and quality approvals remain unchanged.
 
 ## Source Gated Prefill Checkpoint (2026-10-13)
 

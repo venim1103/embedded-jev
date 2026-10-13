@@ -1721,7 +1721,7 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
    tests/test_prism_native_control.py -k source_to_gguf_selected_range
 ```
 
-They create pinned zero-filled safetensors and either four-tensor selected or
+The original cases create pinned zero-filled safetensors and either four-tensor selected or
 complete 28-tensor synthetic GGUF fixtures in disposable scratch. Selected cases
 test BF16/F32 vectors/convolution, a BF16 matrix, and separate frozen BF16 source/
 canonical PQ2 identities. Complete cases compose all ranges for BF16 and F32
@@ -1736,6 +1736,16 @@ zero logits/uniform conditional scores and exact registry restoration. Native
 users are destroyed before policy exit. Hooks and numerical tolerances are
 unchanged; there is no real complete-model conversion, independent HF source,
 quantization-equivalence or representative quality evidence.
+
+Four additional `norm-nonzero-*`/`exp-nonzero-*` cases bind actual nonzero
+BF16/F32 source vectors to selected GGUF F32 ranges. They recompute only disposable
+source profile pins and update the corresponding synthetic inventory/manifest
+identity, preserving header geometry and frozen payload. Expected norm-add values
+use F32 arithmetic; negative exp uses the independently fixed four-head index
+order 0/2/1/3. Freshly pinned norm no-op and omitted-head-permutation results
+refuse, as do restored source writes and changed converted bits. This is nonzero
+selected-vector arithmetic/range evidence, not complete-model/native nonzero
+evidence, upstream pin-issuer authentication or representative decision quality.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
