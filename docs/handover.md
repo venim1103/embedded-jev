@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [GGUF vector binding checkpoint](#gguf-vector-binding-checkpoint-2026-10-13),
+2. Read the [complete synthetic vector checkpoint](#complete-synthetic-vector-checkpoint-2026-10-13),
+   then the [GGUF vector binding checkpoint](#gguf-vector-binding-checkpoint-2026-10-13),
    then the [conversion plan and vector parity checkpoint](#conversion-plan-and-vector-parity-checkpoint-2026-10-12),
    then the [bounded runtime hashing checkpoint](#bounded-runtime-hashing-checkpoint-2026-10-12),
    then the [symbol origin checkpoint](#symbol-origin-checkpoint-2026-10-12),
@@ -81,6 +82,46 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Complete Synthetic Vector Checkpoint (2026-10-13)
+
+After `5240c26`, the existing complete synthetic profile-prefill fixture now
+optionally checks all ten one-dimensional F32 tensors against generated BF16
+source operands before native loading. Enable this stage explicitly with
+`PRISM_VECTOR_PYTHON` pointing at the existing dense Torch environment. Without
+that variable the native control still runs, but provides no new vector-stage
+evidence. The full-only/large-state refusal profiles remain refused before this
+stage; no native test-hook bound was enlarged.
+
+The source operands are synthetic zeros, except recurrent norm ones. The writer
+now emits `ssm_a = -1`, matching the pinned `-exp(0)` transform; its previous
+zero constant could not represent a finite zero A_log operand. Recurrence
+projection weights in this fixture remain zero, so this does not add recurrence
+quality evidence or alter its independent prefill oracle. A focused FFN-down
+check verified that correction in 5.22 s; vector-enabled FFN-down passed in
+6.66 s. `_profile_parity_fixture()` reuses one <1 MiB stdin serializer across
+the toy and complete-model controls. No source or converted array is retained.
+
+Verification: **329 default passes, 54 optional skips** in 3.51 s, Ruff,
+whitespace and editor diagnostics clean. The vector-enabled complete gate
+passed **nine cases in 44.03 s**, peak process RSS 232,924 KiB, no swaps:
+ten vector ranges for each of seven projection roles (70 checks), followed by
+unchanged full/chunked/reset/reordered/parallel/maximum/error-recovery and
+verified-owner modes; both refusal profiles still refuse. Typed options, zero
+answer generation, actual BitNet dispatch, exact FP16 scales and 2e-5 prefill
+oracles remain unchanged. The shared serializer's two BF16/F32 toy file controls
+passed in **2.73 s**. No failed checks occurred in this increment.
+
+Before the serial gates the host reported 23,296 MiB available RAM, no used swap
+and 286 GiB available overlay disk. Process peak counters are not host or target
+device guarantees. Fixture cleanup removes the generated GGUF/projection files;
+cached sources/libraries, frozen candidate and user settings are untouched.
+No native sources/libraries/hooks changed, no new sanitizer/CTest evidence,
+source-weight hashes, real-model conversion/execution, fitting, quality tests,
+downloads, pushes, branches or subagents. The vector receipt still does not
+authenticate source files or reader code, or prove other tensor bytes.
+Next bounded prerequisite: exact BF16 matrix operand transforms and refusals;
+full-table/model parity and real-source/runtime approval remain open.
 
 ## GGUF Vector Binding Checkpoint (2026-10-13)
 

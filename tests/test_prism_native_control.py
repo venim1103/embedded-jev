@@ -13,6 +13,21 @@ PRISM_REVISION = "842b1880415d6f508f03b789e5ce70194def7bfd"
 BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
 
 
+def _profile_parity_fixture(profile, inventory, manifest, blocks):
+    from dataclasses import asdict
+
+    record = {"schema_version": 1, "profile_id": profile.profile_id,
+              "source": {"model": profile.model, "revision": profile.revision, "license": profile.license,
+                         "format": "safetensors", "support_tier": "A"},
+              "files": {name: {key: value for key, value in asdict(item).items() if value is not None}
+                        for name, item in profile.files.items()},
+              **{name: getattr(profile, name) for name in ("packaging", "geometry", "tokenization", "runtime", "quantization", "evidence")}}
+    fixture = json.dumps({"profile": record, "inventory": inventory, "manifest": manifest,
+                          "payload_hex": blocks.tobytes().hex()}, default=dict)
+    assert len(fixture) < 1024**2
+    return fixture
+
+
 @pytest.mark.parametrize("backend", ["dense", "bitnet", "bitnet-profile"])
 @pytest.mark.parametrize("recurrent", [False, True])
 @pytest.mark.parametrize("attention", [False, True])
@@ -768,6 +783,8 @@ for item in spec["tensors"]:
     values = arrays.get(name)
     if values is None:
         values = np.ones(shape, dtype=np.float32) if name.endswith("norm.weight") else np.zeros(shape, dtype=np.float32)
+        if name.endswith(".ssm_a"):
+            values = -np.ones(shape, dtype=np.float32)
     if item["type"] == "BF16":
         encoded = gguf.quants.quantize(values, gguf.GGMLQuantizationType.BF16)
         arrays[name] = gguf.quants.dequantize(encoded, gguf.GGMLQuantizationType.BF16)
@@ -954,6 +971,48 @@ sys.exit(status)
                                      capture_output=True, text=True, timeout=30, env=environment)
             assert control.returncode == 27 and control.stdout == "", control.stderr
             return
+        vector_interpreter = os.environ.get("PRISM_VECTOR_PYTHON")
+        if vector_interpreter:
+            parity_code = """
+import hashlib
+import json
+import sys
+import gguf
+import numpy as np
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_gguf_vector
+
+fixture = json.loads(sys.stdin.read())
+profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+payload = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(
+    fixture["manifest"]["shape"][0], fixture["manifest"]["shape"][1] // 128, 34)
+plan = profile_model_conversion_plan(profile, fixture["inventory"], fixture["manifest"], payload)
+reader = gguf.GGUFReader(sys.argv[1])
+count = 0
+for item in plan["tensors"]:
+    if item["type"] != "F32" or len(item["source_shape"]) != 1:
+        continue
+    values = np.ones(item["source_shape"], dtype=np.float32) if item["source_name"].endswith("linear_attn.norm.weight") else np.zeros(item["source_shape"], dtype=np.float32)
+    source = (values.view(np.uint32) >> 16).astype("<u2")
+    receipt = verify_profile_gguf_vector(
+        profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
+        source_name=item["source_name"], source_values=source,
+        expected_source_sha256=hashlib.sha256(memoryview(source)).hexdigest(),
+        expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], maximum_file_bytes=16 * 1024**2)
+    assert receipt["converted_file_verification"] == "caller_sha256_and_reader_range_match"
+    assert receipt["converted_file_sha256"] == sys.argv[3]
+    assert receipt["source_file_verification"] == receipt["gguf_reader_verification"] == "not_checked"
+    count += 1
+assert count == 10
+print(json.dumps({"vectors": count, "file_sha256": sys.argv[3]}))
+"""
+            parity = subprocess.run(
+                [vector_interpreter, "-c", parity_code, str(model_file), str(expected["model_bytes"]), expected["model_sha256"]],
+                capture_output=True, text=True, input=_profile_parity_fixture(profile, inventory, manifest, blocks), timeout=30,
+                env={**environment, "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
+            )
+            assert parity.returncode == 0, parity.stderr
+            assert json.loads(parity.stdout) == {"vectors": 10, "file_sha256": expected["model_sha256"]}
         from embedded_jev.streamed_text import native_backend_dependencies
 
         bridge = Path(runtime_build) / "bin" / "libprism_group_scale.so"
@@ -2449,8 +2508,6 @@ print(json.dumps(results))
 
 @pytest.mark.parametrize("vector_dtype", ["BF16", "F32"])
 def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype):
-    from dataclasses import asdict
-
     from embedded_jev.prism_codec import profile_model_conversion_plan
     from test_inventory import _prefill_model_policy_fixture
 
@@ -2464,15 +2521,7 @@ def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype):
     ).strip() == PRISM_REVISION
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture("down", vector_dtype=vector_dtype)
     plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
-    record = {"schema_version": 1, "profile_id": profile.profile_id,
-              "source": {"model": profile.model, "revision": profile.revision, "license": profile.license,
-                         "format": "safetensors", "support_tier": "A"},
-              "files": {name: {key: value for key, value in asdict(item).items() if value is not None}
-                        for name, item in profile.files.items()},
-              **{name: getattr(profile, name) for name in ("packaging", "geometry", "tokenization", "runtime", "quantization", "evidence")}}
-    fixture = json.dumps({"profile": record, "inventory": inventory, "manifest": manifest,
-                          "payload_hex": blocks.tobytes().hex()}, default=dict)
-    assert len(fixture) < 1024**2
+    fixture = _profile_parity_fixture(profile, inventory, manifest, blocks)
     code = """
 from __future__ import annotations
 import ast

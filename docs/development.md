@@ -302,17 +302,19 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-13 bounded GGUF vector file
-binding, following conversion planning/vector operand parity at `b6a9f0d`
+The latest tested source checkpoint is the 2026-10-13 complete synthetic vector
+stage before bounded prefill, following GGUF vector binding at `5240c26`
+and conversion planning/vector operand parity at `b6a9f0d`
 and runtime hashing at `c18e90f`,
 following defining-symbol origins and optional six-module inference file pins
 at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#gguf-vector-binding-checkpoint-2026-10-13) records
-329 default passes/54 optional skips, 22 focused plan/vector/file cases and two
-pinned-source synthetic GGUF vector controls. The preceding runtime hashing checkpoint
+[latest handover](handover.md#complete-synthetic-vector-checkpoint-2026-10-13) records
+329 default passes/54 optional skips, nine vector-enabled synthetic complete-model
+cases and two pinned-source synthetic GGUF vector controls. The file-binding
+checkpoint retains 22 focused plan/vector/file cases. The preceding runtime hashing checkpoint
 retains 56 focused file/owner/runtime cases and nine synthetic caller cases
 with verified full/parallel/recovery modes. The unchanged
 native metadata checkpoint retains 23 compiled controls and GCC sanitizer
@@ -386,6 +388,23 @@ MIMO_PQ2_CODEC_TEST=1 MIMO_REGISTERED_MODULE_TEST=1 \
 OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py \
    -k 'shared_group_scale_graph_matches_direct_kernel or pq2_ternary_subset_matches_actual_decoder or tiny_qwen35_native_prefill_scores_without_generation or complete_model_policy_binds_exact_projection or profile_complete_model_policy or profile_manifest_native_prefill'
+```
+
+For the complete synthetic profile-to-prefill slice alone, this explicitly
+enables ten F32 vector/file checks before native prefill for each of seven
+projection roles; two unsupported profiles still refuse. The vector stage
+requires the already cached Torch environment and is omitted if
+`PRISM_VECTOR_PYTHON` is unset. It does not authenticate real source payloads.
+
+```bash
+cache="$HOME/.cache/huggingface/embedded-jev"
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+PRISM_CONVERTER_PYTHON="$cache/native/converter-venv/bin/python" \
+PRISM_VECTOR_PYTHON="$cache/dense-venv/bin/python" \
+MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
+OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
+python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py \
+   -k profile_manifest_native_prefill
 ```
 
 The earlier full-text command below is historical reference, not the code-only
