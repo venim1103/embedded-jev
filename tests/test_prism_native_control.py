@@ -681,7 +681,7 @@ for kind in ("valid", "metadata-large", "metadata-near-limit", "metadata-keys-li
     assert handle.value is overrides.value is None
 
 
-@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16"])
+@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32"])
 def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
     from test_inventory import _prefill_model_policy_fixture
 
@@ -691,7 +691,7 @@ def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
         pytest.skip("requires cached pinned GGUF/Torch parity environment; creates synthetic files only")
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
-        pin_zero_source=True, vector_dtype="F32" if kind == "vector-F32" else "BF16", conv_dtype="F32" if kind == "convolution-F32" else "BF16",
+        pin_zero_source=True, vector_dtype="F32" if kind in ("vector-F32", "complete-F32") else "BF16", conv_dtype="F32" if kind in ("convolution-F32", "complete-F32") else "BF16",
     )
     code = """
 import hashlib
@@ -702,18 +702,23 @@ from pathlib import Path
 import gguf
 import numpy as np
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_gguf_source_operand, verify_profile_frozen_source_tensor, _verify_profile_gguf_operand
+from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_gguf_source_operand, verify_profile_frozen_source_tensor, verify_profile_gguf_source_tensor_table, _verify_profile_gguf_operand
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
 inventory, manifest = fixture["inventory"], fixture["manifest"]
 blocks = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(manifest["shape"][0], manifest["shape"][1] // 128, 34)
 plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
 frozen = sys.argv[1] == "frozen-BF16"
+complete = sys.argv[1].startswith("complete")
 rank = 2 if frozen or sys.argv[1].startswith("matrix") else 3 if sys.argv[1].startswith("convolution") else 1
 entry = next(item for item in plan["tensors"] if (item["type"] == "PQ2_0") == frozen and len(item["source_shape"]) == rank)
 values = np.zeros(entry["source_shape"], dtype="<f4" if entry["source_dtype"] == "F32" else "<u2")
 if frozen:
     manifest["source_tensor_sha256"] = hashlib.sha256(memoryview(values)).hexdigest()
+if complete:
+    source_arrays = {item["source_name"]: np.zeros(item["source_shape"], dtype="<f4" if item["source_dtype"] == "F32" else "<u2") for item in plan["tensors"]}
+    source_digests = {name: hashlib.sha256(memoryview(array)).hexdigest() for name, array in source_arrays.items()}
+    manifest["source_tensor_sha256"] = source_digests[manifest["tensor"]]
 entries, payload_bytes = {}, 0
 for item in sorted(inventory["tensors"], key=lambda item: item["name"]):
     size = int(np.prod(item["shape"])) * (4 if item["dtype"] == "F32" else 2)
@@ -730,17 +735,20 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
     assert hashlib.sha256(source_path.read_bytes()).hexdigest() == source_pin.sha256
     destination = directory / "selected.gguf"
     writer = gguf.GGUFWriter(destination, "qwen35")
-    if frozen:
-        writer.add_tensor(entry["name"], blocks.reshape(manifest["shape"][0], manifest["shape"][1] // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
-    elif entry["type"] == "BF16":
-        encoded = gguf.quants.quantize(np.zeros(values.shape, dtype=np.float32), gguf.GGMLQuantizationType.BF16)
-        writer.add_tensor(entry["name"], encoded, raw_dtype=gguf.GGMLQuantizationType.BF16)
-    else:
-        shape = tuple(reversed(entry["ne"][:rank if rank == 1 else 2]))
-        converted = np.ones(shape, dtype=np.float32) if "add_one" in entry["transforms"] else -np.ones(shape, dtype=np.float32) if "negative_exp" in entry["transforms"] else np.zeros(shape, dtype=np.float32)
-        writer.add_tensor(entry["name"], converted)
-    for index in range(3):
-        writer.add_tensor("synthetic_placeholder_" + str(index), np.zeros(1, dtype=np.float32))
+    for output_entry in plan["tensors"] if complete else [entry]:
+        if output_entry["type"] == "PQ2_0":
+            writer.add_tensor(output_entry["name"], blocks.reshape(manifest["shape"][0], manifest["shape"][1] // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+        elif output_entry["type"] == "BF16":
+            encoded = gguf.quants.quantize(np.zeros(output_entry["source_shape"], dtype=np.float32), gguf.GGMLQuantizationType.BF16)
+            writer.add_tensor(output_entry["name"], encoded, raw_dtype=gguf.GGMLQuantizationType.BF16)
+        else:
+            dimensions = 1 if len(output_entry["source_shape"]) == 1 else 2
+            shape = tuple(reversed(output_entry["ne"][:dimensions]))
+            converted = np.ones(shape, dtype=np.float32) if "add_one" in output_entry["transforms"] else -np.ones(shape, dtype=np.float32) if "negative_exp" in output_entry["transforms"] else np.zeros(shape, dtype=np.float32)
+            writer.add_tensor(output_entry["name"], converted)
+    if not complete:
+        for index in range(3):
+            writer.add_tensor("synthetic_placeholder_" + str(index), np.zeros(1, dtype=np.float32))
     writer.write_header_to_file()
     writer.write_kv_data_to_file()
     writer.write_tensors_to_file()
@@ -753,6 +761,12 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
         "expected_file_bytes": destination.stat().st_size, "expected_file_sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
     }
     def verify():
+        if complete:
+            return verify_profile_gguf_source_tensor_table(
+                profile, inventory, manifest, blocks, reader=reader, source_paths={source_path.name: source_path},
+                source_values=source_arrays, expected_source_sha256=source_digests,
+                expected_file_bytes=arguments["expected_file_bytes"], expected_file_sha256=arguments["expected_file_sha256"],
+            )
         if not frozen:
             return verify_profile_gguf_source_operand(profile, inventory, manifest, blocks, **arguments)
         source_receipt = verify_profile_frozen_source_tensor(
@@ -790,7 +804,21 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
             assert "source identity changed" in str(error), str(error)
         finally:
             codec._verify_profile_gguf_operand = original_check
-    if not frozen:
+    if complete:
+        assert receipt["tensor_count"] == receipt["source"]["tensor_count"] == receipt["converted"]["tensor_count"] == 28
+        assert receipt["source_to_frozen_quantization_verification"] == "not_checked"
+        source_records = {item["source_name"]: item for item in receipt["source"]["tensors"]}
+        converted_records = {item["source_name"]: item for item in receipt["converted"]["tensors"]}
+        for item in plan["tensors"]:
+            name = item["source_name"]
+            if item["type"] == "PQ2_0":
+                assert source_records[name]["source_sha256"] == manifest["source_tensor_sha256"]
+                assert converted_records[name]["projection_payload_sha256"] == source_records[name]["frozen_payload_sha256"] == manifest["payload_sha256"]
+            else:
+                assert source_records[name]["source_sha256"] == converted_records[name]["source_sha256"] == source_digests[name]
+        assert receipt["converted"]["source_file_verification"] == receipt["model_metadata_verification"] == "not_checked"
+        assert receipt["source_file_rechecked_after_conversion"] is True and receipt["cross_file_atomic_snapshot"] == "not_guaranteed"
+    elif not frozen:
         assert receipt["source_conversion_verification"] == "pinned_source_range_and_converted_range_match_same_operand"
         assert receipt["source"]["source_sha256"] == receipt["converted"]["source_sha256"] == arguments["expected_source_sha256"]
         assert receipt["source"]["source_file_verification"] == "profile_pinned_shard_and_header_range_match_caller_operand"
@@ -814,7 +842,7 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
             output.seek(tensor.data_offset + (2 if frozen else 0))
             output.write(saved)
         del reader
-print(json.dumps({"kind": sys.argv[1], "selected_ranges": 1, "runtime_approval": "not_granted_by_source_conversion_verification"}))
+print(json.dumps({"kind": sys.argv[1], "selected_ranges": 28 if complete else 1, "runtime_approval": "not_granted_by_source_conversion_verification"}))
 """
     result = subprocess.run(
         [interpreter, "-c", code, kind, str(tmp_path)], capture_output=True, text=True, timeout=30,
@@ -823,7 +851,7 @@ print(json.dumps({"kind": sys.argv[1], "selected_ranges": 1, "runtime_approval":
              "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"kind": kind, "selected_ranges": 1, "runtime_approval": "not_granted_by_source_conversion_verification"}
+    assert json.loads(result.stdout) == {"kind": kind, "selected_ranges": 28 if kind.startswith("complete") else 1, "runtime_approval": "not_granted_by_source_conversion_verification"}
     assert list(tmp_path.iterdir()) == []
 
 

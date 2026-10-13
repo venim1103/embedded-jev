@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [complete source table checkpoint](#complete-source-table-checkpoint-2026-10-13),
+2. Read the [complete source conversion checkpoint](#complete-source-conversion-checkpoint-2026-10-13),
+   then the [complete source table checkpoint](#complete-source-table-checkpoint-2026-10-13),
    then the [frozen source identity checkpoint](#frozen-source-identity-checkpoint-2026-10-13),
    then the [combined source range checkpoint](#combined-source-range-checkpoint-2026-10-13),
    then the [source operand file checkpoint](#source-operand-file-checkpoint-2026-10-13),
@@ -96,6 +97,48 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Complete Source Conversion Checkpoint (2026-10-13)
+
+After `d202b99`, `verify_profile_gguf_source_tensor_table()` composes all selected
+source and converted ranges through shared read-only snapshots, keeping frozen
+original source digest and canonical PQ2 identity separate. Existing source
+snapshot/converted layout rules are extracted without changing prior public
+receipts. Both preflights, exact reader table and optional live owner identity
+are checked before source dispatch. One cooperative deadline covers source,
+converted and source recheck, including restored inter-stage write refusal.
+Operand cap 64 MiB charges the maximum of source table and converted table plus
+three retained original frozen-source extents; this is not peak RAM. Selected
+source shard aggregate and separate converted file each cap at 16 MiB.
+
+Verification: **503 default passes, 62 optional skips** in 19.31 s; Ruff,
+whitespace and touched diagnostics clean. **46 focused source/converted cases**
+pass in 4.68 s, including 11 new composition cases for shared arrays/digests,
+caller mutation, source recheck/deadline and early source/converted/owner/
+frozen/budget/reader refusals. **Eight actual paired-file controls pass** in
+39.00 s, peak process RSS 285,028 KiB, swaps zero: six prior selected controls
+plus complete 28-range BF16 and F32-vector/convolution tables. Every unfrozen
+source digest is shared with its converted range; frozen source/payload hashes
+remain separate, with quantization equivalence unchecked. Fresh-pin converted
+corruption and actual restored source writes refuse; scratch empty after cleanup.
+
+The existing **same-owner FFN-down native prefill control passes** in 26.45 s,
+peak process RSS 292,896 KiB, swaps zero, verifying the shared converted preflight
+still supports table/selected metadata, typed zero-generation scores and prior
+recovery/lifetime controls. It does not run the new actual source-file table gate
+inside the owner. No full nine-profile rerun, native rebuild/sanitizer/CTest,
+real-model conversion/execution/source reads, downloads, refit or new retained
+candidate. No failures in this increment; user editor files untouched.
+
+This API remains a standalone composition, optionally anchored to a live owner,
+not automatic production scoring integration. Zero-source synthetic files do not
+prove independent HF/issuer provenance, nonzero transform discrimination,
+quantization quality or representative decision accuracy. Metadata/tokenizer,
+loaded/transitive code and runtime approval remain separate, and files must be
+quiescent rather than atomically immutable. Next bounded caller work: explicitly
+opt the verified owner into complete source/converted evidence while preserving
+all defaults and provisional-until-successful-exit receipts. Real-model actions
+still require separate approval.
 
 ## Complete Source Table Checkpoint (2026-10-13)
 

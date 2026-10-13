@@ -1234,6 +1234,85 @@ def test_profile_source_tensor_table_matches_complete_pinned_shard(tmp_path, mon
         path.unlink()
 
 
+@pytest.mark.parametrize("defect", [None, "caller-change", "source-change", "deadline", "missing", "owner", "budget", "extent", "pin", "reader", "frozen-pin"])
+def test_profile_source_converted_table_shares_snapshots_and_rechecks(monkeypatch, defect):
+    import sys
+    from types import MappingProxyType, SimpleNamespace
+
+    from embedded_jev import prism_codec as codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True)
+    plan = codec.profile_model_conversion_plan(profile, report, manifest, blocks)
+    sources = {item["source_name"]: np.zeros(item["source_shape"], dtype="<u2") for item in plan["tensors"]}
+    pins = {name: hashlib.sha256(memoryview(values)).hexdigest() for name, values in sources.items()}
+    manifest = {**manifest, "source_tensor_sha256": pins[manifest["tensor"]]}
+    class Reader:
+        tensors = [SimpleNamespace(name=item["name"]) for item in plan["tensors"]]
+
+    monkeypatch.setitem(sys.modules, "gguf", SimpleNamespace(GGUFReader=Reader))
+    arguments = {"reader": Reader(), "source_paths": {profile.packaging["shards"][0]: "unused"}, "source_values": sources,
+                 "expected_source_sha256": pins, "expected_file_bytes": 16 * 1024**2, "expected_file_sha256": "0" * 64}
+    if defect == "missing":
+        sources.pop(next(iter(sources)))
+    elif defect == "owner":
+        arguments["model_owner"] = object()
+    elif defect == "budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "extent":
+        arguments["expected_file_bytes"] = 1
+    elif defect == "pin":
+        arguments["expected_file_sha256"] = "invalid"
+    elif defect == "reader":
+        arguments["reader"] = object()
+    elif defect == "frozen-pin":
+        pins[manifest["tensor"]] = "f" * 64
+    calls = []
+    snapshots = {}
+    def source(*received, **keywords):
+        assert defect in (None, "caller-change", "source-change", "deadline"), "invalid composed table reached source dispatch"
+        assert manifest["tensor"] in keywords["source_values"]
+        for name, values in keywords["source_values"].items():
+            assert not values.flags.writeable and not np.shares_memory(values, sources[name])
+            assert hashlib.sha256(memoryview(values)).hexdigest() == keywords["expected_source_sha256"][name]
+        if not calls:
+            snapshots.update(keywords["source_values"])
+        else:
+            assert all(values is snapshots[name] for name, values in keywords["source_values"].items())
+        calls.append(("source", keywords["maximum_seconds"]))
+        return MappingProxyType({"identity": 2 if defect == "source-change" and len(calls) == 3 else 1})
+
+    def converted(*received, **keywords):
+        assert manifest["tensor"] not in keywords["source_values"]
+        assert all(values is snapshots[name] for name, values in keywords["source_values"].items())
+        calls.append(("converted", keywords["maximum_seconds"]))
+        if defect == "caller-change":
+            for values in sources.values():
+                values.flat[0] = 1
+            pins.clear()
+            arguments["source_paths"].clear()
+        elif defect == "deadline":
+            monkeypatch.setattr(codec.time, "monotonic", lambda: float("inf"))
+        return MappingProxyType({"source_file_verification": "not_checked"})
+
+    monkeypatch.setattr(codec, "verify_profile_safetensors_tensor_table", source)
+    monkeypatch.setattr(codec, "verify_profile_gguf_tensor_table", converted)
+    if defect not in (None, "caller-change"):
+        with pytest.raises(ValueError):
+            codec.verify_profile_gguf_source_tensor_table(profile, report, manifest, blocks, **arguments)
+    else:
+        receipt = codec.verify_profile_gguf_source_tensor_table(profile, report, manifest, blocks, **arguments)
+        assert receipt["tensor_count"] == 28 and receipt["source_file_rechecked_after_conversion"] is True
+        assert receipt["source_to_frozen_quantization_verification"] == receipt["model_metadata_verification"] == "not_checked"
+        assert receipt["converted"]["source_file_verification"] == "not_checked"
+        assert receipt["cross_file_atomic_snapshot"] == "not_guaranteed"
+        with pytest.raises(TypeError):
+            receipt["tensor_count"] = 0
+    assert [name for name, _ in calls] == (["source", "converted", "source"] if defect in (None, "caller-change", "source-change") else ["source", "converted"] if defect == "deadline" else [])
+    if calls:
+        assert all(0 < duration <= 30 for _, duration in calls)
+        assert all(after <= before for (_, before), (_, after) in zip(calls, calls[1:]))
+
+
 @pytest.mark.parametrize("defect", [None, "caller-change", "source-change", "deadline", "budget", "file", "digest", "frozen", "owner", "dtype", "shape"])
 def test_profile_gguf_source_operand_shares_snapshot_digest_and_deadline(monkeypatch, defect):
     from types import MappingProxyType

@@ -640,35 +640,8 @@ def verify_profile_gguf_tensor_table(
     source_values = source_values.copy()
     _verified_owner_descriptor(model_owner, profile, manifest, expected_file_bytes, expected_file_sha256)
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
-    dense = [item for item in plan["tensors"] if item["type"] != "PQ2_0"]
-    names = {item["source_name"] for item in dense}
-    if set(source_values) != names or set(expected_source_sha256) != names:
-        raise ValueError("complete tensor-table source set mismatch")
     pins = expected_source_sha256.copy()
-    total = 3 * np.asarray(pq2_blocks).nbytes
-    payload_bytes = np.asarray(pq2_blocks).nbytes
-    kinds = {}
-    for item in dense:
-        name = item["source_name"]
-        values = source_values[name]
-        dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(item["source_dtype"])
-        size = int(np.prod(item["source_shape"])) * (2 if item["type"] == "BF16" else 4)
-        kind = "matrix" if item["type"] == "BF16" else "vector" if len(item["source_shape"]) == 1 else "convolution"
-        if (
-            dtype is None or not isinstance(values, np.ndarray) or values.dtype != dtype
-            or values.shape != tuple(item["source_shape"]) or not values.flags.c_contiguous
-            or not isinstance(pins[name], str) or SHA256.fullmatch(pins[name]) is None
-            or values.nbytes + 2 * size > (64 * 1024 if kind == "vector" else 16 * 1024**2)
-            or (kind == "convolution" and (len(item["source_shape"]) != 3 or item["source_shape"][1] != 1 or item["source_shape"][2] <= 1))
-        ):
-            raise ValueError("complete tensor-table operand layout, pin or budget mismatch")
-        total += values.nbytes + 2 * size
-        payload_bytes += size
-        kinds[name] = kind
-    if payload_bytes > expected_file_bytes:
-        raise ValueError("complete tensor-table payloads exceed declared file extent")
-    if total > maximum_bytes:
-        raise ValueError("complete tensor-table operands exceed aggregate byte budget")
+    total, kinds = _profile_gguf_table_layout(plan, pq2_blocks, source_values, pins, expected_file_bytes, maximum_bytes)
     sources = {name: values.copy() for name, values in source_values.items()}
     blocks = np.array(pq2_blocks, copy=True)
     blocks.setflags(write=False)
@@ -705,6 +678,40 @@ def verify_profile_gguf_tensor_table(
                             "tensor_table_verification": "all_declared_ranges_match_caller_operands_and_frozen_payload",
                             "source_file_verification": "not_checked", "model_metadata_verification": "not_checked",
                             "gguf_reader_verification": "not_checked", "runtime_approval": "not_granted_by_tensor_table_verification"})
+
+
+def _profile_gguf_table_layout(plan, pq2_blocks, source_values, pins, expected_file_bytes, maximum_bytes):
+    from embedded_jev.model_profile import SHA256
+
+    dense = [item for item in plan["tensors"] if item["type"] != "PQ2_0"]
+    names = {item["source_name"] for item in dense}
+    if set(source_values) != names or set(pins) != names:
+        raise ValueError("complete tensor-table source set mismatch")
+    total = 3 * np.asarray(pq2_blocks).nbytes
+    payload_bytes = np.asarray(pq2_blocks).nbytes
+    kinds = {}
+    for item in dense:
+        name = item["source_name"]
+        values = source_values[name]
+        dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(item["source_dtype"])
+        size = int(np.prod(item["source_shape"])) * (2 if item["type"] == "BF16" else 4)
+        kind = "matrix" if item["type"] == "BF16" else "vector" if len(item["source_shape"]) == 1 else "convolution"
+        if (
+            dtype is None or not isinstance(values, np.ndarray) or values.dtype != dtype
+            or values.shape != tuple(item["source_shape"]) or not values.flags.c_contiguous
+            or not isinstance(pins[name], str) or SHA256.fullmatch(pins[name]) is None
+            or values.nbytes + 2 * size > (64 * 1024 if kind == "vector" else 16 * 1024**2)
+            or (kind == "convolution" and (len(item["source_shape"]) != 3 or item["source_shape"][1] != 1 or item["source_shape"][2] <= 1))
+        ):
+            raise ValueError("complete tensor-table operand layout, pin or budget mismatch")
+        total += values.nbytes + 2 * size
+        payload_bytes += size
+        kinds[name] = kind
+    if payload_bytes > expected_file_bytes:
+        raise ValueError("complete tensor-table payloads exceed declared file extent")
+    if total > maximum_bytes:
+        raise ValueError("complete tensor-table operands exceed aggregate byte budget")
+    return total, kinds
 
 
 def verify_profile_safetensors_operand(
@@ -839,56 +846,17 @@ def verify_profile_safetensors_tensor_table(
     maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
 ):
     """Verify every selected source identity, not conversion, quantization or an atomic source snapshot."""
-    from embedded_jev.model_profile import SHA256
     from embedded_jev.streamed_text import bounded_native_descriptor_record
 
-    if (
-        type(maximum_bytes) is not int or not 0 < maximum_bytes <= 64 * 1024**2
-        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
-        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
-        or not isinstance(pq2_blocks, np.ndarray) or pq2_blocks.dtype != np.dtype("u1") or not pq2_blocks.flags.c_contiguous
-    ):
-        raise ValueError("invalid source table payload layout or budget")
+    if type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600:
+        raise ValueError("invalid source table deadline")
     deadline = time.monotonic() + maximum_seconds
-    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
-    names = {entry["source_name"] for entry in plan["tensors"]}
+    plan, sources, pins, paths, blocks, total = _profile_source_table_snapshot(
+        profile, inventory, manifest, pq2_blocks, source_paths=source_paths, source_values=source_values,
+        expected_source_sha256=expected_source_sha256, maximum_bytes=maximum_bytes, maximum_file_bytes=maximum_file_bytes,
+    )
     tensors = {entry["name"]: entry for entry in inventory["tensors"]}
-    shards = {tensors[name]["shard"] for name in names}
-    if (
-        not isinstance(source_values, dict) or set(source_values) != names
-        or not isinstance(expected_source_sha256, dict) or set(expected_source_sha256) != names
-        or not isinstance(source_paths, dict) or set(source_paths) != shards
-    ):
-        raise ValueError("source table requires exact selected tensor and shard maps")
-    pins, paths = dict(expected_source_sha256), dict(source_paths)
-    if (
-        any(not isinstance(value, str) or SHA256.fullmatch(value) is None for value in pins.values())
-        or pins[manifest["tensor"]] != manifest["source_tensor_sha256"]
-        or sum(profile.files[name].bytes for name in shards) > maximum_file_bytes
-        or any(profile.files[name].header_bytes is None or profile.files[name].header_sha256 is None for name in shards)
-    ):
-        raise ValueError("source table source pins or aggregate file budget mismatch")
-    sources = dict(source_values)
-    total = 3 * pq2_blocks.nbytes
-    for entry in plan["tensors"]:
-        values = sources[entry["source_name"]]
-        if (
-            not isinstance(values, np.ndarray) or values.dtype != {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
-            or values.shape != tuple(entry["source_shape"]) or not values.flags.c_contiguous
-            or 3 * values.nbytes > 16 * 1024**2
-        ):
-            raise ValueError("source table operand layout or per-tensor budget mismatch")
-        total += 3 * values.nbytes
-    if total > maximum_bytes:
-        raise ValueError("source table aggregate operand budget exceeded")
-    blocks = np.array(pq2_blocks, copy=True)
-    blocks.setflags(write=False)
-    for name, values in sources.items():
-        values = values.copy()
-        values.setflags(write=False)
-        if hashlib.sha256(memoryview(values)).hexdigest() != pins[name]:
-            raise ValueError("source table operand digest mismatch")
-        sources[name] = values
+    shards = set(paths)
 
     def remaining():
         duration = deadline - time.monotonic()
@@ -932,6 +900,123 @@ def verify_profile_safetensors_tensor_table(
                             "source_to_frozen_quantization_verification": "not_checked", "converted_file_verification": "not_checked",
                             "pin_issuer_verification": "not_checked", "cross_file_atomic_snapshot": "not_guaranteed",
                             "runtime_approval": "not_granted_by_source_table_verification"})
+
+
+def _profile_source_table_snapshot(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_paths: dict, source_values: dict,
+    expected_source_sha256: dict, maximum_bytes: int, maximum_file_bytes: int,
+):
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_bytes) is not int or not 0 < maximum_bytes <= 64 * 1024**2
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or not isinstance(pq2_blocks, np.ndarray) or pq2_blocks.dtype != np.dtype("u1") or not pq2_blocks.flags.c_contiguous
+    ):
+        raise ValueError("invalid source table payload layout or budget")
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    names = {entry["source_name"] for entry in plan["tensors"]}
+    tensors = {entry["name"]: entry for entry in inventory["tensors"]}
+    shards = {tensors[name]["shard"] for name in names}
+    if (
+        not isinstance(source_values, dict) or set(source_values) != names
+        or not isinstance(expected_source_sha256, dict) or set(expected_source_sha256) != names
+        or not isinstance(source_paths, dict) or set(source_paths) != shards
+    ):
+        raise ValueError("source table requires exact selected tensor and shard maps")
+    pins, paths = dict(expected_source_sha256), dict(source_paths)
+    if (
+        any(not isinstance(value, str) or SHA256.fullmatch(value) is None for value in pins.values())
+        or pins[manifest["tensor"]] != manifest["source_tensor_sha256"]
+        or sum(profile.files[name].bytes for name in shards) > maximum_file_bytes
+        or any(profile.files[name].header_bytes is None or profile.files[name].header_sha256 is None for name in shards)
+    ):
+        raise ValueError("source table source pins or aggregate file budget mismatch")
+    sources = dict(source_values)
+    total = 3 * pq2_blocks.nbytes
+    for entry in plan["tensors"]:
+        values = sources[entry["source_name"]]
+        if (
+            not isinstance(values, np.ndarray) or values.dtype != {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+            or values.shape != tuple(entry["source_shape"]) or not values.flags.c_contiguous
+            or 3 * values.nbytes > 16 * 1024**2
+        ):
+            raise ValueError("source table operand layout or per-tensor budget mismatch")
+        total += 3 * values.nbytes
+    if total > maximum_bytes:
+        raise ValueError("source table aggregate operand budget exceeded")
+    blocks = np.array(pq2_blocks, copy=True)
+    blocks.setflags(write=False)
+    for name, values in sources.items():
+        values = values.copy()
+        values.setflags(write=False)
+        if hashlib.sha256(memoryview(values)).hexdigest() != pins[name]:
+            raise ValueError("source table operand digest mismatch")
+        sources[name] = values
+
+    return plan, sources, pins, paths, blocks, total
+
+
+def verify_profile_gguf_source_tensor_table(
+    profile, inventory: dict, manifest: dict, pq2_blocks: np.ndarray, *, reader, source_paths: dict,
+    source_values: dict, expected_source_sha256: dict, expected_file_bytes: int, expected_file_sha256: str,
+    maximum_bytes: int = 64 * 1024**2, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30, model_owner=None,
+):
+    """Bind complete selected source and converted evidence, keeping frozen identity separate from quantization."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+    ):
+        raise ValueError("invalid source/converted table file identity or deadline")
+    deadline = time.monotonic() + maximum_seconds
+    _verified_owner_descriptor(model_owner, profile, manifest, expected_file_bytes, expected_file_sha256)
+    plan, sources, pins, paths, blocks, total = _profile_source_table_snapshot(
+        profile, inventory, manifest, pq2_blocks, source_paths=source_paths, source_values=source_values,
+        expected_source_sha256=expected_source_sha256, maximum_bytes=maximum_bytes, maximum_file_bytes=maximum_file_bytes,
+    )
+    dense = {entry["source_name"]: sources[entry["source_name"]] for entry in plan["tensors"] if entry["type"] != "PQ2_0"}
+    dense_pins = {name: pins[name] for name in dense}
+    converted_total, _ = _profile_gguf_table_layout(plan, blocks, dense, dense_pins, expected_file_bytes, maximum_bytes)
+    total = max(total, converted_total + 3 * sources[manifest["tensor"]].nbytes)
+    if total > maximum_bytes:
+        raise ValueError("source/converted table aggregate operand budget exceeded")
+    import gguf
+
+    if type(reader) is not gguf.GGUFReader or len(reader.tensors) != len(plan["tensors"]) or {item.name for item in reader.tensors} != {item["name"] for item in plan["tensors"]}:
+        raise ValueError("complete tensor-table reader set mismatch")
+    def remaining():
+        duration = deadline - time.monotonic()
+        if duration <= 0:
+            raise ValueError("source/converted table deadline exceeded")
+        return duration
+
+    def source_record():
+        return verify_profile_safetensors_tensor_table(
+            profile, inventory, manifest, blocks, source_paths=paths, source_values=sources,
+            expected_source_sha256=pins, maximum_bytes=maximum_bytes,
+            maximum_file_bytes=maximum_file_bytes, maximum_seconds=remaining(),
+        )
+
+    source = source_record()
+    converted = verify_profile_gguf_tensor_table(
+        profile, inventory, manifest, blocks, reader=reader, source_values=dense,
+        expected_source_sha256=dense_pins, expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_bytes=maximum_bytes, maximum_file_bytes=maximum_file_bytes, maximum_seconds=remaining(), model_owner=model_owner,
+    )
+    if source_record() != source:
+        raise ValueError("source/converted table source identity changed")
+    remaining()
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "tensor_count": len(plan["tensors"]), "operand_budget_bytes": total, "source": source, "converted": converted,
+                            "source_conversion_table_verification": "selected_source_and_converted_ranges_match_shared_operands_or_frozen_payload",
+                            "source_to_frozen_quantization_verification": "not_checked", "source_file_rechecked_after_conversion": True,
+                            "cross_file_atomic_snapshot": "not_guaranteed", "pin_issuer_verification": "not_checked",
+                            "model_metadata_verification": "not_checked", "runtime_approval": "not_granted_by_source_conversion_table_verification"})
 
 
 def verify_profile_gguf_source_operand(

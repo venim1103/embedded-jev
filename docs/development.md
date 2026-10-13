@@ -1654,6 +1654,25 @@ approval remain unchecked/not granted. This standalone gate is not integrated
 into the verified native owner or scoring path. Default synthetic controls read
 only disposable pinned zero-source shards; no real source reads are authorized.
 
+`verify_profile_gguf_source_tensor_table(...)` composes complete selected-source
+and converted table checks through shared copied read-only arrays/digests and
+frozen payload. Supply the same complete source maps plus converted reader and
+file pins. Both existing source/converted layout and aggregate preflights run
+before source dispatch; the reader's exact tensor set and optional live owner's
+identity must match. One cooperative deadline covers source check, converted
+table and source recheck. Operand charge is the larger of the source table charge
+and converted table charge plus three original frozen-source extents, capped at
+64 MiB. Aggregate source shard files and the separate converted file each cap at
+16 MiB, not 16 MiB combined. This is not a peak-RAM guarantee.
+Immutable receipt nests unchanged source and converted receipts, preserving the
+converted-only source claim. Restored inter-stage source writes refuse. Original
+frozen source digest and canonical PQ2 payload remain distinct: quantization
+equivalence is unchecked. Optional `model_owner` anchors converted reads, but
+this gate is not automatically run by the owner/scorer, and receipts remain
+provisional until owner exit succeeds. Quiescent files are required; no atomic
+cross-file, issuer, model metadata/tokenizer, loaded-code, quality or runtime
+approval claim is added.
+
 `verify_profile_gguf_source_operand(...)` composes one unfrozen source-file
 range and its typed converted GGUF range through the same copied read-only
 operand and digest. Supply `expected_source_file_bytes`/
@@ -1681,12 +1700,14 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
    tests/test_prism_native_control.py -k source_to_gguf_selected_range
 ```
 
-They create pinned zero-filled safetensors and four-tensor selected GGUF fixtures
-in disposable scratch, test BF16/F32 vectors/convolution and a BF16 matrix, and
-separately verify frozen BF16 source identity and canonical PQ2 range bytes.
-They refuse changed converted bits even with a fresh file hash and restored
-source writes between unfrozen stages. They execute no native model or complete-
-model conversion and claim no independent HF source or quantization evidence.
+They create pinned zero-filled safetensors and either four-tensor selected or
+complete 28-tensor synthetic GGUF fixtures in disposable scratch. Selected cases
+test BF16/F32 vectors/convolution, a BF16 matrix, and separate frozen BF16 source/
+canonical PQ2 identities. Complete cases compose all ranges for BF16 and F32
+vector/convolution variants. They refuse changed converted bits even with a fresh
+file hash and restored inter-stage source writes. They execute no native model
+or real complete-model conversion and claim no independent HF source,
+quantization or representative quality evidence.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
