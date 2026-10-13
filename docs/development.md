@@ -1747,6 +1747,16 @@ refuse, as do restored source writes and changed converted bits. This is nonzero
 selected-vector arithmetic/range evidence, not complete-model/native nonzero
 evidence, upstream pin-issuer authentication or representative decision quality.
 
+Four further nonzero cases cover raw BF16 matrix QKV rows and output columns,
+plus BF16/F32 convolution row permutation and 3D-to-2D squeeze. Their independent
+toy index order preserves the first 128 Q/K rows and tiles four 32-wide value
+heads in order 0/2/1/3; output columns use the corresponding 128 indices. Distinct
+finite source bits expose omitted reordering. BF16 outputs are written as exact
+encoded bytes, not round-tripped through a float quantizer. Fresh-pin unpermuted
+matrix/convolution outputs, source restored writes and changed converted bits
+refuse. These eight nonzero selected-range cases do not execute native prefill;
+complete source-gated native controls remain the separate zero-source evidence.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

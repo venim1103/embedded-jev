@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [nonzero source vector checkpoint](#nonzero-source-vector-checkpoint-2026-10-13),
+2. Read the [nonzero source permutation checkpoint](#nonzero-source-permutation-checkpoint-2026-10-13),
+   then the [nonzero source vector checkpoint](#nonzero-source-vector-checkpoint-2026-10-13),
    then the [source gated prefill checkpoint](#source-gated-prefill-checkpoint-2026-10-13),
    then the [source gated owner checkpoint](#source-gated-owner-checkpoint-2026-10-13),
    then the [complete source conversion checkpoint](#complete-source-conversion-checkpoint-2026-10-13),
@@ -100,6 +101,33 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Nonzero Source Permutation Checkpoint (2026-10-13)
+
+After `8e913e6`, four more cases extend the same physical paired-file fixture to
+raw BF16 QKV row/output-column permutations and BF16/F32 convolution reorder/
+squeeze. Independent literal toy indices preserve 128 Q/K rows, then reorder
+four 32-wide value heads as 0/2/1/3; columns use the corresponding value indices.
+Distinct finite source bits make omitted head layout changes observable. Raw
+BF16 encoded output preserves bits, avoiding float quantizer round trips. Actual
+source shards are repinned only in disposable synthetic profiles; header
+geometry and frozen codes/scales remain unchanged. Fresh-pin unpermuted outputs
+refuse together with source restored writes and converted one-bit changes.
+
+Verification: **513 default passes, 72 optional skips** in 12.22 s; Ruff,
+whitespace and touched diagnostics clean. **All eight nonzero paired controls
+pass** in 12.03 s, peak process RSS 245,404 KiB, swaps zero, including the four
+prior vector cases. Scratch empty after cleanup. No failures, production API/
+native changes, prefill/build/sanitizer/CTest, real inputs, downloads, refit or
+new retained candidate. User settings and existing caches remain untouched.
+
+This closes the nonzero selected operand/range gap for vector, matrix and
+convolution families, not native nonzero source-gated prefill, complete-model
+parity, independent issuer provenance, frozen quantization equivalence or quality.
+Next bounded integration: attach genuinely pinned disposable source bytes to
+the existing nonzero native fixture and independent score oracle, preserving
+all numerical, deadline, token/tensor and hook limits. Real actions still need
+separate approval.
 
 ## Nonzero Source Vector Checkpoint (2026-10-13)
 
