@@ -1587,6 +1587,20 @@ semantics, source authenticity, reader code or loaded pages. A fresh caller hash
 cannot make a changed selected value pass. This standalone API grants no runtime
 approval and does not change table-only receipts or existing policy calls.
 
+`verified_profile_model_policy(..., verify_policy_metadata=True)` explicitly
+requires this gate after complete tensor parity and before yield, using the
+same owner descriptor and remaining cooperative pre-yield deadline. The option
+is a strict bool, defaults to false and requires the existing full tensor-reader/
+source-array/pin inputs. An immutable selected-policy receipt is retained at
+`owner.verification["policy_metadata"]` with top-level
+`policy_metadata_verification`; the nested table receipt correctly still leaves
+metadata unchecked. Metadata mismatches/mutation/deadlines free the policy
+without yielding it. Opted-out/file-only/vector-only callers keep their prior
+behavior. Synthetic parity-enabled verified full/parallel/recovery controls
+enable both gates. Both receipts remain provisional until owner exit succeeds;
+neither selected metadata nor runtime file pins attest loaded code, tokenizer
+semantics, independent source-weight provenance or real-model quality.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

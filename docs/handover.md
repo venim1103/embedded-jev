@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [policy metadata API checkpoint](#policy-metadata-api-checkpoint-2026-10-13),
+2. Read the [integrated policy metadata checkpoint](#integrated-policy-metadata-checkpoint-2026-10-13),
+   then the [policy metadata API checkpoint](#policy-metadata-api-checkpoint-2026-10-13),
    then the [integrated table caller checkpoint](#integrated-table-caller-checkpoint-2026-10-13),
    then the [descriptor table checkpoint](#descriptor-table-checkpoint-2026-10-13),
    then the [complete table API checkpoint](#complete-table-api-checkpoint-2026-10-13),
@@ -91,6 +92,40 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Integrated Policy Metadata Checkpoint (2026-10-13)
+
+After `7834982`, `verified_profile_model_policy(..., verify_policy_metadata=True)`
+requires the selected-policy byte gate inside the same descriptor owner, after
+complete tensor parity and before yield. Strict boolean defaults to false;
+full reader/source-array/pin inputs are required. The immutable metadata receipt
+is nested in owner verification with a top-level selected-policy status. Table
+receipts continue marking metadata unchecked; metadata receipts mark only their
+selected records. Remaining pre-yield time is shared, with no hard interruption
+of native/I/O operations. Failures free the policy before descriptor closure or
+caller access; no default-caller changes or new execution approval.
+
+Verification: **426 default passes, 54 optional skips** in 10.19 s; Ruff,
+whitespace and touched diagnostics clean. Forty focused lifecycle/preflight
+cases cover strict options, incomplete reader inputs, snapshots, immutable
+receipts and pre-yield metadata failure/mutation/deadline cleanup. Pylance
+reports all three resolved Python call sites signature-compatible; embedded
+subprocess callers are verified by execution, not that static result. All
+**nine profile/native controls pass** in 129.10 s, peak process RSS 299,228 KiB,
+swaps zero. Each supported role runs actual verified full/parallel/recovery
+with 28 tensor ranges and 25 selected records in its own prefill owner; precise
+type/copied-part metadata refusals and the three existing table refusals emit
+no scores and restore the registry. Both gates read the original descriptor
+after pathname replacement, but owner exit still refuses changed inode metadata.
+Normal integrated owner exit succeeds. Vector-only FFN-down compatibility
+passes in 7.51 s. No failures in this increment and no tolerance/budget/hook
+relaxation, native rebuild, sanitizer/CTest, real-model reads/conversions/execution,
+downloads, refit or new retained candidate. Disposable file mutations are
+restored before prefill and fixtures cleaned; user editor files untouched.
+Next bounded provenance work must preserve the distinction between selected
+policy bytes, genuine source-file operands, tokenizer/config semantics, imported
+code/loaded pages, issuer identity and model quality. Real-profile gates and the
+historical numerical differences still require separate approval/evidence.
 
 ## Policy Metadata API Checkpoint (2026-10-13)
 

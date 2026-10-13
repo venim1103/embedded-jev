@@ -1067,6 +1067,7 @@ def verified_profile_model_policy(
     maximum_seconds: float = 30, expected_runtime_files: dict | None = None, runtime_scorer=None,
     tensor_reader=None, source_values: dict | None = None, expected_source_sha256: dict | None = None,
     maximum_tensor_bytes: int = 64 * 1024**2,
+    verify_policy_metadata: bool = False,
 ):
     """Verify file identity, not conversion provenance; destroy all native users before exit."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
@@ -1083,6 +1084,8 @@ def verified_profile_model_policy(
     if runtime_scorer is not None and expected_runtime_files is None:
         raise ValueError("scorer runtime verification requires runtime file pins")
     requested_table = any(value is not None for value in (tensor_reader, source_values, expected_source_sha256))
+    if type(verify_policy_metadata) is not bool or (verify_policy_metadata and not requested_table):
+        raise ValueError("policy metadata verification requires a tensor-table reader and inputs")
     if requested_table:
         if (
             tensor_reader is None or not isinstance(source_values, dict) or not isinstance(expected_source_sha256, dict)
@@ -1152,6 +1155,16 @@ def verified_profile_model_policy(
                     maximum_bytes=maximum_tensor_bytes, maximum_seconds=remaining, model_owner=owner,
                 )
                 verification = MappingProxyType({**verification, "tensor_table_verification": table["tensor_table_verification"], "tensor_table": table})
+                if verify_policy_metadata:
+                    remaining = maximum_seconds - (time.monotonic() - started)
+                    if remaining <= 0:
+                        raise ValueError("verified model policy metadata deadline exceeded")
+                    metadata = verify_profile_gguf_policy_metadata(
+                        profile, inventory, manifest, blocks, reader=tensor_reader,
+                        expected_file_bytes=expected_bytes, expected_file_sha256=expected_sha256,
+                        maximum_seconds=remaining, model_owner=owner,
+                    )
+                    verification = MappingProxyType({**verification, "policy_metadata_verification": metadata["policy_metadata_verification"], "policy_metadata": metadata})
             if identity(os.fstat(model.fileno())) != identity(before):
                 raise ValueError("verified model changed during policy creation")
             if expected_runtime_files is not None:

@@ -913,7 +913,7 @@ try:
     model_path = sys.argv[1]
     if mode.startswith("verified-"):
         tensor_arguments = {}
-        caller_refusal = mode in ("verified-table-source-key", "verified-table-source-parity", "verified-table-budget")
+        caller_refusal = mode in ("verified-table-source-key", "verified-table-source-parity", "verified-table-budget", "verified-policy-metadata-type", "verified-policy-metadata-copy")
         if len(sys.argv) > 8 and sys.argv[8]:
             import hashlib
             import time
@@ -942,6 +942,18 @@ try:
             elif mode == "verified-table-budget":
                 tensor_arguments["maximum_tensor_bytes"] = 1
             tensor_arguments.update(tensor_reader=gguf.GGUFReader(model_path), source_values=sources, expected_source_sha256=pins)
+            tensor_arguments["verify_policy_metadata"] = True
+            if mode in ("verified-policy-metadata-type", "verified-policy-metadata-copy"):
+                selected_name = "qwen35.attention.head_count"
+                original_field = tensor_arguments["tensor_reader"].fields[selected_name]
+                if mode == "verified-policy-metadata-type":
+                    changed_field = original_field._replace(types=[gguf.GGUFValueType.FLOAT32])
+                else:
+                    parts = original_field.parts.copy()
+                    parts[-1] = parts[-1].copy()
+                    parts[-1].setflags(write=False)
+                    changed_field = original_field._replace(parts=parts)
+                tensor_arguments["tensor_reader"].fields[selected_name] = changed_field
         assert not caller_refusal or tensor_arguments
         try:
             owner = owners.enter_context(verified_profile_model_policy(
@@ -957,6 +969,8 @@ try:
                 "verified-table-source-key": "complete tensor-table source set mismatch",
                 "verified-table-source-parity": "converted matrix byte parity mismatch",
                 "verified-table-budget": "complete tensor-table operands exceed aggregate byte budget",
+                "verified-policy-metadata-type": "policy metadata field type or range mismatch",
+                "verified-policy-metadata-copy": "policy metadata field mapping mismatch",
             }[mode]
             assert expected_error in str(error), str(error)
             assert registry() == baseline
@@ -976,6 +990,12 @@ try:
             assert owner.verification["tensor_table_verification"] == "all_declared_ranges_match_caller_operands_and_frozen_payload"
             assert table["source_file_verification"] == table["model_metadata_verification"] == table["gguf_reader_verification"] == "not_checked"
             assert table["runtime_approval"] == "not_granted_by_tensor_table_verification"
+            metadata = owner.verification["policy_metadata"]
+            assert metadata["model_file_access"] == "verified_owner_descriptor" and len(metadata["metadata_names"]) == 25
+            assert metadata["converted_file_sha256"] == owner.verification["model_sha256"]
+            assert owner.verification["policy_metadata_verification"] == "selected_typed_policy_records_match_declarations_and_file"
+            assert metadata["model_metadata_verification"] == "selected_policy_records_only"
+            assert metadata["tokenizer_semantics_verification"] == metadata["gguf_reader_verification"] == "not_checked"
         for name in ("bridge", "scorer", "llama", "ggml_registry"):
             assert owner.verification[name + "_sha256"] == json.loads(sys.argv[7])[name]["sha256"]
         assert owner.verification["ggml_cpu_sha256"] == "adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150"
@@ -1343,6 +1363,11 @@ if complete:
                     expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], model_owner=owner,
                 )
                 assert anchored["model_file_access"] == "verified_owner_descriptor" and anchored["tensor_count"] == 28
+                anchored_metadata = verify_profile_gguf_policy_metadata(
+                    profile, fixture["inventory"], fixture["manifest"], payload, reader=owner_reader,
+                    expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], model_owner=owner,
+                )
+                assert anchored_metadata["model_file_access"] == "verified_owner_descriptor" and len(anchored_metadata["metadata_names"]) == 25
                 assert os.lseek(descriptor, 0, os.SEEK_CUR) == position
                 for defect in ("pin", "profile", "payload"):
                     changed = {"expected_file_sha256": "0" * 64} if defect == "pin" else {}
@@ -1371,7 +1396,9 @@ if complete:
     with verified_profile_model_policy(
         native, original_path, profile, fixture["inventory"], fixture["manifest"], payload,
         expected_bytes=int(sys.argv[2]), expected_sha256=sys.argv[3],
+        tensor_reader=reader, source_values=sources, expected_source_sha256=pins, verify_policy_metadata=True,
     ) as owner:
+        assert owner.verification["policy_metadata"]["model_file_access"] == "verified_owner_descriptor"
         owner_reader = gguf.GGUFReader(owner.model_path)
         try:
             successful = verify_profile_gguf_tensor_table(
@@ -1456,7 +1483,8 @@ print(json.dumps(report))
             if mode == "parallel":
                 np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
         if parity_interpreter:
-            for requested_mode in ("verified-table-source-key", "verified-table-source-parity", "verified-table-budget"):
+            for requested_mode in ("verified-table-source-key", "verified-table-source-parity", "verified-table-budget",
+                                   "verified-policy-metadata-type", "verified-policy-metadata-copy"):
                 control = subprocess.run(
                     [parity_interpreter, "-c", driver_code, str(model_file), target, runtime_build, requested_mode,
                      str(expected["model_bytes"]), expected["model_sha256"], json.dumps(expected_runtime),
