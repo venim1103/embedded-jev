@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [complete synthetic vector checkpoint](#complete-synthetic-vector-checkpoint-2026-10-13),
+2. Read the [BF16 matrix operand checkpoint](#bf16-matrix-operand-checkpoint-2026-10-13),
+   then the [complete synthetic vector checkpoint](#complete-synthetic-vector-checkpoint-2026-10-13),
    then the [GGUF vector binding checkpoint](#gguf-vector-binding-checkpoint-2026-10-13),
    then the [conversion plan and vector parity checkpoint](#conversion-plan-and-vector-parity-checkpoint-2026-10-12),
    then the [bounded runtime hashing checkpoint](#bounded-runtime-hashing-checkpoint-2026-10-12),
@@ -82,6 +83,44 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Matrix Operand Checkpoint (2026-10-13)
+
+After complete-vector integration `7326a14`,
+`verify_profile_converted_matrix()` adds exact BF16 matrix operand comparison.
+Raw little-endian uint16 source/output arrays must match checked 2D geometry,
+contiguous layout, finite BF16 bits and the caller source SHA-256. The default
+`maximum_bytes` is 1 MiB, capped at 16 MiB, bounding
+`source.nbytes + 2 * converted.nbytes`; it is not peak process RAM or the separate
+projection validation budget. Copies preserve ordinary caller ownership.
+
+Only declared BF16 matrix bit-preserving transforms execute: identity, V-only
+QKV row reorder, Z/alpha/beta head row reorder and output-projection column
+reorder. Equal K/V head counts require no reorder. Frozen PQ2 replacements,
+F32 vectors/convolution, unsupported dtypes and oversized operands refuse;
+codes/scales are never regenerated. The immutable receipt explicitly leaves
+source-file and converted-file verification `not_checked` and grants no runtime
+approval. No GGUF matrix/file binding or whole-model parity follows yet.
+
+Verification: **350 default passes, 54 optional skips** in 5.64 s, Ruff,
+whitespace and editor diagnostics clean. **21 focused matrix cases** in 0.47 s
+cover exact identity, independent explicit head-index maps for five roles with
+equal/unequal heads, unreordered-output rejection, invalid source pins/budgets/
+layouts/types, nonfinite bits and signed-zero changes. The modified pinned-source
+controls passed **two cases in 3.52 s**, peak process RSS 268,340 KiB, no swaps.
+The BF16-source case additionally checks all 16 unfrozen matrix operands in the
+synthetic profile against the reviewed upstream Torch transform methods and
+rejects changed sign bits. Existing vector/file controls also remain covered.
+No failing checks or relaxed tolerances occurred in this increment.
+
+Native prefill remains the prior nine-case/70-vector result at `7326a14`; it was
+not rerun unchanged for operand-only work. No native rebuild, new sanitizer/
+CTest, real source/candidate weight reads, retained arrays/artifacts, model
+conversion/execution, fitting, quality experiment, downloads, push, branch or
+subagents. User settings and caches remain untouched. Next bounded step: reuse
+the existing file-range checker for BF16 matrix views, retaining the vector API
+and its refusal behavior; F32 convolution and complete-table/source proof remain
+separate prerequisites.
 
 ## Complete Synthetic Vector Checkpoint (2026-10-13)
 

@@ -742,6 +742,76 @@ def test_profile_gguf_vector_refuses_invalid_file_budget_before_reader_import(mo
         verify_profile_gguf_vector(profile, report, manifest, blocks, **arguments)
 
 
+@pytest.mark.parametrize("defect", [None, "digest", "budget", "boolean-budget", "frozen", "vector", "convolution", "dtype", "shape", "nonfinite", "bits"])
+def test_profile_converted_matrix_identity_and_refusals(defect):
+    from embedded_jev.prism_codec import verify_profile_converted_matrix
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
+    source = (np.arange(64 * 1024).reshape(64, 1024) % 17).astype("<u2")
+    converted = source.copy()
+    arguments = {"source_name": "model.layers.1.self_attn.k_proj.weight", "source_values": source,
+                 "converted_values": converted, "expected_source_sha256": hashlib.sha256(memoryview(source)).hexdigest()}
+    if defect == "digest":
+        arguments["expected_source_sha256"] = "0" * 64
+    elif defect == "budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "boolean-budget":
+        arguments["maximum_bytes"] = True
+    elif defect == "frozen":
+        arguments["source_name"] = manifest["tensor"]
+    elif defect == "vector":
+        arguments["source_name"] = "model.norm.weight"
+    elif defect == "convolution":
+        arguments["source_name"] = "model.layers.0.linear_attn.conv1d.weight"
+    elif defect == "dtype":
+        arguments["source_values"] = source.astype(np.float32)
+    elif defect == "shape":
+        arguments["converted_values"] = converted[:-1]
+    elif defect == "nonfinite":
+        converted[0, 0] = 0x7F80
+    elif defect == "bits":
+        converted[0, 0] ^= 0x8000
+    if defect is None:
+        receipt = verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
+        assert receipt["converted_sha256"] == hashlib.sha256(memoryview(converted)).hexdigest()
+        assert receipt["source_file_verification"] == receipt["converted_file_verification"] == "not_checked"
+        with pytest.raises(TypeError):
+            receipt["converted_sha256"] = "0" * 64
+    else:
+        with pytest.raises(ValueError):
+            verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
+
+
+@pytest.mark.parametrize("value_heads", [2, 4])
+@pytest.mark.parametrize("suffix", ["in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b", "out_proj"])
+def test_profile_converted_matrix_reorders_exact_head_indices(value_heads, suffix):
+    from embedded_jev.prism_codec import verify_profile_converted_matrix
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down", value_heads=value_heads)
+    name = "model.layers.0.linear_attn." + suffix + ".weight"
+    shape = next(item["shape"] for item in report["tensors"] if item["name"] == name)
+    source = (np.arange(int(np.prod(shape))).reshape(shape) % 257).astype("<u2")
+    order = [0, 1] if value_heads == 2 else [0, 2, 1, 3]
+    width = 1 if suffix in ("in_proj_a", "in_proj_b") else 32
+    selected = (np.array(order)[:, None] * width + np.arange(width)).reshape(-1)
+    if suffix == "out_proj":
+        converted = source[:, selected].copy()
+    elif suffix == "in_proj_qkv":
+        rows = np.concatenate((np.arange(128), 128 + selected))
+        converted = source[rows].copy()
+    else:
+        converted = source[selected].copy()
+    arguments = {"source_name": name, "source_values": source, "converted_values": converted,
+                 "expected_source_sha256": hashlib.sha256(memoryview(source)).hexdigest(), "maximum_bytes": 16 * 1024**2}
+    receipt = verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
+    assert receipt["converted_sha256"] == hashlib.sha256(memoryview(converted)).hexdigest()
+    if value_heads == 4:
+        assert not np.array_equal(source, converted)
+        arguments["converted_values"] = source
+        with pytest.raises(ValueError, match="byte parity"):
+            verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
+
+
 def test_profile_model_policy_refuses_unpinned_runtime():
     from embedded_jev.prism_codec import profile_model_specification
 

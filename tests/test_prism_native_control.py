@@ -2534,7 +2534,7 @@ import numpy as np
 import torch
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector
+from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector, verify_profile_converted_matrix
 import embedded_jev.prism_codec as prism_codec
 
 module = ast.parse((Path(sys.argv[1]) / "conversion/qwen.py").read_text())
@@ -2785,14 +2785,40 @@ with TemporaryDirectory(prefix="jev-vector-gguf-") as directory:
                 output.seek(tensor.data_offset)
                 output.write(original)
     del tensor, reader
-print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3]}))
+matrix_count = 0
+if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "output_norm.weight") == "BF16":
+    model.hparams.update(plan["linear_head_layout"])
+    model.hparams["hidden_size"] = profile.geometry["hidden_size"]
+    for item in plan["tensors"]:
+        if item["type"] != "BF16":
+            continue
+        source = (torch.arange(int(np.prod(item["source_shape"])), dtype=torch.float32).reshape(item["source_shape"]) % 17 - 8) / 16
+        raw_source = source.to(torch.bfloat16).view(torch.uint16).numpy().copy()
+        converted = list(model.modify_tensors(source, item["source_name"], 0))[0][1]
+        raw_converted = converted.to(torch.bfloat16).view(torch.uint16).numpy().copy()
+        keywords = {"source_name": item["source_name"], "source_values": raw_source, "converted_values": raw_converted,
+                    "expected_source_sha256": hashlib.sha256(memoryview(raw_source)).hexdigest(), "maximum_bytes": 16 * 1024**2}
+        receipt = verify_profile_converted_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+        assert receipt["converted_sha256"] == hashlib.sha256(memoryview(raw_converted)).hexdigest()
+        assert receipt["source_file_verification"] == receipt["converted_file_verification"] == "not_checked"
+        changed = raw_converted.copy()
+        changed.flat[0] ^= 0x8000
+        keywords["converted_values"] = changed
+        try:
+            verify_profile_converted_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+            raise AssertionError("changed BF16 matrix bit was accepted")
+        except ValueError as error:
+            assert "byte parity" in str(error)
+        matrix_count += 1
+    assert matrix_count == 16
+print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3], "matrix_operands": matrix_count}))
 """
     result = subprocess.run(
         [interpreter, "-c", code, str(source), json.dumps(plan)], check=True,
         capture_output=True, text=True, input=fixture, timeout=15,
         env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))},
     )
-    assert json.loads(result.stdout) == {"qkv_shape": [16, 8], "v_head_order": [0, 2, 1, 3]}
+    assert json.loads(result.stdout) == {"qkv_shape": [16, 8], "v_head_order": [0, 2, 1, 3], "matrix_operands": 16 if vector_dtype == "BF16" else 0}
 
 
 def test_pinned_prism_grouped_v_metadata_writer_for_folded_out_projection():

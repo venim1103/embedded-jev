@@ -329,6 +329,68 @@ def verify_profile_converted_vector(
                             "runtime_approval": "not_granted_by_operand_verification"})
 
 
+def verify_profile_converted_matrix(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
+    source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,
+    maximum_bytes: int = 1024**2,
+):
+    """Compare bounded raw BF16 matrix operands, not whole source or GGUF files."""
+    from embedded_jev.model_profile import SHA256
+
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if (
+        entry is None or entry["type"] != "BF16" or entry["source_dtype"] != "BF16" or len(entry["source_shape"]) != 2
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
+        or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
+        or not isinstance(source_values, np.ndarray) or not isinstance(converted_values, np.ndarray)
+    ):
+        raise ValueError("unsupported bounded converted matrix or source identity")
+    if (
+        source_values.dtype != np.dtype("<u2") or converted_values.dtype != np.dtype("<u2")
+        or source_values.shape != tuple(entry["source_shape"]) or converted_values.shape != source_values.shape
+        or not source_values.flags.c_contiguous or not converted_values.flags.c_contiguous
+        or source_values.nbytes + 2 * converted_values.nbytes > maximum_bytes
+    ):
+        raise ValueError("converted matrix layout or byte budget mismatch")
+    source_values = source_values.copy()
+    converted_values = converted_values.copy()
+    if hashlib.sha256(memoryview(source_values)).hexdigest() != expected_source_sha256:
+        raise ValueError("source matrix identity mismatch")
+    if np.any((source_values & 0x7F80) == 0x7F80) or np.any((converted_values & 0x7F80) == 0x7F80):
+        raise ValueError("converted matrix operands must be finite")
+    heads = plan["linear_head_layout"]
+    groups = heads["linear_num_key_heads"]
+    per_group = heads["linear_num_value_heads"] // groups
+
+    def reorder(values, axis, head_dim):
+        shape = list(values.shape)
+        expanded = [*shape[:axis], groups, per_group, head_dim, *shape[axis + 1:]]
+        return values.reshape(expanded).swapaxes(axis, axis + 1).reshape(shape)
+
+    reference = source_values
+    for transform in entry["transforms"][:-1]:
+        if transform == "v_rows_grouped_to_tiled":
+            prefix = 2 * groups * heads["linear_key_head_dim"]
+            reference = np.concatenate((reference[:prefix], reorder(reference[prefix:], 0, heads["linear_value_head_dim"])))
+        elif transform == "v_columns_grouped_to_tiled":
+            reference = reorder(reference, 1, heads["linear_value_head_dim"])
+        elif transform == "v_heads_grouped_to_tiled":
+            reference = reorder(reference, 0, heads["linear_value_head_dim"] if source_name.endswith("in_proj_z.weight") else 1)
+        else:
+            raise ValueError("unsupported converted matrix transform")
+    if not np.array_equal(reference, converted_values):
+        raise ValueError("converted matrix byte parity mismatch")
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_name": source_name, "tensor_name": entry["name"],
+                            "source_sha256": expected_source_sha256,
+                            "converted_sha256": hashlib.sha256(memoryview(converted_values)).hexdigest(),
+                            "converted_bytes": converted_values.nbytes,
+                            "operand_byte_verification": "exact_bf16_bits_match_declared_transform_reference",
+                            "source_file_verification": "not_checked", "converted_file_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_operand_verification"})
+
+
 def verify_profile_gguf_vector(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
     source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,

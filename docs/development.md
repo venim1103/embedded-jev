@@ -302,8 +302,8 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-13 complete synthetic vector
-stage before bounded prefill, following GGUF vector binding at `5240c26`
+The latest tested source checkpoint is the 2026-10-13 exact BF16 matrix operand
+gate, following complete synthetic vectors at `7326a14` and GGUF binding at `5240c26`
 and conversion planning/vector operand parity at `b6a9f0d`
 and runtime hashing at `c18e90f`,
 following defining-symbol origins and optional six-module inference file pins
@@ -311,9 +311,10 @@ at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#complete-synthetic-vector-checkpoint-2026-10-13) records
-329 default passes/54 optional skips, nine vector-enabled synthetic complete-model
-cases and two pinned-source synthetic GGUF vector controls. The file-binding
+[latest handover](handover.md#bf16-matrix-operand-checkpoint-2026-10-13) records
+350 default passes/54 optional skips, 21 focused matrix cases and two pinned-source
+controls including 16 exact matrix transforms. The preceding complete-vector
+checkpoint retains nine vector-enabled synthetic complete-model cases. The file-binding
 checkpoint retains 22 focused plan/vector/file cases. The preceding runtime hashing checkpoint
 retains 56 focused file/owner/runtime cases and nine synthetic caller cases
 with verified full/parallel/recovery modes. The unchanged
@@ -1445,6 +1446,21 @@ The returned immutable receipt has file bytes/hash/offset and
 `converted_file_verification: caller_sha256_and_reader_range_match`; source-file
 authentication and runtime approval remain absent. Keep files unchanged; the
 checks do not guarantee immutable storage or safety under concurrent writers.
+
+`verify_profile_converted_matrix(..., source_name=..., source_values=...,
+converted_values=..., expected_source_sha256=...)` checks raw little-endian
+uint16 BF16 matrices against declared source/output geometry and identity or
+grouped-to-tiled V-head row/column transforms. Source/output arrays must be
+contiguous and finite, and source bytes must match the caller pin. Comparison
+is exact bits, including signed zero; no quantizer or float tolerance is used.
+Frozen PQ2 replacements and F32 vectors/convolution refuse this API.
+`maximum_bytes` defaults to 1 MiB and is capped at 16 MiB, bounding
+`source.nbytes + 2 * converted.nbytes`, not peak RAM or projection validation.
+The immutable receipt leaves both source/converted file verification
+`not_checked`; GGUF matrix views, whole-model equality and source authentication
+remain separate gates. Its transforms use NumPy, not an implicit Torch/model
+dependency. Reviewed upstream Torch methods are exercised only by optional
+synthetic controls in the already cached environment.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
