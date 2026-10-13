@@ -302,7 +302,8 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-13 convolution operand gate,
+The latest tested source checkpoint is the 2026-10-13 convolution file-range gate,
+following convolution operands at `daf92f1`,
 following BF16 matrix file ranges at `c783c2f`, exact matrix operands at `ef51266`, complete synthetic vectors
 at `7326a14` and GGUF binding at `5240c26`
 and conversion planning/vector operand parity at `b6a9f0d`
@@ -312,9 +313,9 @@ at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#convolution-operand-checkpoint-2026-10-13) records
-363 default passes/54 optional skips, four explicit convolution operand cases
-and two pinned-source controls including exact nonzero convolution operands.
+[latest handover](handover.md#convolution-file-checkpoint-2026-10-13) records
+380 default passes/54 optional skips, 37 focused file/convolution cases and two
+pinned-source controls including exact nonzero convolution operands/file ranges.
 The preceding matrix checkpoint retains 37 focused matrix/file cases and
 16 exact matrix/file ranges. The preceding complete-vector
 checkpoint retains nine vector-enabled synthetic complete-model cases. The file-binding
@@ -1491,8 +1492,16 @@ Its immutable receipt marks the selected converted-file range as caller-pin
 matched; source-file and reader-code verification remain `not_checked`.
 Parser construction is outside the budget, and other tensor bytes/model tags/
 tokenizer behavior are not proven. It is not permission for real-model reads,
-whole-model conversion parity, or executing another profile. F32 convolution
-still requires a separate operand/layout gate.
+whole-model conversion parity, or executing another profile.
+
+`verify_profile_gguf_convolution(...)` accepts the same file/source pin arguments
+for a declared 3D BF16/F32 source and 2D F32 convolution reader view. It reuses
+the table-record, exact mmap/range, two-hash and cooperative-deadline checks,
+then calls the bounded convolution operand gate. `maximum_file_bytes` defaults
+to/caps at 16 MiB; `maximum_bytes` defaults to 512 KiB and caps at 16 MiB.
+Singleton kernels and all early source/layout/budget refusals remain. Receipts
+mark only this selected range as file-bound, with source-file/reader-code
+verification `not_checked`; there is no complete-table or runtime approval.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

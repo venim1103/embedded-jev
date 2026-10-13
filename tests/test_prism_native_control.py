@@ -2534,7 +2534,7 @@ import numpy as np
 import torch
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector, verify_profile_converted_matrix, verify_profile_gguf_matrix, verify_profile_converted_convolution
+from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector, verify_profile_converted_matrix, verify_profile_gguf_matrix, verify_profile_converted_convolution, verify_profile_gguf_convolution
 import embedded_jev.prism_codec as prism_codec
 
 module = ast.parse((Path(sys.argv[1]) / "conversion/qwen.py").read_text())
@@ -2646,6 +2646,62 @@ try:
     raise AssertionError("changed convolution sign bit accepted")
 except ValueError as error:
     assert "byte parity" in str(error)
+with TemporaryDirectory(prefix="jev-convolution-gguf-") as directory:
+    path = Path(directory) / "convolution.gguf"
+    writer = gguf.GGUFWriter(path, "qwen35")
+    writer.add_tensor(convolution["name"], converted_conv)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    assert path.stat().st_size < 64 * 1024
+    reader = gguf.GGUFReader(path)
+    tensor = reader.tensors[0]
+    file_keywords = {"reader": reader, "source_name": convolution["source_name"], "source_values": raw_conv,
+                     "expected_source_sha256": hashlib.sha256(memoryview(raw_conv)).hexdigest(),
+                     "expected_file_bytes": path.stat().st_size, "expected_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    receipt = verify_profile_gguf_convolution(profile, fixture["inventory"], fixture["manifest"], payload, **file_keywords)
+    assert receipt["converted_sha256"] == conv_receipt["converted_sha256"]
+    assert receipt["converted_file_verification"] == "caller_sha256_and_reader_range_match"
+    assert receipt["source_file_verification"] == receipt["gguf_reader_verification"] == "not_checked"
+    assert receipt["runtime_approval"] == "not_granted_by_convolution_file_verification"
+    for defect in ("file-pin", "source-pin", "operand-budget", "copied-view", "shape", "reader-mode", "deadline"):
+        changed = file_keywords.copy()
+        original_tensors = reader.tensors
+        original_clock = prism_codec.time.monotonic
+        if defect == "file-pin":
+            changed["expected_file_sha256"] = "0" * 64
+        elif defect == "source-pin":
+            changed["expected_source_sha256"] = "0" * 64
+        elif defect == "operand-budget":
+            changed["maximum_bytes"] = 1
+        elif defect == "reader-mode":
+            changed["reader"] = gguf.GGUFReader(path, mode="r+")
+        elif defect == "deadline":
+            prism_codec.time.monotonic = iter((0, 31)).__next__
+        else:
+            modified = tensor._replace(data=tensor.data.copy()) if defect == "copied-view" else tensor._replace(shape=tensor.shape[::-1])
+            reader.tensors = [modified]
+        try:
+            verify_profile_gguf_convolution(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
+            raise AssertionError("invalid convolution file binding accepted: " + defect)
+        except ValueError:
+            pass
+        finally:
+            reader.tensors = original_tensors
+            prism_codec.time.monotonic = original_clock
+    with path.open("r+b") as output:
+        output.seek(tensor.data_offset)
+        saved = output.read(1)
+        output.seek(tensor.data_offset)
+        output.write(bytes([saved[0] ^ 1]))
+    try:
+        verify_profile_gguf_convolution(profile, fixture["inventory"], fixture["manifest"], payload,
+                                       **{**file_keywords, "expected_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+        raise AssertionError("changed convolution file payload accepted")
+    except ValueError as error:
+        assert "byte parity" in str(error)
+    del tensor, reader
 vector_operands = {}
 for source_name in ("model.norm.weight", "model.layers.0.input_layernorm.weight",
                     "model.layers.1.self_attn.q_norm.weight", "model.layers.1.self_attn.k_norm.weight",

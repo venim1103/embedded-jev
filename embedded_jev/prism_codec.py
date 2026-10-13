@@ -454,26 +454,32 @@ def _verify_profile_gguf_operand(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
     source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
     expected_file_sha256: str, maximum_file_bytes: int = 64 * 1024, maximum_seconds: float = 30,
-    matrix: bool = False, maximum_bytes: int = 64 * 1024,
+    kind: str = "vector", maximum_bytes: int = 64 * 1024,
 ):
     """Bind a typed reader view to caller file identity, not whole-model parity."""
     from embedded_jev.model_profile import SHA256
     from embedded_jev.streamed_text import bounded_native_file_record
 
+    matrix = kind == "matrix"
+    convolution = kind == "convolution"
     if (
-        type(expected_file_bytes) is not int or type(maximum_file_bytes) is not int
+        kind not in ("vector", "matrix", "convolution")
+        or type(expected_file_bytes) is not int or type(maximum_file_bytes) is not int
         or not 0 < expected_file_bytes <= maximum_file_bytes <= 16 * 1024**2
         or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
-        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= (16 * 1024**2 if matrix else 64 * 1024)
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= (64 * 1024 if kind == "vector" else 16 * 1024**2)
     ):
         raise ValueError("invalid GGUF vector file identity or budget")
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
     entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
     storage = "BF16" if matrix else "F32"
-    if entry is None or entry["type"] != storage or len(entry["source_shape"]) != (2 if matrix else 1):
+    if entry is None or entry["type"] != storage or len(entry["source_shape"]) != (3 if convolution else 2 if matrix else 1):
         raise ValueError("GGUF operand requires its declared storage type and rank")
-    elements = int(np.prod(entry["source_shape"]))
+    if convolution and (not source_name.endswith("linear_attn.conv1d.weight") or entry["source_shape"][1] != 1 or entry["source_shape"][2] <= 1):
+        raise ValueError("GGUF convolution requires declared nonsingleton kernel geometry")
+    output_shape = [entry["source_shape"][0], entry["source_shape"][2]] if convolution else entry["source_shape"]
+    elements = int(np.prod(output_shape))
     size = elements * (2 if matrix else 4)
     source_dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
     if (
@@ -495,8 +501,8 @@ def _verify_profile_gguf_operand(
     if len(matches) != 1:
         raise ValueError("GGUF vector name is missing or duplicated")
     tensor = matches[0]
-    dimensions = list(reversed(entry["source_shape"]))
-    stored_shape = [*entry["source_shape"][:-1], entry["source_shape"][-1] * 2] if matrix else entry["source_shape"]
+    dimensions = list(reversed(output_shape))
+    stored_shape = [*output_shape[:-1], output_shape[-1] * 2] if matrix else output_shape
     offset = int(tensor.data_offset)
     alignment = reader.fields.get("general.alignment")
     alignment = 32 if alignment is None else alignment.contents()
@@ -536,7 +542,7 @@ def _verify_profile_gguf_operand(
         source.seek(offset)
         if source.read(size) != copied.tobytes():
             raise ValueError("GGUF vector mapping differs from file range")
-    verifier = verify_profile_converted_matrix if matrix else verify_profile_converted_vector
+    verifier = verify_profile_converted_convolution if convolution else verify_profile_converted_matrix if matrix else verify_profile_converted_vector
     receipt = verifier(
         profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
         converted_values=copied, expected_source_sha256=expected_source_sha256, maximum_bytes=maximum_bytes,
@@ -547,7 +553,7 @@ def _verify_profile_gguf_operand(
                             "gguf_reader_verification": "not_checked",
                             "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
                             "converted_tensor_offset": offset,
-                            "runtime_approval": "not_granted_by_matrix_file_verification" if matrix else "not_granted_by_vector_file_verification"})
+                            "runtime_approval": "not_granted_by_" + kind + "_file_verification"})
 
 
 def verify_profile_gguf_vector(
@@ -574,7 +580,22 @@ def verify_profile_gguf_matrix(
         profile, inventory, manifest, pq2_blocks, reader=reader, source_name=source_name, source_values=source_values,
         expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_file_bytes,
         expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
-        matrix=True, maximum_bytes=maximum_bytes,
+        kind="matrix", maximum_bytes=maximum_bytes,
+    )
+
+
+def verify_profile_gguf_convolution(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
+    expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
+    maximum_bytes: int = 512 * 1024,
+):
+    """Bind a reader F32 convolution view to caller file identity, not whole-model parity."""
+    return _verify_profile_gguf_operand(
+        profile, inventory, manifest, pq2_blocks, reader=reader, source_name=source_name, source_values=source_values,
+        expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
+        kind="convolution", maximum_bytes=maximum_bytes,
     )
 
 

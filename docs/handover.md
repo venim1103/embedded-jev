@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [convolution operand checkpoint](#convolution-operand-checkpoint-2026-10-13),
+2. Read the [convolution file checkpoint](#convolution-file-checkpoint-2026-10-13),
+   then the [convolution operand checkpoint](#convolution-operand-checkpoint-2026-10-13),
    then the [BF16 matrix file checkpoint](#bf16-matrix-file-checkpoint-2026-10-13),
    then the [BF16 matrix operand checkpoint](#bf16-matrix-operand-checkpoint-2026-10-13),
    then the [complete synthetic vector checkpoint](#complete-synthetic-vector-checkpoint-2026-10-13),
@@ -85,6 +86,41 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Convolution File Checkpoint (2026-10-13)
+
+After `daf92f1`, `verify_profile_gguf_convolution()` binds declared F32
+convolution views to caller file pins through the existing shared checker.
+Its 3D BF16/F32 source must match the 2D reader output after reorder/squeeze.
+Public vector/matrix APIs and their limits remain unchanged; the private helper
+uses an explicit operand kind. Convolution defaults to a 512 KiB operand budget,
+16 MiB file budget, and the existing cooperative 30 s deadline (cap 600 s).
+The selected v3 table entry and mapped payload are independently reread; source
+layout/budgets refuse before parser import, file hashes or copying the view.
+
+Verification: **380 default passes, 54 optional skips** in 4.09 s, Ruff,
+whitespace and editor diagnostics clean. **37 focused file/convolution cases**
+passed in 0.71 s: invalid source pins/layouts/nonfinite values, singleton kernel,
+byte budgets and all three APIs' pre-import safety gates. Both reviewed
+pinned-source controls passed in **3.84 s**, peak process RSS 296,108 KiB,
+no swaps. They include actual disposable F32 convolution GGUF views from BF16
+and F32 sources, wrong file/source pins, copied views, writable readers, geometry,
+deadline and changed payload-bit refusals. Existing vector/matrix controls pass.
+The vector-enabled complete FFN-down path passed in **6.50 s** after refactoring;
+no new full nine-role native result is claimed.
+
+Failed-check history: the new parametrized test import and setup block were
+over-indented, causing two collection failures. The complete local block was
+inspected and repaired, then the same command passed. No failure was hidden;
+no tolerance, assertion, resource cap or native hook was relaxed.
+
+Receipts verify only the selected range in the caller-pinned file. Source-file
+authentication, reader-code attestation, complete-table/tag/tokenizer parity,
+immutable storage, concurrent-writer safety and runtime approval remain absent.
+Temporary GGUFs are removed. No native changes/rebuilds, new sanitizer/CTest,
+real source/candidate reads, retained artifacts, downloads, conversion/execution,
+fits, quality experiments, pushes, branches or subagents. Next: complete bounded
+synthetic-table verification before native prefill, keeping real-profile gates.
 
 ## Convolution Operand Checkpoint (2026-10-13)
 

@@ -718,15 +718,18 @@ def test_profile_converted_vector_refuses_invalid_operands_before_torch(tmp_path
 
 
 @pytest.mark.parametrize("defect", ["size", "budget", "boolean-budget", "digest", "deadline", "boolean-deadline", "matrix", "operand-budget"])
-@pytest.mark.parametrize("matrix", [False, True])
-def test_profile_gguf_vector_refuses_invalid_file_budget_before_reader_import(monkeypatch, defect, matrix):
+@pytest.mark.parametrize("kind", ["vector", "matrix", "convolution"])
+def test_profile_gguf_vector_refuses_invalid_file_budget_before_reader_import(monkeypatch, defect, kind):
     import sys
 
-    from embedded_jev.prism_codec import verify_profile_gguf_vector, verify_profile_gguf_matrix
+    from embedded_jev.prism_codec import verify_profile_gguf_vector, verify_profile_gguf_matrix, verify_profile_gguf_convolution
 
     profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
-    arguments = {"reader": object(), "source_name": "model.layers.1.self_attn.k_proj.weight" if matrix else "model.norm.weight",
-                 "source_values": np.zeros((64, 1024) if matrix else 1024, dtype="<u2"),
+    name = {"matrix": "model.layers.1.self_attn.k_proj.weight", "vector": "model.norm.weight",
+            "convolution": "model.layers.0.linear_attn.conv1d.weight"}[kind]
+    shape = next(item["shape"] for item in report["tensors"] if item["name"] == name)
+    arguments = {"reader": object(), "source_name": name,
+                 "source_values": np.zeros(shape, dtype="<u2"),
                  "expected_source_sha256": "0" * 64, "expected_file_bytes": 1, "expected_file_sha256": "0" * 64}
     if defect == "size":
         arguments["expected_file_bytes"] = True
@@ -741,15 +744,16 @@ def test_profile_gguf_vector_refuses_invalid_file_budget_before_reader_import(mo
     elif defect == "boolean-deadline":
         arguments["maximum_seconds"] = True
     elif defect == "matrix":
-        arguments["source_name"] = "model.norm.weight" if matrix else manifest["tensor"]
+        arguments["source_name"] = manifest["tensor"]
     elif defect == "operand-budget":
-        if matrix:
+        if kind != "vector":
             arguments["maximum_bytes"] = 1
         else:
             arguments["source_values"] = np.zeros(64 * 1024, dtype="<u2")
     monkeypatch.setitem(sys.modules, "gguf", None)
     with pytest.raises(ValueError):
-        verifier = verify_profile_gguf_matrix if matrix else verify_profile_gguf_vector
+        verifier = {"matrix": verify_profile_gguf_matrix, "vector": verify_profile_gguf_vector,
+                "convolution": verify_profile_gguf_convolution}[kind]
         verifier(profile, report, manifest, blocks, **arguments)
 
 
@@ -843,6 +847,38 @@ def test_profile_converted_convolution_exact_squeeze_and_channel_order(source_dt
     assert receipt["source_file_verification"] == receipt["converted_file_verification"] == "not_checked"
     converted.flat[0] = np.nextafter(converted.flat[0], np.float32(1))
     with pytest.raises(ValueError, match="byte parity"):
+        verify_profile_converted_convolution(profile, report, manifest, blocks, **arguments)
+
+
+@pytest.mark.parametrize("defect", ["wrong-name", "kernel", "digest", "budget", "boolean-budget", "dtype", "shape", "nonfinite", "contiguity"])
+def test_profile_converted_convolution_refuses_invalid_operands(defect):
+    from embedded_jev.prism_codec import verify_profile_converted_convolution
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down", kernel_size=1 if defect == "kernel" else 4)
+    name = "model.layers.0.linear_attn.conv1d.weight"
+    shape = next(item["shape"] for item in report["tensors"] if item["name"] == name)
+    source = np.zeros(shape, dtype="<u2")
+    converted = np.zeros((shape[0], shape[2]), dtype="<f4")
+    arguments = {"source_name": name, "source_values": source, "converted_values": converted,
+                 "expected_source_sha256": hashlib.sha256(memoryview(source)).hexdigest()}
+    if defect == "wrong-name":
+        arguments["source_name"] = manifest["tensor"]
+    elif defect == "digest":
+        arguments["expected_source_sha256"] = "0" * 64
+    elif defect == "budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "boolean-budget":
+        arguments["maximum_bytes"] = True
+    elif defect == "dtype":
+        arguments["source_values"] = source.astype("<f4")
+    elif defect == "shape":
+        arguments["converted_values"] = converted[:-1]
+    elif defect == "nonfinite":
+        source.flat[0] = 0x7F80
+        arguments["expected_source_sha256"] = hashlib.sha256(memoryview(source)).hexdigest()
+    elif defect == "contiguity":
+        arguments["source_values"] = source[:, :, ::-1]
+    with pytest.raises(ValueError):
         verify_profile_converted_convolution(profile, report, manifest, blocks, **arguments)
 
 
