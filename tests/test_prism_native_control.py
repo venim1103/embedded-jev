@@ -703,6 +703,8 @@ def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_pat
     specification = profile_model_specification(profile, inventory, manifest, blocks)
     payload_file = tmp_path / "projection.bin"
     model_file = tmp_path / "profile-prefill.gguf"
+    operands_file = tmp_path / "source-operands.npz"
+    parity_interpreter = os.environ.get("PRISM_PARITY_PYTHON")
     payload_file.write_bytes(blocks.tobytes())
     writer_code = """
 import json
@@ -774,6 +776,7 @@ if attention:
     output[diagonal, diagonal] = 0.125
     arrays.update({"blk.1.attn_q.weight": query, "blk.1.attn_k.weight": key,
                    "blk.1.attn_v.weight": value, "blk.1.attn_output.weight": output})
+source_operands = {}
 for item in spec["tensors"]:
     name = item["name"]
     shape = list(reversed(item["ne"][:1 if item["ne"][1] == 1 else 2]))
@@ -789,8 +792,15 @@ for item in spec["tensors"]:
         encoded = gguf.quants.quantize(values, gguf.GGMLQuantizationType.BF16)
         arrays[name] = gguf.quants.dequantize(encoded, gguf.GGMLQuantizationType.BF16)
         writer.add_tensor(name, encoded, raw_dtype=gguf.GGMLQuantizationType.BF16)
+        if sys.argv[4]:
+            source_operands[name] = encoded.view("<u2").copy()
     else:
         writer.add_tensor(name, values)
+        if sys.argv[4]:
+            source_values = values if name.endswith(".ssm_norm.weight") else np.zeros_like(values)
+            if name.endswith(".ssm_conv1d.weight"):
+                source_values = source_values[:, None, :]
+            source_operands[name] = (source_values.view(np.uint32) >> 16).astype("<u2")
 writer.write_header_to_file()
 writer.write_kv_data_to_file()
 writer.write_tensors_to_file()
@@ -851,8 +861,15 @@ def reference(tokens):
     return dense_projection("output.weight", hidden)[[11, 17, 23]].tolist()
 import hashlib
 model_bytes = Path(sys.argv[2]).read_bytes()
+archive_identity = {}
+if sys.argv[4]:
+    assert sum(value.nbytes for value in source_operands.values()) <= 16 * 1024**2
+    np.savez(sys.argv[4], **source_operands)
+    archive_bytes = Path(sys.argv[4]).read_bytes()
+    assert len(archive_bytes) <= 16 * 1024**2
+    archive_identity = {"source_archive_bytes": len(archive_bytes), "source_archive_sha256": hashlib.sha256(archive_bytes).hexdigest()}
 print(json.dumps({"logits": reference([3, 5, 7]), "peer_logits": reference([4, 9, 19, 3, 5, 7]), "maximum_logits": reference([2] * 128),
-                  "model_bytes": len(model_bytes), "model_sha256": hashlib.sha256(model_bytes).hexdigest()}))
+                  "model_bytes": len(model_bytes), "model_sha256": hashlib.sha256(model_bytes).hexdigest(), **archive_identity}))
 """
     driver_code = """
 import ctypes
@@ -958,7 +975,7 @@ ctypes.CDLL(None).fflush(None)
 sys.exit(status)
 """
     try:
-        writer = subprocess.run([converter, "-c", writer_code, json.dumps({**specification, "label_token_ids": dict(profile.tokenization["label_token_ids"])}), str(model_file), str(payload_file)],
+        writer = subprocess.run([converter, "-c", writer_code, json.dumps({**specification, "label_token_ids": dict(profile.tokenization["label_token_ids"])}), str(model_file), str(payload_file), str(operands_file) if parity_interpreter else ""],
                                 capture_output=True, text=True, timeout=30,
                                 env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(source_dir) / "gguf-py"), str(Path.cwd()))),
                                      "PYTHONDONTWRITEBYTECODE": "1", "OPENBLAS_NUM_THREADS": "1"})
@@ -972,15 +989,19 @@ sys.exit(status)
             assert control.returncode == 27 and control.stdout == "", control.stderr
             return
         vector_interpreter = os.environ.get("PRISM_VECTOR_PYTHON")
-        if vector_interpreter:
+        if parity_interpreter or vector_interpreter:
             parity_code = """
 import hashlib
 import json
 import sys
+import time
+import zipfile
+from pathlib import Path
 import gguf
 import numpy as np
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_gguf_vector
+from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_gguf_vector, verify_profile_gguf_matrix, verify_profile_gguf_convolution
+from embedded_jev.streamed_text import bounded_native_file_record
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -988,31 +1009,95 @@ payload = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).r
     fixture["manifest"]["shape"][0], fixture["manifest"]["shape"][1] // 128, 34)
 plan = profile_model_conversion_plan(profile, fixture["inventory"], fixture["manifest"], payload)
 reader = gguf.GGUFReader(sys.argv[1])
+complete = bool(sys.argv[4])
+archive = None
+if complete:
+    assert 0 < int(sys.argv[5]) <= 16 * 1024**2
+    record = bounded_native_file_record(Path(sys.argv[4]), maximum_bytes=int(sys.argv[5]), deadline=time.monotonic() + 30)
+    assert record["bytes"] == int(sys.argv[5]) <= 16 * 1024**2 and record["sha256"] == sys.argv[6]
+    with zipfile.ZipFile(sys.argv[4]) as packed:
+        assert all(item.compress_type == zipfile.ZIP_STORED for item in packed.infolist())
+        assert sum(item.file_size for item in packed.infolist()) <= 16 * 1024**2
+    archive = np.load(sys.argv[4], allow_pickle=False)
+    assert set(archive.files) == {item["name"] for item in plan["tensors"] if item["type"] != "PQ2_0"}
+    assert {item.name for item in reader.tensors} == {item["name"] for item in plan["tensors"]}
+    assert len(reader.tensors) == len(plan["tensors"]) == 28
 count = 0
+matrices = convolutions = frozen = 0
 for item in plan["tensors"]:
-    if item["type"] != "F32" or len(item["source_shape"]) != 1:
+    if item["type"] == "PQ2_0":
+        if complete:
+            tensor = next(value for value in reader.tensors if value.name == item["name"])
+            assert tensor.tensor_type == gguf.GGMLQuantizationType.PQ2_0
+            assert list(tensor.shape) == list(reversed(item["source_shape"]))
+            assert tensor.n_bytes == payload.nbytes and tensor.n_elements == int(np.prod(item["source_shape"]))
+            assert np.array_equal(tensor.data.reshape(payload.shape), payload)
+            frozen += 1
         continue
-    values = np.ones(item["source_shape"], dtype=np.float32) if item["source_name"].endswith("linear_attn.norm.weight") else np.zeros(item["source_shape"], dtype=np.float32)
-    source = (values.view(np.uint32) >> 16).astype("<u2")
-    receipt = verify_profile_gguf_vector(
+    vector = item["type"] == "F32" and len(item["source_shape"]) == 1
+    if not complete and not vector:
+        continue
+    if complete:
+        source = archive[item["name"]]
+    else:
+        values = np.ones(item["source_shape"], dtype=np.float32) if item["source_name"].endswith("linear_attn.norm.weight") else np.zeros(item["source_shape"], dtype=np.float32)
+        source = (values.view(np.uint32) >> 16).astype("<u2")
+    verifier = verify_profile_gguf_vector if vector else verify_profile_gguf_matrix if item["type"] == "BF16" else verify_profile_gguf_convolution
+    receipt = verifier(
         profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
         source_name=item["source_name"], source_values=source,
         expected_source_sha256=hashlib.sha256(memoryview(source)).hexdigest(),
-        expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], maximum_file_bytes=16 * 1024**2)
+        expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], maximum_file_bytes=16 * 1024**2,
+        **({} if vector else {"maximum_bytes": 16 * 1024**2}))
     assert receipt["converted_file_verification"] == "caller_sha256_and_reader_range_match"
     assert receipt["converted_file_sha256"] == sys.argv[3]
     assert receipt["source_file_verification"] == receipt["gguf_reader_verification"] == "not_checked"
-    count += 1
+    count += vector
+    matrices += item["type"] == "BF16"
+    convolutions += not vector and item["type"] == "F32"
 assert count == 10
-print(json.dumps({"vectors": count, "file_sha256": sys.argv[3]}))
+report = {"vectors": count, "file_sha256": sys.argv[3]}
+if complete:
+    assert (matrices, convolutions, frozen) == (16, 1, 1)
+    embedding = next(item for item in plan["tensors"] if item["name"] == "token_embd.weight")
+    tensor = next(item for item in reader.tensors if item.name == embedding["name"])
+    source = archive[embedding["name"]]
+    with open(sys.argv[1], "r+b") as output:
+        output.seek(tensor.data_offset)
+        saved = output.read(1)
+        output.seek(tensor.data_offset)
+        output.write(bytes([saved[0] ^ 1]))
+    try:
+        changed_file = bounded_native_file_record(Path(sys.argv[1]), maximum_bytes=int(sys.argv[2]), deadline=time.monotonic() + 30)
+        verify_profile_gguf_matrix(
+            profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
+            source_name=embedding["source_name"], source_values=source,
+            expected_source_sha256=hashlib.sha256(memoryview(source)).hexdigest(),
+            expected_file_bytes=int(sys.argv[2]), expected_file_sha256=changed_file["sha256"], maximum_bytes=16 * 1024**2)
+        raise AssertionError("changed complete-model matrix payload accepted")
+    except ValueError as error:
+        assert "byte parity" in str(error)
+    finally:
+        with open(sys.argv[1], "r+b") as output:
+            output.seek(tensor.data_offset)
+            output.write(saved)
+    restored = bounded_native_file_record(Path(sys.argv[1]), maximum_bytes=int(sys.argv[2]), deadline=time.monotonic() + 30)
+    assert restored["sha256"] == sys.argv[3]
+    archive.close()
+    report.update(matrices=matrices, convolutions=convolutions, frozen=frozen, source_archive_sha256=sys.argv[6])
+print(json.dumps(report))
 """
             parity = subprocess.run(
-                [vector_interpreter, "-c", parity_code, str(model_file), str(expected["model_bytes"]), expected["model_sha256"]],
+                [parity_interpreter or vector_interpreter, "-c", parity_code, str(model_file), str(expected["model_bytes"]), expected["model_sha256"],
+                 str(operands_file) if parity_interpreter else "", str(expected.get("source_archive_bytes", 0)), expected.get("source_archive_sha256", "")],
                 capture_output=True, text=True, input=_profile_parity_fixture(profile, inventory, manifest, blocks), timeout=30,
                 env={**environment, "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
             )
             assert parity.returncode == 0, parity.stderr
-            assert json.loads(parity.stdout) == {"vectors": 10, "file_sha256": expected["model_sha256"]}
+            expected_parity = {"vectors": 10, "file_sha256": expected["model_sha256"]}
+            if parity_interpreter:
+                expected_parity.update(matrices=16, convolutions=1, frozen=1, source_archive_sha256=expected["source_archive_sha256"])
+            assert json.loads(parity.stdout) == expected_parity
         from embedded_jev.streamed_text import native_backend_dependencies
 
         bridge = Path(runtime_build) / "bin" / "libprism_group_scale.so"
@@ -1066,6 +1151,7 @@ print(json.dumps({"vectors": count, "file_sha256": sys.argv[3]}))
     finally:
         model_file.unlink(missing_ok=True)
         payload_file.unlink(missing_ok=True)
+        operands_file.unlink(missing_ok=True)
 
 
 @pytest.mark.parametrize("use_bitnet,mode", [(False, "full"), (True, "full"),

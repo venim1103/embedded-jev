@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [convolution file checkpoint](#convolution-file-checkpoint-2026-10-13),
+2. Read the [complete synthetic tensor checkpoint](#complete-synthetic-tensor-checkpoint-2026-10-13),
+   then the [convolution file checkpoint](#convolution-file-checkpoint-2026-10-13),
    then the [convolution operand checkpoint](#convolution-operand-checkpoint-2026-10-13),
    then the [BF16 matrix file checkpoint](#bf16-matrix-file-checkpoint-2026-10-13),
    then the [BF16 matrix operand checkpoint](#bf16-matrix-operand-checkpoint-2026-10-13),
@@ -86,6 +87,53 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Complete Synthetic Tensor Checkpoint (2026-10-13)
+
+After `7f21b1e`, `PRISM_PARITY_PYTHON` explicitly enables the complete bounded
+synthetic tensor stage before existing native prefill. Each supported two-layer
+profile has 28 tensors: ten F32 vectors, sixteen unfrozen BF16 matrices, one
+F32 convolution and one frozen PQ2 tensor. Typed file gates verify the 27 dense
+ranges; frozen dimensions/type/length and canonical codes/scales match exactly.
+The two unsupported profiles still refuse before this stage, and the native
+hook, numerical tolerances and zero-generation/dispatch assertions are unchanged.
+
+The fixture writer emits a disposable uncompressed NumPy source-operand archive,
+capped at 16 MiB. The stage checks its producer bytes/SHA-256 and uncompressed
+entry-size sum before `allow_pickle=False` loading. Its keys must match the exact
+unfrozen table. Dense operands are checked within each API's 16 MiB maximum;
+the model file stays within the existing 16 MiB synthetic bound. The archive,
+model and payload are removed on every fixture exit. `PRISM_VECTOR_PYTHON`
+retains the previous vector-only mode when the complete-stage variable is unset.
+
+This archive is **producer-generated synthetic evidence**, not independently
+authenticated Hugging Face source weights. BF16 matrix operands are the writer's
+encoded synthetic bits; the nonzero identity projections/embeddings and sparse
+attention drive the existing oracle. Recurrent projection/convolution values
+remain zero here; nonzero reorder/convolution evidence is the separate reviewed
+upstream toy control. Source-file/reader-code attestation, complete real-model
+conversion parity, quality and runtime approval remain absent. Native factory
+metadata/tag validation is separate from this tensor-byte stage.
+
+Verification: **380 default passes, 54 optional skips** in 5.51 s, Ruff,
+whitespace and editor diagnostics clean. Legacy vector-only FFN-down passed in
+**6.70 s**. The complete opt-in native slice passed **nine cases in 92.79 s**,
+peak process RSS 254,468 KiB, no swaps: seven supported roles check **189 dense
+ranges plus seven frozen payloads**, followed by existing native modes and
+refusals. A changed embedding bit with an updated file hash refuses exact matrix
+parity before loading; restoring the original hash is checked before prefill.
+Host observation: 29 GiB total/20 GiB available RAM, 8 GiB unused swap and
+286 GiB free disk; these are not target-device or peak-host guarantees. No
+leftover source archives were found in pytest scratch.
+
+Failed-check history: embedded-script imports were over-indented, so the first
+complete FFN-down check failed in its parity subprocess. Inspecting and repairing
+the full import block made the same check pass; the later corruption/cleanup
+check passed in 7.29 s. No tolerance, assertion, deadline or bound was relaxed.
+No native rebuild, new sanitizer/CTest, real weight/candidate reads, downloads,
+conversions/execution, retained artifact, fits, quality experiment, push, branch
+or subagent. Next bounded prerequisite: reusable complete-table receipt/API,
+preserving per-tensor/source provenance limits; real-profile gates stay open.
 
 ## Convolution File Checkpoint (2026-10-13)
 

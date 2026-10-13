@@ -302,7 +302,8 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-13 convolution file-range gate,
+The latest tested source checkpoint is the 2026-10-13 complete synthetic tensor
+stage before native prefill, following convolution file ranges at `7f21b1e`,
 following convolution operands at `daf92f1`,
 following BF16 matrix file ranges at `c783c2f`, exact matrix operands at `ef51266`, complete synthetic vectors
 at `7326a14` and GGUF binding at `5240c26`
@@ -313,9 +314,11 @@ at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#convolution-file-checkpoint-2026-10-13) records
-380 default passes/54 optional skips, 37 focused file/convolution cases and two
-pinned-source controls including exact nonzero convolution operands/file ranges.
+[latest handover](handover.md#complete-synthetic-tensor-checkpoint-2026-10-13) records
+380 default passes/54 optional skips and nine complete-stage/native cases:
+189 dense ranges plus seven frozen payloads across seven supported roles.
+The preceding convolution checkpoint retains 37 focused file/convolution cases
+and two pinned-source controls with exact nonzero convolution operands/file ranges.
 The preceding matrix checkpoint retains 37 focused matrix/file cases and
 16 exact matrix/file ranges. The preceding complete-vector
 checkpoint retains nine vector-enabled synthetic complete-model cases. The file-binding
@@ -396,16 +399,21 @@ python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py \
 ```
 
 For the complete synthetic profile-to-prefill slice alone, this explicitly
-enables ten F32 vector/file checks before native prefill for each of seven
-projection roles; two unsupported profiles still refuse. The vector stage
-requires the already cached Torch environment and is omitted if
-`PRISM_VECTOR_PYTHON` is unset. It does not authenticate real source payloads.
+enables all 28 tensor checks before native prefill for each of seven projection
+roles; two unsupported profiles still refuse. The complete stage requires the
+already cached Torch environment via `PRISM_PARITY_PYTHON`. Use
+`PRISM_VECTOR_PYTHON` instead for the older ten-vector-only stage; with neither
+variable set, native tests run without these provenance stages. Neither mode
+authenticates real source payloads. The full stage hashes a producer-generated,
+uncompressed <=16 MiB operand archive and checks all dense ranges plus the exact
+frozen PQ2 payload. This sparse synthetic integration does not replace the
+separate nonzero upstream-transform controls or source-file authentication.
 
 ```bash
 cache="$HOME/.cache/huggingface/embedded-jev"
 PRISM_SOURCE_DIR="$cache/native/prism-source" \
 PRISM_CONVERTER_PYTHON="$cache/native/converter-venv/bin/python" \
-PRISM_VECTOR_PYTHON="$cache/dense-venv/bin/python" \
+PRISM_PARITY_PYTHON="$cache/dense-venv/bin/python" \
 MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
 OMP_NUM_THREADS=4 PYTHONDONTWRITEBYTECODE=1 \
 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py \
