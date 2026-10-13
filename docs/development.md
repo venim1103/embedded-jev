@@ -1755,7 +1755,24 @@ finite source bits expose omitted reordering. BF16 outputs are written as exact
 encoded bytes, not round-tripped through a float quantizer. Fresh-pin unpermuted
 matrix/convolution outputs, source restored writes and changed converted bits
 refuse. These eight nonzero selected-range cases do not execute native prefill;
-complete source-gated native controls remain the separate zero-source evidence.
+their transform discrimination is separate from the native controls below.
+
+With `PRISM_PARITY_PYTHON` present, the existing seven-role profile/manifest
+native prefill test also creates a separate nonzero source-gated variant. It
+writes the same 27 dense operands plus a distinct zero-valued original frozen
+source into a disposable <=16 MiB BF16 safetensors shard, pins its bytes/header
+in a disposable profile and updates only that variant's identity declarations.
+Frozen PQ2 codes and independent FP16 row/group scales stay unchanged. Its
+complete source/converted table and 25 selected policy metadata records pass
+inside the six-runtime-file-pinned owner before native full prefill. Nonuniform
+logits and typed zero-generation conditional scores match the existing
+independent FFN/full-attention oracle at unchanged `2e-5` tolerances; the second
+writer's oracle must match the original exactly. Descriptor access, source
+recheck, registry cleanup and one genuine BitNet dispatch/repack are checked.
+The source shard and second GGUF/archive use one disposable directory, removed
+on success/failure. This is nonzero synthetic integration, not upstream issuer
+provenance, nonzero recurrent-state coverage, source-to-frozen quantization
+equivalence, tokenizer semantics, quality or any real-profile execution approval.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

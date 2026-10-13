@@ -1135,6 +1135,38 @@ for item in spec["tensors"]:
             if name.endswith(".ssm_conv1d.weight"):
                 source_values = source_values[:, None, :]
             source_operands[name] = (source_values.view(np.uint32) >> 16).astype("<u2")
+source_fixture = {}
+if len(sys.argv) > 5 and sys.argv[5]:
+    import hashlib
+    from embedded_jev.model_profile import parse_model_profile, profile_source
+    from embedded_jev.prism_codec import profile_model_conversion_plan
+    source_fixture = json.loads(sys.stdin.read())
+    profile = parse_model_profile(json.dumps(source_fixture["profile"]).encode())
+    manifest = source_fixture["manifest"]
+    plan = profile_model_conversion_plan(profile, source_fixture["inventory"], manifest, payload)
+    source_arrays = {item["source_name"]: source_operands[item["name"]] for item in plan["tensors"] if item["type"] != "PQ2_0"}
+    source_arrays[manifest["tensor"]] = np.zeros(manifest["shape"], dtype="<u2")
+    header, chunks, offset = {}, [], 0
+    for item in source_fixture["inventory"]["tensors"]:
+        values = source_arrays[item["name"]]
+        assert values.shape == tuple(item["shape"]) and values.dtype == np.dtype("<u2")
+        header[item["name"]] = {"dtype": "BF16", "shape": item["shape"], "data_offsets": [offset, offset + values.nbytes]}
+        chunks.append(values.tobytes())
+        offset += values.nbytes
+    encoded_header = json.dumps(header, sort_keys=True).encode()
+    prefix = len(encoded_header).to_bytes(8, "little") + encoded_header
+    source_path = Path(sys.argv[2]).parent / profile.packaging["shards"][0]
+    source_bytes = prefix + b"".join(chunks)
+    assert len(source_bytes) <= 16 * 1024**2
+    source_path.write_bytes(source_bytes)
+    source_fixture["profile"]["files"][source_path.name].update(bytes=len(source_bytes), sha256=hashlib.sha256(source_bytes).hexdigest(),
+        header_bytes=len(prefix), header_sha256=hashlib.sha256(prefix).hexdigest())
+    profile = parse_model_profile(json.dumps(source_fixture["profile"]).encode())
+    source_fixture["inventory"]["source"].update(profile_source(profile))
+    manifest["profile_sha256"] = profile.sha256
+    manifest["source_tensor_sha256"] = hashlib.sha256(memoryview(source_arrays[manifest["tensor"]])).hexdigest()
+    writer.add_string("jev.model.profile_sha256", profile.sha256)
+    writer.add_string("jev.bitnet.source_tensor_sha256", manifest["source_tensor_sha256"])
 writer.write_header_to_file()
 writer.write_kv_data_to_file()
 writer.write_tensors_to_file()
@@ -1203,7 +1235,7 @@ if sys.argv[4]:
     assert len(archive_bytes) <= 16 * 1024**2
     archive_identity = {"source_archive_bytes": len(archive_bytes), "source_archive_sha256": hashlib.sha256(archive_bytes).hexdigest()}
 print(json.dumps({"logits": reference([3, 5, 7]), "peer_logits": reference([4, 9, 19, 3, 5, 7]), "maximum_logits": reference([2] * 128),
-                  "model_bytes": len(model_bytes), "model_sha256": hashlib.sha256(model_bytes).hexdigest(), **archive_identity}))
+                  "model_bytes": len(model_bytes), "model_sha256": hashlib.sha256(model_bytes).hexdigest(), **archive_identity, "source_fixture": source_fixture}))
 """
     driver_code = """
 import ctypes
@@ -1277,6 +1309,9 @@ try:
                 tensor_arguments["maximum_tensor_bytes"] = 1
             tensor_arguments.update(tensor_reader=gguf.GGUFReader(model_path), source_values=sources, expected_source_sha256=pins)
             tensor_arguments["verify_policy_metadata"] = True
+            if mode == "verified-source-full":
+                tensor_arguments.update(source_paths={name: Path(model_path).parent / name for name in profile.packaging["shards"]},
+                    frozen_source_values=np.zeros(manifest["shape"], dtype="<u2"))
             if mode in ("verified-policy-metadata-type", "verified-policy-metadata-copy"):
                 selected_name = "qwen35.attention.head_count"
                 original_field = tensor_arguments["tensor_reader"].fields[selected_name]
@@ -1330,11 +1365,18 @@ try:
             assert owner.verification["policy_metadata_verification"] == "selected_typed_policy_records_match_declarations_and_file"
             assert metadata["model_metadata_verification"] == "selected_policy_records_only"
             assert metadata["tokenizer_semantics_verification"] == metadata["gguf_reader_verification"] == "not_checked"
+            if mode == "verified-source-full":
+                source_table = owner.verification["source_conversion_table"]
+                assert source_table["tensor_count"] == 28 and source_table["converted"]["model_file_access"] == "verified_owner_descriptor"
+                assert source_table["source_file_rechecked_after_conversion"] is True
+                assert source_table["cross_file_atomic_snapshot"] == "not_guaranteed"
         for name in ("bridge", "scorer", "llama", "ggml_registry"):
             assert owner.verification[name + "_sha256"] == json.loads(sys.argv[7])[name]["sha256"]
         assert owner.verification["ggml_cpu_sha256"] == "adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150"
         assert owner.verification["ggml_base_sha256"] == "57a9b6060d3bc902c30fd97fb271ae7f027054d4a9f8b50e27dd6fe91951847d"
         mode = mode.removeprefix("verified-")
+        if mode == "source-full":
+            mode = "full"
     else:
         handle, overrides, specification = create_profile_model_policy(native, model_path, profile, inventory, manifest, blocks)
         owners.callback(free, handle)
@@ -1835,6 +1877,38 @@ print(json.dumps(report))
             control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, mode],
                                      capture_output=True, text=True, timeout=30, env=environment)
             assert control.returncode == status and control.stdout == "", control.stderr
+        if parity_interpreter:
+            import tempfile
+            with tempfile.TemporaryDirectory(dir=tmp_path) as source_directory:
+                source_model = Path(source_directory) / "nonzero-source.gguf"
+                source_archive = Path(source_directory) / "operands.npz"
+                source_writer = subprocess.run(
+                    [converter, "-c", writer_code, json.dumps({**specification, "label_token_ids": dict(profile.tokenization["label_token_ids"])}),
+                     str(source_model), str(payload_file), str(source_archive), "pinned-source"],
+                    capture_output=True, text=True, timeout=30, input=_profile_parity_fixture(profile, inventory, manifest, blocks),
+                    env={**environment, "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
+                )
+                assert source_writer.returncode == 0, source_writer.stderr
+                source_expected = json.loads(source_writer.stdout)
+                assert len(json.dumps(source_expected["source_fixture"])) < 1024**2
+                control = subprocess.run(
+                    [parity_interpreter, "-c", driver_code, str(source_model), target, runtime_build, "verified-source-full",
+                     str(source_expected["model_bytes"]), source_expected["model_sha256"], json.dumps(expected_runtime),
+                     str(source_archive), str(source_expected["source_archive_bytes"]), source_expected["source_archive_sha256"]],
+                    capture_output=True, text=True, timeout=30, input=json.dumps(source_expected["source_fixture"]),
+                    env={**environment, "PYTHONPATH": os.pathsep.join((environment["PYTHONPATH"], str(Path(source_dir) / "gguf-py")))},
+                )
+                assert control.returncode == 0, control.stderr
+                report = json.loads(control.stdout)
+                assert report["generated_answer_tokens"] == 0 and report["input_tokens"] == [3, 5, 7]
+                assert report["bitnet_dispatch_calls"] == report["prefill_calls"] == report["weight_repacks"] == 1
+                logits = np.asarray(expected["logits"])
+                assert np.ptp(logits) > 0.01
+                np.testing.assert_allclose(source_expected["logits"], logits, rtol=0, atol=0)
+                np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
+                scores = np.exp(logits - logits.max())
+                scores /= scores.sum()
+                np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
     finally:
         model_file.unlink(missing_ok=True)
         payload_file.unlink(missing_ok=True)

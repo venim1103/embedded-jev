@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [nonzero source permutation checkpoint](#nonzero-source-permutation-checkpoint-2026-10-13),
+2. Read the [nonzero source prefill checkpoint](#nonzero-source-prefill-checkpoint-2026-10-13),
+   then the [nonzero source permutation checkpoint](#nonzero-source-permutation-checkpoint-2026-10-13),
    then the [nonzero source vector checkpoint](#nonzero-source-vector-checkpoint-2026-10-13),
    then the [source gated prefill checkpoint](#source-gated-prefill-checkpoint-2026-10-13),
    then the [source gated owner checkpoint](#source-gated-owner-checkpoint-2026-10-13),
@@ -101,6 +102,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Nonzero Source Prefill Checkpoint (2026-10-13)
+
+After `0624bcb`, the existing seven-role nonzero native fixture adds a separate
+physically pinned source variant when `PRISM_PARITY_PYTHON` is selected. Its 27
+dense operands and distinct zero-valued original frozen source are written into
+a disposable BF16 safetensors shard, with complete header/offset coverage and
+updated disposable file/header/profile/manifest pins. The second GGUF's selected
+identity strings match those pins; frozen PQ2 codes and independent FP16 scales
+remain unchanged. No existing fixture or runtime policy is replaced.
+
+Before full native prefill, the existing verified owner checks the complete
+source/converted table and 25 selected metadata records, plus six actual runtime
+file pins. Descriptor access, source recheck, registry lifetime, one genuine
+BitNet dispatch/repack, zero generated tokens and nonuniform oracle logits/
+conditional scores are required. Second-writer logits must equal the original
+oracle exactly; native tolerances remain `2e-5`. Scratch shard/GGUF/archive are
+removed on success/failure; receipts/scores are evaluated after successful owner
+closure. All seven eligible roles pass; unsupported fixtures are unchanged.
+
+Verification: FFN-down **1 pass** in 24.89 s, peak RSS 310,508 KiB; remaining six
+roles **6 passes** in 154.72 s, peak RSS 314,084 KiB; swaps zero in both runs.
+Required gate: **513 default passes, 72 optional skips** in 13.64 s, Ruff and
+whitespace clean; touched diagnostics clean. Initial focused run reached policy
+creation but failed on a test-only receipt `KeyError`: descriptor access is in
+the nested converted receipt, and the source recheck key is singular. Corrected
+those assertions and reran the same focused check before expanding coverage.
+No assertion, tolerance, budget or deadline relaxation.
+
+This proves nonzero synthetic FFN/full-attention integration with locally
+generated physical source pins, not independent HF issuer provenance, nonzero
+recurrent-state coverage, source-to-frozen equivalence or representative quality.
+No production/native changes, rebuild/sanitizer/CTest, real source reads/hashes,
+conversion/execution, downloads, fitting or retained candidates. Historical real
+MiMo discrepancy remains open. User settings/caches untouched; no push/branch/
+subagents. Next bounded increment: source-gated parallel/context recovery with
+the unchanged hook and independent oracle. Real actions still need approval.
 
 ## Nonzero Source Permutation Checkpoint (2026-10-13)
 
