@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [source operand file checkpoint](#source-operand-file-checkpoint-2026-10-13),
+2. Read the [combined source range checkpoint](#combined-source-range-checkpoint-2026-10-13),
+   then the [source operand file checkpoint](#source-operand-file-checkpoint-2026-10-13),
    then the [integrated policy metadata checkpoint](#integrated-policy-metadata-checkpoint-2026-10-13),
    then the [policy metadata API checkpoint](#policy-metadata-api-checkpoint-2026-10-13),
    then the [integrated table caller checkpoint](#integrated-table-caller-checkpoint-2026-10-13),
@@ -93,6 +94,39 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Combined Source Range Checkpoint (2026-10-13)
+
+After `b0db7a8`, `verify_profile_gguf_source_operand()` binds one unfrozen
+source-file range and typed converted GGUF range through one copied read-only
+operand/digest, rechecking the source afterward under one cooperative deadline.
+Each file remains capped at 16 MiB with existing per-kind operand limits;
+retained snapshot/plan/header memory is not a peak-RAM guarantee. Optional live
+owner anchors the converted file; wrong owner/dtype/shape refuses before source
+dispatch. Immutable receipt nests unchanged source and converted receipts and
+explicitly marks `cross_file_atomic_snapshot` as `not_guaranteed`. It does not
+upgrade converted-only claims, frozen replacement/source equivalence, whole
+tables, issuer, metadata semantics, imported/loaded code or model quality.
+Quiescent files remain a prerequisite; no concurrency/runtime approval.
+
+Verification: **462 default passes, 59 optional skips** in 14.78 s; Ruff,
+whitespace and touched diagnostics clean. **36 focused source/composition cases**
+pass in 1.51 s, covering shared snapshots/digests, caller mutation, post-conversion
+source rejection, shared deadline and early owner/dtype/shape/identity/budget/
+frozen refusals plus existing actual source-file cases. **Five actual paired-file
+controls pass** in 4.27 s, peak process RSS 234,528 KiB, swaps zero: BF16/F32
+vectors/convolution and BF16 matrix. Each uses a genuinely pinned disposable
+zero-filled safetensors shard and a four-tensor selected GGUF, with exact
+fresh-pin converted-bit corruption refusal. Temporary directories empty after
+cleanup. No native model execution/build/sanitizer/CTest or complete-model
+conversion was performed in these controls; historical same-owner/native gates
+remain separate evidence. No failures in this increment, real-model/source reads,
+downloads, refit or retained candidate. User editor files remain untouched.
+Next bounded source work: verify the declared frozen source digest from a small
+profile-pinned source range without refitting/changing codes, independent scales
+or transforms, and keep source identity separate from quantization/quality.
+Whole-source/issuer/metadata semantic/reader-code/loaded-page/transitive runtime
+and real-model quality gates remain open; real-profile approvals unchanged.
 
 ## Source Operand File Checkpoint (2026-10-13)
 

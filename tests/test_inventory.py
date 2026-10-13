@@ -1053,6 +1053,78 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
             actual_path.unlink()
 
 
+@pytest.mark.parametrize("defect", [None, "caller-change", "source-change", "deadline", "budget", "file", "digest", "frozen", "owner", "dtype", "shape"])
+def test_profile_gguf_source_operand_shares_snapshot_digest_and_deadline(monkeypatch, defect):
+    from types import MappingProxyType
+
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture()
+    plan = prism_codec.profile_model_conversion_plan(profile, report, manifest, blocks)
+    entry = next(item for item in plan["tensors"] if item["type"] == "F32" and len(item["source_shape"]) == 1)
+    values = np.zeros(entry["source_shape"], dtype="<u2")
+    source_receipt = MappingProxyType({"source_sha256": hashlib.sha256(memoryview(values)).hexdigest()})
+    converted_receipt = MappingProxyType({"source_sha256": source_receipt["source_sha256"]})
+    events, snapshots = [], []
+    clock = [0]
+    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: clock[0])
+
+    def source(*arguments, **keywords):
+        events.append("source")
+        snapshots.append(keywords["source_values"])
+        assert not keywords["source_values"].flags.writeable and not np.shares_memory(keywords["source_values"], values)
+        assert keywords["expected_source_sha256"] == source_receipt["source_sha256"]
+        assert keywords["maximum_seconds"] <= 30
+        if defect == "source-change" and len(events) == 3:
+            raise ValueError("source operand file identity mismatch")
+        clock[0] += 2
+        return source_receipt
+
+    def converted(*arguments, **keywords):
+        events.append("converted")
+        assert keywords["source_values"] is snapshots[0] and keywords["kind"] == "vector"
+        assert keywords["expected_source_sha256"] == source_receipt["source_sha256"]
+        assert keywords["maximum_seconds"] == 28
+        if defect == "caller-change":
+            values.flat[0] = 1
+        elif defect == "deadline":
+            clock[0] = 31
+        return converted_receipt
+
+    monkeypatch.setattr(prism_codec, "verify_profile_safetensors_operand", source)
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_operand", converted)
+    arguments = {
+        "reader": object(), "source_path": "unused", "source_name": entry["source_name"], "source_values": values,
+        "expected_source_sha256": source_receipt["source_sha256"], "expected_source_file_bytes": 1,
+        "expected_source_file_sha256": "a" * 64, "expected_file_bytes": 1, "expected_file_sha256": "b" * 64,
+    }
+    if defect == "budget":
+        arguments["maximum_bytes"] = True
+    elif defect == "file":
+        arguments["expected_source_file_bytes"] = 16 * 1024**2 + 1
+    elif defect == "digest":
+        arguments["expected_source_sha256"] = "0" * 64
+    elif defect == "frozen":
+        arguments["source_name"] = manifest["tensor"]
+    elif defect == "owner":
+        arguments["model_owner"] = object()
+    elif defect == "dtype":
+        arguments["source_values"] = values.astype(np.float64)
+    elif defect == "shape":
+        arguments["source_values"] = values[:-1]
+    if defect not in (None, "caller-change"):
+        with pytest.raises(ValueError):
+            prism_codec.verify_profile_gguf_source_operand(profile, report, manifest, blocks, **arguments)
+        assert events == (["source", "converted", "source"] if defect == "source-change" else ["source", "converted"] if defect == "deadline" else [])
+        return
+    receipt = prism_codec.verify_profile_gguf_source_operand(profile, report, manifest, blocks, **arguments)
+    assert events == ["source", "converted", "source"] and snapshots[0] is snapshots[1]
+    assert receipt["source"] is source_receipt and receipt["converted"] is converted_receipt
+    assert receipt["source_file_rechecked_after_conversion"] is True and receipt["cross_file_atomic_snapshot"] == "not_guaranteed"
+    with pytest.raises(TypeError):
+        receipt["source_sha256"] = "0" * 64
+
+
 @pytest.mark.parametrize("defect", ["digest", "bytes", "boolean", "file-budget", "seconds", "nan", "owner"])
 def test_profile_gguf_policy_metadata_refuses_invalid_inputs_before_import(monkeypatch, defect):
     import sys

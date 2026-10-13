@@ -799,6 +799,75 @@ def verify_profile_safetensors_operand(
                             "runtime_approval": "not_granted_by_source_operand_verification"})
 
 
+def verify_profile_gguf_source_operand(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_path, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str,
+    expected_source_file_bytes: int, expected_source_file_sha256: str,
+    expected_file_bytes: int, expected_file_sha256: str,
+    maximum_bytes: int = 16 * 1024**2, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30, model_owner=None,
+):
+    """Bind one source and converted range through one copied operand, not an atomic whole-model snapshot."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or any(type(size) is not int or not 0 < size <= maximum_file_bytes for size in (expected_source_file_bytes, expected_file_bytes))
+        or any(not isinstance(value, str) or SHA256.fullmatch(value) is None for value in (expected_source_sha256, expected_source_file_sha256, expected_file_sha256))
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or not isinstance(source_values, np.ndarray) or not source_values.flags.c_contiguous or 3 * source_values.nbytes > maximum_bytes
+    ):
+        raise ValueError("invalid combined source operand identity, layout or budget")
+    deadline = time.monotonic() + maximum_seconds
+    _verified_owner_descriptor(model_owner, profile, manifest, expected_file_bytes, expected_file_sha256)
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if entry is None or entry["type"] == "PQ2_0":
+        raise ValueError("combined source operand requires an unfrozen declared tensor")
+    if (
+        source_values.dtype != {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+        or source_values.shape != tuple(entry["source_shape"])
+    ):
+        raise ValueError("combined source operand dtype or shape mismatch")
+    values = source_values.copy()
+    values.setflags(write=False)
+    if hashlib.sha256(memoryview(values)).hexdigest() != expected_source_sha256:
+        raise ValueError("combined source operand array identity mismatch")
+    def remaining():
+        duration = deadline - time.monotonic()
+        if duration <= 0:
+            raise ValueError("combined source operand deadline exceeded")
+        return duration
+
+    def source_record():
+        return verify_profile_safetensors_operand(
+            profile, inventory, manifest, pq2_blocks, source_path=source_path, source_name=source_name, source_values=values,
+            expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_source_file_bytes,
+            expected_file_sha256=expected_source_file_sha256, maximum_bytes=maximum_bytes,
+            maximum_file_bytes=maximum_file_bytes, maximum_seconds=remaining(),
+        )
+
+    source = source_record()
+    kind = "matrix" if entry["type"] == "BF16" else "vector" if len(entry["source_shape"]) == 1 else "convolution"
+    converted = _verify_profile_gguf_operand(
+        profile, inventory, manifest, pq2_blocks, reader=reader, source_name=source_name, source_values=values,
+        expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes,
+        maximum_seconds=remaining(), kind=kind, maximum_bytes=min(maximum_bytes, 64 * 1024) if kind == "vector" else maximum_bytes,
+        model_owner=model_owner,
+    )
+    if source_record() != source:
+        raise ValueError("combined source operand source identity changed")
+    remaining()
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_sha256": expected_source_sha256, "source": source, "converted": converted,
+                            "source_conversion_verification": "pinned_source_range_and_converted_range_match_same_operand",
+                            "source_file_rechecked_after_conversion": True, "cross_file_atomic_snapshot": "not_guaranteed",
+                            "pin_issuer_verification": "not_checked", "model_metadata_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_source_conversion_verification"})
+
+
 def verify_profile_gguf_policy_metadata(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,

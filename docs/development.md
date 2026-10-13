@@ -1622,6 +1622,36 @@ no real reads or multi-file/whole-source claim is implied. Source synthetic
 controls use genuinely pinned zero-filled disposable shards, not the frozen
 candidate's source or representative numerical/quality evidence.
 
+`verify_profile_gguf_source_operand(...)` composes one unfrozen source-file
+range and its typed converted GGUF range through the same copied read-only
+operand and digest. Supply `expected_source_file_bytes`/
+`expected_source_file_sha256` plus the usual converted file pins. One shared
+cooperative deadline covers plan/snapshot, source check, converted check and a
+source recheck after conversion; per-file cap remains 16 MiB, operand-stage
+limits remain unchanged and snapshot/plan/header memory is not peak-RAM bounded.
+Optional `model_owner` anchors the converted file; mismatched/closed owners and
+wrong source dtype/shape refuse before source-file access. The immutable receipt
+contains unchanged immutable `source` and `converted` receipts and explicitly
+sets `cross_file_atomic_snapshot` to `not_guaranteed`. It does not retroactively
+change the converted-only receipt's source claim. This is one selected range,
+not a whole source/converted table, model metadata, issuer, loaded-code or
+quality gate. Source files must be quiescent; rechecking does not guarantee
+immutable storage or safe concurrent writers. A frozen replacement remains
+unsupported, and no runtime approval is granted.
+
+The optional paired-file controls use `PRISM_SOURCE_DIR` and
+`PRISM_PARITY_PYTHON` from the synthetic complete-stage command above:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
+   tests/test_prism_native_control.py -k source_to_gguf_selected_range
+```
+
+They create pinned zero-filled safetensors and four-tensor selected GGUF fixtures
+in disposable scratch, test BF16/F32 vectors/convolution and a BF16 matrix, and
+refuse changed converted bits even with a fresh file hash. They execute no native
+model or complete-model conversion and claim no independent HF source evidence.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

@@ -681,6 +681,109 @@ for kind in ("valid", "metadata-large", "metadata-near-limit", "metadata-keys-li
     assert handle.value is overrides.value is None
 
 
+@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32"])
+def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
+    from test_inventory import _prefill_model_policy_fixture
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    interpreter = os.environ.get("PRISM_PARITY_PYTHON")
+    if not source_dir or not interpreter:
+        pytest.skip("requires cached pinned GGUF/Torch parity environment; creates synthetic files only")
+    assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
+        pin_zero_source=True, vector_dtype="F32" if kind == "vector-F32" else "BF16", conv_dtype="F32" if kind == "convolution-F32" else "BF16",
+    )
+    code = """
+import hashlib
+import json
+import sys
+import tempfile
+from pathlib import Path
+import gguf
+import numpy as np
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_gguf_source_operand
+fixture = json.loads(sys.stdin.read())
+profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+inventory, manifest = fixture["inventory"], fixture["manifest"]
+blocks = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(manifest["shape"][0], manifest["shape"][1] // 128, 34)
+plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
+rank = 2 if sys.argv[1].startswith("matrix") else 3 if sys.argv[1].startswith("convolution") else 1
+entry = next(item for item in plan["tensors"] if item["type"] != "PQ2_0" and len(item["source_shape"]) == rank)
+values = np.zeros(entry["source_shape"], dtype="<f4" if entry["source_dtype"] == "F32" else "<u2")
+entries, payload_bytes = {}, 0
+for item in sorted(inventory["tensors"], key=lambda item: item["name"]):
+    size = int(np.prod(item["shape"])) * (4 if item["dtype"] == "F32" else 2)
+    entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + size]}
+    payload_bytes += size
+header = json.dumps(entries, sort_keys=True).encode()
+prefix = len(header).to_bytes(8, "little") + header
+with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
+    directory = Path(directory)
+    source_path = directory / profile.packaging["shards"][0]
+    source_path.write_bytes(prefix + bytes(payload_bytes))
+    source_pin = profile.files[source_path.name]
+    assert source_path.stat().st_size == source_pin.bytes <= 16 * 1024**2
+    assert hashlib.sha256(source_path.read_bytes()).hexdigest() == source_pin.sha256
+    destination = directory / "selected.gguf"
+    writer = gguf.GGUFWriter(destination, "qwen35")
+    if entry["type"] == "BF16":
+        encoded = gguf.quants.quantize(np.zeros(values.shape, dtype=np.float32), gguf.GGMLQuantizationType.BF16)
+        writer.add_tensor(entry["name"], encoded, raw_dtype=gguf.GGMLQuantizationType.BF16)
+    else:
+        shape = tuple(reversed(entry["ne"][:rank if rank == 1 else 2]))
+        converted = np.ones(shape, dtype=np.float32) if "add_one" in entry["transforms"] else -np.ones(shape, dtype=np.float32) if "negative_exp" in entry["transforms"] else np.zeros(shape, dtype=np.float32)
+        writer.add_tensor(entry["name"], converted)
+    for index in range(3):
+        writer.add_tensor("synthetic_placeholder_" + str(index), np.zeros(1, dtype=np.float32))
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    reader = gguf.GGUFReader(destination)
+    arguments = {
+        "reader": reader, "source_path": source_path, "source_name": entry["source_name"], "source_values": values,
+        "expected_source_sha256": hashlib.sha256(memoryview(values)).hexdigest(),
+        "expected_source_file_bytes": source_pin.bytes, "expected_source_file_sha256": source_pin.sha256,
+        "expected_file_bytes": destination.stat().st_size, "expected_file_sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
+    }
+    receipt = verify_profile_gguf_source_operand(profile, inventory, manifest, blocks, **arguments)
+    assert receipt["source_conversion_verification"] == "pinned_source_range_and_converted_range_match_same_operand"
+    assert receipt["source"]["source_sha256"] == receipt["converted"]["source_sha256"] == arguments["expected_source_sha256"]
+    assert receipt["source"]["source_file_verification"] == "profile_pinned_shard_and_header_range_match_caller_operand"
+    assert receipt["converted"]["source_file_verification"] == "not_checked"
+    assert receipt["model_metadata_verification"] == receipt["pin_issuer_verification"] == "not_checked"
+    assert receipt["source_file_rechecked_after_conversion"] is True and receipt["cross_file_atomic_snapshot"] == "not_guaranteed"
+    tensor = next(item for item in reader.tensors if item.name == entry["name"])
+    with destination.open("r+b") as output:
+        output.seek(tensor.data_offset)
+        saved = output.read(1)
+        output.seek(tensor.data_offset)
+        output.write(bytes([saved[0] ^ 1]))
+    arguments["expected_file_sha256"] = hashlib.sha256(destination.read_bytes()).hexdigest()
+    try:
+        verify_profile_gguf_source_operand(profile, inventory, manifest, blocks, **arguments)
+        raise AssertionError("changed converted bytes accepted with fresh file pin")
+    except ValueError as error:
+        assert "byte parity mismatch" in str(error), str(error)
+    finally:
+        with destination.open("r+b") as output:
+            output.seek(tensor.data_offset)
+            output.write(saved)
+        del reader
+print(json.dumps({"kind": sys.argv[1], "selected_ranges": 1, "runtime_approval": "not_granted_by_source_conversion_verification"}))
+"""
+    result = subprocess.run(
+        [interpreter, "-c", code, kind, str(tmp_path)], capture_output=True, text=True, timeout=30,
+        input=_profile_parity_fixture(profile, inventory, manifest, blocks),
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "OPENBLAS_NUM_THREADS": "1",
+             "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"kind": kind, "selected_ranges": 1, "runtime_approval": "not_granted_by_source_conversion_verification"}
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o", "full-only", "large-state"])
 def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_path, target):
     import hashlib
