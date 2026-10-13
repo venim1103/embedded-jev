@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [combined source range checkpoint](#combined-source-range-checkpoint-2026-10-13),
+2. Read the [frozen source identity checkpoint](#frozen-source-identity-checkpoint-2026-10-13),
+   then the [combined source range checkpoint](#combined-source-range-checkpoint-2026-10-13),
    then the [source operand file checkpoint](#source-operand-file-checkpoint-2026-10-13),
    then the [integrated policy metadata checkpoint](#integrated-policy-metadata-checkpoint-2026-10-13),
    then the [policy metadata API checkpoint](#policy-metadata-api-checkpoint-2026-10-13),
@@ -94,6 +95,41 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Frozen Source Identity Checkpoint (2026-10-13)
+
+After `58d13d0`, `verify_profile_frozen_source_tensor()` reuses the bounded
+source shard/header/range verifier for the manifest's original BF16 tensor and
+source digest. It records frozen payload identity separately and explicitly
+leaves `source_to_frozen_quantization_verification` unchecked. There is no
+quantization, refit, dense/frozen equivalence or quality claim. Unfrozen calls
+still refuse frozen inputs; malformed manifests refuse explicitly. Real frozen
+candidate, manifest, codes and independent FP16 row/group scales are unchanged.
+
+Source receipts now retain immutable device/inode/size/mtime/ctime identity,
+allowing combined post-conversion rechecks to reject restored writes between
+stages, not only changed bytes. Final pathname identity uses no-follow `lstat`.
+This is not atomic cross-file storage or a concurrent-writer guarantee.
+
+Verification: **470 default passes, 60 optional skips** in 13.71 s; Ruff,
+whitespace and touched diagnostics clean. **44 affected source cases** pass in
+4.59 s, including eight frozen identity/layout/digest/file/budget/schema cases.
+**Six paired-file controls pass** in 13.45 s: the existing five unfrozen pairs
+plus distinct frozen source/PQ2 checks. Unfrozen pairs reject an actual restored
+write between stages; all pairs refuse freshly pinned converted corruption.
+These are zero-source, four-tensor disposable synthetic fixtures, not complete
+models, independent HF source/issuer evidence or representative quality. No
+native model execution/build/sanitizer/CTest, real weights, downloads, refit or
+new retained candidate. Scratch directories empty after cleanup; no new peak-
+RAM measurement in this increment. User editor files remain untouched.
+
+Failed-check history: after retaining source identity, all six paired subprocess
+cases initially failed before launch because a nested byte literal became a
+null byte in the `-c` argument. Replaced it with child-runtime `bytes(...)`
+construction; the same focused check then passed without relaxing assertions.
+Next bounded provenance preparation: whole selected-source table identity under
+explicit aggregate budgets, keeping source identity, converted parity and frozen
+quantization evidence separate. Real-model operations still need approval.
 
 ## Combined Source Range Checkpoint (2026-10-13)
 

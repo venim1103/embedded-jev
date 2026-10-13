@@ -1053,6 +1053,57 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
             actual_path.unlink()
 
 
+@pytest.mark.parametrize("defect", [None, "manifest-digest", "manifest-schema", "manifest-type", "array", "file", "dtype", "budget"])
+def test_profile_frozen_source_tensor_matches_manifest_without_refitting(tmp_path, defect):
+    from embedded_jev.prism_codec import verify_profile_frozen_source_tensor
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True)
+    entries, payload_bytes = {}, 0
+    for item in sorted(report["tensors"], key=lambda item: item["name"]):
+        size = int(np.prod(item["shape"])) * (4 if item["dtype"] == "F32" else 2)
+        entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + size]}
+        payload_bytes += size
+    header, size = _header(entries, payload_bytes)
+    path = tmp_path / profile.packaging["shards"][0]
+    path.write_bytes(header + bytes(payload_bytes))
+    values = np.zeros(manifest["shape"], dtype="<u2")
+    manifest = {**manifest, "source_tensor_sha256": hashlib.sha256(memoryview(values)).hexdigest()}
+    before = blocks.tobytes()
+    arguments = {"source_path": path, "source_values": values, "expected_file_bytes": size, "expected_file_sha256": profile.files[path.name].sha256}
+    if defect == "manifest-digest":
+        manifest["source_tensor_sha256"] = "f" * 64
+    elif defect == "manifest-schema":
+        manifest.pop("source_tensor_sha256")
+    elif defect == "manifest-type":
+        manifest = None
+    elif defect == "array":
+        values.flat[0] = 1
+    elif defect == "file":
+        with path.open("r+b") as output:
+            output.seek(len(header) + entries[manifest["tensor"]]["data_offsets"][0])
+            output.write(b"\x01")
+    elif defect == "dtype":
+        arguments["source_values"] = values.astype(np.float32)
+    elif defect == "budget":
+        arguments["maximum_bytes"] = True
+    try:
+        if defect:
+            with pytest.raises(ValueError, match="source operand"):
+                verify_profile_frozen_source_tensor(profile, report, manifest, blocks, **arguments)
+        else:
+            receipt = verify_profile_frozen_source_tensor(profile, report, manifest, blocks, **arguments)
+            assert receipt["source_sha256"] == manifest["source_tensor_sha256"]
+            assert receipt["frozen_payload_sha256"] == manifest["payload_sha256"]
+            assert receipt["frozen_source_verification"] == "manifest_source_digest_matches_profile_pinned_source_range"
+            assert receipt["source_to_frozen_quantization_verification"] == receipt["pin_issuer_verification"] == "not_checked"
+            assert receipt["runtime_approval"] == "not_granted_by_frozen_source_verification"
+            with pytest.raises(TypeError):
+                receipt["frozen_payload_sha256"] = "0" * 64
+        assert blocks.tobytes() == before
+    finally:
+        path.unlink()
+
+
 @pytest.mark.parametrize("defect", [None, "caller-change", "source-change", "deadline", "budget", "file", "digest", "frozen", "owner", "dtype", "shape"])
 def test_profile_gguf_source_operand_shares_snapshot_digest_and_deadline(monkeypatch, defect):
     from types import MappingProxyType

@@ -1615,12 +1615,24 @@ remain stable, including writes restored to original bytes. File default/cap is
 16 MiB; operand default/cap is 16 MiB charged as three source extents, not peak
 RAM or header/plan memory; header cap is 1 MiB plus its eight-byte length.
 Cooperative default 30 s/cap 600 s checks do not interrupt blocking I/O. Immutable
-receipt reports only this source range; pin issuer, converted file and runtime
+receipt retains the device/inode/size/mtime/ctime tuple as `source_file_identity`
+and reports only this source range; pin issuer, converted file and runtime
 approval remain unchecked/not granted. Caller must separately bind the same
 digest to converted tensor parity. The 16 MiB cap excludes real 9B shards;
 no real reads or multi-file/whole-source claim is implied. Source synthetic
 controls use genuinely pinned zero-filled disposable shards, not the frozen
 candidate's source or representative numerical/quality evidence.
+
+`verify_profile_frozen_source_tensor(..., source_path=..., source_values=...,
+expected_file_bytes=..., expected_file_sha256=...)` uses the same file/header/
+range gate for the frozen manifest's original BF16 tensor and declared source
+digest, with the same bounds. Its immutable receipt records the separate frozen
+payload digest, but explicitly sets `source_to_frozen_quantization_verification`
+to `not_checked`. This verifies source identity only: it neither quantizes,
+refits, rewrites codes/scales nor proves dense-to-frozen equivalence or quality.
+The public unfrozen API still refuses frozen operands. The synthetic frozen
+control uses a disposable manifest with its zero-source digest; the sole real
+candidate and its manifest are unchanged.
 
 `verify_profile_gguf_source_operand(...)` composes one unfrozen source-file
 range and its typed converted GGUF range through the same copied read-only
@@ -1629,6 +1641,8 @@ operand and digest. Supply `expected_source_file_bytes`/
 cooperative deadline covers plan/snapshot, source check, converted check and a
 source recheck after conversion; per-file cap remains 16 MiB, operand-stage
 limits remain unchanged and snapshot/plan/header memory is not peak-RAM bounded.
+The recheck compares retained file identity as well as bytes, refusing writes
+restored between the two stages. Final pathname identity uses no-follow `lstat`.
 Optional `model_owner` anchors the converted file; mismatched/closed owners and
 wrong source dtype/shape refuse before source-file access. The immutable receipt
 contains unchanged immutable `source` and `converted` receipts and explicitly
@@ -1649,8 +1663,10 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
 
 They create pinned zero-filled safetensors and four-tensor selected GGUF fixtures
 in disposable scratch, test BF16/F32 vectors/convolution and a BF16 matrix, and
-refuse changed converted bits even with a fresh file hash. They execute no native
-model or complete-model conversion and claim no independent HF source evidence.
+separately verify frozen BF16 source identity and canonical PQ2 range bytes.
+They refuse changed converted bits even with a fresh file hash and restored
+source writes between unfrozen stages. They execute no native model or complete-
+model conversion and claim no independent HF source or quantization evidence.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

@@ -713,6 +713,39 @@ def verify_profile_safetensors_operand(
     maximum_bytes: int = 16 * 1024**2, maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
 ):
     """Match an unfrozen operand to a profile-pinned source range, not issuer identity or conversion quality."""
+    return _verify_profile_safetensors_operand(
+        profile, inventory, manifest, pq2_blocks, source_path=source_path, source_name=source_name,
+        source_values=source_values, expected_source_sha256=expected_source_sha256,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_bytes=maximum_bytes, maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
+    )
+
+
+def verify_profile_frozen_source_tensor(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_values: np.ndarray,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_bytes: int = 16 * 1024**2,
+    maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
+):
+    """Verify frozen source identity only; never quantize, refit or compare dense weights to frozen codes."""
+    if not isinstance(manifest, dict) or not {"tensor", "source_tensor_sha256", "payload_sha256"} <= manifest.keys():
+        raise ValueError("source operand frozen manifest is incomplete or invalid")
+    receipt = _verify_profile_safetensors_operand(
+        profile, inventory, manifest, pq2_blocks, source_path=source_path, source_name=manifest["tensor"],
+        source_values=source_values, expected_source_sha256=manifest["source_tensor_sha256"],
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_bytes=maximum_bytes, maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds, frozen=True,
+    )
+    return MappingProxyType({**receipt, "frozen_payload_sha256": manifest["payload_sha256"],
+                            "frozen_source_verification": "manifest_source_digest_matches_profile_pinned_source_range",
+                            "source_to_frozen_quantization_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_frozen_source_verification"})
+
+
+def _verify_profile_safetensors_operand(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int, expected_file_sha256: str,
+    maximum_bytes: int = 16 * 1024**2, maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30, frozen=False,
+):
     from embedded_jev.inventory import _json_object, parse_safetensors_header
     from embedded_jev.model_profile import SHA256
     from embedded_jev.streamed_text import bounded_native_descriptor_record
@@ -728,8 +761,8 @@ def verify_profile_safetensors_operand(
     deadline = time.monotonic() + maximum_seconds
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
     entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
-    if entry is None or entry["type"] == "PQ2_0":
-        raise ValueError("source operand gate requires an unfrozen declared tensor")
+    if entry is None or (entry["type"] == "PQ2_0") != frozen:
+        raise ValueError("source operand gate requires the declared frozen or unfrozen tensor kind")
     dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
     if (
         dtype is None or not isinstance(source_values, np.ndarray) or source_values.dtype != dtype
@@ -786,13 +819,14 @@ def verify_profile_safetensors_operand(
             position += size
         if (
             bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline) != before
-            or identity(before_stat) != identity(os.fstat(descriptor)) or identity(before_stat) != identity(Path(source_path).stat())
+            or identity(before_stat) != identity(os.fstat(descriptor)) or identity(before_stat) != identity(Path(source_path).lstat())
         ):
             raise ValueError("source operand file changed during verification")
     return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                             "source_name": source_name, "source_dtype": entry["source_dtype"], "source_shape": tuple(values.shape),
                             "source_sha256": expected_source_sha256, "source_file_sha256": expected_file_sha256,
                             "source_file_bytes": expected_file_bytes, "source_header_sha256": pin.header_sha256,
+                            "source_file_identity": identity(before_stat),
                             "source_range_offset": offset, "source_range_bytes": len(wanted),
                             "source_file_verification": "profile_pinned_shard_and_header_range_match_caller_operand",
                             "pin_issuer_verification": "not_checked", "converted_file_verification": "not_checked",
