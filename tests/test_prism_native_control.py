@@ -2519,7 +2519,7 @@ def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype):
     assert subprocess.check_output(
         ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
     ).strip() == PRISM_REVISION
-    profile, inventory, manifest, blocks = _prefill_model_policy_fixture("down", vector_dtype=vector_dtype)
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture("down", vector_dtype=vector_dtype, conv_dtype=vector_dtype)
     plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
     fixture = _profile_parity_fixture(profile, inventory, manifest, blocks)
     code = """
@@ -2534,7 +2534,7 @@ import numpy as np
 import torch
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector, verify_profile_converted_matrix, verify_profile_gguf_matrix
+from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector, verify_profile_converted_matrix, verify_profile_gguf_matrix, verify_profile_converted_convolution
 import embedded_jev.prism_codec as prism_codec
 
 module = ast.parse((Path(sys.argv[1]) / "conversion/qwen.py").read_text())
@@ -2627,6 +2627,25 @@ profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
 assert profile.sha256 == plan["profile_sha256"]
 payload = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(
     fixture["manifest"]["shape"][0], fixture["manifest"]["shape"][1] // 128, 34)
+model.hparams.update(plan["linear_head_layout"])
+model.hparams["hidden_size"] = profile.geometry["hidden_size"]
+convolution = next(item for item in plan["tensors"] if item["source_name"].endswith("linear_attn.conv1d.weight"))
+source_conv = (torch.arange(int(np.prod(convolution["source_shape"])), dtype=torch.float32).reshape(convolution["source_shape"]) % 17 - 8) / 16
+raw_conv = source_conv.to(torch.bfloat16).view(torch.uint16).numpy().copy() if convolution["source_dtype"] == "BF16" else source_conv.numpy().copy()
+converted_conv = list(model.modify_tensors(source_conv, convolution["source_name"], 0))[0][1].numpy().copy()
+conv_keywords = {"source_name": convolution["source_name"], "source_values": raw_conv, "converted_values": converted_conv,
+                 "expected_source_sha256": hashlib.sha256(memoryview(raw_conv)).hexdigest()}
+conv_receipt = verify_profile_converted_convolution(profile, fixture["inventory"], fixture["manifest"], payload, **conv_keywords)
+assert conv_receipt["converted_sha256"] == hashlib.sha256(memoryview(converted_conv)).hexdigest()
+assert conv_receipt["source_file_verification"] == conv_receipt["converted_file_verification"] == "not_checked"
+changed_conv = converted_conv.copy()
+changed_conv.view(np.uint32).flat[0] ^= 0x80000000
+try:
+    verify_profile_converted_convolution(profile, fixture["inventory"], fixture["manifest"], payload,
+                                        **{**conv_keywords, "converted_values": changed_conv})
+    raise AssertionError("changed convolution sign bit accepted")
+except ValueError as error:
+    assert "byte parity" in str(error)
 vector_operands = {}
 for source_name in ("model.norm.weight", "model.layers.0.input_layernorm.weight",
                     "model.layers.1.self_attn.q_norm.weight", "model.layers.1.self_attn.k_norm.weight",

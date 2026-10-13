@@ -302,8 +302,8 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-13 BF16 matrix file-range
-gate, following exact matrix operands at `ef51266`, complete synthetic vectors
+The latest tested source checkpoint is the 2026-10-13 convolution operand gate,
+following BF16 matrix file ranges at `c783c2f`, exact matrix operands at `ef51266`, complete synthetic vectors
 at `7326a14` and GGUF binding at `5240c26`
 and conversion planning/vector operand parity at `b6a9f0d`
 and runtime hashing at `c18e90f`,
@@ -312,9 +312,11 @@ at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#bf16-matrix-file-checkpoint-2026-10-13) records
-359 default passes/54 optional skips, 37 focused matrix/file cases and two
-pinned-source controls including 16 exact matrix/file ranges. The preceding complete-vector
+[latest handover](handover.md#convolution-operand-checkpoint-2026-10-13) records
+363 default passes/54 optional skips, four explicit convolution operand cases
+and two pinned-source controls including exact nonzero convolution operands.
+The preceding matrix checkpoint retains 37 focused matrix/file cases and
+16 exact matrix/file ranges. The preceding complete-vector
 checkpoint retains nine vector-enabled synthetic complete-model cases. The file-binding
 checkpoint retains 22 focused plan/vector/file cases. The preceding runtime hashing checkpoint
 retains 56 focused file/owner/runtime cases and nine synthetic caller cases
@@ -1462,6 +1464,16 @@ The immutable receipt leaves both source/converted file verification
 remain separate gates. Its transforms use NumPy, not an implicit Torch/model
 dependency. Reviewed upstream Torch methods are exercised only by optional
 synthetic controls in the already cached environment.
+
+`verify_profile_converted_convolution(..., source_name=..., source_values=...,
+converted_values=..., expected_source_sha256=...)` checks declared convolution
+weights from BF16/F32 3D source arrays to F32 2D outputs. It decodes BF16,
+reorders only the V channel section when required and squeezes the singleton
+axis, comparing exact F32 bits. Singleton kernels, wrong tensor kinds, layouts,
+shapes, nonfinite operands and wrong source hashes refuse. `maximum_bytes`
+defaults to 512 KiB and is capped at 16 MiB, bounding source plus two output
+extents, not peak RAM. The receipt verifies operand arrays only; source and
+converted files remain `not_checked`, and no runtime approval follows.
 
 `verify_profile_gguf_matrix(..., reader=..., source_name=..., source_values=...,
 expected_source_sha256=..., expected_file_bytes=..., expected_file_sha256=...)`

@@ -474,7 +474,7 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16"):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -482,7 +482,8 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     geometry.update(hidden_size=1024, intermediate_size=1024, num_attention_heads=4, num_key_value_heads=2, head_dim=32)
     geometry.update(num_hidden_layers=2, full_attention_interval=2 if hybrid else 1,
                     layer_types=["linear_attention", "full_attention"] if hybrid else ["full_attention", "full_attention"],
-                    linear_num_key_heads=2, linear_num_value_heads=value_heads, linear_key_head_dim=state_size, linear_value_head_dim=32)
+                    linear_num_key_heads=2, linear_num_value_heads=value_heads, linear_key_head_dim=state_size, linear_value_head_dim=32,
+                    linear_conv_kernel_dim=kernel_size)
     if target == "o":
         geometry.update(hidden_size=128, intermediate_size=256, num_attention_heads=16, head_dim=64)
     hidden = geometry["hidden_size"]
@@ -500,6 +501,8 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     entries, offset = {}, 0
     for name, shape in sorted(shapes.items()):
         dtype = vector_dtype if len(shape) == 1 else "BF16"
+        if name.endswith("linear_attn.conv1d.weight"):
+            dtype = conv_dtype
         count = int(np.prod(shape)) * (4 if dtype == "F32" else 2)
         entries[name] = {"dtype": dtype, "shape": shape, "data_offsets": [offset, offset + count]}
         offset += count
@@ -818,6 +821,29 @@ def test_profile_converted_matrix_reorders_exact_head_indices(value_heads, suffi
         arguments["converted_values"] = source
         with pytest.raises(ValueError, match="byte parity"):
             verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
+
+
+@pytest.mark.parametrize("source_dtype", ["BF16", "F32"])
+@pytest.mark.parametrize("value_heads", [2, 4])
+def test_profile_converted_convolution_exact_squeeze_and_channel_order(source_dtype, value_heads):
+    from embedded_jev.prism_codec import verify_profile_converted_convolution
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down", value_heads=value_heads, conv_dtype=source_dtype)
+    name = "model.layers.0.linear_attn.conv1d.weight"
+    shape = next(item["shape"] for item in report["tensors"] if item["name"] == name)
+    values = (np.arange(int(np.prod(shape))).reshape(shape) % 17 - 8).astype("<f4") / 16
+    source = (values.view(np.uint32) >> 16).astype("<u2") if source_dtype == "BF16" else values
+    order = np.arange(shape[0]) if value_heads == 2 else np.concatenate((np.arange(128),
+             128 + (np.array([0, 2, 1, 3])[:, None] * 32 + np.arange(32)).reshape(-1)))
+    converted = values[:, 0, :][order].copy()
+    arguments = {"source_name": name, "source_values": source, "converted_values": converted,
+                 "expected_source_sha256": hashlib.sha256(memoryview(source)).hexdigest()}
+    receipt = verify_profile_converted_convolution(profile, report, manifest, blocks, **arguments)
+    assert receipt["converted_sha256"] == hashlib.sha256(memoryview(converted)).hexdigest()
+    assert receipt["source_file_verification"] == receipt["converted_file_verification"] == "not_checked"
+    converted.flat[0] = np.nextafter(converted.flat[0], np.float32(1))
+    with pytest.raises(ValueError, match="byte parity"):
+        verify_profile_converted_convolution(profile, report, manifest, blocks, **arguments)
 
 
 def test_profile_model_policy_refuses_unpinned_runtime():

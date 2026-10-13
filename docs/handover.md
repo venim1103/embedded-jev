@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [BF16 matrix file checkpoint](#bf16-matrix-file-checkpoint-2026-10-13),
+2. Read the [convolution operand checkpoint](#convolution-operand-checkpoint-2026-10-13),
+   then the [BF16 matrix file checkpoint](#bf16-matrix-file-checkpoint-2026-10-13),
    then the [BF16 matrix operand checkpoint](#bf16-matrix-operand-checkpoint-2026-10-13),
    then the [complete synthetic vector checkpoint](#complete-synthetic-vector-checkpoint-2026-10-13),
    then the [GGUF vector binding checkpoint](#gguf-vector-binding-checkpoint-2026-10-13),
@@ -84,6 +85,36 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Convolution Operand Checkpoint (2026-10-13)
+
+After `c783c2f`, `verify_profile_converted_convolution()` checks the pinned
+3D source to 2D F32 convolution transformation. BF16 sources are raw
+little-endian uint16; F32 sources/outputs are little-endian float32. Checked
+profile geometry, finite values, contiguous layout and caller source digest
+are required. It preserves exact F32 bits while reordering only V channels
+and squeezing the singleton axis. Singleton kernels refuse because upstream
+squeeze would no longer match the declared 2D table. Other tensor kinds refuse.
+
+Default `maximum_bytes` is 512 KiB, capped at 16 MiB, bounding
+`source.nbytes + 2 * converted.nbytes`, not process RAM or projection validation.
+Immutable receipts leave source/converted files `not_checked`; there is no
+source issuer, whole-model parity or runtime approval claim.
+
+Verification: **363 default passes, 54 optional skips** in 3.80 s, Ruff,
+whitespace and editor diagnostics clean. Four focused cases compare explicit
+channel index maps for equal/unequal heads and BF16/F32 sources, rejecting
+changed output bits. The two reviewed pinned-source controls passed in
+**3.77 s**, peak process RSS 295,796 KiB, no swaps, with nonzero convolution
+operands and changed sign-bit refusal alongside existing vector/matrix checks.
+No failed checks or numerical tolerance changes occurred in this increment.
+
+No native changes/rebuilds, new sanitizer/CTest evidence, real source/candidate
+weight reads, downloads, model conversion/execution, retained artifacts, fits,
+quality experiments, pushes, branches or subagents. Existing integration
+evidence remains at the checkpoints below, not an unchanged rerun. Next:
+extend the shared typed GGUF range checker for F32 convolution, then prepare
+bounded complete synthetic table provenance; real-profile work stays gated.
 
 ## BF16 Matrix File Checkpoint (2026-10-13)
 

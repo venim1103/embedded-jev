@@ -391,6 +391,65 @@ def verify_profile_converted_matrix(
                             "runtime_approval": "not_granted_by_operand_verification"})
 
 
+def verify_profile_converted_convolution(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
+    source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,
+    maximum_bytes: int = 512 * 1024,
+):
+    """Compare bounded convolution operand bits, not source or converted files."""
+    from embedded_jev.model_profile import SHA256
+
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if (
+        entry is None or entry["type"] != "F32" or not source_name.endswith("linear_attn.conv1d.weight")
+        or len(entry["source_shape"]) != 3 or entry["source_shape"][1] != 1 or entry["source_shape"][2] <= 1
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
+        or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
+        or not isinstance(source_values, np.ndarray) or not isinstance(converted_values, np.ndarray)
+    ):
+        raise ValueError("unsupported bounded converted convolution or source identity")
+    source_dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+    output_shape = (entry["source_shape"][0], entry["source_shape"][2])
+    if (
+        source_dtype is None or source_values.dtype != source_dtype or converted_values.dtype != np.dtype("<f4")
+        or source_values.shape != tuple(entry["source_shape"]) or converted_values.shape != output_shape
+        or not source_values.flags.c_contiguous or not converted_values.flags.c_contiguous
+        or source_values.nbytes + 2 * converted_values.nbytes > maximum_bytes
+    ):
+        raise ValueError("converted convolution layout or byte budget mismatch")
+    source_values = source_values.copy()
+    converted_values = converted_values.copy()
+    if hashlib.sha256(memoryview(source_values)).hexdigest() != expected_source_sha256:
+        raise ValueError("source convolution identity mismatch")
+    reference = (source_values.astype(np.uint32) << 16).view(np.float32) if entry["source_dtype"] == "BF16" else source_values
+    if not np.isfinite(reference).all() or not np.isfinite(converted_values).all():
+        raise ValueError("converted convolution operands must be finite")
+    for transform in entry["transforms"][:-1]:
+        if transform == "v_rows_grouped_to_tiled":
+            heads = plan["linear_head_layout"]
+            groups = heads["linear_num_key_heads"]
+            prefix = 2 * groups * heads["linear_key_head_dim"]
+            trailing = reference.shape[1:]
+            reordered = reference[prefix:].reshape(groups, heads["linear_num_value_heads"] // groups,
+                                                   heads["linear_value_head_dim"], *trailing).swapaxes(0, 1)
+            reference = np.concatenate((reference[:prefix], reordered.reshape(reference[prefix:].shape)))
+        elif transform == "squeeze":
+            reference = reference.squeeze()
+        else:
+            raise ValueError("unsupported converted convolution transform")
+    if reference.shape != output_shape or not np.array_equal(reference.view(np.uint8), converted_values.view(np.uint8)):
+        raise ValueError("converted convolution byte parity mismatch")
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_name": source_name, "tensor_name": entry["name"],
+                            "source_sha256": expected_source_sha256,
+                            "converted_sha256": hashlib.sha256(memoryview(converted_values)).hexdigest(),
+                            "converted_bytes": converted_values.nbytes,
+                            "operand_byte_verification": "exact_f32_bits_match_declared_convolution_reference",
+                            "source_file_verification": "not_checked", "converted_file_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_operand_verification"})
+
+
 def _verify_profile_gguf_operand(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
     source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
