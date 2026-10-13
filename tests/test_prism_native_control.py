@@ -1281,6 +1281,10 @@ function.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), 
 function.restype = ctypes.c_int
 status = 27
 owners = ExitStack()
+buffers = ExitStack()
+native_output = None
+body_succeeded = False
+source_exit_refusal = False
 try:
     mode = sys.argv[4]
     model_path = sys.argv[1]
@@ -1318,7 +1322,7 @@ try:
             tensor_arguments["verify_policy_metadata"] = True
             if mode.startswith("verified-source-"):
                 tensor_arguments.update(source_paths={name: Path(model_path).parent / name for name in profile.packaging["shards"]},
-                    frozen_source_values=np.zeros(manifest["shape"], dtype="<u2"))
+                    frozen_source_values=np.zeros(manifest["shape"], dtype="<u2"), verify_source_files_on_exit=True)
             if mode in ("verified-policy-metadata-type", "verified-policy-metadata-copy"):
                 selected_name = "qwen35.attention.head_count"
                 original_field = tensor_arguments["tensor_reader"].fields[selected_name]
@@ -1379,6 +1383,9 @@ try:
                 assert source_table["tensor_count"] == 28 and source_table["converted"]["model_file_access"] == "verified_owner_descriptor"
                 assert source_table["source_file_rechecked_after_conversion"] is True
                 assert source_table["cross_file_atomic_snapshot"] == "not_guaranteed"
+                assert owner.verification["source_file_lifetime_verification"] == "entry_and_exit_checks_required"
+                import tempfile
+                native_output = buffers.enter_context(tempfile.TemporaryFile(dir=Path(sys.argv[1]).parent))
         for name in ("bridge", "scorer", "llama", "ggml_registry"):
             assert owner.verification[name + "_sha256"] == json.loads(sys.argv[7])[name]["sha256"]
         assert owner.verification["ggml_cpu_sha256"] == "adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150"
@@ -1427,15 +1434,70 @@ try:
     if mode == "oversized-geometry":
         record.hidden = 1025
         mode = "full"
+    source_exit_refusal = mode in ("active-change", "active-restored", "active-replace")
+    if source_exit_refusal:
+        source_path = next(iter(tensor_arguments["source_paths"].values()))
+        source_offset = profile.files[source_path.name].header_bytes
+        source_stat = source_path.stat()
+        mode = "full"
     del profile, inventory, manifest, blocks, specification
     gc.collect()
-    status = function(model_path.encode(), record_for_call, handle_for_call, overrides_for_call, mode.encode())
+    if native_output is None:
+        status = function(model_path.encode(), record_for_call, handle_for_call, overrides_for_call, mode.encode())
+    else:
+        import os
+        ctypes.CDLL(None).fflush(None)
+        saved_stdout = os.dup(1)
+        try:
+            os.dup2(native_output.fileno(), 1)
+            status = function(model_path.encode(), record_for_call, handle_for_call, overrides_for_call, mode.encode())
+        finally:
+            ctypes.CDLL(None).fflush(None)
+            os.dup2(saved_stdout, 1)
+            os.close(saved_stdout)
+        assert status == 0 and 0 < native_output.tell() <= 65536
+    if source_exit_refusal:
+        if sys.argv[4].endswith("active-replace"):
+            import shutil
+            replacement = source_path.with_suffix(".replacement")
+            with source_path.open("rb") as source, replacement.open("wb") as destination:
+                shutil.copyfileobj(source, destination, length=65536)
+            os.replace(replacement, source_path)
+        else:
+            with source_path.open("r+b") as source:
+                source.seek(source_offset)
+                original_byte = source.read(1)
+                source.seek(source_offset)
+                source.write(bytes([original_byte[0] ^ 1]))
+                if sys.argv[4].endswith("active-restored"):
+                    source.seek(source_offset)
+                    source.write(original_byte)
+            if sys.argv[4].endswith("active-restored"):
+                os.utime(source_path, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
     assert registry() == baseline + 1 + (other_handle is not None)
+    body_succeeded = True
 finally:
     if "tensor_arguments" in locals():
         tensor_arguments.clear()
-    owners.close()
-    assert registry() == baseline
+    try:
+        try:
+            owners.close()
+        except ValueError as error:
+            if not source_exit_refusal:
+                raise
+            assert "source table shard identity changed after operands" in str(error), str(error)
+            assert registry() == baseline and owner.handle.value is owner.overrides.value is None
+            sys.exit(33)
+        assert registry() == baseline
+        if native_output is not None and body_succeeded:
+            assert not source_exit_refusal
+            assert owner.handle.value is owner.overrides.value is None
+            native_output.seek(0)
+            output_bytes = native_output.read(65537)
+            assert 0 < len(output_bytes) <= 65536
+            sys.stdout.buffer.write(output_bytes)
+    finally:
+        buffers.close()
 ctypes.CDLL(None).fflush(None)
 sys.exit(status)
 """
@@ -1933,6 +1995,24 @@ print(json.dumps(report))
                     if source_mode == "parallel":
                         np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
                 source_path = Path(source_directory) / profile.packaging["shards"][0]
+                source_offset = source_expected["source_fixture"]["profile"]["files"][source_path.name]["header_bytes"]
+                with source_path.open("rb") as source:
+                    source.seek(source_offset)
+                    original_byte = source.read(1)
+                for source_exit_mode in ("change", "restored", "replace"):
+                    try:
+                        control = subprocess.run(
+                            [parity_interpreter, "-c", driver_code, str(source_model), target, runtime_build, "verified-source-active-" + source_exit_mode,
+                             str(source_expected["model_bytes"]), source_expected["model_sha256"], json.dumps(expected_runtime),
+                             str(source_archive), str(source_expected["source_archive_bytes"]), source_expected["source_archive_sha256"]],
+                            capture_output=True, text=True, timeout=30, input=json.dumps(source_expected["source_fixture"]),
+                            env={**environment, "PYTHONPATH": os.pathsep.join((environment["PYTHONPATH"], str(Path(source_dir) / "gguf-py")))},
+                        )
+                        assert control.returncode == 33 and control.stdout == "", control.stderr
+                    finally:
+                        with source_path.open("r+b") as source:
+                            source.seek(source_offset)
+                            source.write(original_byte)
                 with source_path.open("r+b") as changed_source:
                     offset = source_expected["source_fixture"]["profile"]["files"][source_path.name]["header_bytes"]
                     changed_source.seek(offset)

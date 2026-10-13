@@ -6,6 +6,12 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Paused by user, 2026-10-13:** Finish only the tested source-exit scoring
+checkpoint below and stop for today. Multi-shard exit coverage is queued but
+not started; resume implementation only after an explicit user instruction.
+No background jobs, pushes, branch changes or user-settings changes. Real-model
+approval boundaries remain unchanged.
+
 **Resumed by user, 2026-10-13:** Continue autonomous code-only caller/provenance
 preparation with bounded synthetic fixtures. Starting `5bbbd4e` matched
 `origin/main`; user settings remain untouched. Real-model approvals are unchanged.
@@ -28,7 +34,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [source exit owner checkpoint](#source-exit-owner-checkpoint-2026-10-13),
+2. Read the [source exit score checkpoint](#source-exit-score-checkpoint-2026-10-13),
+   then the [source exit owner checkpoint](#source-exit-owner-checkpoint-2026-10-13),
    then the [source gated workflow checkpoint](#source-gated-workflow-checkpoint-2026-10-13),
    then the [source gated refusal checkpoint](#source-gated-refusal-checkpoint-2026-10-13),
    then the [source gated recovery checkpoint](#source-gated-recovery-checkpoint-2026-10-13),
@@ -106,6 +113,50 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Exit Score Checkpoint (2026-10-13)
+
+After `e4c8b0b`, all 49 nonzero source-gated seven-role workflows opt into source
+exit checks. The caller captures native stdout in a disposable temporary file,
+requires successful prefill/nonempty <=64 KiB output, restores stdout before
+cleanup and releases bytes only after owner/source/runtime closure succeeds
+with registry restored/pointers cleared. Body/exit failure discards output; no
+buffer is published from a failed owner. Existing file/table-only and unsupported
+controls preserve their prior path, limits and results.
+
+Three actual post-prefill source changes per role now refuse at exit: changed
+byte, restored byte plus original mtime, and identical-byte inode replacement
+using <=64 KiB copy chunks. Each requires native success and withheld bytes
+before mutation, then the exact source identity error, baseline registry/cleared
+pointers and empty score stdout. Parent restores only disposable source data
+between controls; frozen codes/scales and pinned source caches stay unchanged.
+These **21 exit refusals** are separate from **14 preserved pre-yield refusals**.
+
+Verification: FFN-down **1 pass** in 53.82 s, peak RSS 310,548 KiB; other six
+eligible roles plus unsupported fixtures **8 passes** in 284.78 s, peak RSS
+316,144 KiB; swaps zero. All **49 successful source-exit-gated workflows**, 21
+post-prefill and 14 pre-yield source refusals pass with unchanged independent
+full/peer/max128 oracles and `2e-5` native tolerances. Gate **529 default passes,
+72 optional skips** in 13.03 s; Ruff, whitespace and diagnostics clean. No failed
+executable checks in this increment. Temporary buffers/shards/GGUF/archives
+cleaned.
+
+The documentation patch was interrupted with unknown outcome; worktree/search
+confirmed it had not applied before recovery at the user's stop request. One
+documentation retry failed on wrapped-line context; the unchanged state was
+verified and the exact local context corrected. Only checkpoint documentation/
+review/commit proceeded after that request, not the next implementation slice.
+No native API/hook changes/rebuild/CTest/sanitizer, real source/model reads/
+hashes/conversion/execution/quality, downloads/refits/new candidates, push/branch
+or subagents. User settings and source/library caches untouched. Synthetic
+FFN/full-attention is not nonzero recurrent state, independent issuer provenance,
+frozen quantization equivalence, representative quality or device evidence.
+Historical real MiMo discrepancy and real-profile approval boundaries remain.
+
+Next session, after explicit resume: multiple selected shards must share one
+exit deadline and every shard identity must be required; do not infer that
+coverage from these single-shard controls. Multi-shard checks are not started.
+Implementation is paused for today with no running jobs.
 
 ## Source Exit Owner Checkpoint (2026-10-13)
 

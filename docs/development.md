@@ -1646,7 +1646,8 @@ clears pointers before closing the model descriptor. Entry/exit checks do not
 prove immutable storage between observations or an atomic multi-file snapshot,
 issuer provenance, frozen quantization equivalence, quality or runtime approval.
 Both paired BF16/F32 source-gated actual-loader controls exercise this opt-in;
-nonzero seven-role caller exit-failure controls are the next separate increment.
+the nonzero seven-role caller also opts in and tests deferred output/refusal as
+described below.
 
 `verify_profile_safetensors_operand(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,
@@ -1820,6 +1821,18 @@ existing independent oracle at unchanged `2e-5` tolerances; the second writer's
 below. Unsupported full-only/large-state controls remain refusals. This does
 not widen the native hook, source/model byte or operand caps, subprocess deadline,
 token bound, model support tier or real-model authorization.
+
+All 49 nonzero source-gated workflows enable the exit recheck. Their caller
+captures native stdout in a disposable temporary file, requires successful
+prefill and <=64 KiB output, restores stdout before owner cleanup and releases
+the buffer only after successful owner/source/runtime closure and registry/
+pointer cleanup. Errors discard the buffer. Three further exit-refusal modes
+per role change a source byte after prefill, restore that byte plus mtime after
+writing, or replace the shard with identical bytes via <=64 KiB copy chunks.
+These 21 cases require successful prefill with a nonempty withheld buffer, then
+source identity refusal, cleared pointers/restored registry and no score output.
+This is distinct from pre-yield input refusal; it does not prove continuous
+immutability, external issuer provenance, frozen equivalence or quality.
 
 Two physical-source refusal modes also run for every eligible role. One changes
 a source byte without changing its pin and requires `source operand file identity
