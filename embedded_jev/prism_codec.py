@@ -833,6 +833,107 @@ def _verify_profile_safetensors_operand(
                             "runtime_approval": "not_granted_by_source_operand_verification"})
 
 
+def verify_profile_safetensors_tensor_table(
+    profile, inventory: dict, manifest: dict, pq2_blocks: np.ndarray, *, source_paths: dict, source_values: dict,
+    expected_source_sha256: dict, maximum_bytes: int = 64 * 1024**2,
+    maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
+):
+    """Verify every selected source identity, not conversion, quantization or an atomic source snapshot."""
+    from embedded_jev.model_profile import SHA256
+    from embedded_jev.streamed_text import bounded_native_descriptor_record
+
+    if (
+        type(maximum_bytes) is not int or not 0 < maximum_bytes <= 64 * 1024**2
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or not isinstance(pq2_blocks, np.ndarray) or pq2_blocks.dtype != np.dtype("u1") or not pq2_blocks.flags.c_contiguous
+    ):
+        raise ValueError("invalid source table payload layout or budget")
+    deadline = time.monotonic() + maximum_seconds
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    names = {entry["source_name"] for entry in plan["tensors"]}
+    tensors = {entry["name"]: entry for entry in inventory["tensors"]}
+    shards = {tensors[name]["shard"] for name in names}
+    if (
+        not isinstance(source_values, dict) or set(source_values) != names
+        or not isinstance(expected_source_sha256, dict) or set(expected_source_sha256) != names
+        or not isinstance(source_paths, dict) or set(source_paths) != shards
+    ):
+        raise ValueError("source table requires exact selected tensor and shard maps")
+    pins, paths = dict(expected_source_sha256), dict(source_paths)
+    if (
+        any(not isinstance(value, str) or SHA256.fullmatch(value) is None for value in pins.values())
+        or pins[manifest["tensor"]] != manifest["source_tensor_sha256"]
+        or sum(profile.files[name].bytes for name in shards) > maximum_file_bytes
+        or any(profile.files[name].header_bytes is None or profile.files[name].header_sha256 is None for name in shards)
+    ):
+        raise ValueError("source table source pins or aggregate file budget mismatch")
+    sources = dict(source_values)
+    total = 3 * pq2_blocks.nbytes
+    for entry in plan["tensors"]:
+        values = sources[entry["source_name"]]
+        if (
+            not isinstance(values, np.ndarray) or values.dtype != {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+            or values.shape != tuple(entry["source_shape"]) or not values.flags.c_contiguous
+            or 3 * values.nbytes > 16 * 1024**2
+        ):
+            raise ValueError("source table operand layout or per-tensor budget mismatch")
+        total += 3 * values.nbytes
+    if total > maximum_bytes:
+        raise ValueError("source table aggregate operand budget exceeded")
+    blocks = np.array(pq2_blocks, copy=True)
+    blocks.setflags(write=False)
+    for name, values in sources.items():
+        values = values.copy()
+        values.setflags(write=False)
+        if hashlib.sha256(memoryview(values)).hexdigest() != pins[name]:
+            raise ValueError("source table operand digest mismatch")
+        sources[name] = values
+
+    def remaining():
+        duration = deadline - time.monotonic()
+        if duration <= 0:
+            raise ValueError("source table deadline exceeded")
+        return duration
+
+    def identity(value):
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    receipts, identities = [], {}
+    for entry in plan["tensors"]:
+        name = entry["source_name"]
+        shard = tensors[name]["shard"]
+        pin = profile.files[shard]
+        arguments = {"source_path": paths[shard], "source_values": sources[name], "expected_file_bytes": pin.bytes,
+                     "expected_file_sha256": pin.sha256, "maximum_file_bytes": maximum_file_bytes, "maximum_seconds": remaining()}
+        if entry["type"] == "PQ2_0":
+            receipt = verify_profile_frozen_source_tensor(profile, inventory, manifest, blocks, **arguments)
+        else:
+            receipt = verify_profile_safetensors_operand(profile, inventory, manifest, blocks, source_name=name, expected_source_sha256=pins[name], **arguments)
+        if identities.setdefault(shard, receipt["source_file_identity"]) != receipt["source_file_identity"]:
+            raise ValueError("source table shard identity changed between operands")
+        receipts.append(receipt)
+    for shard in sorted(shards):
+        remaining()
+        with os.fdopen(os.open(paths[shard], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as source:
+            descriptor = source.fileno()
+            pin = profile.files[shard]
+            record = bounded_native_descriptor_record(descriptor, maximum_bytes=pin.bytes, deadline=deadline)
+            if (
+                record["bytes"] != pin.bytes or record["sha256"] != pin.sha256
+                or identity(os.fstat(descriptor)) != identities[shard] or identity(Path(paths[shard]).lstat()) != identities[shard]
+            ):
+                raise ValueError("source table shard identity changed after operands")
+    remaining()
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "tensor_count": len(receipts), "source_shard_count": len(shards), "operand_budget_bytes": total,
+                            "source_file_bytes": sum(profile.files[name].bytes for name in shards), "tensors": tuple(receipts),
+                            "source_table_verification": "all_selected_source_ranges_match_profile_pins_and_caller_operands",
+                            "source_to_frozen_quantization_verification": "not_checked", "converted_file_verification": "not_checked",
+                            "pin_issuer_verification": "not_checked", "cross_file_atomic_snapshot": "not_guaranteed",
+                            "runtime_approval": "not_granted_by_source_table_verification"})
+
+
 def verify_profile_gguf_source_operand(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_path, source_name: str,
     source_values: np.ndarray, expected_source_sha256: str,

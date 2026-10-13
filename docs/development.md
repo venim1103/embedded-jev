@@ -1634,6 +1634,26 @@ The public unfrozen API still refuses frozen operands. The synthetic frozen
 control uses a disposable manifest with its zero-source digest; the sole real
 candidate and its manifest are unchanged.
 
+`verify_profile_safetensors_tensor_table(..., source_paths=..., source_values=...,
+expected_source_sha256=...)` verifies every selected conversion-plan source
+tensor, including the frozen original source. Provide exact maps keyed by selected
+shard filename and HF tensor name; no missing/extra entries. Frozen source digest
+must equal its manifest declaration. Before file dispatch it validates every
+dtype/shape/contiguous layout/digest and snapshots arrays/maps/encoded payload.
+The payload must be a contiguous uint8 array. Aggregate operand default/cap is
+64 MiB, charged as three source extents plus three canonical payload extents;
+each operand retains the 16 MiB cap. Aggregate selected shard bytes, not just
+each file, default/cap at 16 MiB. Plan/header memory is not peak-RAM bounded.
+One cooperative 30 s/cap 600 s deadline covers all range checks and final shard
+rechecks. Immutable inode/timestamp identity must match between operands and
+again at completion. Shards must be quiescent; there is no atomic cross-file or
+safe concurrent-writer guarantee. The immutable receipt contains all source
+receipts, with frozen identity separate. Unselected/MTP operands, converted bytes,
+quantization equivalence, pin issuer, metadata semantics and runtime/quality
+approval remain unchecked/not granted. This standalone gate is not integrated
+into the verified native owner or scoring path. Default synthetic controls read
+only disposable pinned zero-source shards; no real source reads are authorized.
+
 `verify_profile_gguf_source_operand(...)` composes one unfrozen source-file
 range and its typed converted GGUF range through the same copied read-only
 operand and digest. Supply `expected_source_file_bytes`/

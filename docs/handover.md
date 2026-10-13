@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [frozen source identity checkpoint](#frozen-source-identity-checkpoint-2026-10-13),
+2. Read the [complete source table checkpoint](#complete-source-table-checkpoint-2026-10-13),
+   then the [frozen source identity checkpoint](#frozen-source-identity-checkpoint-2026-10-13),
    then the [combined source range checkpoint](#combined-source-range-checkpoint-2026-10-13),
    then the [source operand file checkpoint](#source-operand-file-checkpoint-2026-10-13),
    then the [integrated policy metadata checkpoint](#integrated-policy-metadata-checkpoint-2026-10-13),
@@ -95,6 +96,38 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Complete Source Table Checkpoint (2026-10-13)
+
+After `6c34a97`, `verify_profile_safetensors_tensor_table()` verifies every
+selected conversion-plan source, including the declared frozen original tensor,
+through exact tensor/digest/shard maps and copied read-only operands/payload.
+Complete dtype/shape/layout/digest and aggregate preflight precedes dispatch.
+Aggregate operand default/cap 64 MiB charges three source plus three canonical
+payload extents; per-operand cap stays 16 MiB. Aggregate selected shard files,
+not just each file, cap at 16 MiB. One cooperative 30 s/cap 600 s deadline covers
+all checks and final shard rereads. Inode/extent/timestamps must match across
+operands and completion, including restored writes. Plan/header memory is not
+peak-RAM bounded; files must be quiescent, not an atomic/concurrent snapshot.
+
+Verification: **492 default passes, 60 optional skips** in 11.73 s; Ruff,
+whitespace and touched diagnostics clean. **22 focused table cases** pass in
+3.65 s: 16 complete-map/preflight/routing controls and six actual pinned shard
+controls, with complete 28-range BF16 and F32-vector/convolution variants,
+caller array/map mutation isolation, restored inter-operand/final writes and
+deadline exhaustion. Frozen codes/scales remain byte-identical; nested frozen
+source identity explicitly does not imply quantization equivalence. Disposable
+shards are zero-source synthetic fixtures, not independent HF/issuer or quality
+evidence. Scratch is deleted. No failures, optional native/build/sanitizer/CTest
+reruns, real source reads, downloads, refit or new retained candidate in this
+increment. No new peak-RAM measurement; user editor files untouched.
+
+This standalone API does not bind converted bytes or integrate into the verified
+native owner/scoring path. Source identity, converted table parity, tokenizer/
+metadata semantics, frozen approximation/quality and runtime approval remain
+separate. Next code-only caller preparation: compose source/converted evidence
+with explicit shared snapshots/deadlines, preserving these distinctions. Real
+model operations still require separate approval.
 
 ## Frozen Source Identity Checkpoint (2026-10-13)
 

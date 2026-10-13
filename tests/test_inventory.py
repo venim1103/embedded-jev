@@ -1104,6 +1104,136 @@ def test_profile_frozen_source_tensor_matches_manifest_without_refitting(tmp_pat
         path.unlink()
 
 
+@pytest.mark.parametrize("defect", [None, "missing", "extra", "shards", "pin", "frozen-pin", "dtype", "shape", "layout", "array-type", "payload-type", "budget", "file-budget", "boolean", "deadline", "digest"])
+def test_profile_source_tensor_table_preflights_complete_maps(monkeypatch, defect):
+    from types import MappingProxyType
+
+    from embedded_jev import prism_codec as codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True)
+    plan = codec.profile_model_conversion_plan(profile, report, manifest, blocks)
+    sources = {item["source_name"]: np.zeros(item["source_shape"], dtype="<u2") for item in plan["tensors"]}
+    pins = {name: hashlib.sha256(memoryview(values)).hexdigest() for name, values in sources.items()}
+    manifest = {**manifest, "source_tensor_sha256": pins[manifest["tensor"]]}
+    arguments = {"source_paths": {profile.packaging["shards"][0]: "unused"}, "source_values": sources, "expected_source_sha256": pins}
+    name = next(iter(sources))
+    if defect == "missing":
+        sources.pop(name)
+    elif defect == "extra":
+        sources["unknown"] = np.zeros(1, dtype="<u2")
+    elif defect == "shards":
+        arguments["source_paths"] = {}
+    elif defect == "pin":
+        pins[name] = "invalid"
+    elif defect == "frozen-pin":
+        pins[manifest["tensor"]] = "f" * 64
+    elif defect == "dtype":
+        sources[name] = sources[name].astype("<f4")
+    elif defect == "shape":
+        sources[name] = sources[name].reshape(-1)
+    elif defect == "layout":
+        sources[name] = sources[name][::-1]
+    elif defect == "array-type":
+        sources[name] = None
+    elif defect == "payload-type":
+        blocks = blocks.tolist()
+    elif defect == "budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "file-budget":
+        arguments["maximum_file_bytes"] = 1
+    elif defect == "boolean":
+        arguments["maximum_bytes"] = True
+    elif defect == "deadline":
+        arguments["maximum_seconds"] = float("nan")
+    elif defect == "digest":
+        pins[name] = "0" * 64
+    calls = []
+    def verify(*received, **keywords):
+        assert defect is None, "invalid table reached source file dispatch"
+        values = keywords["source_values"]
+        assert not values.flags.writeable
+        assert not np.shares_memory(values, sources[keywords["source_name"]])
+        calls.append(keywords["source_name"])
+        return MappingProxyType({"source_file_identity": (1, 2, 3, 4, 5)})
+
+    monkeypatch.setattr(codec, "verify_profile_safetensors_operand", verify)
+    def verify_frozen(*received, **keywords):
+        return verify(*received, source_name=manifest["tensor"], **keywords)
+
+    monkeypatch.setattr(codec, "verify_profile_frozen_source_tensor", verify_frozen)
+    def never_open(*received, **keywords):
+        raise ValueError("source table final check reached") if defect is None else AssertionError("invalid table opened source file")
+
+    monkeypatch.setattr(codec.os, "open", never_open)
+    with pytest.raises(ValueError, match="source table"):
+        codec.verify_profile_safetensors_tensor_table(profile, report, manifest, blocks, **arguments)
+    assert len(calls) == (len(plan["tensors"]) if defect is None else 0)
+
+
+@pytest.mark.parametrize("defect", [None, "f32", "caller-change", "restored-between", "restored-final", "deadline"])
+def test_profile_source_tensor_table_matches_complete_pinned_shard(tmp_path, monkeypatch, defect):
+    from embedded_jev import prism_codec as codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(
+        pin_zero_source=True, vector_dtype="F32" if defect == "f32" else "BF16", conv_dtype="F32" if defect == "f32" else "BF16",
+    )
+    entries, payload_bytes = {}, 0
+    for item in sorted(report["tensors"], key=lambda item: item["name"]):
+        size = int(np.prod(item["shape"])) * (4 if item["dtype"] == "F32" else 2)
+        entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + size]}
+        payload_bytes += size
+    header, size = _header(entries, payload_bytes)
+    path = tmp_path / profile.packaging["shards"][0]
+    path.write_bytes(header + bytes(payload_bytes))
+    plan = codec.profile_model_conversion_plan(profile, report, manifest, blocks)
+    sources = {item["source_name"]: np.zeros(item["source_shape"], dtype="<f4" if item["source_dtype"] == "F32" else "<u2") for item in plan["tensors"]}
+    pins = {name: hashlib.sha256(memoryview(values)).hexdigest() for name, values in sources.items()}
+    manifest = {**manifest, "source_tensor_sha256": pins[manifest["tensor"]]}
+    paths = {path.name: path}
+    count = 0
+    original = codec._verify_profile_safetensors_operand
+    def verify(*received, **keywords):
+        nonlocal count
+        result = original(*received, **keywords)
+        count += 1
+        if defect == "caller-change" and count == 1:
+            for values in sources.values():
+                values.flat[0] = 1
+            paths[path.name] = tmp_path / "not-the-source"
+            pins.clear()
+        elif (defect == "restored-between" and count == 1) or (defect == "restored-final" and count == len(plan["tensors"])):
+            with path.open("r+b") as output:
+                output.seek(size - 1)
+                output.write(b"\x01")
+                output.seek(size - 1)
+                output.write(b"\x00")
+        elif defect == "deadline" and count == 1:
+            monkeypatch.setattr(codec.time, "monotonic", lambda: float("inf"))
+        return result
+
+    monkeypatch.setattr(codec, "_verify_profile_safetensors_operand", verify)
+    before = blocks.tobytes()
+    try:
+        if defect in ("restored-between", "restored-final", "deadline"):
+            with pytest.raises(ValueError, match="source table .*" + ("deadline" if defect == "deadline" else "identity changed")):
+                codec.verify_profile_safetensors_tensor_table(profile, report, manifest, blocks, source_paths=paths, source_values=sources, expected_source_sha256=pins)
+        else:
+            receipt = codec.verify_profile_safetensors_tensor_table(profile, report, manifest, blocks, source_paths=paths, source_values=sources, expected_source_sha256=pins)
+            assert receipt["tensor_count"] == count == len(plan["tensors"]) == 28
+            assert receipt["source_shard_count"] == 1 and receipt["source_file_bytes"] == size
+            assert receipt["source_table_verification"] == "all_selected_source_ranges_match_profile_pins_and_caller_operands"
+            assert receipt["source_to_frozen_quantization_verification"] == receipt["converted_file_verification"] == receipt["pin_issuer_verification"] == "not_checked"
+            assert receipt["cross_file_atomic_snapshot"] == "not_guaranteed"
+            frozen = next(item for item in receipt["tensors"] if item["source_name"] == manifest["tensor"])
+            assert frozen["source_sha256"] == manifest["source_tensor_sha256"] and frozen["frozen_payload_sha256"] == manifest["payload_sha256"]
+            assert len({item["source_file_identity"] for item in receipt["tensors"]}) == 1
+            with pytest.raises(TypeError):
+                receipt["tensor_count"] = 0
+        assert blocks.tobytes() == before
+    finally:
+        path.unlink()
+
+
 @pytest.mark.parametrize("defect", [None, "caller-change", "source-change", "deadline", "budget", "file", "digest", "frozen", "owner", "dtype", "shape"])
 def test_profile_gguf_source_operand_shares_snapshot_digest_and_deadline(monkeypatch, defect):
     from types import MappingProxyType
