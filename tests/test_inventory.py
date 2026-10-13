@@ -474,7 +474,7 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -516,6 +516,14 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     header, size = headers[shard]
     record["files"][shard] = {"bytes": size, "sha256": "a" * 64, "header_bytes": len(header),
                               "header_sha256": hashlib.sha256(header).hexdigest()}
+    if pin_zero_source:
+        digest = hashlib.sha256(header)
+        remaining = size - len(header)
+        while remaining:
+            chunk_bytes = min(65536, remaining)
+            digest.update(bytes(chunk_bytes))
+            remaining -= chunk_bytes
+        record["files"][shard]["sha256"] = digest.hexdigest()
     record["runtime"].update(converter_revision=PRISM_SOURCE_REVISION, runtime_revision=PRISM_SOURCE_REVISION)
     profile = parse_model_profile(json.dumps(record).encode())
     report = build_inventory(metadata, headers, profile=profile)
@@ -922,6 +930,127 @@ def test_profile_gguf_tensor_table_refuses_invalid_inputs_before_import(monkeypa
     monkeypatch.setitem(sys.modules, "gguf", None)
     with pytest.raises(ValueError):
         verify_profile_gguf_tensor_table(profile, report, manifest, blocks, **arguments)
+
+
+@pytest.mark.parametrize("kind,defect", [
+    (kind, None) for kind in ("vector", "matrix", "convolution", "f32-vector", "f32-convolution")
+] + [("vector", defect) for defect in (
+    "frozen", "missing", "dtype", "shape", "layout", "array-pin", "file-pin", "file-size", "budget", "boolean", "file-budget", "nan",
+    "array-change", "file-change", "header-change", "mid-read", "restored-write", "deadline", "symlink", "fifo",
+)])
+def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, monkeypatch, kind, defect):
+    from embedded_jev import prism_codec
+    from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_safetensors_operand
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(
+        pin_zero_source=True, vector_dtype="F32" if kind == "f32-vector" else "BF16", conv_dtype="F32" if kind == "f32-convolution" else "BF16",
+    )
+    entries, payload_bytes = {}, 0
+    for item in sorted(report["tensors"], key=lambda item: item["name"]):
+        size = int(np.prod(item["shape"])) * (4 if item["dtype"] == "F32" else 2)
+        entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + size]}
+        payload_bytes += size
+    header, size = _header(entries, payload_bytes)
+    plan = profile_model_conversion_plan(profile, report, manifest, blocks)
+    item = next(item for item in plan["tensors"] if item["type"] != "PQ2_0" and (
+        len(item["source_shape"]) == (2 if kind == "matrix" else 3 if "convolution" in kind else 1)
+    ))
+    values = np.zeros(item["source_shape"], dtype="<f4" if item["source_dtype"] == "F32" else "<u2")
+    path = tmp_path / profile.packaging["shards"][0]
+    actual_path = tmp_path / "actual-source.safetensors" if defect == "symlink" else path
+    if defect == "fifo":
+        prism_codec.os.mkfifo(path)
+    else:
+        actual_path.write_bytes(header + bytes(payload_bytes))
+    if defect == "symlink":
+        path.symlink_to(actual_path)
+    arguments = {
+        "source_path": path, "source_name": item["source_name"], "source_values": values,
+        "expected_source_sha256": hashlib.sha256(memoryview(values)).hexdigest(), "expected_file_bytes": size,
+        "expected_file_sha256": profile.files[path.name].sha256,
+    }
+    before_open = {"frozen", "missing", "dtype", "shape", "layout", "array-pin", "file-pin", "file-size", "budget", "boolean", "file-budget", "nan"}
+    expected_error = "source operand"
+    if defect == "frozen":
+        arguments["source_name"] = manifest["tensor"]
+    elif defect == "missing":
+        arguments["source_name"] = "missing-source-tensor"
+    elif defect == "dtype":
+        arguments["source_values"] = values.astype(np.float64)
+    elif defect == "shape":
+        arguments["source_values"] = values[:-1]
+    elif defect == "layout":
+        arguments["source_values"] = values[::-1]
+    elif defect == "array-pin":
+        arguments["expected_source_sha256"] = "0" * 64
+    elif defect == "file-pin":
+        arguments["expected_file_sha256"] = "0" * 64
+    elif defect == "file-size":
+        arguments["expected_file_bytes"] -= 1
+    elif defect == "budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "boolean":
+        arguments["maximum_bytes"] = True
+    elif defect == "file-budget":
+        arguments["maximum_file_bytes"] = 16 * 1024**2 + 1
+    elif defect == "nan":
+        arguments["maximum_seconds"] = float("nan")
+    elif defect == "array-change":
+        values.flat[0] = 1
+        arguments["expected_source_sha256"] = hashlib.sha256(memoryview(values)).hexdigest()
+        expected_error = "file range byte mismatch"
+    elif defect == "file-change":
+        with path.open("r+b") as output:
+            output.seek(len(header) + entries[item["source_name"]]["data_offsets"][0])
+            output.write(b"\x01")
+        expected_error = "file identity mismatch"
+    elif defect in ("header-change", "mid-read", "restored-write"):
+        original_pread = prism_codec.os.pread
+        def read(descriptor, count, position):
+            if defect == "restored-write":
+                result = original_pread(descriptor, count, position)
+                if position == len(header) + entries[item["source_name"]]["data_offsets"][0] and count == values.nbytes:
+                    with path.open("r+b") as output:
+                        output.seek(size - 1)
+                        output.write(b"\x01")
+                        output.seek(size - 1)
+                        output.write(b"\x00")
+                return result
+            if position == 0 and count == len(header):
+                with path.open("r+b") as output:
+                    output.seek(8 if defect == "header-change" else len(header) + entries[item["source_name"]]["data_offsets"][0])
+                    output.write(b"\x01")
+            return original_pread(descriptor, count, position)
+
+        monkeypatch.setattr(prism_codec.os, "pread", read)
+        expected_error = "file changed during verification" if defect == "restored-write" else "header identity mismatch" if defect == "header-change" else "file range byte mismatch"
+    elif defect == "deadline":
+        monkeypatch.setattr(prism_codec.time, "monotonic", iter((0, 31)).__next__)
+        expected_error = "deadline exceeded"
+    elif defect == "fifo":
+        expected_error = "not regular"
+    if defect in before_open:
+        def never_open(*arguments, **keywords):
+            pytest.fail("invalid source operand reached filesystem open")
+
+        monkeypatch.setattr(prism_codec.os, "open", never_open)
+    try:
+        if defect:
+            with pytest.raises(OSError if defect == "symlink" else ValueError, match=None if defect == "symlink" else expected_error):
+                verify_profile_safetensors_operand(profile, report, manifest, blocks, **arguments)
+            return
+        receipt = verify_profile_safetensors_operand(profile, report, manifest, blocks, **arguments)
+        assert receipt["source_file_verification"] == "profile_pinned_shard_and_header_range_match_caller_operand"
+        assert receipt["source_range_bytes"] == values.nbytes
+        assert receipt["source_range_offset"] == len(header) + entries[item["source_name"]]["data_offsets"][0]
+        assert receipt["converted_file_verification"] == receipt["pin_issuer_verification"] == "not_checked"
+        assert receipt["runtime_approval"] == "not_granted_by_source_operand_verification"
+        with pytest.raises(TypeError):
+            receipt["source_range_offset"] = 0
+    finally:
+        path.unlink()
+        if actual_path != path:
+            actual_path.unlink()
 
 
 @pytest.mark.parametrize("defect", ["digest", "bytes", "boolean", "file-budget", "seconds", "nan", "owner"])

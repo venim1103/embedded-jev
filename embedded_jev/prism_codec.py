@@ -707,6 +707,98 @@ def verify_profile_gguf_tensor_table(
                             "gguf_reader_verification": "not_checked", "runtime_approval": "not_granted_by_tensor_table_verification"})
 
 
+def verify_profile_safetensors_operand(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int, expected_file_sha256: str,
+    maximum_bytes: int = 16 * 1024**2, maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
+):
+    """Match an unfrozen operand to a profile-pinned source range, not issuer identity or conversion quality."""
+    from embedded_jev.inventory import _json_object, parse_safetensors_header
+    from embedded_jev.model_profile import SHA256
+    from embedded_jev.streamed_text import bounded_native_descriptor_record
+
+    if (
+        type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or any(not isinstance(value, str) or SHA256.fullmatch(value) is None for value in (expected_file_sha256, expected_source_sha256))
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+    ):
+        raise ValueError("invalid source operand identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if entry is None or entry["type"] == "PQ2_0":
+        raise ValueError("source operand gate requires an unfrozen declared tensor")
+    dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+    if (
+        dtype is None or not isinstance(source_values, np.ndarray) or source_values.dtype != dtype
+        or source_values.shape != tuple(entry["source_shape"]) or not source_values.flags.c_contiguous
+        or 3 * source_values.nbytes > maximum_bytes
+    ):
+        raise ValueError("source operand layout or byte budget mismatch")
+    tensor = next(item for item in inventory["tensors"] if item["name"] == source_name)
+    pin = profile.files[tensor["shard"]]
+    if (
+        pin.bytes != expected_file_bytes or pin.sha256 != expected_file_sha256
+        or pin.header_bytes is None or not 8 < pin.header_bytes <= (1 << 20) + 8 or pin.header_bytes >= expected_file_bytes
+        or pin.header_sha256 is None
+    ):
+        raise ValueError("source operand file pin differs from profile")
+    values = source_values.copy()
+    values.setflags(write=False)
+    if hashlib.sha256(memoryview(values)).hexdigest() != expected_source_sha256:
+        raise ValueError("source operand array identity mismatch")
+    wanted = values.tobytes()
+    with os.fdopen(os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as source:
+        descriptor = source.fileno()
+        before_stat = os.fstat(descriptor)
+        def identity(value):
+            return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+        before = bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline)
+        if before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256:
+            raise ValueError("source operand file identity mismatch")
+        prefix = bytearray()
+        while len(prefix) < pin.header_bytes:
+            if time.monotonic() > deadline:
+                raise ValueError("source operand deadline exceeded")
+            chunk = os.pread(descriptor, min(65536, pin.header_bytes - len(prefix)), len(prefix))
+            if not chunk:
+                raise ValueError("source operand header truncated")
+            prefix.extend(chunk)
+        prefix = bytes(prefix)
+        if hashlib.sha256(prefix).hexdigest() != pin.header_sha256:
+            raise ValueError("source operand header identity mismatch")
+        headers = parse_safetensors_header(prefix, expected_file_bytes)
+        selected = next((item for item in headers if item.name == source_name), None)
+        if selected is None or selected.shape != values.shape or selected.dtype != entry["source_dtype"] or selected.storage_bytes != len(wanted):
+            raise ValueError("source operand header geometry or dtype mismatch")
+        offsets = _json_object(prefix[8:], tensor["shard"])[source_name]["data_offsets"]
+        offset = len(prefix) + offsets[0]
+        position = 0
+        while position < len(wanted):
+            if time.monotonic() > deadline:
+                raise ValueError("source operand deadline exceeded")
+            size = min(65536, len(wanted) - position)
+            if os.pread(descriptor, size, offset + position) != wanted[position:position + size]:
+                raise ValueError("source operand file range byte mismatch")
+            position += size
+        if (
+            bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline) != before
+            or identity(before_stat) != identity(os.fstat(descriptor)) or identity(before_stat) != identity(Path(source_path).stat())
+        ):
+            raise ValueError("source operand file changed during verification")
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_name": source_name, "source_dtype": entry["source_dtype"], "source_shape": tuple(values.shape),
+                            "source_sha256": expected_source_sha256, "source_file_sha256": expected_file_sha256,
+                            "source_file_bytes": expected_file_bytes, "source_header_sha256": pin.header_sha256,
+                            "source_range_offset": offset, "source_range_bytes": len(wanted),
+                            "source_file_verification": "profile_pinned_shard_and_header_range_match_caller_operand",
+                            "pin_issuer_verification": "not_checked", "converted_file_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_source_operand_verification"})
+
+
 def verify_profile_gguf_policy_metadata(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,

@@ -1601,6 +1601,27 @@ enable both gates. Both receipts remain provisional until owner exit succeeds;
 neither selected metadata nor runtime file pins attest loaded code, tokenizer
 semantics, independent source-weight provenance or real-model quality.
 
+`verify_profile_safetensors_operand(..., source_path=..., source_name=...,
+source_values=..., expected_source_sha256=..., expected_file_bytes=...,
+expected_file_sha256=...)` binds one unfrozen BF16/F32 operand to an actual
+profile-pinned safetensors shard/header/range. The checked conversion plan
+determines dtype/shape; unknown/frozen replacement operands refuse. Caller file
+size/hash must equal the profile's full-file pin. Header size/hash must also
+match, and the existing inventory parser validates complete offset coverage
+before selected-range comparison. The source array is copied and digest-checked;
+the file is opened no-follow/nonblocking, hashed before/after and read positionally
+in <=64 KiB chunks. Device/inode/size/mtime/ctime and the pathname identity must
+remain stable, including writes restored to original bytes. File default/cap is
+16 MiB; operand default/cap is 16 MiB charged as three source extents, not peak
+RAM or header/plan memory; header cap is 1 MiB plus its eight-byte length.
+Cooperative default 30 s/cap 600 s checks do not interrupt blocking I/O. Immutable
+receipt reports only this source range; pin issuer, converted file and runtime
+approval remain unchecked/not granted. Caller must separately bind the same
+digest to converted tensor parity. The 16 MiB cap excludes real 9B shards;
+no real reads or multi-file/whole-source claim is implied. Source synthetic
+controls use genuinely pinned zero-filled disposable shards, not the frozen
+candidate's source or representative numerical/quality evidence.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [integrated policy metadata checkpoint](#integrated-policy-metadata-checkpoint-2026-10-13),
+2. Read the [source operand file checkpoint](#source-operand-file-checkpoint-2026-10-13),
+   then the [integrated policy metadata checkpoint](#integrated-policy-metadata-checkpoint-2026-10-13),
    then the [policy metadata API checkpoint](#policy-metadata-api-checkpoint-2026-10-13),
    then the [integrated table caller checkpoint](#integrated-table-caller-checkpoint-2026-10-13),
    then the [descriptor table checkpoint](#descriptor-table-checkpoint-2026-10-13),
@@ -92,6 +93,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Operand File Checkpoint (2026-10-13)
+
+After `aaa72fd`, `verify_profile_safetensors_operand()` binds one unfrozen
+BF16/F32 caller array to a real profile-pinned source shard/header/range. It
+reuses the checked conversion plan and inventory header parser, not the MiMo-only
+row reader. Full size/hash must equal the profile pin; header size/hash and
+selected dtype/shape/storage bytes must match. Copied array digest, positional
+range bytes and before/after file hashes are checked under no-follow/nonblocking
+regular descriptor access, <=64 KiB reads and stable device/inode/size/mtime/
+ctime/path identity. Changed/restored writes still refuse. Default/cap file
+16 MiB, operand charge three source extents with default/cap 16 MiB, header
+1 MiB plus length; these are not peak process/header/plan memory. Cooperative
+30 s deadline/cap 600 s is not a hard I/O timeout. Frozen replacements and
+unknown operands refuse; no source-to-frozen equivalence/refit is claimed.
+Receipt immutable, selected range only; converted file, pin issuer and runtime
+approval remain unchecked/not granted. No real 9B shard fits the file cap.
+
+Verification: **451 default passes, 54 optional skips** in 8.28 s; Ruff,
+whitespace and touched diagnostics clean. **25 source cases pass** in 1.29 s:
+BF16/F32 vectors/convolution and BF16 matrix positives, twelve no-open layout/
+identity/cap/frozen/unknown refusals, differing arrays with fresh array digests,
+changed file bytes, header/data changes during reads, deadline, symlink/FIFO and
+restored-byte writes. The helper's optional `pin_zero_source` constructs genuine
+whole-file pins only for disposable zero-payload fixtures; its default preserves
+all previous profile/manifest bytes. Source files are deleted in test finally
+blocks. The relevant FFN-down complete-stage/native regression passes in 20.88 s,
+peak process RSS 293,400 KiB, swaps zero; the unchanged nine-role metadata gate
+is the historical previous checkpoint, not rerun here. No failures in this
+increment, native build, sanitizer/CTest, real source hashes/reads/conversions/
+execution, downloads, refit or retained candidate. User editor files untouched.
+Next bounded increment: connect selected source-file receipts to converted
+operand/file parity using the exact same source digest, then expose combined
+evidence explicitly rather than changing table-only claims. Whole-source/frozen
+source proof, issuer identity, tokenizer/config semantics, reader-code/loaded-page/
+transitive dependency proof and real-model quality remain open and approvals
+unchanged.
 
 ## Integrated Policy Metadata Checkpoint (2026-10-13)
 
