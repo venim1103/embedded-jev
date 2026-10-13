@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [complete table API checkpoint](#complete-table-api-checkpoint-2026-10-13),
+2. Read the [descriptor table checkpoint](#descriptor-table-checkpoint-2026-10-13),
+   then the [complete table API checkpoint](#complete-table-api-checkpoint-2026-10-13),
    then the [complete synthetic tensor checkpoint](#complete-synthetic-tensor-checkpoint-2026-10-13),
    then the [convolution file checkpoint](#convolution-file-checkpoint-2026-10-13),
    then the [convolution operand checkpoint](#convolution-operand-checkpoint-2026-10-13),
@@ -88,6 +89,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Descriptor Table Checkpoint (2026-10-13)
+
+After `43611ce`, the complete-table API accepts an optional live
+`VerifiedModelPolicy`. Its profile ID/hash, file byte count/hash, ABI and frozen
+payload pin must match. The selected file is hashed and independently reread
+through its descriptor, never a NumPy-resolved original pathname. The explicit
+descriptor-only hasher duplicates a regular descriptor, uses <=64 KiB positional
+reads within its initial extent, checks identity/deadline, and closes only the
+duplicate. It refuses invalid/nonfinite/boolean budgets/deadlines and pipes.
+Owner offsets and lifetimes remain intact; ordinary no-follow paths, typed
+mapping checks, all caps and v1 refusals are unchanged. The immutable table
+receipt identifies descriptor versus reader-filename access; it grants no new
+source/metadata/reader-code/loaded-page proof or runtime approval.
+
+Verification: **403 default passes, 54 optional skips** in 6.56 s; Ruff,
+whitespace and touched editor diagnostics clean. Twenty-three focused
+descriptor/table cases pass. All **nine complete-stage/native controls pass**
+in 60.16 s, peak process RSS 298,516 KiB, swaps zero. Each of seven supported
+roles checks all 28 tensor ranges through a stable owner and after replacing
+the original pathname. The latter still reads the original descriptor, but
+owner exit detects the changed inode metadata and refuses publication;
+closed/mismatched owners refuse and registry cleanup returns to baseline.
+Normal unchanged owner exit succeeds. Existing synthetic prefill modes,
+independent scales, BitNet dispatch, typed scores and zero generation remain.
+Full-only/large-state refusals are unchanged; no native hook widening.
+
+Failure history: a finite-deadline follow-up introduced one indentation error
+in the hasher; pytest refused collection. The exact block was inspected and
+repaired, and the same focused preflight/FFN-down command then passed before
+the full gates. No assertions, tolerances or deadlines were relaxed. Disposable
+model/path replacement files were restored and cleaned; no source weights,
+downloads, conversions, retained candidates, builds, sanitizer or CTest runs.
+Next bounded increment: integrate the table gate into the verified-policy
+caller before exposing a policy for prefill. Real source/model authentication,
+configuration/template/metadata semantics, reader-code/loaded-page and transitive
+dependency proof, historical numerical differences and quality remain open.
 
 ## Complete Table API Checkpoint (2026-10-13)
 

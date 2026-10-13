@@ -1535,6 +1535,19 @@ The 16 MiB file bound intentionally excludes real complete checkpoints; relaxing
 it or performing real reads requires a separately approved resource/provenance
 gate. `PRISM_PARITY_PYTHON` enables this API in the synthetic prefill controls.
 
+An optional `model_owner=...` binds this table API to a live
+`VerifiedModelPolicy`, matching its profile ID/hash, model byte count/hash,
+ABI and frozen payload pin. Hashing and independent table/payload rereads use
+its borrowed descriptor, not the NumPy-resolved reader filename. Positional
+reads and temporary duplicates preserve the owner's file position/lifetime;
+ordinary path access still refuses symlinks. The receipt's `model_file_access`
+is `verified_owner_descriptor` or `reader_filename`. Reader mapping/type/range
+checks and all budgets remain unchanged. This is not loaded-page or reader-code
+attestation. A table receipt remains provisional until owner exit succeeds:
+pathname replacement can leave the original descriptor readable while changing
+inode metadata, which the owner still rejects at exit. Never publish that
+receipt or scores after a failed owner exit; destroy native users/mappings first.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

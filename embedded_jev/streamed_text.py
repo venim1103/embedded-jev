@@ -4,6 +4,7 @@ import argparse
 import gc
 import hashlib
 import json
+import math
 import os
 import re
 import resource
@@ -54,6 +55,41 @@ def bounded_native_file_record(path: Path, *, maximum_bytes: int, deadline: floa
         if identity(before) != identity(after) or identity(before) != identity(path.stat()):
             raise InventoryError("native dependency changed while hashing")
     return {"path": str(path), "bytes": before.st_size, "sha256": digest.hexdigest()}
+
+
+def bounded_native_descriptor_record(descriptor: int, *, maximum_bytes: int, deadline: float) -> dict:
+    """Hash a borrowed regular descriptor positionally without following a filesystem path."""
+    if (
+        type(descriptor) is not int or descriptor < 0 or type(maximum_bytes) is not int
+        or not 0 < maximum_bytes <= 64 * 1024**2 or type(deadline) not in (int, float) or not math.isfinite(deadline)
+    ):
+        raise InventoryError("invalid native descriptor or file budget")
+
+    def identity(value):
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    retained = os.dup(descriptor)
+    try:
+        before = os.fstat(retained)
+        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= maximum_bytes:
+            raise InventoryError("native descriptor exceeds file byte budget or is not regular")
+        digest = hashlib.sha256()
+        position = 0
+        while position < before.st_size:
+            if time.monotonic() > deadline:
+                raise InventoryError("native descriptor hashing deadline exceeded")
+            chunk = os.pread(retained, min(65536, before.st_size - position), position)
+            if not chunk:
+                raise InventoryError("native descriptor file truncated")
+            digest.update(chunk)
+            position += len(chunk)
+        if time.monotonic() > deadline:
+            raise InventoryError("native descriptor hashing deadline exceeded")
+        if identity(before) != identity(os.fstat(retained)) or identity(before) != identity(os.fstat(descriptor)):
+            raise InventoryError("native descriptor changed while hashing")
+        return {"path": f"/proc/self/fd/{descriptor}", "bytes": before.st_size, "sha256": digest.hexdigest()}
+    finally:
+        os.close(retained)
 
 
 def native_backend_dependencies(library: Path, backend: str) -> dict:

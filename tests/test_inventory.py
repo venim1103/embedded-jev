@@ -882,7 +882,7 @@ def test_profile_converted_convolution_refuses_invalid_operands(defect):
         verify_profile_converted_convolution(profile, report, manifest, blocks, **arguments)
 
 
-@pytest.mark.parametrize("defect", ["missing", "extra", "pins", "source-digest", "source-dtype", "source-shape", "budget", "boolean", "file", "file-extent", "kernel", "deadline"])
+@pytest.mark.parametrize("defect", ["missing", "extra", "pins", "source-digest", "source-dtype", "source-shape", "budget", "boolean", "file", "file-extent", "kernel", "owner", "deadline"])
 def test_profile_gguf_tensor_table_refuses_invalid_inputs_before_import(monkeypatch, defect):
     import sys
 
@@ -915,6 +915,8 @@ def test_profile_gguf_tensor_table_refuses_invalid_inputs_before_import(monkeypa
         arguments["maximum_file_bytes"] = 16 * 1024**2 + 1
     elif defect == "file-extent":
         arguments["expected_file_bytes"] = 1
+    elif defect == "owner":
+        arguments["model_owner"] = object()
     elif defect == "deadline":
         arguments["maximum_seconds"] = float("nan")
     monkeypatch.setitem(sys.modules, "gguf", None)
@@ -1176,6 +1178,57 @@ def test_bounded_native_file_record_limits_reads_and_refuses_changes(tmp_path, m
     assert max(reads, default=0) <= 65536 and sum(received) <= len(payload)
     if defect in ("budget", "fifo", "symlink", "pre-deadline"):
         assert reads == []
+
+
+@pytest.mark.parametrize("defect", [None, "budget", "boolean", "deadline", "nan", "infinite", "deadline-boolean", "grow", "truncate", "pipe"])
+def test_bounded_native_descriptor_preserves_position_and_refuses_changes(tmp_path, monkeypatch, defect):
+    from embedded_jev import streamed_text
+
+    path = tmp_path / "descriptor.so"
+    payload = b"a" * (65536 + 17)
+    path.write_bytes(payload)
+    calls = []
+    original_pread = streamed_text.os.pread
+
+    def read(descriptor, size, position):
+        calls.append((size, position))
+        chunk = original_pread(descriptor, size, position)
+        if len(calls) == 1 and defect == "grow":
+            with path.open("ab") as output:
+                output.write(b"growth")
+        elif len(calls) == 1 and defect == "truncate":
+            path.write_bytes(b"")
+        return chunk
+
+    monkeypatch.setattr(streamed_text.os, "pread", read)
+    monkeypatch.setattr(streamed_text.time, "monotonic", lambda: 31 if defect == "deadline" else 0)
+    with path.open("rb", buffering=0) as source:
+        source.seek(7)
+        descriptor = source.fileno()
+        pipe = None
+        if defect == "pipe":
+            pipe = streamed_text.os.pipe()
+            descriptor = pipe[0]
+        arguments = {"maximum_bytes": True if defect == "boolean" else len(payload) - (defect == "budget"), "deadline": 30}
+        if defect in ("nan", "infinite", "deadline-boolean"):
+            arguments["deadline"] = {"nan": float("nan"), "infinite": float("inf"), "deadline-boolean": True}[defect]
+        try:
+            if defect is None:
+                assert streamed_text.bounded_native_descriptor_record(descriptor, **arguments) == {
+                    "path": f"/proc/self/fd/{descriptor}", "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            else:
+                with pytest.raises(ValueError):
+                    streamed_text.bounded_native_descriptor_record(descriptor, **arguments)
+            assert source.tell() == 7
+        finally:
+            if pipe:
+                for endpoint in pipe:
+                    streamed_text.os.close(endpoint)
+    assert max((size for size, _ in calls), default=0) <= 65536
+    assert sum(size for size, _ in calls) <= len(payload)
+    if defect in ("budget", "boolean", "deadline", "nan", "infinite", "deadline-boolean", "pipe"):
+        assert calls == []
 
 
 def test_profile_record_is_strict_immutable_and_canonically_hashed():

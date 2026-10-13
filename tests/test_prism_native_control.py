@@ -1147,13 +1147,93 @@ if complete:
             output.write(saved)
     restored = bounded_native_file_record(Path(sys.argv[1]), maximum_bytes=int(sys.argv[2]), deadline=time.monotonic() + 30)
     assert restored["sha256"] == sys.argv[3]
+    import ctypes
+    import os
+    from embedded_jev.prism_codec import verified_profile_model_policy
+    native = ctypes.CDLL(str(Path(sys.argv[7]) / "bin" / "libprism_group_scale.so"))
+    initialize = native.prism_bitnet_cpu_runtime_init_v1
+    initialize.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
+    buffer_type = ctypes.c_void_p()
+    assert initialize(b"842b1880415d6f508f03b789e5ce70194def7bfd", 1, ctypes.byref(buffer_type)) == 0
+    registry = native.prism_bitnet_registered_tensor_registry_size
+    registry.restype = ctypes.c_size_t
+    baseline = registry()
+    original_path = Path(sys.argv[1])
+    displaced_path = original_path.with_suffix(".displaced")
+    try:
+        with verified_profile_model_policy(
+            native, original_path, profile, fixture["inventory"], fixture["manifest"], payload,
+            expected_bytes=int(sys.argv[2]), expected_sha256=sys.argv[3],
+        ) as owner:
+            owner_reader = gguf.GGUFReader(owner.model_path)
+            descriptor = int(owner.model_path.rsplit("/", 1)[1])
+            position = os.lseek(descriptor, 0, os.SEEK_CUR)
+            original_path.rename(displaced_path)
+            original_path.write_bytes(b"replacement must never be opened")
+            try:
+                anchored = verify_profile_gguf_tensor_table(
+                    profile, fixture["inventory"], fixture["manifest"], payload, reader=owner_reader,
+                    source_values=sources, expected_source_sha256=pins,
+                    expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], model_owner=owner,
+                )
+                assert anchored["model_file_access"] == "verified_owner_descriptor" and anchored["tensor_count"] == 28
+                assert os.lseek(descriptor, 0, os.SEEK_CUR) == position
+                for defect in ("pin", "profile", "payload"):
+                    changed = {"expected_file_sha256": "0" * 64} if defect == "pin" else {}
+                    changed_manifest = {**fixture["manifest"], "payload_sha256": "0" * 64} if defect == "payload" else fixture["manifest"]
+                    changed_profile = parse_model_profile(json.dumps({**fixture["profile"], "profile_id": "wrong-owner"}).encode()) if defect == "profile" else profile
+                    try:
+                        verify_profile_gguf_tensor_table(
+                            changed_profile, fixture["inventory"], changed_manifest, payload, reader=owner_reader,
+                            source_values=sources, expected_source_sha256=pins,
+                            expected_file_bytes=int(sys.argv[2]), expected_file_sha256=changed.pop("expected_file_sha256", sys.argv[3]),
+                            model_owner=owner, **changed,
+                        )
+                        raise AssertionError("mismatched owner accepted: " + defect)
+                    except ValueError:
+                        pass
+            finally:
+                del owner_reader
+                displaced_path.replace(original_path)
+        raise AssertionError("renamed owner file accepted at owner exit")
+    except ValueError as error:
+        assert "changed while policy was active" in str(error)
+    finally:
+        if displaced_path.exists():
+            displaced_path.replace(original_path)
+    assert registry() == baseline and owner.handle.value is None
+    with verified_profile_model_policy(
+        native, original_path, profile, fixture["inventory"], fixture["manifest"], payload,
+        expected_bytes=int(sys.argv[2]), expected_sha256=sys.argv[3],
+    ) as owner:
+        owner_reader = gguf.GGUFReader(owner.model_path)
+        try:
+            successful = verify_profile_gguf_tensor_table(
+                profile, fixture["inventory"], fixture["manifest"], payload, reader=owner_reader,
+                source_values=sources, expected_source_sha256=pins,
+                expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], model_owner=owner,
+            )
+        finally:
+            del owner_reader
+    assert successful["model_file_access"] == "verified_owner_descriptor" and successful["tensor_count"] == 28
+    assert registry() == baseline and owner.handle.value is None
+    try:
+        verify_profile_gguf_tensor_table(
+            profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
+            source_values=sources, expected_source_sha256=pins,
+            expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], model_owner=owner,
+        )
+        raise AssertionError("closed owner accepted")
+    except ValueError as error:
+        assert "closed" in str(error)
+    assert bounded_native_file_record(original_path, maximum_bytes=int(sys.argv[2]), deadline=time.monotonic() + 30)["sha256"] == sys.argv[3]
     archive.close()
     report.update(matrices=matrices, convolutions=convolutions, frozen=frozen, source_archive_sha256=sys.argv[6])
 print(json.dumps(report))
 """
             parity = subprocess.run(
                 [parity_interpreter or vector_interpreter, "-c", parity_code, str(model_file), str(expected["model_bytes"]), expected["model_sha256"],
-                 str(operands_file) if parity_interpreter else "", str(expected.get("source_archive_bytes", 0)), expected.get("source_archive_sha256", "")],
+                 str(operands_file) if parity_interpreter else "", str(expected.get("source_archive_bytes", 0)), expected.get("source_archive_sha256", ""), runtime_build],
                 capture_output=True, text=True, input=_profile_parity_fixture(profile, inventory, manifest, blocks), timeout=30,
                 env={**environment, "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
             )

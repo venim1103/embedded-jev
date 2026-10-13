@@ -455,10 +455,11 @@ def _verify_profile_gguf_operand(
     source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
     expected_file_sha256: str, maximum_file_bytes: int = 64 * 1024, maximum_seconds: float = 30,
     kind: str = "vector", maximum_bytes: int = 64 * 1024,
+    model_owner=None,
 ):
     """Bind a typed reader view to caller file identity, not whole-model parity."""
     from embedded_jev.model_profile import SHA256
-    from embedded_jev.streamed_text import bounded_native_file_record
+    from embedded_jev.streamed_text import bounded_native_file_record, bounded_native_descriptor_record
 
     matrix = kind == "matrix"
     convolution = kind == "convolution"
@@ -522,9 +523,14 @@ def _verify_profile_gguf_operand(
         or (table_end + alignment - 1) // alignment * alignment != reader.data_offset
     ):
         raise ValueError("GGUF vector type, geometry or mapped range mismatch")
-    path = Path(reader.data.filename)
+    descriptor = _verified_owner_descriptor(model_owner, profile, manifest, expected_file_bytes, expected_file_sha256)
+    path = Path(reader.data.filename) if descriptor is None else Path(model_owner.model_path)
     deadline = time.monotonic() + maximum_seconds
-    before = bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline)
+    def file_record():
+        return (bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) if descriptor is None
+                else bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline))
+
+    before = file_record()
     if before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256:
         raise ValueError("GGUF vector file identity mismatch")
     copied = tensor.data.view("<u2").copy() if matrix else tensor.data.copy()
@@ -535,15 +541,16 @@ def _verify_profile_gguf_operand(
     field_offset = int(tensor.field.offset)
     if not 24 <= field_offset < field_offset + len(information) <= reader.data_offset:
         raise ValueError("GGUF vector tensor table range mismatch")
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as source:
-        if source.read(24) != struct.pack("<4sIQQ", b"GGUF", 3, len(reader.tensors), len(reader.fields) - 3):
+    retained = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK) if descriptor is None else os.dup(descriptor)
+    try:
+        if os.pread(retained, 24, 0) != struct.pack("<4sIQQ", b"GGUF", 3, len(reader.tensors), len(reader.fields) - 3):
             raise ValueError("GGUF vector header differs from reader")
-        source.seek(field_offset)
-        if source.read(len(information)) != information:
+        if os.pread(retained, len(information), field_offset) != information:
             raise ValueError("GGUF vector tensor table differs from reader")
-        source.seek(offset)
-        if source.read(size) != copied.tobytes():
+        if os.pread(retained, size, offset) != copied.tobytes():
             raise ValueError("GGUF vector mapping differs from file range")
+    finally:
+        os.close(retained)
     if projection:
         if expected_source_sha256 != manifest["payload_sha256"] or not np.array_equal(copied.reshape(source_shape), pq2_blocks):
             raise ValueError("GGUF frozen projection byte parity mismatch")
@@ -559,7 +566,7 @@ def _verify_profile_gguf_operand(
             profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
             converted_values=copied, expected_source_sha256=expected_source_sha256, maximum_bytes=maximum_bytes,
         )
-    if bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) != before:
+    if file_record() != before:
         raise ValueError("GGUF vector file changed during verification")
     return MappingProxyType({**receipt, "converted_file_verification": "caller_sha256_and_reader_range_match",
                             "gguf_reader_verification": "not_checked",
@@ -615,6 +622,7 @@ def verify_profile_gguf_tensor_table(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_values: dict,
     expected_source_sha256: dict, expected_file_bytes: int, expected_file_sha256: str,
     maximum_bytes: int = 64 * 1024**2, maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
+    model_owner=None,
 ):
     """Verify all bounded tensor ranges, not source files, model metadata or runtime approval."""
     from embedded_jev.model_profile import SHA256
@@ -630,6 +638,7 @@ def verify_profile_gguf_tensor_table(
         raise ValueError("invalid complete tensor-table identity or budget")
     deadline = time.monotonic() + maximum_seconds
     source_values = source_values.copy()
+    _verified_owner_descriptor(model_owner, profile, manifest, expected_file_bytes, expected_file_sha256)
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
     dense = [item for item in plan["tensors"] if item["type"] != "PQ2_0"]
     names = {item["source_name"] for item in dense}
@@ -685,12 +694,14 @@ def verify_profile_gguf_tensor_table(
             expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
             maximum_file_bytes=maximum_file_bytes, maximum_seconds=remaining,
             maximum_bytes=64 * 1024 if kind == "vector" else 64 * 1024**2 if frozen else 16 * 1024**2, kind=kind,
+            model_owner=model_owner,
         ))
     if time.monotonic() > deadline:
         raise ValueError("complete tensor-table deadline exceeded")
     return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                             "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
                             "tensor_count": len(receipts), "operand_budget_bytes": total, "tensors": tuple(receipts),
+                            "model_file_access": "verified_owner_descriptor" if model_owner is not None else "reader_filename",
                             "tensor_table_verification": "all_declared_ranges_match_caller_operands_and_frozen_payload",
                             "source_file_verification": "not_checked", "model_metadata_verification": "not_checked",
                             "gguf_reader_verification": "not_checked", "runtime_approval": "not_granted_by_tensor_table_verification"})
@@ -776,6 +787,27 @@ class VerifiedModelPolicy:
         if self.handle.value is None:
             raise ValueError("verified model policy is closed")
         return self._record
+
+
+def _verified_owner_descriptor(owner, profile, manifest, expected_bytes, expected_sha256):
+    if owner is None:
+        return None
+    if type(owner) is not VerifiedModelPolicy:
+        raise ValueError("tensor verification requires a verified model owner")
+    path = owner.model_path
+    if (
+        not isinstance(owner.record, NativeModelSpecification) or owner.record.abi_version != 2
+        or any(owner.verification.get(name) != value for name, value in {
+            "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+            "model_bytes": expected_bytes, "model_sha256": expected_sha256,
+            "projection_payload_sha256": manifest["payload_sha256"],
+        }.items())
+    ):
+        raise ValueError("tensor verification owner identity mismatch")
+    prefix = "/proc/self/fd/"
+    if not path.startswith(prefix) or not path[len(prefix):].isdecimal():
+        raise ValueError("tensor verification owner has no descriptor path")
+    return int(path[len(prefix):])
 
 
 class _DynamicLibraryInfo(ctypes.Structure):
