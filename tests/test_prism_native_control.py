@@ -1309,7 +1309,7 @@ try:
                 tensor_arguments["maximum_tensor_bytes"] = 1
             tensor_arguments.update(tensor_reader=gguf.GGUFReader(model_path), source_values=sources, expected_source_sha256=pins)
             tensor_arguments["verify_policy_metadata"] = True
-            if mode == "verified-source-full":
+            if mode.startswith("verified-source-"):
                 tensor_arguments.update(source_paths={name: Path(model_path).parent / name for name in profile.packaging["shards"]},
                     frozen_source_values=np.zeros(manifest["shape"], dtype="<u2"))
             if mode in ("verified-policy-metadata-type", "verified-policy-metadata-copy"):
@@ -1365,7 +1365,7 @@ try:
             assert owner.verification["policy_metadata_verification"] == "selected_typed_policy_records_match_declarations_and_file"
             assert metadata["model_metadata_verification"] == "selected_policy_records_only"
             assert metadata["tokenizer_semantics_verification"] == metadata["gguf_reader_verification"] == "not_checked"
-            if mode == "verified-source-full":
+            if mode.startswith("verified-source-"):
                 source_table = owner.verification["source_conversion_table"]
                 assert source_table["tensor_count"] == 28 and source_table["converted"]["model_file_access"] == "verified_owner_descriptor"
                 assert source_table["source_file_rechecked_after_conversion"] is True
@@ -1375,8 +1375,7 @@ try:
         assert owner.verification["ggml_cpu_sha256"] == "adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150"
         assert owner.verification["ggml_base_sha256"] == "57a9b6060d3bc902c30fd97fb271ae7f027054d4a9f8b50e27dd6fe91951847d"
         mode = mode.removeprefix("verified-")
-        if mode == "source-full":
-            mode = "full"
+        mode = mode.removeprefix("source-")
     else:
         handle, overrides, specification = create_profile_model_policy(native, model_path, profile, inventory, manifest, blocks)
         owners.callback(free, handle)
@@ -1891,24 +1890,33 @@ print(json.dumps(report))
                 assert source_writer.returncode == 0, source_writer.stderr
                 source_expected = json.loads(source_writer.stdout)
                 assert len(json.dumps(source_expected["source_fixture"])) < 1024**2
-                control = subprocess.run(
-                    [parity_interpreter, "-c", driver_code, str(source_model), target, runtime_build, "verified-source-full",
-                     str(source_expected["model_bytes"]), source_expected["model_sha256"], json.dumps(expected_runtime),
-                     str(source_archive), str(source_expected["source_archive_bytes"]), source_expected["source_archive_sha256"]],
-                    capture_output=True, text=True, timeout=30, input=json.dumps(source_expected["source_fixture"]),
-                    env={**environment, "PYTHONPATH": os.pathsep.join((environment["PYTHONPATH"], str(Path(source_dir) / "gguf-py")))},
-                )
-                assert control.returncode == 0, control.stderr
-                report = json.loads(control.stdout)
-                assert report["generated_answer_tokens"] == 0 and report["input_tokens"] == [3, 5, 7]
-                assert report["bitnet_dispatch_calls"] == report["prefill_calls"] == report["weight_repacks"] == 1
                 logits = np.asarray(expected["logits"])
                 assert np.ptp(logits) > 0.01
                 np.testing.assert_allclose(source_expected["logits"], logits, rtol=0, atol=0)
-                np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
+                np.testing.assert_allclose(source_expected["peer_logits"], expected["peer_logits"], rtol=0, atol=0)
                 scores = np.exp(logits - logits.max())
                 scores /= scores.sum()
-                np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+                for source_mode in ("full", "parallel", "kernel-recovery"):
+                    control = subprocess.run(
+                        [parity_interpreter, "-c", driver_code, str(source_model), target, runtime_build, "verified-source-" + source_mode,
+                         str(source_expected["model_bytes"]), source_expected["model_sha256"], json.dumps(expected_runtime),
+                         str(source_archive), str(source_expected["source_archive_bytes"]), source_expected["source_archive_sha256"]],
+                        capture_output=True, text=True, timeout=30, input=json.dumps(source_expected["source_fixture"]),
+                        env={**environment, "PYTHONPATH": os.pathsep.join((environment["PYTHONPATH"], str(Path(source_dir) / "gguf-py")))},
+                    )
+                    assert control.returncode == 0, control.stderr
+                    report = json.loads(control.stdout)
+                    assert report["model_policy_abi"] == 2 and report["generated_answer_tokens"] == 0
+                    assert report["input_tokens"] == [3, 5, 7] and report["prefilled_tokens"] == 3
+                    assert report["option_ids"] == ["inspect", "edit", "ask"] and report["option_labels"] == ["A", "B", "C"]
+                    assert report["option_token_ids"] == [11, 17, 23]
+                    assert report["bitnet_dispatch_calls"] == report["prefill_calls"] == (3 if source_mode == "parallel" else 1)
+                    assert report["weight_repacks"] == 1 and report["bitnet_last_input_tokens"] == 3
+                    assert report["rejected_prefill_calls"] == report["kernel_error_status"] == (source_mode == "kernel-recovery")
+                    np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
+                    np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+                    if source_mode == "parallel":
+                        np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
     finally:
         model_file.unlink(missing_ok=True)
         payload_file.unlink(missing_ok=True)

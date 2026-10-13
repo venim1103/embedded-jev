@@ -1774,6 +1774,15 @@ on success/failure. This is nonzero synthetic integration, not upstream issuer
 provenance, nonzero recurrent-state coverage, source-to-frozen quantization
 equivalence, tokenizer semantics, quality or any real-profile execution approval.
 
+The same source-gated variant also runs parallel independent contexts and kernel
+recovery for all seven roles: three dispatch/prefill calls and one repack in
+parallel, or one rejected call/kernel error followed by one successful dispatch
+in recovery. Primary/peer logits match their independent oracles; IDs
+11/17/23, labels A/B/C, inspect/edit/ask, three input/prefilled tokens and zero
+generated tokens are explicit requirements. Both source-writer reference
+sequences must exactly equal the original references. The unchanged registry
+baseline and owner closure checks apply to all three source-gated modes.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

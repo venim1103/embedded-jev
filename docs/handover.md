@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [nonzero source prefill checkpoint](#nonzero-source-prefill-checkpoint-2026-10-13),
+2. Read the [source gated recovery checkpoint](#source-gated-recovery-checkpoint-2026-10-13),
+   then the [nonzero source prefill checkpoint](#nonzero-source-prefill-checkpoint-2026-10-13),
    then the [nonzero source permutation checkpoint](#nonzero-source-permutation-checkpoint-2026-10-13),
    then the [nonzero source vector checkpoint](#nonzero-source-vector-checkpoint-2026-10-13),
    then the [source gated prefill checkpoint](#source-gated-prefill-checkpoint-2026-10-13),
@@ -102,6 +103,34 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Gated Recovery Checkpoint (2026-10-13)
+
+After `7b3bc11`, the same nonzero source-gated variant runs the unchanged full,
+parallel and kernel-recovery hooks across all seven eligible roles. Complete
+source/converted/selected metadata and six runtime file gates precede every
+call. Parallel requires three successful dispatch/prefill calls and one repack,
+with independent primary/peer logits. Recovery requires one rejected call and
+kernel error, then one successful dispatch and the unchanged reference scores.
+Typed IDs 11/17/23, labels A/B/C, inspect/edit/ask, three input/prefilled tokens,
+ABI 2, zero generation and registry cleanup are explicit in all three modes.
+Both second-writer reference sequences equal the original exactly. Tolerances,
+deadlines, budgets and hooks stay unchanged.
+
+Verification: FFN-down **1 pass** in 31.00 s, peak RSS 310,112 KiB; other roles
+**6 passes** in 159.50 s, peak RSS 316,132 KiB; swaps zero. This covers **21
+source-gated role/mode combinations** in addition to preserved existing checks.
+Default gate **513 passes, 72 optional skips** in 11.08 s; Ruff, whitespace and
+diagnostics clean. No failures in this increment. Disposable scratch removed;
+no production/native/cache/settings changes, rebuild/sanitizer/CTest, real
+model/source reads, conversions/execution, downloads/refits or new candidates.
+
+Evidence remains nonzero synthetic FFN/full-attention, not nonzero recurrent
+state, external issuer provenance, frozen quantization equivalence, representative
+quality, calibrated confidence or device performance. Historical real MiMo
+discrepancy is unchanged. Next local check: changed physical source bytes must
+refuse before nonzero native scoring, restoring registry and emitting no scores.
+Real actions still need separate approval; no push/branch/subagents.
 
 ## Nonzero Source Prefill Checkpoint (2026-10-13)
 
