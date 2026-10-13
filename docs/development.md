@@ -1783,6 +1783,16 @@ generated tokens are explicit requirements. Both source-writer reference
 sequences must exactly equal the original references. The unchanged registry
 baseline and owner closure checks apply to all three source-gated modes.
 
+Two physical-source refusal modes also run for every eligible role. One changes
+a source byte without changing its pin and requires `source operand file identity
+mismatch`. The other writes a selected embedding byte inconsistent with the
+archived operand, then computes fresh shard/header/profile pins and matching
+GGUF identity metadata; it requires `source operand file range byte mismatch`.
+Thus the latter checks selected-range equality rather than relying on stale
+hashes or metadata refusal. Both must refuse before owner yield/prefill, restore
+the registry baseline and emit no scores. Only disposable synthetic bytes/pins
+change; frozen payload and original frozen-source identity stay untouched.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

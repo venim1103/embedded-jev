@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [source gated recovery checkpoint](#source-gated-recovery-checkpoint-2026-10-13),
+2. Read the [source gated refusal checkpoint](#source-gated-refusal-checkpoint-2026-10-13),
+   then the [source gated recovery checkpoint](#source-gated-recovery-checkpoint-2026-10-13),
    then the [nonzero source prefill checkpoint](#nonzero-source-prefill-checkpoint-2026-10-13),
    then the [nonzero source permutation checkpoint](#nonzero-source-permutation-checkpoint-2026-10-13),
    then the [nonzero source vector checkpoint](#nonzero-source-vector-checkpoint-2026-10-13),
@@ -103,6 +104,34 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Gated Refusal Checkpoint (2026-10-13)
+
+After `d8f5315`, every eligible nonzero source-gated role adds two physical source
+refusals. A changed byte with the original file pin must fail file identity.
+A selected embedding byte changed by the synthetic writer, with freshly computed
+shard/header/profile pins and matching converted metadata, must instead fail
+selected-range equality against the unchanged archived operand/digest. The
+fresh-pin case preserves geometry and frozen codes/scales/source identity; this
+is not a stale hash or metadata-only refusal. Both fail before owner yield and
+native prefill, restore the registry baseline and emit no scores. All changes
+are in one disposable directory, removed on success/failure.
+
+Verification: FFN-down **1 pass** in 34.39 s, peak RSS 310,268 KiB; remaining roles
+**6 passes** in 210.54 s, peak RSS 315,700 KiB; swaps zero. All **14 source
+role/refusal combinations** and existing **21 positive source-gated role/mode
+combinations** pass. Gate: **513 default passes, 72 optional skips** in 24.41 s;
+Ruff, whitespace and diagnostics clean. No failed checks or relaxed limits.
+No production/native/settings/cache changes, rebuild/sanitizer/CTest, real
+source/model reads/hashes/conversion/execution, downloads/refits or new candidates.
+
+These checks discriminate declarations/authenticated local bytes/selected
+operand equality before synthetic runtime use; they do not authenticate an
+external issuer, frozen quantization equivalence, recurrent nonzero state,
+representative quality or target performance. Historical real MiMo discrepancy
+and approval boundaries remain unchanged. Next bounded integration: source-gated
+chunk/reset/reordering and the existing 128-token cap, using unchanged hooks and
+oracles. No push, branch or subagents.
 
 ## Source Gated Recovery Checkpoint (2026-10-13)
 
