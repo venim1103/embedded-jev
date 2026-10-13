@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [source gated refusal checkpoint](#source-gated-refusal-checkpoint-2026-10-13),
+2. Read the [source gated workflow checkpoint](#source-gated-workflow-checkpoint-2026-10-13),
+   then the [source gated refusal checkpoint](#source-gated-refusal-checkpoint-2026-10-13),
    then the [source gated recovery checkpoint](#source-gated-recovery-checkpoint-2026-10-13),
    then the [nonzero source prefill checkpoint](#nonzero-source-prefill-checkpoint-2026-10-13),
    then the [nonzero source permutation checkpoint](#nonzero-source-permutation-checkpoint-2026-10-13),
@@ -104,6 +105,39 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Gated Workflow Checkpoint (2026-10-13)
+
+After `be25780`, the same nonzero source-gated fixture completes the existing
+bounded workflow surface: full, chunked, reset, reordered, parallel, maximum and
+kernel-recovery, across all seven eligible roles. Chunk/reset require two
+successful dispatches, chunk last-input length two; maximum requires 128 input/
+prefilled/last-dispatch tokens and one dispatch. Reordered IDs/labels/token IDs
+and logits/scores follow C/A/B. Every mode has one repack, ABI 2, zero generation,
+appropriate rejection/error counts and unchanged registry/owner cleanup. The
+second writer's full/peer/128-token references all equal the originals exactly;
+native comparisons retain `2e-5` tolerances. Complete physical source/converted/
+selected metadata and six runtime file gates precede all native calls.
+
+Verification: FFN-down **1 pass** in 42.57 s, peak RSS 310,272 KiB; remaining six
+eligible roles plus unchanged full-only/large-state refusals **8 passes** in
+243.93 s, peak RSS 315,948 KiB; swaps zero. This covers **49 positive source-gated
+role/workflow combinations** and **14 pre-yield physical source refusals**, plus
+preserved original native controls. Default gate **513 passes, 72 optional
+skips** in 23.75 s; Ruff, whitespace and diagnostics clean. No failures or limit
+relaxation in this increment. Disposable files removed on success/failure.
+
+The current code-only source/provenance integration checkpoint is complete for
+the existing bounded synthetic hook. Next real-profile comparison still requires
+explicit authorization for source reads/hashes, temporary complete conversion/
+execution and its budget, with immutable cached sources, sole frozen candidate
+and held-out data preserved. Do not implicitly begin it. Nonzero synthetic FFN/
+full-attention is not nonzero recurrent state, external issuer provenance,
+frozen quantization equivalence, quality/calibration or target-device performance.
+The historical MiMo discrepancy remains unresolved; Defiant Fable is offline
+inventory only, not execution-approved. No production/native/cache/settings
+changes, rebuild/sanitizer/CTest, real source/model inputs, downloads/refits/
+retained candidates, push, branch or subagents in this increment.
 
 ## Source Gated Refusal Checkpoint (2026-10-13)
 

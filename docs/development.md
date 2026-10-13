@@ -1783,6 +1783,18 @@ generated tokens are explicit requirements. Both source-writer reference
 sequences must exactly equal the original references. The unchanged registry
 baseline and owner closure checks apply to all three source-gated modes.
 
+The source-gated variant also covers chunked/reset prefill, typed option
+reordering and the existing 128-token maximum. Chunk/reset require two successful
+dispatches and one repack; chunk's last dispatch has two tokens. Maximum has
+128 input/prefilled/last-dispatch tokens and one dispatch/repack. Reordered
+IDs/labels/token IDs and logits/scores follow C/A/B order. All compare to the
+existing independent oracle at unchanged `2e-5` tolerances; the second writer's
+128-token oracle must also exactly equal the original. The complete surface is
+49 positive source-gated role/workflow combinations, plus the 14 source refusals
+below. Unsupported full-only/large-state controls remain refusals. This does
+not widen the native hook, source/model byte or operand caps, subprocess deadline,
+token bound, model support tier or real-model authorization.
+
 Two physical-source refusal modes also run for every eligible role. One changes
 a source byte without changing its pin and requires `source operand file identity
 mismatch`. The other writes a selected embedding byte inconsistent with the

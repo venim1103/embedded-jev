@@ -1902,9 +1902,8 @@ print(json.dumps(report))
                 assert np.ptp(logits) > 0.01
                 np.testing.assert_allclose(source_expected["logits"], logits, rtol=0, atol=0)
                 np.testing.assert_allclose(source_expected["peer_logits"], expected["peer_logits"], rtol=0, atol=0)
-                scores = np.exp(logits - logits.max())
-                scores /= scores.sum()
-                for source_mode in ("full", "parallel", "kernel-recovery"):
+                np.testing.assert_allclose(source_expected["maximum_logits"], expected["maximum_logits"], rtol=0, atol=0)
+                for source_mode in ("full", "chunked", "reset", "reordered", "parallel", "maximum", "kernel-recovery"):
                     control = subprocess.run(
                         [parity_interpreter, "-c", driver_code, str(source_model), target, runtime_build, "verified-source-" + source_mode,
                          str(source_expected["model_bytes"]), source_expected["model_sha256"], json.dumps(expected_runtime),
@@ -1914,14 +1913,21 @@ print(json.dumps(report))
                     )
                     assert control.returncode == 0, control.stderr
                     report = json.loads(control.stdout)
+                    tokens = [2] * 128 if source_mode == "maximum" else [3, 5, 7]
+                    order = [2, 0, 1] if source_mode == "reordered" else [0, 1, 2]
+                    calls = 3 if source_mode == "parallel" else 2 if source_mode in ("chunked", "reset") else 1
                     assert report["model_policy_abi"] == 2 and report["generated_answer_tokens"] == 0
-                    assert report["input_tokens"] == [3, 5, 7] and report["prefilled_tokens"] == 3
-                    assert report["option_ids"] == ["inspect", "edit", "ask"] and report["option_labels"] == ["A", "B", "C"]
-                    assert report["option_token_ids"] == [11, 17, 23]
-                    assert report["bitnet_dispatch_calls"] == report["prefill_calls"] == (3 if source_mode == "parallel" else 1)
-                    assert report["weight_repacks"] == 1 and report["bitnet_last_input_tokens"] == 3
+                    assert report["input_tokens"] == tokens and report["prefilled_tokens"] == len(tokens)
+                    assert report["option_ids"] == [["inspect", "edit", "ask"][index] for index in order]
+                    assert report["option_labels"] == [["A", "B", "C"][index] for index in order]
+                    assert report["option_token_ids"] == [[11, 17, 23][index] for index in order]
+                    assert report["bitnet_dispatch_calls"] == report["prefill_calls"] == calls
+                    assert report["weight_repacks"] == 1 and report["bitnet_last_input_tokens"] == (2 if source_mode == "chunked" else len(tokens))
                     assert report["rejected_prefill_calls"] == report["kernel_error_status"] == (source_mode == "kernel-recovery")
-                    np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
+                    source_logits = np.asarray(expected["maximum_logits" if source_mode == "maximum" else "logits"])[order]
+                    scores = np.exp(source_logits - source_logits.max())
+                    scores /= scores.sum()
+                    np.testing.assert_allclose(report["logits"], source_logits, rtol=2e-5, atol=2e-5)
                     np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
                     if source_mode == "parallel":
                         np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
