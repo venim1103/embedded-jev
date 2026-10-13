@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [descriptor table checkpoint](#descriptor-table-checkpoint-2026-10-13),
+2. Read the [integrated table caller checkpoint](#integrated-table-caller-checkpoint-2026-10-13),
+   then the [descriptor table checkpoint](#descriptor-table-checkpoint-2026-10-13),
    then the [complete table API checkpoint](#complete-table-api-checkpoint-2026-10-13),
    then the [complete synthetic tensor checkpoint](#complete-synthetic-tensor-checkpoint-2026-10-13),
    then the [convolution file checkpoint](#convolution-file-checkpoint-2026-10-13),
@@ -89,6 +90,48 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Integrated Table Caller Checkpoint (2026-10-13)
+
+After `a9b9d0e`, `verified_profile_model_policy()` optionally requires
+`tensor_reader`, `source_values` and `expected_source_sha256` together and runs
+the descriptor-bound complete-table gate before yield. File cap remains 16 MiB;
+`maximum_tensor_bytes` defaults to/caps at 64 MiB. Maps/pins are snapshotted
+before model open. The immutable table receipt is nested in owner verification;
+without these inputs, file/runtime-only calls are unchanged and gain no table
+claim. The cooperative pre-yield deadline checks elapsed file/runtime/native
+creation time and the table stage, but does not interrupt native or blocking
+I/O; caller parsing/archive work and prefill are outside it. Gate failures free
+the policy before closing its descriptor and before caller access. Receipts and
+scores are still publishable only after successful owner exit.
+
+Verification: **413 default passes, 54 optional skips** in 5.48 s; Ruff,
+whitespace and touched diagnostics clean. Twenty-seven owner lifecycle cases
+cover incomplete inputs, caps, pin/map snapshots, immutable receipts and
+pre-yield parity/mutation/deadline cleanup. All **nine integrated profile/native
+controls pass** in 94.01 s, peak process RSS 298,648 KiB, swaps zero. For each
+of seven supported roles, verified full/parallel/recovery now check all 28
+tensor ranges inside the same owner used for actual prefill. Three pre-yield
+refusals require exact source-key, matrix-byte-parity and aggregate-budget errors,
+emit no scores and restore the registry. Typed scores, zero generation,
+independent scales, genuine dispatch and unsupported-profile refusals remain.
+The vector-only FFN-down compatibility control passes in 6.80 s.
+
+Failure history: the first integrated FFN-down run failed on a fixture import
+because cached `dense-venv` has no pytest. The driver now receives the validated
+synthetic fixture on bounded stdin, reusing the parity protocol instead of
+installing pytest or changing caches. The same check passed after repair.
+Final small test changes made the clock deterministic and released caller
+reader/operand references before owner exit: the same 27 lifecycle cases and
+integrated FFN-down pass (0.62/13.90 s); the source gate below is rerun for the
+commit with **413 passes/54 optional skips** in 8.28 s, Ruff and whitespace clean.
+No real-model reads/conversions/execution, downloads, retained candidate,
+native build, sanitizer or CTest gate ran. Source archives remain same-producer
+synthetic operands, not independent HF authentication. Model metadata semantics,
+reader-code/loaded-page/transitive dependency proof, historical real numerical
+differences and representative quality remain open; no runtime approval is
+implied. User editor files remain untouched. A real-profile comparison requires
+separate approval and the recorded resource/provenance prerequisites.
 
 ## Descriptor Table Checkpoint (2026-10-13)
 

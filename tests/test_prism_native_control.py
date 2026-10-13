@@ -878,10 +878,18 @@ import json
 import sys
 from contextlib import ExitStack
 from pathlib import Path
-from embedded_jev.prism_codec import create_profile_model_policy, native_model_specification, NativeModelSpecification, verified_profile_model_policy
-from test_inventory import _prefill_model_policy_fixture
-profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
-    sys.argv[2] if sys.argv[2] in ("down", "up", "gate", "q", "k", "v", "o") else "down", hybrid=sys.argv[2] != "full-only", state_size=256 if sys.argv[2] == "large-state" else 32)
+from embedded_jev.prism_codec import create_profile_model_policy, native_model_specification, NativeModelSpecification, verified_profile_model_policy, profile_model_conversion_plan
+if len(sys.argv) > 8 and sys.argv[8]:
+    import numpy as np
+    from embedded_jev.model_profile import parse_model_profile
+    fixture = json.loads(sys.stdin.read())
+    profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+    inventory, manifest = fixture["inventory"], fixture["manifest"]
+    blocks = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(manifest["shape"][0], manifest["shape"][1] // 128, 34)
+else:
+    from test_inventory import _prefill_model_policy_fixture
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
+        sys.argv[2] if sys.argv[2] in ("down", "up", "gate", "q", "k", "v", "o") else "down", hybrid=sys.argv[2] != "full-only", state_size=256 if sys.argv[2] == "large-state" else 32)
 directory = Path(sys.argv[3]) / "bin"
 native = ctypes.CDLL(str(directory / "libprism_group_scale.so"))
 control = ctypes.CDLL(str(directory / "libprism_bitnet_prefill_test.so"))
@@ -904,12 +912,56 @@ try:
     mode = sys.argv[4]
     model_path = sys.argv[1]
     if mode.startswith("verified-"):
-        owner = owners.enter_context(verified_profile_model_policy(
-            native, model_path, profile, inventory, manifest, blocks,
-            expected_bytes=int(sys.argv[5]), expected_sha256=sys.argv[6],
-            expected_runtime_files=json.loads(sys.argv[7]),
-            runtime_scorer=control,
-        ))
+        tensor_arguments = {}
+        caller_refusal = mode in ("verified-table-source-key", "verified-table-source-parity", "verified-table-budget")
+        if len(sys.argv) > 8 and sys.argv[8]:
+            import hashlib
+            import time
+            import zipfile
+            import gguf
+            import numpy as np
+            from embedded_jev.streamed_text import bounded_native_file_record
+            archive_record = bounded_native_file_record(Path(sys.argv[8]), maximum_bytes=int(sys.argv[9]), deadline=time.monotonic() + 30)
+            assert archive_record["sha256"] == sys.argv[10] and archive_record["bytes"] == int(sys.argv[9]) <= 16 * 1024**2
+            with zipfile.ZipFile(sys.argv[8]) as packed:
+                entries = packed.infolist()
+                assert all(item.compress_type == zipfile.ZIP_STORED for item in entries)
+                assert sum(item.file_size for item in entries) <= 16 * 1024**2
+                assert len(entries) == len({item.filename for item in entries})
+            plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
+            with np.load(sys.argv[8], allow_pickle=False) as archive:
+                assert set(archive.files) == {item["name"] for item in plan["tensors"] if item["type"] != "PQ2_0"}
+                sources = {item["source_name"]: archive[item["name"]] for item in plan["tensors"] if item["type"] != "PQ2_0"}
+            pins = {name: hashlib.sha256(memoryview(value)).hexdigest() for name, value in sources.items()}
+            if mode == "verified-table-source-key":
+                sources.pop(next(iter(sources)))
+            elif mode == "verified-table-source-parity":
+                embedding = next(item for item in plan["tensors"] if item["name"] == "token_embd.weight")["source_name"]
+                sources[embedding].flat[0] ^= 1
+                pins[embedding] = hashlib.sha256(memoryview(sources[embedding])).hexdigest()
+            elif mode == "verified-table-budget":
+                tensor_arguments["maximum_tensor_bytes"] = 1
+            tensor_arguments.update(tensor_reader=gguf.GGUFReader(model_path), source_values=sources, expected_source_sha256=pins)
+        assert not caller_refusal or tensor_arguments
+        try:
+            owner = owners.enter_context(verified_profile_model_policy(
+                native, model_path, profile, inventory, manifest, blocks,
+                expected_bytes=int(sys.argv[5]), expected_sha256=sys.argv[6],
+                expected_runtime_files=json.loads(sys.argv[7]),
+                runtime_scorer=control, **tensor_arguments,
+            ))
+        except ValueError as error:
+            if not caller_refusal:
+                raise
+            expected_error = {
+                "verified-table-source-key": "complete tensor-table source set mismatch",
+                "verified-table-source-parity": "converted matrix byte parity mismatch",
+                "verified-table-budget": "complete tensor-table operands exceed aggregate byte budget",
+            }[mode]
+            assert expected_error in str(error), str(error)
+            assert registry() == baseline
+            sys.exit(33)
+        assert not caller_refusal
         handle, overrides, record = owner.handle, owner.overrides, owner.record
         model_path = owner.model_path
         specification = None
@@ -917,6 +969,13 @@ try:
         assert owner.verification["runtime_approval"] == "not_granted_by_file_verification"
         assert owner.verification["runtime_file_verification"] == "sha256_matches_caller_supplied_runtime_files"
         assert owner.verification["runtime_file_scope"] == "policy_cpu_base_scorer_llama_registry"
+        if tensor_arguments:
+            table = owner.verification["tensor_table"]
+            assert table["tensor_count"] == 28 and table["model_file_access"] == "verified_owner_descriptor"
+            assert table["converted_file_sha256"] == owner.verification["model_sha256"]
+            assert owner.verification["tensor_table_verification"] == "all_declared_ranges_match_caller_operands_and_frozen_payload"
+            assert table["source_file_verification"] == table["model_metadata_verification"] == table["gguf_reader_verification"] == "not_checked"
+            assert table["runtime_approval"] == "not_granted_by_tensor_table_verification"
         for name in ("bridge", "scorer", "llama", "ggml_registry"):
             assert owner.verification[name + "_sha256"] == json.loads(sys.argv[7])[name]["sha256"]
         assert owner.verification["ggml_cpu_sha256"] == "adaaacaf406df3700fb5f05cb5749990e9b17d410d91e13d0c58263ae971a150"
@@ -969,8 +1028,10 @@ try:
     status = function(model_path.encode(), record_for_call, handle_for_call, overrides_for_call, mode.encode())
     assert registry() == baseline + 1 + (other_handle is not None)
 finally:
+    if "tensor_arguments" in locals():
+        tensor_arguments.clear()
     owners.close()
-assert registry() == baseline
+    assert registry() == baseline
 ctypes.CDLL(None).fflush(None)
 sys.exit(status)
 """
@@ -1259,9 +1320,13 @@ print(json.dumps(report))
             expected_runtime[name] = {"bytes": library.stat().st_size, "sha256": digest}
         for requested_mode in ("full", "chunked", "reset", "reordered", "parallel", "maximum", "kernel-recovery",
                                "verified-full", "verified-parallel", "verified-kernel-recovery"):
-            control = subprocess.run([sys.executable, "-c", driver_code, str(model_file), target, runtime_build, requested_mode,
-                                      str(expected["model_bytes"]), expected["model_sha256"], json.dumps(expected_runtime)],
-                                     capture_output=True, text=True, timeout=30, env=environment)
+            gated = parity_interpreter and requested_mode.startswith("verified-")
+            control = subprocess.run([parity_interpreter if gated else sys.executable, "-c", driver_code, str(model_file), target, runtime_build, requested_mode,
+                                      str(expected["model_bytes"]), expected["model_sha256"], json.dumps(expected_runtime),
+                                      str(operands_file) if gated else "", str(expected.get("source_archive_bytes", 0)), expected.get("source_archive_sha256", "")],
+                                     capture_output=True, text=True, timeout=30,
+                                     input=_profile_parity_fixture(profile, inventory, manifest, blocks) if gated else None,
+                                     env={**environment, "PYTHONPATH": os.pathsep.join((environment["PYTHONPATH"], str(Path(source_dir) / "gguf-py")))})
             assert control.returncode == 0, control.stderr
             report = json.loads(control.stdout)
             mode = requested_mode.removeprefix("verified-")
@@ -1285,6 +1350,17 @@ print(json.dumps(report))
             np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
             if mode == "parallel":
                 np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
+        if parity_interpreter:
+            for requested_mode in ("verified-table-source-key", "verified-table-source-parity", "verified-table-budget"):
+                control = subprocess.run(
+                    [parity_interpreter, "-c", driver_code, str(model_file), target, runtime_build, requested_mode,
+                     str(expected["model_bytes"]), expected["model_sha256"], json.dumps(expected_runtime),
+                     str(operands_file), str(expected["source_archive_bytes"]), expected["source_archive_sha256"]],
+                    capture_output=True, text=True, timeout=30,
+                    input=_profile_parity_fixture(profile, inventory, manifest, blocks),
+                    env={**environment, "PYTHONPATH": os.pathsep.join((environment["PYTHONPATH"], str(Path(source_dir) / "gguf-py")))},
+                )
+                assert control.returncode == 33 and control.stdout == "", control.stderr
         for mode, status in (("unknown", 32), ("kernel-error", 29), ("null-policy", 27), ("oversized-geometry", 27),
                      ("null-overrides", 27), ("null-specification", 27), ("wrong-policy", 30),
                              ("shape-mismatch", 30), ("hidden-mismatch", 27), ("vocabulary-mismatch", 27),

@@ -1548,6 +1548,26 @@ pathname replacement can leave the original descriptor readable while changing
 inode metadata, which the owner still rejects at exit. Never publish that
 receipt or scores after a failed owner exit; destroy native users/mappings first.
 
+`verified_profile_model_policy(..., tensor_reader=..., source_values=...,
+expected_source_sha256=...)` optionally requires that same descriptor-bound
+table gate before yielding the policy. Supply all three inputs together; partial
+inputs, files over 16 MiB and invalid `maximum_tensor_bytes` (default/cap 64 MiB)
+refuse. Maps/pins are snapshotted before opening the model; the table gate checks
+and copies operands under its existing limits. Its immutable receipt is nested
+at `owner.verification["tensor_table"]`, with the top-level
+`tensor_table_verification` status. Parity, mutation, deadline and budget failures
+free the native policy before descriptor closure and before exposing it to the
+caller. With this option, the cooperative pre-yield deadline also covers elapsed
+file/runtime checks and policy construction, but cannot interrupt blocking I/O
+or native calls; parser/archive construction and caller prefill remain outside
+it. Existing calls without these inputs retain file/runtime-only behavior and
+do not gain table evidence. Destroy caller-owned readers before owner exit and
+publish receipts/scores only after successful exit. Synthetic verified full,
+parallel and recovery controls use this integrated gate when
+`PRISM_PARITY_PYTHON` is set; vector-only controls remain compatible. Source
+archive identities are producer-supplied synthetic evidence, not authenticated
+HF weights, and model metadata/reader-code/loaded-page claims remain unchanged.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

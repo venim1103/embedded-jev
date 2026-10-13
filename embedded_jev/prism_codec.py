@@ -891,6 +891,8 @@ def verified_profile_model_policy(
     native, model_path, profile, inventory: dict, manifest: dict, pq2_blocks, *,
     expected_bytes: int, expected_sha256: str, maximum_bytes: int = 16 * 1024**2,
     maximum_seconds: float = 30, expected_runtime_files: dict | None = None, runtime_scorer=None,
+    tensor_reader=None, source_values: dict | None = None, expected_source_sha256: dict | None = None,
+    maximum_tensor_bytes: int = 64 * 1024**2,
 ):
     """Verify file identity, not conversion provenance; destroy all native users before exit."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
@@ -906,6 +908,14 @@ def verified_profile_model_policy(
         raise ValueError("verified model policy requires Linux descriptor paths")
     if runtime_scorer is not None and expected_runtime_files is None:
         raise ValueError("scorer runtime verification requires runtime file pins")
+    requested_table = any(value is not None for value in (tensor_reader, source_values, expected_source_sha256))
+    if requested_table:
+        if (
+            tensor_reader is None or not isinstance(source_values, dict) or not isinstance(expected_source_sha256, dict)
+            or expected_bytes > 16 * 1024**2 or type(maximum_tensor_bytes) is not int or not 0 < maximum_tensor_bytes <= 64 * 1024**2
+        ):
+            raise ValueError("invalid verified model tensor-table inputs or budget")
+        source_values, expected_source_sha256 = source_values.copy(), expected_source_sha256.copy()
     if expected_runtime_files is not None:
         if not isinstance(expected_runtime_files, dict) or any(not isinstance(item, dict) for item in expected_runtime_files.values()):
             raise ValueError("invalid runtime file identity or budget")
@@ -956,10 +966,24 @@ def verified_profile_model_policy(
                 "runtime_file_scope": "not_checked" if runtime_files is None else "policy_cpu_base" if runtime_scorer is None else "policy_cpu_base_scorer_llama_registry",
                 **({name + "_sha256": item["sha256"] for name, item in runtime_files.items()} if runtime_files is not None else {}),
             })
+            if requested_table:
+                owner = VerifiedModelPolicy(descriptor_path, handle, overrides, record, verification)
+                remaining = maximum_seconds - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise ValueError("verified model tensor-table deadline exceeded")
+                table = verify_profile_gguf_tensor_table(
+                    profile, inventory, manifest, blocks, reader=tensor_reader,
+                    source_values=source_values, expected_source_sha256=expected_source_sha256,
+                    expected_file_bytes=expected_bytes, expected_file_sha256=expected_sha256,
+                    maximum_bytes=maximum_tensor_bytes, maximum_seconds=remaining, model_owner=owner,
+                )
+                verification = MappingProxyType({**verification, "tensor_table_verification": table["tensor_table_verification"], "tensor_table": table})
             if identity(os.fstat(model.fileno())) != identity(before):
                 raise ValueError("verified model changed during policy creation")
             if expected_runtime_files is not None:
                 verify_model_runtime_files(native, expected_runtime_files, scorer=runtime_scorer)
+            if requested_table and time.monotonic() - started > maximum_seconds:
+                raise ValueError("verified model tensor-table deadline exceeded")
             yield VerifiedModelPolicy(descriptor_path, handle, overrides, record, verification)
         finally:
             try:

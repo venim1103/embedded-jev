@@ -932,7 +932,7 @@ def test_profile_model_policy_refuses_unpinned_runtime():
         profile_model_specification(profile, report, manifest, blocks)
 
 
-@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins"])
+@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins", "table-reader", "table-sources", "table-pins", "table-boolean", "table-budget", "table-file"])
 def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_path, defect, monkeypatch):
     from embedded_jev import prism_codec
 
@@ -950,6 +950,20 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
         arguments["expected_bytes"] = True
     elif defect == "scorer-pins":
         arguments["runtime_scorer"] = object()
+    elif defect.startswith("table-"):
+        arguments.update(tensor_reader=object(), source_values={}, expected_source_sha256={})
+        if defect == "table-reader":
+            arguments.pop("tensor_reader")
+        elif defect == "table-sources":
+            arguments.pop("source_values")
+        elif defect == "table-pins":
+            arguments.pop("expected_source_sha256")
+        elif defect == "table-boolean":
+            arguments["maximum_tensor_bytes"] = True
+        elif defect == "table-budget":
+            arguments["maximum_tensor_bytes"] = 64 * 1024**2 + 1
+        elif defect == "table-file":
+            arguments.update(expected_bytes=16 * 1024**2 + 1, maximum_bytes=16 * 1024**2 + 1)
     else:
         monkeypatch.setattr(prism_codec.time, "monotonic", iter((0, 31)).__next__)
 
@@ -962,10 +976,10 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
             pytest.fail("unverified model policy was yielded")
 
 
-@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record", "runtime-change", "runtime-deadline", "runtime-pins"])
+@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record", "runtime-change", "runtime-deadline", "runtime-pins", "table-failure", "table-change", "table-deadline", "table-snapshot"])
 def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_path, monkeypatch, defect):
     import ctypes
-    from types import SimpleNamespace
+    from types import MappingProxyType, SimpleNamespace
 
     from embedded_jev import prism_codec
 
@@ -983,6 +997,9 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
         events.append("create")
         if defect == "factory-change":
             path.write_bytes(payload + b"changed")
+        if defect == "table-snapshot":
+            table_pins.clear()
+            table_sources.clear()
         return *handles, prism_codec.profile_model_specification(*arguments)
 
     class Free:
@@ -992,6 +1009,31 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
 
     monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
     arguments = {}
+    if defect.startswith("table-"):
+        table_sources = {"source": np.ones(1, dtype="<u2")}
+        table_pins = {"source": hashlib.sha256(memoryview(table_sources["source"])).hexdigest()}
+        expected_pins = table_pins.copy()
+        table_owner = []
+        table_receipt = MappingProxyType({"tensor_table_verification": "unit_test_table_gate", "tensor_count": 1})
+
+        def verify_table(*received, **keywords):
+            events.append("table")
+            table_owner.append(keywords["model_owner"])
+            assert Path(keywords["model_owner"].model_path).read_bytes() == payload
+            assert keywords["expected_source_sha256"] == expected_pins and keywords["expected_source_sha256"] is not table_pins
+            assert set(keywords["source_values"]) == {"source"} and keywords["source_values"] is not table_sources
+            if defect == "table-failure":
+                raise ValueError("tensor parity failure")
+            if defect == "table-change":
+                path.write_bytes(payload + b"changed")
+            if defect == "table-deadline":
+                monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 31)
+            return table_receipt
+
+        if defect == "table-deadline":
+            monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 0)
+        monkeypatch.setattr(prism_codec, "verify_profile_gguf_tensor_table", verify_table)
+        arguments.update(tensor_reader=object(), source_values=table_sources, expected_source_sha256=table_pins)
     if defect in ("runtime-change", "runtime-deadline", "runtime-pins"):
         runtime_calls = []
         pins = {"bridge": {"sha256": "f" * 64}}
@@ -1013,12 +1055,18 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
 
         monkeypatch.setattr(prism_codec, "native_model_specification", record_failure)
     native = SimpleNamespace(prism_bitnet_cpu_model_policy_free_v2=Free())
-    with pytest.raises(RuntimeError if defect in ("caller", "record", "runtime-pins") else ValueError):
+    with pytest.raises(RuntimeError if defect in ("caller", "record", "runtime-pins", "table-snapshot") else ValueError):
         with prism_codec.verified_profile_model_policy(
             native, path, profile, report, manifest, blocks,
             expected_bytes=len(payload), expected_sha256=hashlib.sha256(payload).hexdigest(),
             **arguments,
         ) as owner:
+            if defect.startswith("table-"):
+                assert defect == "table-snapshot"
+                assert owner.verification["tensor_table"] is table_receipt
+                assert owner.verification["tensor_table_verification"] == "unit_test_table_gate"
+                with pytest.raises(TypeError):
+                    owner.verification["tensor_table"]["tensor_count"] = 0
             saved_bytes = ctypes.string_at(owner.record.projection.reference_pq2, owner.record.projection.reference_bytes)
             blocks.flat[-1] ^= 1
             assert ctypes.string_at(owner.record.projection.reference_pq2, owner.record.projection.reference_bytes) == saved_bytes
@@ -1035,12 +1083,15 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
                 if defect == "runtime-pins":
                     pins["bridge"]["sha256"] = "0" * 64
                 raise RuntimeError("caller failure")
-    assert events == ["create", "free"] and handles[0].value is handles[1].value is None
+    assert events == (["create", "table", "free"] if defect.startswith("table-") else ["create", "free"]) and handles[0].value is handles[1].value is None
     assert not Path(descriptors[0]).exists()
-    if defect not in ("factory-change", "record"):
+    if defect not in ("factory-change", "record", "table-failure", "table-change", "table-deadline"):
         for attribute in ("model_path", "record"):
             with pytest.raises(ValueError, match="closed"):
                 getattr(owner, attribute)
+    if defect.startswith("table-"):
+        with pytest.raises(ValueError, match="closed"):
+            _ = table_owner[0].model_path
 
 
 @pytest.mark.parametrize("kind", ["directory", "fifo", "symlink"])
