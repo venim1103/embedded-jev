@@ -1601,6 +1601,25 @@ enable both gates. Both receipts remain provisional until owner exit succeeds;
 neither selected metadata nor runtime file pins attest loaded code, tokenizer
 semantics, independent source-weight provenance or real-model quality.
 
+`verified_profile_model_policy(..., source_paths=..., frozen_source_values=...,
+maximum_source_file_bytes=...)` explicitly opts into complete source/converted
+table evidence before yield. Supply both new inputs plus the existing reader,
+unfrozen arrays and digest maps; do not include a frozen entry in those maps.
+The frozen digest comes from the manifest, not a new caller override. Exact
+complete source maps/layouts/digests and budgets are snapshotted before model
+access; aggregate source file default/cap is 16 MiB. The source-gated deadline
+also counts this early preflight. Descriptor-anchored composition uses remaining
+pre-yield time and retains immutable `source_conversion_table`, top-level
+`source_table_verification`/`source_conversion_table_verification`, and the
+unchanged converted receipt at `tensor_table`. Selected metadata may be enabled
+independently. Failures free before yield; pointers clear before descriptor close.
+Omitted source inputs preserve all prior file-only/table-only behavior. Evidence
+is pre-yield source identity, not immutable source storage through scoring, source-
+to-frozen quantization equivalence, issuer or quality/runtime approval. Source
+files must be quiescent. Destroy native users before context exit and publish
+receipts/scores only after successful exit. Actual source-gated synthetic policy
+creation/free is tested; source-gated native prefill is not yet tested.
+
 `verify_profile_safetensors_operand(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,
 expected_file_sha256=...)` binds one unfrozen BF16/F32 operand to an actual
@@ -1650,8 +1669,8 @@ again at completion. Shards must be quiescent; there is no atomic cross-file or
 safe concurrent-writer guarantee. The immutable receipt contains all source
 receipts, with frozen identity separate. Unselected/MTP operands, converted bytes,
 quantization equivalence, pin issuer, metadata semantics and runtime/quality
-approval remain unchecked/not granted. This standalone gate is not integrated
-into the verified native owner or scoring path. Default synthetic controls read
+approval remain unchecked/not granted. This standalone source gate is used by
+the explicit composed owner opt-in, not automatic scoring. Default controls read
 only disposable pinned zero-source shards; no real source reads are authorized.
 
 `verify_profile_gguf_source_tensor_table(...)` composes complete selected-source
@@ -1668,7 +1687,7 @@ Immutable receipt nests unchanged source and converted receipts, preserving the
 converted-only source claim. Restored inter-stage source writes refuse. Original
 frozen source digest and canonical PQ2 payload remain distinct: quantization
 equivalence is unchecked. Optional `model_owner` anchors converted reads, but
-this gate is not automatically run by the owner/scorer, and receipts remain
+this gate runs in the owner only through the explicit source opt-in; receipts remain
 provisional until owner exit succeeds. Quiescent files are required; no atomic
 cross-file, issuer, model metadata/tokenizer, loaded-code, quality or runtime
 approval claim is added.
@@ -1705,8 +1724,10 @@ complete 28-tensor synthetic GGUF fixtures in disposable scratch. Selected cases
 test BF16/F32 vectors/convolution, a BF16 matrix, and separate frozen BF16 source/
 canonical PQ2 identities. Complete cases compose all ranges for BF16 and F32
 vector/convolution variants. They refuse changed converted bits even with a fresh
-file hash and restored inter-stage source writes. They execute no native model
-or real complete-model conversion and claim no independent HF source,
+file hash and restored inter-stage source writes. The two `complete-owner-*`
+cases additionally require `MIMO_PRISM_RUNTIME_BUILD` and use the existing native
+policy factory/free with selected metadata and actual source-gated owner receipts.
+They execute no native prefill or real complete-model conversion and claim no independent HF source,
 quantization or representative quality evidence.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB

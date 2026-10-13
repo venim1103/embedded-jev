@@ -1420,7 +1420,7 @@ def test_profile_model_policy_refuses_unpinned_runtime():
         profile_model_specification(profile, report, manifest, blocks)
 
 
-@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins", "table-reader", "table-sources", "table-pins", "table-boolean", "table-budget", "table-file", "metadata-reader", "metadata-bool"])
+@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins", "table-reader", "table-sources", "table-pins", "table-boolean", "table-budget", "table-file", "metadata-reader", "metadata-bool", "source-reader", "source-paths", "source-frozen", "source-budget", "source-extra", "source-clock"])
 def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_path, defect, monkeypatch):
     from embedded_jev import prism_codec
 
@@ -1440,6 +1440,24 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
         arguments["runtime_scorer"] = object()
     elif defect.startswith("metadata-"):
         arguments["verify_policy_metadata"] = True if defect == "metadata-reader" else 1
+    elif defect.startswith("source-"):
+        arguments.update(source_paths={}, frozen_source_values=np.zeros(manifest["shape"], dtype="<u2"))
+        if defect == "source-paths":
+            arguments.pop("source_paths")
+        elif defect == "source-frozen":
+            arguments.pop("frozen_source_values")
+        elif defect == "source-budget":
+            arguments.update(tensor_reader=object(), source_values={}, expected_source_sha256={}, maximum_source_file_bytes=True)
+        elif defect == "source-extra":
+            arguments.update(tensor_reader=object(), source_values={manifest["tensor"]: np.zeros(1, dtype="<u2")}, expected_source_sha256={})
+        elif defect == "source-clock":
+            arguments.update(tensor_reader=object(), source_values={}, expected_source_sha256={})
+            monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 0)
+            def expired_snapshot(*received, **keywords):
+                monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 31)
+                return None, {}, {}, {}, None, 0
+
+            monkeypatch.setattr(prism_codec, "_profile_source_table_snapshot", expired_snapshot)
     elif defect.startswith("table-"):
         arguments.update(tensor_reader=object(), source_values={}, expected_source_sha256={})
         if defect == "table-reader":
@@ -1466,7 +1484,7 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
             pytest.fail("unverified model policy was yielded")
 
 
-@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record", "runtime-change", "runtime-deadline", "runtime-pins", "table-failure", "table-change", "table-deadline", "table-snapshot", "metadata-failure", "metadata-change", "metadata-deadline", "metadata-snapshot"])
+@pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record", "runtime-change", "runtime-deadline", "runtime-pins", "table-failure", "table-change", "table-deadline", "table-snapshot", "metadata-failure", "metadata-change", "metadata-deadline", "metadata-snapshot", "source-failure", "source-change", "source-deadline", "source-snapshot"])
 def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_path, monkeypatch, defect):
     import ctypes
     from types import MappingProxyType, SimpleNamespace
@@ -1487,7 +1505,7 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
         events.append("create")
         if defect == "factory-change":
             path.write_bytes(payload + b"changed")
-        if defect in ("table-snapshot", "metadata-snapshot"):
+        if defect in ("table-snapshot", "metadata-snapshot", "source-snapshot"):
             table_pins.clear()
             table_sources.clear()
         return *handles, prism_codec.profile_model_specification(*arguments)
@@ -1499,7 +1517,7 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
 
     monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
     arguments = {}
-    if defect.startswith(("table-", "metadata-")):
+    if defect.startswith(("table-", "metadata-", "source-")):
         table_sources = {"source": np.ones(1, dtype="<u2")}
         table_pins = {"source": hashlib.sha256(memoryview(table_sources["source"])).hexdigest()}
         expected_pins = table_pins.copy()
@@ -1524,6 +1542,30 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
             monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 0)
         monkeypatch.setattr(prism_codec, "verify_profile_gguf_tensor_table", verify_table)
         arguments.update(tensor_reader=object(), source_values=table_sources, expected_source_sha256=table_pins)
+        if defect.startswith("source-"):
+            def snapshot(*received, **keywords):
+                return None, table_sources.copy(), table_pins.copy(), {}, None, 0
+
+            monkeypatch.setattr(prism_codec, "_profile_source_table_snapshot", snapshot)
+            source_receipt = MappingProxyType({"source_table_verification": "unit_test_source_gate"})
+            evidence = MappingProxyType({"converted": table_receipt, "source": source_receipt,
+                                         "source_conversion_table_verification": "unit_test_composed_gate"})
+            def verify_source(*received, **keywords):
+                result = verify_table(*received, **keywords)
+                assert result is table_receipt
+                events[-1] = "source"
+                if defect == "source-failure":
+                    raise ValueError("source range mismatch")
+                if defect == "source-change":
+                    path.write_bytes(payload + b"changed")
+                if defect == "source-deadline":
+                    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 31)
+                return evidence
+
+            if defect == "source-deadline":
+                monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 0)
+            monkeypatch.setattr(prism_codec, "verify_profile_gguf_source_tensor_table", verify_source)
+            arguments.update(source_paths={}, frozen_source_values=np.zeros(1, dtype="<u2"))
         if defect.startswith("metadata-"):
             metadata_receipt = MappingProxyType({"policy_metadata_verification": "unit_test_metadata_gate", "metadata_names": ("typed_field",)})
 
@@ -1564,18 +1606,23 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
 
         monkeypatch.setattr(prism_codec, "native_model_specification", record_failure)
     native = SimpleNamespace(prism_bitnet_cpu_model_policy_free_v2=Free())
-    with pytest.raises(RuntimeError if defect in ("caller", "record", "runtime-pins", "table-snapshot", "metadata-snapshot") else ValueError):
+    with pytest.raises(RuntimeError if defect in ("caller", "record", "runtime-pins", "table-snapshot", "metadata-snapshot", "source-snapshot") else ValueError):
         with prism_codec.verified_profile_model_policy(
             native, path, profile, report, manifest, blocks,
             expected_bytes=len(payload), expected_sha256=hashlib.sha256(payload).hexdigest(),
             **arguments,
         ) as owner:
-            if defect.startswith(("table-", "metadata-")):
-                assert defect in ("table-snapshot", "metadata-snapshot")
+            if defect.startswith(("table-", "metadata-", "source-")):
+                assert defect in ("table-snapshot", "metadata-snapshot", "source-snapshot")
                 assert owner.verification["tensor_table"] is table_receipt
                 assert owner.verification["tensor_table_verification"] == "unit_test_table_gate"
                 with pytest.raises(TypeError):
                     owner.verification["tensor_table"]["tensor_count"] = 0
+            if defect == "source-snapshot":
+                assert owner.verification["source_conversion_table"] is evidence
+                assert owner.verification["source_table_verification"] == "unit_test_source_gate"
+                with pytest.raises(TypeError):
+                    owner.verification["source_conversion_table"]["source_conversion_table_verification"] = "changed"
             if defect == "metadata-snapshot":
                 assert owner.verification["policy_metadata"] is metadata_receipt
                 with pytest.raises(TypeError):
@@ -1596,14 +1643,14 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
                 if defect == "runtime-pins":
                     pins["bridge"]["sha256"] = "0" * 64
                 raise RuntimeError("caller failure")
-    expected_events = ["create", "table", "metadata", "free"] if defect.startswith("metadata-") else ["create", "table", "free"] if defect.startswith("table-") else ["create", "free"]
+    expected_events = ["create", "table", "metadata", "free"] if defect.startswith("metadata-") else ["create", "source", "free"] if defect.startswith("source-") else ["create", "table", "free"] if defect.startswith("table-") else ["create", "free"]
     assert events == expected_events and handles[0].value is handles[1].value is None
     assert not Path(descriptors[0]).exists()
-    if defect not in ("factory-change", "record", "table-failure", "table-change", "table-deadline", "metadata-failure", "metadata-change", "metadata-deadline"):
+    if defect not in ("factory-change", "record", "table-failure", "table-change", "table-deadline", "metadata-failure", "metadata-change", "metadata-deadline", "source-failure", "source-change", "source-deadline"):
         for attribute in ("model_path", "record"):
             with pytest.raises(ValueError, match="closed"):
                 getattr(owner, attribute)
-    if defect.startswith(("table-", "metadata-")):
+    if defect.startswith(("table-", "metadata-", "source-")):
         with pytest.raises(ValueError, match="closed"):
             _ = table_owner[0].model_path
 

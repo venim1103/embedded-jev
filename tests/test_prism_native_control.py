@@ -681,17 +681,22 @@ for kind in ("valid", "metadata-large", "metadata-near-limit", "metadata-keys-li
     assert handle.value is overrides.value is None
 
 
-@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32"])
+@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32", "complete-owner-BF16", "complete-owner-F32"])
 def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
     from test_inventory import _prefill_model_policy_fixture
 
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     interpreter = os.environ.get("PRISM_PARITY_PYTHON")
+    runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
     if not source_dir or not interpreter:
         pytest.skip("requires cached pinned GGUF/Torch parity environment; creates synthetic files only")
+    if kind.startswith("complete-owner") and not runtime_build:
+        pytest.skip("requires existing pinned native policy library; synthetic files only")
+    if kind.startswith("complete-owner"):
+        assert (Path(runtime_build) / "bin" / "libprism_group_scale.so").is_file()
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
-        pin_zero_source=True, vector_dtype="F32" if kind in ("vector-F32", "complete-F32") else "BF16", conv_dtype="F32" if kind in ("convolution-F32", "complete-F32") else "BF16",
+        pin_zero_source=True, vector_dtype="F32" if kind == "vector-F32" or (kind.startswith("complete") and kind.endswith("F32")) else "BF16", conv_dtype="F32" if kind == "convolution-F32" or (kind.startswith("complete") and kind.endswith("F32")) else "BF16",
     )
     code = """
 import hashlib
@@ -702,7 +707,7 @@ from pathlib import Path
 import gguf
 import numpy as np
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_gguf_source_operand, verify_profile_frozen_source_tensor, verify_profile_gguf_source_tensor_table, _verify_profile_gguf_operand
+from embedded_jev.prism_codec import profile_model_conversion_plan, profile_model_specification, verified_profile_model_policy, verify_profile_gguf_source_operand, verify_profile_frozen_source_tensor, verify_profile_gguf_source_tensor_table, _verify_profile_gguf_operand
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
 inventory, manifest = fixture["inventory"], fixture["manifest"]
@@ -710,6 +715,7 @@ blocks = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).re
 plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
 frozen = sys.argv[1] == "frozen-BF16"
 complete = sys.argv[1].startswith("complete")
+owned = sys.argv[1].startswith("complete-owner")
 rank = 2 if frozen or sys.argv[1].startswith("matrix") else 3 if sys.argv[1].startswith("convolution") else 1
 entry = next(item for item in plan["tensors"] if (item["type"] == "PQ2_0") == frozen and len(item["source_shape"]) == rank)
 values = np.zeros(entry["source_shape"], dtype="<f4" if entry["source_dtype"] == "F32" else "<u2")
@@ -735,6 +741,24 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
     assert hashlib.sha256(source_path.read_bytes()).hexdigest() == source_pin.sha256
     destination = directory / "selected.gguf"
     writer = gguf.GGUFWriter(destination, "qwen35")
+    if owned:
+        spec = profile_model_specification(profile, inventory, manifest, blocks)
+        for key, value in {
+            "jev.model.profile_id": spec["profile_id"], "jev.model.profile_sha256": spec["profile_sha256"],
+            "jev.model.source_revision": spec["source_revision"], "jev.bitnet.source_tensor_sha256": spec["source_tensor_sha256"],
+            "jev.model.converter_revision": "842b1880415d6f508f03b789e5ce70194def7bfd",
+            "jev.bitnet.model": "profile-qwen35-single-projection-v2", "jev.bitnet.execution": "group128-a8-fp32-nearest-even-identity-v1",
+        }.items():
+            writer.add_string(key, value)
+        for key, value in {"block_count": spec["layers"], "embedding_length": spec["hidden"], "feed_forward_length": spec["intermediate"]}.items():
+            writer.add_uint32("qwen35." + key, value)
+        for item in spec["metadata"]:
+            if item["kind"] == "u32":
+                writer.add_uint32(item["name"], item["values"][0])
+            elif item["kind"] == "f32":
+                writer.add_float32(item["name"], item["values"][0])
+            else:
+                writer.add_array(item["name"], item["values"])
     for output_entry in plan["tensors"] if complete else [entry]:
         if output_entry["type"] == "PQ2_0":
             writer.add_tensor(output_entry["name"], blocks.reshape(manifest["shape"][0], manifest["shape"][1] // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
@@ -761,6 +785,29 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
         "expected_file_bytes": destination.stat().st_size, "expected_file_sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
     }
     def verify():
+        if owned:
+            import ctypes
+            native = ctypes.CDLL(str(Path(sys.argv[3]) / "bin" / "libprism_group_scale.so"))
+            dense_sources = {name: array for name, array in source_arrays.items() if name != manifest["tensor"]}
+            with verified_profile_model_policy(
+                native, destination, profile, inventory, manifest, blocks,
+                expected_bytes=arguments["expected_file_bytes"], expected_sha256=arguments["expected_file_sha256"],
+                tensor_reader=reader, source_values=dense_sources,
+                expected_source_sha256={name: source_digests[name] for name in dense_sources},
+                source_paths={source_path.name: source_path}, frozen_source_values=source_arrays[manifest["tensor"]],
+                verify_policy_metadata=True,
+            ) as owner:
+                assert owner.handle.value and owner.overrides.value
+                assert owner.verification["source_table_verification"] == "all_selected_source_ranges_match_profile_pins_and_caller_operands"
+                assert owner.verification["policy_metadata"]["model_metadata_verification"] == "selected_policy_records_only"
+                evidence = owner.verification["source_conversion_table"]
+            assert owner.handle.value is owner.overrides.value is None
+            try:
+                owner.model_path
+                raise AssertionError("closed owner descriptor remained public")
+            except ValueError as error:
+                assert "closed" in str(error), str(error)
+            return evidence
         if complete:
             return verify_profile_gguf_source_tensor_table(
                 profile, inventory, manifest, blocks, reader=reader, source_paths={source_path.name: source_path},
@@ -845,7 +892,7 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
 print(json.dumps({"kind": sys.argv[1], "selected_ranges": 28 if complete else 1, "runtime_approval": "not_granted_by_source_conversion_verification"}))
 """
     result = subprocess.run(
-        [interpreter, "-c", code, kind, str(tmp_path)], capture_output=True, text=True, timeout=30,
+        [interpreter, "-c", code, kind, str(tmp_path), runtime_build or ""], capture_output=True, text=True, timeout=30,
         input=_profile_parity_fixture(profile, inventory, manifest, blocks),
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "OPENBLAS_NUM_THREADS": "1",
              "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},

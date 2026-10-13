@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [complete source conversion checkpoint](#complete-source-conversion-checkpoint-2026-10-13),
+2. Read the [source gated owner checkpoint](#source-gated-owner-checkpoint-2026-10-13),
+   then the [complete source conversion checkpoint](#complete-source-conversion-checkpoint-2026-10-13),
    then the [complete source table checkpoint](#complete-source-table-checkpoint-2026-10-13),
    then the [frozen source identity checkpoint](#frozen-source-identity-checkpoint-2026-10-13),
    then the [combined source range checkpoint](#combined-source-range-checkpoint-2026-10-13),
@@ -97,6 +98,49 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Gated Owner Checkpoint (2026-10-13)
+
+After `3fb20a8`, the verified owner explicitly accepts `source_paths` plus
+`frozen_source_values` alongside the existing reader/unfrozen arrays/digest maps.
+Partial or conflicting frozen inputs refuse; frozen digest stays manifest-owned.
+Complete source snapshot/preflight occurs before model access, with aggregate
+source file default/cap 16 MiB and the existing tensor charge cap. Source-gated
+deadline includes early preflight, model hashing and composition before yield.
+Descriptor-anchored source/converted evidence is retained at immutable
+`source_conversion_table`; unchanged converted receipt stays at `tensor_table`,
+with separate top-level source statuses. Selected metadata opt-in remains
+independent. Defaults/file-only/table-only behavior is unchanged. Pylance
+confirms all three resolved caller signatures remain compatible.
+
+Verification: **513 default passes, 64 optional skips** in 17.26 s; Ruff,
+whitespace and touched diagnostics clean. **89 focused owner/table cases** pass
+in 7.44 s, including ten new preflight/lifetime cases: missing/partial/conflicting
+inputs, source budget and early-preflight deadline, source failure/change/
+deadline/snapshot receipts and free-before-descriptor-close. **Two actual source-
+gated native policy-owner controls pass** in 24.79 s, peak process RSS 298,848
+KiB, swaps zero: complete pinned BF16/F32-vector/convolution synthetic shards,
+28 converted ranges, 25 selected metadata records, restored inter-stage source
+write and fresh-pin converted corruption refusal, normal owner exit and cleared
+pointers/post-exit path refusal. These create/free policy but do not run prefill.
+
+The unchanged-default **FFN-down native prefill control passes** in 25.59 s,
+peak process RSS 293,404 KiB, swaps zero. This is separate from source-gated
+policy creation and does not establish source-gated prefill. No full nine-profile
+rerun, native build/sanitizer/CTest, real source/model conversion/execution,
+downloads, refit or new retained candidate. All files are disposable pinned
+zero-source synthetic fixtures; scratch empty after cleanup. User settings
+untouched. Source identity is pre-yield, not immutable source storage throughout
+scoring, atomic multi-file snapshot, issuer, quantization equivalence or quality.
+Receipts remain provisional until successful owner exit; runtime approval is
+not granted. Keep files quiescent and destroy native users before exit.
+
+Failed-check history: both optional owner cases first failed before factory
+dispatch due to a guessed shared-library basename. Corrected to the existing
+controls' verified `libprism_group_scale.so` and reran the same two cases; no
+cache rebuild or tolerance/budget change. Next bounded control: source-gated
+native prefill using existing hooks, synthetic budgets and zero-generation
+scores, without widening hooks or claiming representative model quality.
 
 ## Complete Source Conversion Checkpoint (2026-10-13)
 

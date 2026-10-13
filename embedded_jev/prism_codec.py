@@ -1449,6 +1449,8 @@ def verified_profile_model_policy(
     tensor_reader=None, source_values: dict | None = None, expected_source_sha256: dict | None = None,
     maximum_tensor_bytes: int = 64 * 1024**2,
     verify_policy_metadata: bool = False,
+    source_paths: dict | None = None, frozen_source_values: np.ndarray | None = None,
+    maximum_source_file_bytes: int = 16 * 1024**2,
 ):
     """Verify file identity, not conversion provenance; destroy all native users before exit."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
@@ -1467,6 +1469,9 @@ def verified_profile_model_policy(
     requested_table = any(value is not None for value in (tensor_reader, source_values, expected_source_sha256))
     if type(verify_policy_metadata) is not bool or (verify_policy_metadata and not requested_table):
         raise ValueError("policy metadata verification requires a tensor-table reader and inputs")
+    requested_source = source_paths is not None or frozen_source_values is not None
+    if requested_source and (not requested_table or not isinstance(source_paths, dict) or frozen_source_values is None):
+        raise ValueError("source verification requires tensor-table inputs, source paths and frozen source values")
     if requested_table:
         if (
             tensor_reader is None or not isinstance(source_values, dict) or not isinstance(expected_source_sha256, dict)
@@ -1474,6 +1479,16 @@ def verified_profile_model_policy(
         ):
             raise ValueError("invalid verified model tensor-table inputs or budget")
         source_values, expected_source_sha256 = source_values.copy(), expected_source_sha256.copy()
+    if requested_source:
+        source_started = time.monotonic()
+        if manifest["tensor"] in source_values or manifest["tensor"] in expected_source_sha256:
+            raise ValueError("source-gated model requires unfrozen tensor maps plus separate frozen source values")
+        _, source_values, expected_source_sha256, source_paths, _, _ = _profile_source_table_snapshot(
+            profile, inventory, manifest, pq2_blocks, source_paths=source_paths,
+            source_values={**source_values, manifest["tensor"]: frozen_source_values},
+            expected_source_sha256={**expected_source_sha256, manifest["tensor"]: manifest["source_tensor_sha256"]},
+            maximum_bytes=maximum_tensor_bytes, maximum_file_bytes=maximum_source_file_bytes,
+        )
     if expected_runtime_files is not None:
         if not isinstance(expected_runtime_files, dict) or any(not isinstance(item, dict) for item in expected_runtime_files.values()):
             raise ValueError("invalid runtime file identity or budget")
@@ -1487,7 +1502,7 @@ def verified_profile_model_policy(
 
         if not stat.S_ISREG(before.st_mode) or before.st_size != expected_bytes:
             raise ValueError("verified model file size or type mismatch")
-        started = time.monotonic()
+        started = source_started if requested_source else time.monotonic()
         digest = hashlib.sha256()
         remaining = expected_bytes
         while remaining:
@@ -1529,12 +1544,24 @@ def verified_profile_model_policy(
                 remaining = maximum_seconds - (time.monotonic() - started)
                 if remaining <= 0:
                     raise ValueError("verified model tensor-table deadline exceeded")
-                table = verify_profile_gguf_tensor_table(
-                    profile, inventory, manifest, blocks, reader=tensor_reader,
-                    source_values=source_values, expected_source_sha256=expected_source_sha256,
-                    expected_file_bytes=expected_bytes, expected_file_sha256=expected_sha256,
-                    maximum_bytes=maximum_tensor_bytes, maximum_seconds=remaining, model_owner=owner,
-                )
+                if requested_source:
+                    evidence = verify_profile_gguf_source_tensor_table(
+                        profile, inventory, manifest, blocks, reader=tensor_reader, source_paths=source_paths,
+                        source_values=source_values, expected_source_sha256=expected_source_sha256,
+                        expected_file_bytes=expected_bytes, expected_file_sha256=expected_sha256,
+                        maximum_bytes=maximum_tensor_bytes, maximum_seconds=remaining, model_owner=owner,
+                    )
+                    table = evidence["converted"]
+                    verification = MappingProxyType({**verification, "source_conversion_table": evidence,
+                                                     "source_table_verification": evidence["source"]["source_table_verification"],
+                                                     "source_conversion_table_verification": evidence["source_conversion_table_verification"]})
+                else:
+                    table = verify_profile_gguf_tensor_table(
+                        profile, inventory, manifest, blocks, reader=tensor_reader,
+                        source_values=source_values, expected_source_sha256=expected_source_sha256,
+                        expected_file_bytes=expected_bytes, expected_file_sha256=expected_sha256,
+                        maximum_bytes=maximum_tensor_bytes, maximum_seconds=remaining, model_owner=owner,
+                    )
                 verification = MappingProxyType({**verification, "tensor_table_verification": table["tensor_table_verification"], "tensor_table": table})
                 if verify_policy_metadata:
                     remaining = maximum_seconds - (time.monotonic() - started)
