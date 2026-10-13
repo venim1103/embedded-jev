@@ -1568,6 +1568,25 @@ parallel and recovery controls use this integrated gate when
 archive identities are producer-supplied synthetic evidence, not authenticated
 HF weights, and model metadata/reader-code/loaded-page claims remain unchanged.
 
+`verify_profile_gguf_policy_metadata(..., reader=..., expected_file_bytes=...,
+expected_file_sha256=..., model_owner=None)` verifies 25 selected policy records:
+architecture/provenance/execution strings, three root geometry fields and the
+14 typed numerical declarations from `profile_model_specification()`. Exact
+little-endian string, UINT32, FLOAT32 and INT32-array records must be read-only
+shared reader ranges and match independent file reads. An independent bounded
+walk checks all metadata keys, supported scalar/non-nested array types, record
+extents, uniqueness and the tensor-table boundary; it anchors selected offsets
+without interpreting tokenizer or unselected values. Keys are at most 64 KiB,
+selected record bytes at most 8 KiB, file at most 16 MiB and keys at most 256.
+File hashes bracket checks; a cooperative 30 s deadline (cap 600 s) covers the
+gate, not caller parser construction or hard I/O timeouts. Owner access uses
+positional borrowed-descriptor reads; ordinary path access remains no-follow.
+The immutable receipt marks `model_metadata_verification` as
+`selected_policy_records_only`, not complete configuration/template/tokenizer
+semantics, source authenticity, reader code or loaded pages. A fresh caller hash
+cannot make a changed selected value pass. This standalone API grants no runtime
+approval and does not change table-only receipts or existing policy calls.
+
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
 Python also reports `maximum_metadata_bytes` and `maximum_metadata_keys` (256).

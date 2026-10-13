@@ -707,6 +707,180 @@ def verify_profile_gguf_tensor_table(
                             "gguf_reader_verification": "not_checked", "runtime_approval": "not_granted_by_tensor_table_verification"})
 
 
+def verify_profile_gguf_policy_metadata(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30, model_owner=None,
+):
+    """Bind selected policy declarations to file bytes, not tokenizer semantics or runtime approval."""
+    import sys
+
+    from embedded_jev.model_profile import SHA256
+    from embedded_jev.streamed_text import bounded_native_descriptor_record, bounded_native_file_record
+
+    if (
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+    ):
+        raise ValueError("invalid policy metadata file identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
+    descriptor = _verified_owner_descriptor(model_owner, profile, manifest, expected_file_bytes, expected_file_sha256)
+    import gguf
+
+    if (
+        type(reader) is not gguf.GGUFReader or sys.byteorder != "little"
+        or not isinstance(reader.data, np.memmap) or reader.data.dtype != np.dtype("u1") or reader.data.ndim != 1
+        or reader.data.mode != "r" or reader.data.flags.writeable or reader.data.offset != 0
+        or reader.data.nbytes != expected_file_bytes or len(reader.tensors) != len(specification["tensors"])
+        or not 3 <= len(reader.fields) <= MODEL_METADATA_KEYS_V2 + 3
+        or not 24 <= reader.data_offset <= min(expected_file_bytes, MODEL_METADATA_BYTES_V2)
+    ):
+        raise ValueError("policy metadata reader layout or budget mismatch")
+    declarations = [
+        {"name": name, "kind": "string", "values": [value]} for name, value in {
+            "general.architecture": "qwen35", "jev.model.profile_id": profile.profile_id,
+            "jev.model.profile_sha256": profile.sha256, "jev.model.source_revision": profile.revision,
+            "jev.model.converter_revision": PRISM_SOURCE_REVISION, "jev.bitnet.source_tensor_sha256": specification["source_tensor_sha256"],
+            "jev.bitnet.model": "profile-qwen35-single-projection-v2", "jev.bitnet.execution": "group128-a8-fp32-nearest-even-identity-v1",
+        }.items()
+    ]
+    declarations.extend({"name": "qwen35." + name, "kind": "u32", "values": [value]} for name, value in {
+        "block_count": specification["layers"], "embedding_length": specification["hidden"], "feed_forward_length": specification["intermediate"],
+    }.items())
+    declarations.extend(specification["metadata"])
+    table_offset = min(int(tensor.field.offset) for tensor in reader.tensors)
+    if not 24 <= table_offset <= reader.data_offset:
+        raise ValueError("policy metadata tensor table boundary mismatch")
+    records = []
+    consumed = 0
+    address = reader.data.__array_interface__["data"][0]
+    kinds = {"string": (8,), "u32": (4,), "f32": (6,), "i32_array": (9, 5)}
+    for item in declarations:
+        if time.monotonic() > deadline:
+            raise ValueError("policy metadata deadline exceeded")
+        name, kind, values = item["name"], item["kind"], item["values"]
+        encoded_name = name.encode("ascii")
+        if kind == "string":
+            value = values[0].encode("ascii")
+            encoded_value = struct.pack("<Q", len(value)) + value
+        elif kind == "i32_array":
+            encoded_value = struct.pack("<IQ", 5, len(values)) + struct.pack("<" + "i" * len(values), *values)
+        else:
+            encoded_value = struct.pack("<I" if kind == "u32" else "<f", values[0])
+        wanted = struct.pack("<Q", len(encoded_name)) + encoded_name + struct.pack("<I", kinds[kind][0]) + encoded_value
+        consumed += len(wanted)
+        if consumed > 8192:
+            raise ValueError("policy metadata records exceed byte budget")
+        field = reader.fields.get(name)
+        if (
+            field is None or field.name != name or tuple(field.types) != kinds[kind]
+            or not isinstance(field.offset, (int, np.integer)) or isinstance(field.offset, (bool, np.bool_))
+            or not 24 <= field.offset < field.offset + len(wanted) <= table_offset
+            or not 1 <= len(field.parts) <= 32
+        ):
+            raise ValueError("policy metadata field type or range mismatch: " + name)
+        position = int(field.offset)
+        parts = []
+        for part in field.parts:
+            if (
+                not isinstance(part, np.ndarray) or part.ndim != 1 or part.dtype.hasobject or not part.flags.c_contiguous or part.flags.writeable
+                or not 0 < part.nbytes <= len(wanted) or position + part.nbytes > int(field.offset) + len(wanted)
+                or not np.shares_memory(part, reader.data) or part.__array_interface__["data"][0] != address + position
+            ):
+                raise ValueError("policy metadata field mapping mismatch: " + name)
+            parts.append(part.tobytes())
+            position += part.nbytes
+        if b"".join(parts) != wanted:
+            raise ValueError("policy metadata declaration byte mismatch: " + name)
+        records.append((name, int(field.offset), wanted))
+    path = Path(reader.data.filename) if descriptor is None else Path(model_owner.model_path)
+    def file_record():
+        return (bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) if descriptor is None
+                else bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline))
+
+    before = file_record()
+    if before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256:
+        raise ValueError("policy metadata file identity mismatch")
+    retained = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK) if descriptor is None else os.dup(descriptor)
+    try:
+        if os.pread(retained, 24, 0) != struct.pack("<4sIQQ", b"GGUF", 3, len(reader.tensors), len(reader.fields) - 3):
+            raise ValueError("policy metadata header differs from reader")
+        cursor = 24
+        fixed_sizes = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+        positions = {}
+        def read(size):
+            nonlocal cursor
+            if time.monotonic() > deadline:
+                raise ValueError("policy metadata deadline exceeded")
+            if not 0 <= size <= 65536 or cursor + size > table_offset:
+                raise ValueError("policy metadata file record range mismatch")
+            value = os.pread(retained, size, cursor)
+            if len(value) != size:
+                raise ValueError("policy metadata file record truncated")
+            cursor += size
+            return value
+
+        def skip(size):
+            nonlocal cursor
+            if time.monotonic() > deadline:
+                raise ValueError("policy metadata deadline exceeded")
+            if not 0 <= size <= table_offset - cursor:
+                raise ValueError("policy metadata file record range mismatch")
+            cursor += size
+
+        def skip_string():
+            skip(struct.unpack("<Q", read(8))[0])
+
+        for _ in range(len(reader.fields) - 3):
+            offset = cursor
+            name = read(struct.unpack("<Q", read(8))[0]).decode("utf-8")
+            if not name or name in positions:
+                raise ValueError("policy metadata file key is empty or duplicate")
+            positions[name] = offset
+            kind = struct.unpack("<I", read(4))[0]
+            if kind == 8:
+                skip_string()
+            elif kind == 9:
+                element_kind, count = struct.unpack("<IQ", read(12))
+                if element_kind == 8:
+                    if count > (table_offset - cursor) // 8:
+                        raise ValueError("policy metadata file string array exceeds range")
+                    for _ in range(count):
+                        skip_string()
+                elif element_kind in fixed_sizes:
+                    skip(count * fixed_sizes[element_kind])
+                else:
+                    raise ValueError("policy metadata file array type unsupported")
+            elif kind in fixed_sizes:
+                skip(fixed_sizes[kind])
+            else:
+                raise ValueError("policy metadata file value type unsupported")
+        if (
+            cursor != table_offset or set(positions) != set(reader.fields) - {"GGUF.version", "GGUF.tensor_count", "GGUF.kv_count"}
+            or any(positions.get(name) != offset for name, offset, _ in records)
+        ):
+            raise ValueError("policy metadata file key set or table boundary mismatch")
+        for name, offset, wanted in records:
+            if time.monotonic() > deadline:
+                raise ValueError("policy metadata deadline exceeded")
+            if os.pread(retained, len(wanted), offset) != wanted:
+                raise ValueError("policy metadata file range differs from declaration: " + name)
+    finally:
+        os.close(retained)
+    if file_record() != before or time.monotonic() > deadline:
+        raise ValueError("policy metadata file changed or deadline exceeded")
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
+                            "metadata_names": tuple(name for name, _, _ in records), "metadata_record_bytes": consumed,
+                            "policy_metadata_verification": "selected_typed_policy_records_match_declarations_and_file",
+                            "model_file_access": "verified_owner_descriptor" if model_owner is not None else "reader_filename",
+                            "model_metadata_verification": "selected_policy_records_only", "tokenizer_semantics_verification": "not_checked",
+                            "gguf_reader_verification": "not_checked", "runtime_approval": "not_granted_by_policy_metadata_verification"})
+
+
 class NativeModelTensor(ctypes.Structure):
     _fields_ = [("name", ctypes.c_char_p), ("type", ctypes.c_uint32), ("ne", ctypes.c_int64 * 4)]
 

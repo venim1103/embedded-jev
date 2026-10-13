@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [integrated table caller checkpoint](#integrated-table-caller-checkpoint-2026-10-13),
+2. Read the [policy metadata API checkpoint](#policy-metadata-api-checkpoint-2026-10-13),
+   then the [integrated table caller checkpoint](#integrated-table-caller-checkpoint-2026-10-13),
    then the [descriptor table checkpoint](#descriptor-table-checkpoint-2026-10-13),
    then the [complete table API checkpoint](#complete-table-api-checkpoint-2026-10-13),
    then the [complete synthetic tensor checkpoint](#complete-synthetic-tensor-checkpoint-2026-10-13),
@@ -90,6 +91,44 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Policy Metadata API Checkpoint (2026-10-13)
+
+After user-pushed `78af44e`, the bounded standalone
+`verify_profile_gguf_policy_metadata()` binds 25 selected policy declarations
+to typed little-endian GGUF records: eight architecture/provenance/execution
+strings, three root geometry fields and the existing 14 numerical fields.
+Mapped parts must be contiguous/read-only/shared and exactly serialize the
+declaration. Independent positional rereads compare actual file bytes, with
+before/after caller file hashes. A bounded metadata-chain walk checks unique
+keys, supported scalar/non-nested array types, lengths and tensor-table boundary,
+anchoring the selected offsets; unselected values/tokenizer semantics are not
+interpreted. Caps remain 16 MiB file, 256 metadata keys, 64 KiB key/read and
+8 KiB selected records. Deadline is cooperative 30 s (cap 600 s), not caller
+parser construction or hard I/O. Optional owner access uses its borrowed
+descriptor without changing its offset/lifetime or ordinary symlink refusals.
+Receipt is immutable and marks only `selected_policy_records_only`; source
+authenticity, full metadata semantics, reader-code/loaded-page/runtime approval
+remain absent. Table-only receipts and policy callers are unchanged.
+
+Verification: **420 default passes, 54 optional skips** in 4.84 s; Ruff,
+whitespace and touched diagnostics clean. Seven invalid input/owner cases
+refuse before parser import. All **nine complete-stage/native profiles pass**
+in 98.19 s, peak process RSS 299,412 KiB, swaps zero. Each supported role checks
+the 25 records plus ten precise missing/type/copied-part/offset/value/header/pin/
+deadline/mid-read/unselected-type refusals. Changed values and headers with
+fresh file pins still refuse; malformed unselected type tags are rejected by
+the independent walk despite a stale reader. Mutations are restored before
+native prefill; existing all-range/owner/refusal/typed-score/zero-generation
+controls remain. No new source/environment/library/model downloads, real-model
+reads/conversions/execution, retained candidate, native build, sanitizer or CTest.
+Initial focused preflight passed but Ruff caught a missing local `sys` import;
+it was repaired and the exact focused command passed before optional gates.
+Next bounded increment: make this selected-policy check an explicit opt-in
+pre-yield gate inside the same verified owner used for synthetic prefill. Real
+source/model proof, tokenizer/configuration semantics, reader-code/loaded-page/
+transitive dependency proof, historical numerical differences and quality stay
+open; no real-profile approval. User `.vscode/` remains untouched.
 
 ## Integrated Table Caller Checkpoint (2026-10-13)
 

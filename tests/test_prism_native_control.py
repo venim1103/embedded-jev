@@ -1083,7 +1083,7 @@ if complete:
     assert set(archive.files) == {item["name"] for item in plan["tensors"] if item["type"] != "PQ2_0"}
     assert {item.name for item in reader.tensors} == {item["name"] for item in plan["tensors"]}
     assert len(reader.tensors) == len(plan["tensors"]) == 28
-    from embedded_jev.prism_codec import verify_profile_gguf_tensor_table
+    from embedded_jev.prism_codec import verify_profile_gguf_tensor_table, verify_profile_gguf_policy_metadata
     sources = {item["source_name"]: archive[item["name"]] for item in plan["tensors"] if item["type"] != "PQ2_0"}
     pins = {name: hashlib.sha256(memoryview(value)).hexdigest() for name, value in sources.items()}
     table_receipt = verify_profile_gguf_tensor_table(
@@ -1093,6 +1093,111 @@ if complete:
     assert table_receipt["tensor_count"] == 28 and table_receipt["operand_budget_bytes"] <= 64 * 1024**2
     assert table_receipt["source_file_verification"] == table_receipt["model_metadata_verification"] == table_receipt["gguf_reader_verification"] == "not_checked"
     assert table_receipt["runtime_approval"] == "not_granted_by_tensor_table_verification"
+    metadata_arguments = {
+        "reader": reader, "expected_file_bytes": int(sys.argv[2]), "expected_file_sha256": sys.argv[3],
+    }
+    metadata_receipt = verify_profile_gguf_policy_metadata(
+        profile, fixture["inventory"], fixture["manifest"], payload, **metadata_arguments,
+    )
+    assert len(metadata_receipt["metadata_names"]) == 25 and metadata_receipt["metadata_record_bytes"] <= 8192
+    assert metadata_receipt["policy_metadata_verification"] == "selected_typed_policy_records_match_declarations_and_file"
+    assert metadata_receipt["model_metadata_verification"] == "selected_policy_records_only"
+    assert metadata_receipt["tokenizer_semantics_verification"] == metadata_receipt["gguf_reader_verification"] == "not_checked"
+    assert metadata_receipt["runtime_approval"] == "not_granted_by_policy_metadata_verification"
+    try:
+        metadata_receipt["metadata_names"] = ()
+        raise AssertionError("mutable metadata receipt")
+    except TypeError:
+        pass
+    from embedded_jev import prism_codec as codec
+    selected_name = "qwen35.attention.head_count"
+    original_field = reader.fields[selected_name]
+    value_offset = original_field.parts[-1].__array_interface__["data"][0] - reader.data.__array_interface__["data"][0]
+    for defect, expected_error in (
+        ("missing", "field type or range mismatch"), ("type", "field type or range mismatch"),
+        ("copy", "field mapping mismatch"), ("offset", "field mapping mismatch"),
+        ("value", "declaration byte mismatch"), ("header", "header differs from reader"),
+        ("pin", "file identity mismatch"), ("deadline", "deadline exceeded"),
+        ("mid-read", "file range differs from declaration"),
+    ):
+        changed = metadata_arguments.copy()
+        original_fields = reader.fields
+        original_clock = time.monotonic
+        original_pread = codec.os.pread
+        saved = None
+        changed_offset = 4 if defect == "header" else value_offset
+        reader.fields = original_fields.copy()
+        if defect == "missing":
+            reader.fields.pop(selected_name)
+        elif defect == "type":
+            reader.fields[selected_name] = original_field._replace(types=[gguf.GGUFValueType.FLOAT32])
+        elif defect == "copy":
+            parts = original_field.parts.copy()
+            parts[-1] = parts[-1].copy()
+            parts[-1].setflags(write=False)
+            reader.fields[selected_name] = original_field._replace(parts=parts)
+        elif defect == "offset":
+            reader.fields[selected_name] = original_field._replace(offset=original_field.offset + 1)
+        elif defect == "pin":
+            changed["expected_file_sha256"] = "0" * 64
+        elif defect == "deadline":
+            time.monotonic = iter((0, 31)).__next__
+        if defect in ("value", "header", "mid-read"):
+            with open(sys.argv[1], "rb") as output:
+                output.seek(changed_offset)
+                saved = output.read(1)
+            def mutate():
+                with open(sys.argv[1], "r+b") as output:
+                    output.seek(changed_offset)
+                    output.write(bytes([saved[0] ^ 1]))
+            if defect == "mid-read":
+                calls = []
+                def read(descriptor, size, position):
+                    result = original_pread(descriptor, size, position)
+                    calls.append(1)
+                    if len(calls) == 1:
+                        mutate()
+                    return result
+                codec.os.pread = read
+            else:
+                mutate()
+                changed["expected_file_sha256"] = bounded_native_file_record(
+                    Path(sys.argv[1]), maximum_bytes=int(sys.argv[2]), deadline=time.monotonic() + 30,
+                )["sha256"]
+        try:
+            verify_profile_gguf_policy_metadata(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
+            raise AssertionError("invalid policy metadata accepted: " + defect)
+        except ValueError as error:
+            assert expected_error in str(error), str(error)
+        finally:
+            reader.fields = original_fields
+            time.monotonic = original_clock
+            codec.os.pread = original_pread
+            if saved is not None:
+                with open(sys.argv[1], "r+b") as output:
+                    output.seek(changed_offset)
+                    output.write(saved)
+    assert bounded_native_file_record(Path(sys.argv[1]), maximum_bytes=int(sys.argv[2]), deadline=time.monotonic() + 30)["sha256"] == sys.argv[3]
+    unselected = reader.fields["qwen35.context_length"]
+    type_offset = unselected.parts[2].__array_interface__["data"][0] - reader.data.__array_interface__["data"][0]
+    with open(sys.argv[1], "r+b") as output:
+        output.seek(type_offset)
+        saved_type = output.read(4)
+        output.seek(type_offset)
+        output.write((11).to_bytes(4, "little"))
+    try:
+        changed_file = bounded_native_file_record(Path(sys.argv[1]), maximum_bytes=int(sys.argv[2]), deadline=time.monotonic() + 30)
+        verify_profile_gguf_policy_metadata(
+            profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
+            expected_file_bytes=int(sys.argv[2]), expected_file_sha256=changed_file["sha256"],
+        )
+        raise AssertionError("changed unselected metadata type accepted by stale reader")
+    except ValueError as error:
+        assert "policy metadata file" in str(error), str(error)
+    finally:
+        with open(sys.argv[1], "r+b") as output:
+            output.seek(type_offset)
+            output.write(saved_type)
     table_entries = {item["tensor_name"]: item for item in table_receipt["tensors"]}
     assert len(table_entries) == 28
     try:
