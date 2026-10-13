@@ -1452,7 +1452,7 @@ def verified_profile_model_policy(
     source_paths: dict | None = None, frozen_source_values: np.ndarray | None = None,
     maximum_source_file_bytes: int = 16 * 1024**2,
 ):
-    """Verify file identity, not conversion provenance; destroy all native users before exit."""
+    """Own a policy with explicit bounded evidence gates; destroy all native users before exit."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
     if (
         type(expected_bytes) is not int or type(maximum_bytes) is not int

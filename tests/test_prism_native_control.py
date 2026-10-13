@@ -694,6 +694,7 @@ def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
         pytest.skip("requires existing pinned native policy library; synthetic files only")
     if kind.startswith("complete-owner"):
         assert (Path(runtime_build) / "bin" / "libprism_group_scale.so").is_file()
+        assert (Path(runtime_build) / "bin" / "libprism_bitnet_prefill_test.so").is_file()
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
         pin_zero_source=True, vector_dtype="F32" if kind == "vector-F32" or (kind.startswith("complete") and kind.endswith("F32")) else "BF16", conv_dtype="F32" if kind == "convolution-F32" or (kind.startswith("complete") and kind.endswith("F32")) else "BF16",
@@ -759,6 +760,18 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
                 writer.add_float32(item["name"], item["values"][0])
             else:
                 writer.add_array(item["name"], item["values"])
+        writer.add_uint32("qwen35.context_length", 256)
+        writer.add_tokenizer_model("gpt2")
+        writer.add_tokenizer_pre("qwen2")
+        vocabulary = ["token_" + str(index) for index in range(32)]
+        vocabulary[2:5] = ["a", "b", "ab"]
+        for label, token in profile.tokenization["label_token_ids"].items():
+            vocabulary[token] = label
+        writer.add_token_list(vocabulary)
+        writer.add_token_merges(["a b"])
+        writer.add_bos_token_id(0)
+        writer.add_eos_token_id(1)
+        writer.add_add_bos_token(False)
     for output_entry in plan["tensors"] if complete else [entry]:
         if output_entry["type"] == "PQ2_0":
             writer.add_tensor(output_entry["name"], blocks.reshape(manifest["shape"][0], manifest["shape"][1] // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
@@ -787,7 +800,20 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
     def verify():
         if owned:
             import ctypes
+            import os
+            from embedded_jev.prism_codec import NativeModelSpecification
             native = ctypes.CDLL(str(Path(sys.argv[3]) / "bin" / "libprism_group_scale.so"))
+            control = ctypes.CDLL(str(Path(sys.argv[3]) / "bin" / "libprism_bitnet_prefill_test.so"))
+            initialize = native.prism_bitnet_cpu_runtime_init_v1
+            initialize.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
+            buffer_type = ctypes.c_void_p()
+            assert initialize(b"842b1880415d6f508f03b789e5ce70194def7bfd", 1, ctypes.byref(buffer_type)) == 0
+            registry = native.prism_bitnet_registered_tensor_registry_size
+            registry.restype = ctypes.c_size_t
+            baseline = registry()
+            prefill = control.prism_bitnet_test_prefill_policy_v2
+            prefill.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p]
+            prefill.restype = ctypes.c_int
             dense_sources = {name: array for name, array in source_arrays.items() if name != manifest["tensor"]}
             with verified_profile_model_policy(
                 native, destination, profile, inventory, manifest, blocks,
@@ -801,7 +827,31 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
                 assert owner.verification["source_table_verification"] == "all_selected_source_ranges_match_profile_pins_and_caller_operands"
                 assert owner.verification["policy_metadata"]["model_metadata_verification"] == "selected_policy_records_only"
                 evidence = owner.verification["source_conversion_table"]
-            assert owner.handle.value is owner.overrides.value is None
+                assert registry() == baseline + 1
+                with tempfile.TemporaryFile(dir=directory) as output:
+                    standard_output = os.dup(1)
+                    ctypes.CDLL(None).fflush(None)
+                    try:
+                        os.dup2(output.fileno(), 1)
+                        status = prefill(owner.model_path.encode(), ctypes.byref(owner.record), owner.handle, owner.overrides, b"full")
+                    finally:
+                        ctypes.CDLL(None).fflush(None)
+                        os.dup2(standard_output, 1)
+                        os.close(standard_output)
+                    assert status == 0
+                    assert output.tell() <= 65536
+                    output.seek(0)
+                    prefill_bytes = output.read(65537)
+                    assert registry() == baseline + 1
+            score = json.loads(prefill_bytes)
+            assert owner.handle.value is owner.overrides.value is None and registry() == baseline
+            assert score["model_policy_abi"] == 2 and score["backend"] == "bitnet"
+            assert score["generated_answer_tokens"] == 0 and score["prefilled_tokens"] > 0
+            assert score["bitnet_dispatch_calls"] == score["prefill_calls"] > 0 and score["weight_repacks"] == 1
+            assert score["option_ids"] == ["inspect", "edit", "ask"] and score["option_token_ids"] == [11, 17, 23]
+            assert score["option_labels"] == ["A", "B", "C"]
+            np.testing.assert_allclose(score["logits"], np.zeros(3), rtol=2e-5, atol=2e-5)
+            np.testing.assert_allclose(score["conditional_scores"], np.full(3, 1 / 3), rtol=2e-5, atol=2e-5)
             try:
                 owner.model_path
                 raise AssertionError("closed owner descriptor remained public")

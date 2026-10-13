@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [source gated owner checkpoint](#source-gated-owner-checkpoint-2026-10-13),
+2. Read the [source gated prefill checkpoint](#source-gated-prefill-checkpoint-2026-10-13),
+   then the [source gated owner checkpoint](#source-gated-owner-checkpoint-2026-10-13),
    then the [complete source conversion checkpoint](#complete-source-conversion-checkpoint-2026-10-13),
    then the [complete source table checkpoint](#complete-source-table-checkpoint-2026-10-13),
    then the [frozen source identity checkpoint](#frozen-source-identity-checkpoint-2026-10-13),
@@ -98,6 +99,49 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Gated Prefill Checkpoint (2026-10-13)
+
+After `125221e`, both existing `complete-owner-*` controls run actual native
+prefill under the same source-gated verified owner using the unchanged bounded
+test hook. Synthetic tokenizer metadata is added; no model repository code or
+real tokenizer inputs execute. Complete pinned source/converted and selected
+policy metadata checks precede yield. The hook borrows the live policy and
+destroys native users before returning. Provisional native JSON is captured in
+<=64 KiB disposable scratch and interpreted only after successful owner exit.
+Exact registry restoration, cleared pointers and closed-path refusal are checked.
+
+Verification: **513 default passes, 64 optional skips** in 29.33 s; Ruff,
+whitespace and touched diagnostics clean. **Two actual source-gated native
+prefill controls pass** in 14.01 s, peak process RSS 310,240 KiB, swaps zero.
+Both BF16 and F32-vector/convolution source variants verify all 28 physical
+ranges and 25 selected metadata records, then report positive genuine BitNet
+dispatch calls matching prefill calls, exactly one weight repack, typed
+inspect/edit/ask IDs 11/17/23 and labels A/B/C, and zero generated answer tokens.
+Zero logits/uniform conditional scores agree at unchanged 2e-5 tolerances.
+Actual restored source writes and fresh-pin converted corruption still refuse
+before prefill. Scratch empty after cleanup; original frozen codes/scales and
+native hooks/caches/libraries remain unchanged. No other optional gates,
+all-profile rerun, rebuild/sanitizer/CTest, real source/model operations,
+downloads, refit or retained candidate in this increment. User settings untouched.
+
+Failed-check history: initial prefill arithmetic controls passed in 12.62 s.
+Adding registry assertions exposed embedded-string indentation errors in both
+subprocesses before launch; a whitespace-only repair did not change the line.
+An equivalent assertion replacement then landed inside the still-live owner,
+so both cases failed at the wrong lifetime boundary after successful prefill.
+Moving the check onto the existing post-exit block restored both passes without
+relaxing pointer, registry, dispatch, arithmetic or generation requirements.
+
+These are zero-dense-source synthetic controls, not independent HF/issuer proof,
+nonzero transform discrimination, frozen quantization equivalence, calibrated
+confidence, representative decision accuracy or edge performance. Historical
+nonzero operand/native controls remain separate evidence; the real MiMo numerical
+discrepancy remains unresolved. Receipts are pre-yield source evidence and
+provisional until successful owner exit, not immutable cross-file storage or
+loaded-code/tokenizer semantic attestation. Further real-model/source conversion,
+execution, quality or device checks still require the separate approvals and
+resource budgets below. Keep any further autonomous work code-only and synthetic.
 
 ## Source Gated Owner Checkpoint (2026-10-13)
 

@@ -1618,7 +1618,9 @@ is pre-yield source identity, not immutable source storage through scoring, sour
 to-frozen quantization equivalence, issuer or quality/runtime approval. Source
 files must be quiescent. Destroy native users before context exit and publish
 receipts/scores only after successful exit. Actual source-gated synthetic policy
-creation/free is tested; source-gated native prefill is not yet tested.
+creation/free and bounded native prefill are tested through unchanged hooks.
+The source-gated prefill controls use zero dense sources: uniform logits/scores
+are an arithmetic/lifecycle check, not nonzero transform or quality evidence.
 
 `verify_profile_safetensors_operand(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,
@@ -1726,9 +1728,14 @@ canonical PQ2 identities. Complete cases compose all ranges for BF16 and F32
 vector/convolution variants. They refuse changed converted bits even with a fresh
 file hash and restored inter-stage source writes. The two `complete-owner-*`
 cases additionally require `MIMO_PRISM_RUNTIME_BUILD` and use the existing native
-policy factory/free with selected metadata and actual source-gated owner receipts.
-They execute no native prefill or real complete-model conversion and claim no independent HF source,
-quantization or representative quality evidence.
+policy factory/free, selected metadata and actual source-gated native prefill.
+They capture <=64 KiB provisional native output in disposable scratch and validate
+it only after successful owner exit: genuine BitNet dispatch count, one repack,
+typed inspect/edit/ask IDs 11/17/23 with labels A/B/C, zero generated tokens,
+zero logits/uniform conditional scores and exact registry restoration. Native
+users are destroyed before policy exit. Hooks and numerical tolerances are
+unchanged; there is no real complete-model conversion, independent HF source,
+quantization-equivalence or representative quality evidence.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
