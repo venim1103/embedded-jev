@@ -882,6 +882,46 @@ def test_profile_converted_convolution_refuses_invalid_operands(defect):
         verify_profile_converted_convolution(profile, report, manifest, blocks, **arguments)
 
 
+@pytest.mark.parametrize("defect", ["missing", "extra", "pins", "source-digest", "source-dtype", "source-shape", "budget", "boolean", "file", "file-extent", "kernel", "deadline"])
+def test_profile_gguf_tensor_table_refuses_invalid_inputs_before_import(monkeypatch, defect):
+    import sys
+
+    from embedded_jev.prism_codec import profile_model_conversion_plan, verify_profile_gguf_tensor_table
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down", kernel_size=1 if defect == "kernel" else 4)
+    plan = profile_model_conversion_plan(profile, report, manifest, blocks)
+    sources = {item["source_name"]: np.zeros(item["source_shape"], dtype="<u2") for item in plan["tensors"] if item["type"] != "PQ2_0"}
+    pins = {name: hashlib.sha256(memoryview(values)).hexdigest() for name, values in sources.items()}
+    arguments = {"reader": object(), "source_values": sources, "expected_source_sha256": pins,
+                 "expected_file_bytes": 16 * 1024**2, "expected_file_sha256": "0" * 64}
+    name = next(iter(sources))
+    if defect == "missing":
+        sources.pop(name)
+    elif defect == "extra":
+        sources["unknown"] = np.zeros(1, dtype="<u2")
+    elif defect == "pins":
+        pins[name] = "invalid"
+    elif defect == "source-digest":
+        pins[name] = "0" * 64
+    elif defect == "source-dtype":
+        sources[name] = sources[name].astype("<f4")
+    elif defect == "source-shape":
+        sources[name] = sources[name].reshape(-1)
+    elif defect == "budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "boolean":
+        arguments["maximum_bytes"] = True
+    elif defect == "file":
+        arguments["maximum_file_bytes"] = 16 * 1024**2 + 1
+    elif defect == "file-extent":
+        arguments["expected_file_bytes"] = 1
+    elif defect == "deadline":
+        arguments["maximum_seconds"] = float("nan")
+    monkeypatch.setitem(sys.modules, "gguf", None)
+    with pytest.raises(ValueError):
+        verify_profile_gguf_tensor_table(profile, report, manifest, blocks, **arguments)
+
+
 def test_profile_model_policy_refuses_unpinned_runtime():
     from embedded_jev.prism_codec import profile_model_specification
 

@@ -302,8 +302,9 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-13 complete synthetic tensor
-stage before native prefill, following convolution file ranges at `7f21b1e`,
+The latest tested source checkpoint is the 2026-10-13 reusable complete tensor
+table API, following complete synthetic prefill integration at `8e11f7a`
+and convolution file ranges at `7f21b1e`,
 following convolution operands at `daf92f1`,
 following BF16 matrix file ranges at `c783c2f`, exact matrix operands at `ef51266`, complete synthetic vectors
 at `7326a14` and GGUF binding at `5240c26`
@@ -314,8 +315,9 @@ at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#complete-synthetic-tensor-checkpoint-2026-10-13) records
-380 default passes/54 optional skips and nine complete-stage/native cases:
+[latest handover](handover.md#complete-table-api-checkpoint-2026-10-13) records
+392 default passes/54 optional skips, twelve batch preflight cases, two pinned
+operand/file controls and nine complete-stage/native cases:
 189 dense ranges plus seven frozen payloads across seven supported roles.
 The preceding convolution checkpoint retains 37 focused file/convolution cases
 and two pinned-source controls with exact nonzero convolution operands/file ranges.
@@ -1510,6 +1512,28 @@ to/caps at 16 MiB; `maximum_bytes` defaults to 512 KiB and caps at 16 MiB.
 Singleton kernels and all early source/layout/budget refusals remain. Receipts
 mark only this selected range as file-bound, with source-file/reader-code
 verification `not_checked`; there is no complete-table or runtime approval.
+
+`verify_profile_gguf_tensor_table(..., reader=..., source_values=...,
+expected_source_sha256=..., expected_file_bytes=..., expected_file_sha256=...)`
+checks every declared tensor range. Source arrays and digest maps require exact
+unfrozen HF-name keys. It preflights layout, per-kind limits, minimum payload
+extent and an aggregate `maximum_bytes` (default/cap 64 MiB) before copying arrays
+or importing the reader. The charge is source plus twice output extent for
+each dense tensor and three canonical frozen payload extents; not peak RAM.
+`maximum_file_bytes` defaults to/caps at 16 MiB. Singleton convolution kernels
+refuse. It snapshots maps/pins and retains read-only operand copies while
+using the same typed range checks for dense and canonical PQ2 data.
+
+`maximum_seconds` defaults to 30/caps at 600, shared across plan construction,
+snapshots and all checks; caller reader construction and hard I/O/native
+timeouts remain outside that guarantee. The immutable receipt holds immutable
+per-tensor records and explicitly leaves `source_file_verification`,
+`model_metadata_verification` and `gguf_reader_verification` as `not_checked`.
+Whole-table tensor bytes against caller arrays do not authenticate their issuer,
+tokenizer/configuration semantics, real source conversion or model quality.
+The 16 MiB file bound intentionally excludes real complete checkpoints; relaxing
+it or performing real reads requires a separately approved resource/provenance
+gate. `PRISM_PARITY_PYTHON` enables this API in the synthetic prefill controls.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

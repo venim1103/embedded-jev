@@ -28,7 +28,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [complete synthetic tensor checkpoint](#complete-synthetic-tensor-checkpoint-2026-10-13),
+2. Read the [complete table API checkpoint](#complete-table-api-checkpoint-2026-10-13),
+   then the [complete synthetic tensor checkpoint](#complete-synthetic-tensor-checkpoint-2026-10-13),
    then the [convolution file checkpoint](#convolution-file-checkpoint-2026-10-13),
    then the [convolution operand checkpoint](#convolution-operand-checkpoint-2026-10-13),
    then the [BF16 matrix file checkpoint](#bf16-matrix-file-checkpoint-2026-10-13),
@@ -87,6 +88,48 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Complete Table API Checkpoint (2026-10-13)
+
+After `8e11f7a`, `verify_profile_gguf_tensor_table()` provides a reusable bounded
+API for every declared tensor range. Exact unfrozen HF source-name keys and
+caller array digests are required; layouts, per-kind limits, aggregate budget
+and the minimum payload/file extent are checked before source copies or reader
+import. Source mappings/pins are snapshotted; copied operands and frozen blocks
+are read-only. File cap is 16 MiB; aggregate default/cap is 64 MiB, charged as
+source plus twice output bytes for each dense tensor and three frozen payload
+extents. This is not peak process RAM or separate projection validation memory.
+
+One cooperative 30 s deadline (cap 600 s) starts before plan construction and
+covers snapshots and all range checks, not caller parser construction or hard
+I/O/native timeouts. Existing typed range validation now also handles PQ2:
+dimensions/type/encoded rows, v3 table record, mapped range and exact canonical
+payload are checked without refitting codes/scales. Public vector/matrix/
+convolution APIs and v1 policies remain unchanged. The immutable table receipt
+contains a tuple of immutable per-tensor receipts; source files, model metadata
+and reader code remain `not_checked`, with no runtime approval.
+
+Verification: **392 default passes, 54 optional skips** in 6.82 s, Ruff,
+whitespace and editor diagnostics clean. Twelve pre-import batch cases cover
+source keys/pins/dtypes/shapes, invalid aggregate/file/time budgets, impossible
+file extents and singleton convolution kernels. Both reviewed pinned-source
+operand/file controls passed in **4.27 s**, peak process RSS 290,088 KiB, no
+swaps. The complete fixture now uses the API: **nine native cases in 53.79 s**,
+peak process RSS 282,584 KiB, no swaps, across the unchanged seven roles/two
+refusals. It checks immutable receipts and missing-source, aggregate-budget,
+duplicate-table and shared-deadline refusals. A changed frozen code byte with
+an updated file digest still refuses exact canonical parity; the independent
+changed-embedding probe and native modes also pass. Timing variation is not an
+optimization or target-performance claim.
+
+No failing checks occurred in this increment. The impossible-file/kernel
+preflights were added after local review and the same focused controls passed.
+Producer-generated source archives remain synthetic, not authenticated HF
+weights; sparse recurrent limits and independent nonzero toy evidence remain
+as below. No native rebuild, new sanitizer/CTest, real weight/candidate reads,
+downloads, conversion/execution, fits, retained artifact, quality experiment,
+push, branch or subagent. Next: descriptor-path compatibility with the existing
+verified owner; real-profile/source/quality approvals remain separate.
 
 ## Complete Synthetic Tensor Checkpoint (2026-10-13)
 

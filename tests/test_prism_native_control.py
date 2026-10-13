@@ -1022,6 +1022,67 @@ if complete:
     assert set(archive.files) == {item["name"] for item in plan["tensors"] if item["type"] != "PQ2_0"}
     assert {item.name for item in reader.tensors} == {item["name"] for item in plan["tensors"]}
     assert len(reader.tensors) == len(plan["tensors"]) == 28
+    from embedded_jev.prism_codec import verify_profile_gguf_tensor_table
+    sources = {item["source_name"]: archive[item["name"]] for item in plan["tensors"] if item["type"] != "PQ2_0"}
+    pins = {name: hashlib.sha256(memoryview(value)).hexdigest() for name, value in sources.items()}
+    table_receipt = verify_profile_gguf_tensor_table(
+        profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
+        source_values=sources, expected_source_sha256=pins,
+        expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3])
+    assert table_receipt["tensor_count"] == 28 and table_receipt["operand_budget_bytes"] <= 64 * 1024**2
+    assert table_receipt["source_file_verification"] == table_receipt["model_metadata_verification"] == table_receipt["gguf_reader_verification"] == "not_checked"
+    assert table_receipt["runtime_approval"] == "not_granted_by_tensor_table_verification"
+    table_entries = {item["tensor_name"]: item for item in table_receipt["tensors"]}
+    assert len(table_entries) == 28
+    try:
+        table_receipt["tensor_count"] = 0
+        raise AssertionError("mutable table receipt")
+    except TypeError:
+        pass
+    for defect in ("source-key", "aggregate-budget", "duplicate", "deadline"):
+        changed_sources = sources.copy()
+        changed = {}
+        original_tensors = reader.tensors
+        original_clock = time.monotonic
+        if defect == "source-key":
+            changed_sources.pop(next(iter(changed_sources)))
+        elif defect == "aggregate-budget":
+            changed["maximum_bytes"] = 1
+        elif defect == "duplicate":
+            reader.tensors = [*reader.tensors, reader.tensors[0]]
+        elif defect == "deadline":
+            time.monotonic = iter((0, 31)).__next__
+        try:
+            verify_profile_gguf_tensor_table(
+                profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
+                source_values=changed_sources, expected_source_sha256=pins,
+                expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], **changed)
+            raise AssertionError("invalid complete-table request accepted: " + defect)
+        except ValueError:
+            pass
+        finally:
+            reader.tensors = original_tensors
+            time.monotonic = original_clock
+    projection = next(item for item in plan["tensors"] if item["type"] == "PQ2_0")
+    tensor = next(item for item in reader.tensors if item.name == projection["name"])
+    with open(sys.argv[1], "r+b") as output:
+        output.seek(tensor.data_offset + 2)
+        saved = output.read(1)
+        output.seek(tensor.data_offset + 2)
+        output.write(bytes([saved[0] ^ 1]))
+    try:
+        changed_file = bounded_native_file_record(Path(sys.argv[1]), maximum_bytes=int(sys.argv[2]), deadline=time.monotonic() + 30)
+        verify_profile_gguf_tensor_table(
+            profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
+            source_values=sources, expected_source_sha256=pins,
+            expected_file_bytes=int(sys.argv[2]), expected_file_sha256=changed_file["sha256"])
+        raise AssertionError("changed frozen projection accepted by table gate")
+    except ValueError as error:
+        assert "frozen projection byte parity" in str(error)
+    finally:
+        with open(sys.argv[1], "r+b") as output:
+            output.seek(tensor.data_offset + 2)
+            output.write(saved)
 count = 0
 matrices = convolutions = frozen = 0
 for item in plan["tensors"]:
@@ -1043,12 +1104,15 @@ for item in plan["tensors"]:
         values = np.ones(item["source_shape"], dtype=np.float32) if item["source_name"].endswith("linear_attn.norm.weight") else np.zeros(item["source_shape"], dtype=np.float32)
         source = (values.view(np.uint32) >> 16).astype("<u2")
     verifier = verify_profile_gguf_vector if vector else verify_profile_gguf_matrix if item["type"] == "BF16" else verify_profile_gguf_convolution
-    receipt = verifier(
-        profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
-        source_name=item["source_name"], source_values=source,
-        expected_source_sha256=hashlib.sha256(memoryview(source)).hexdigest(),
-        expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], maximum_file_bytes=16 * 1024**2,
-        **({} if vector else {"maximum_bytes": 16 * 1024**2}))
+    if complete:
+        receipt = table_entries[item["name"]]
+    else:
+        receipt = verifier(
+            profile, fixture["inventory"], fixture["manifest"], payload, reader=reader,
+            source_name=item["source_name"], source_values=source,
+            expected_source_sha256=hashlib.sha256(memoryview(source)).hexdigest(),
+            expected_file_bytes=int(sys.argv[2]), expected_file_sha256=sys.argv[3], maximum_file_bytes=16 * 1024**2,
+            **({} if vector else {"maximum_bytes": 16 * 1024**2}))
     assert receipt["converted_file_verification"] == "caller_sha256_and_reader_range_match"
     assert receipt["converted_file_sha256"] == sys.argv[3]
     assert receipt["source_file_verification"] == receipt["gguf_reader_verification"] == "not_checked"

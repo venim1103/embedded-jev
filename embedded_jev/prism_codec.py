@@ -462,29 +462,31 @@ def _verify_profile_gguf_operand(
 
     matrix = kind == "matrix"
     convolution = kind == "convolution"
+    projection = kind == "projection"
     if (
-        kind not in ("vector", "matrix", "convolution")
+        kind not in ("vector", "matrix", "convolution", "projection")
         or type(expected_file_bytes) is not int or type(maximum_file_bytes) is not int
         or not 0 < expected_file_bytes <= maximum_file_bytes <= 16 * 1024**2
         or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
-        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= (64 * 1024 if kind == "vector" else 16 * 1024**2)
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= (64 * 1024 if kind == "vector" else 64 * 1024**2 if projection else 16 * 1024**2)
     ):
         raise ValueError("invalid GGUF vector file identity or budget")
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
     entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
-    storage = "BF16" if matrix else "F32"
-    if entry is None or entry["type"] != storage or len(entry["source_shape"]) != (3 if convolution else 2 if matrix else 1):
+    storage = "PQ2_0" if projection else "BF16" if matrix else "F32"
+    if entry is None or entry["type"] != storage or len(entry["source_shape"]) != (3 if convolution else 2 if matrix or projection else 1):
         raise ValueError("GGUF operand requires its declared storage type and rank")
     if convolution and (not source_name.endswith("linear_attn.conv1d.weight") or entry["source_shape"][1] != 1 or entry["source_shape"][2] <= 1):
         raise ValueError("GGUF convolution requires declared nonsingleton kernel geometry")
     output_shape = [entry["source_shape"][0], entry["source_shape"][2]] if convolution else entry["source_shape"]
     elements = int(np.prod(output_shape))
-    size = elements * (2 if matrix else 4)
-    source_dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+    size = elements // 128 * 34 if projection else elements * (2 if matrix else 4)
+    source_dtype = np.dtype("uint8") if projection else {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(entry["source_dtype"])
+    source_shape = np.asarray(pq2_blocks).shape if projection else tuple(entry["source_shape"])
     if (
         source_dtype is None or not isinstance(source_values, np.ndarray) or source_values.dtype != source_dtype
-        or source_values.shape != tuple(entry["source_shape"]) or not source_values.flags.c_contiguous
+        or source_values.shape != source_shape or not source_values.flags.c_contiguous
         or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
         or source_values.nbytes + 2 * size > maximum_bytes
     ):
@@ -502,7 +504,7 @@ def _verify_profile_gguf_operand(
         raise ValueError("GGUF vector name is missing or duplicated")
     tensor = matches[0]
     dimensions = list(reversed(output_shape))
-    stored_shape = [*output_shape[:-1], output_shape[-1] * 2] if matrix else output_shape
+    stored_shape = [*output_shape[:-1], output_shape[-1] // 128 * 34] if projection else [*output_shape[:-1], output_shape[-1] * 2] if matrix else output_shape
     offset = int(tensor.data_offset)
     alignment = reader.fields.get("general.alignment")
     alignment = 32 if alignment is None else alignment.contents()
@@ -510,7 +512,7 @@ def _verify_profile_gguf_operand(
     if (
         tensor.tensor_type != getattr(gguf.GGMLQuantizationType, storage) or list(tensor.shape) != dimensions
         or tensor.n_bytes != size or tensor.n_elements != elements
-        or tensor.data.dtype != np.dtype("uint8" if matrix else "<f4") or tensor.data.shape != tuple(stored_shape)
+        or tensor.data.dtype != np.dtype("uint8" if matrix or projection else "<f4") or tensor.data.shape != tuple(stored_shape)
         or not tensor.data.flags.c_contiguous or tensor.data.flags.writeable
         or not np.shares_memory(reader.data, tensor.data)
         or offset < reader.data_offset or offset + size > expected_file_bytes
@@ -542,11 +544,21 @@ def _verify_profile_gguf_operand(
         source.seek(offset)
         if source.read(size) != copied.tobytes():
             raise ValueError("GGUF vector mapping differs from file range")
-    verifier = verify_profile_converted_convolution if convolution else verify_profile_converted_matrix if matrix else verify_profile_converted_vector
-    receipt = verifier(
-        profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
-        converted_values=copied, expected_source_sha256=expected_source_sha256, maximum_bytes=maximum_bytes,
-    )
+    if projection:
+        if expected_source_sha256 != manifest["payload_sha256"] or not np.array_equal(copied.reshape(source_shape), pq2_blocks):
+            raise ValueError("GGUF frozen projection byte parity mismatch")
+        receipt = {"profile_id": profile.profile_id, "profile_sha256": profile.sha256, "source_name": source_name,
+                   "tensor_name": entry["name"], "source_file_verification": "not_checked",
+                   "source_payload_verification": "declared_digest_not_rehashed_source_tensor",
+                   "projection_payload_sha256": manifest["payload_sha256"],
+                   "converted_sha256": hashlib.sha256(memoryview(copied)).hexdigest(), "converted_bytes": copied.nbytes,
+                   "operand_byte_verification": "exact_frozen_pq2_bytes"}
+    else:
+        verifier = verify_profile_converted_convolution if convolution else verify_profile_converted_matrix if matrix else verify_profile_converted_vector
+        receipt = verifier(
+            profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
+            converted_values=copied, expected_source_sha256=expected_source_sha256, maximum_bytes=maximum_bytes,
+        )
     if bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) != before:
         raise ValueError("GGUF vector file changed during verification")
     return MappingProxyType({**receipt, "converted_file_verification": "caller_sha256_and_reader_range_match",
@@ -597,6 +609,91 @@ def verify_profile_gguf_convolution(
         expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
         kind="convolution", maximum_bytes=maximum_bytes,
     )
+
+
+def verify_profile_gguf_tensor_table(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_values: dict,
+    expected_source_sha256: dict, expected_file_bytes: int, expected_file_sha256: str,
+    maximum_bytes: int = 64 * 1024**2, maximum_file_bytes: int = 16 * 1024**2, maximum_seconds: float = 30,
+):
+    """Verify all bounded tensor ranges, not source files, model metadata or runtime approval."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_bytes) is not int or not 0 < maximum_bytes <= 64 * 1024**2
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or not isinstance(source_values, dict) or not isinstance(expected_source_sha256, dict)
+    ):
+        raise ValueError("invalid complete tensor-table identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    source_values = source_values.copy()
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    dense = [item for item in plan["tensors"] if item["type"] != "PQ2_0"]
+    names = {item["source_name"] for item in dense}
+    if set(source_values) != names or set(expected_source_sha256) != names:
+        raise ValueError("complete tensor-table source set mismatch")
+    pins = expected_source_sha256.copy()
+    total = 3 * np.asarray(pq2_blocks).nbytes
+    payload_bytes = np.asarray(pq2_blocks).nbytes
+    kinds = {}
+    for item in dense:
+        name = item["source_name"]
+        values = source_values[name]
+        dtype = {"BF16": np.dtype("<u2"), "F32": np.dtype("<f4")}.get(item["source_dtype"])
+        size = int(np.prod(item["source_shape"])) * (2 if item["type"] == "BF16" else 4)
+        kind = "matrix" if item["type"] == "BF16" else "vector" if len(item["source_shape"]) == 1 else "convolution"
+        if (
+            dtype is None or not isinstance(values, np.ndarray) or values.dtype != dtype
+            or values.shape != tuple(item["source_shape"]) or not values.flags.c_contiguous
+            or not isinstance(pins[name], str) or SHA256.fullmatch(pins[name]) is None
+            or values.nbytes + 2 * size > (64 * 1024 if kind == "vector" else 16 * 1024**2)
+            or (kind == "convolution" and (len(item["source_shape"]) != 3 or item["source_shape"][1] != 1 or item["source_shape"][2] <= 1))
+        ):
+            raise ValueError("complete tensor-table operand layout, pin or budget mismatch")
+        total += values.nbytes + 2 * size
+        payload_bytes += size
+        kinds[name] = kind
+    if payload_bytes > expected_file_bytes:
+        raise ValueError("complete tensor-table payloads exceed declared file extent")
+    if total > maximum_bytes:
+        raise ValueError("complete tensor-table operands exceed aggregate byte budget")
+    sources = {name: values.copy() for name, values in source_values.items()}
+    blocks = np.array(pq2_blocks, copy=True)
+    blocks.setflags(write=False)
+    for name, values in sources.items():
+        if hashlib.sha256(memoryview(values)).hexdigest() != pins[name]:
+            raise ValueError("complete tensor-table source identity mismatch")
+        values.setflags(write=False)
+    import gguf
+
+    if type(reader) is not gguf.GGUFReader or len(reader.tensors) != len(plan["tensors"]) or {item.name for item in reader.tensors} != {item["name"] for item in plan["tensors"]}:
+        raise ValueError("complete tensor-table reader set mismatch")
+    receipts = []
+    for item in plan["tensors"]:
+        name = item["source_name"]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError("complete tensor-table deadline exceeded")
+        frozen = item["type"] == "PQ2_0"
+        kind = "projection" if frozen else kinds[name]
+        receipts.append(_verify_profile_gguf_operand(
+            profile, inventory, manifest, blocks, reader=reader, source_name=name,
+            source_values=blocks if frozen else sources[name], expected_source_sha256=manifest["payload_sha256"] if frozen else pins[name],
+            expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+            maximum_file_bytes=maximum_file_bytes, maximum_seconds=remaining,
+            maximum_bytes=64 * 1024 if kind == "vector" else 64 * 1024**2 if frozen else 16 * 1024**2, kind=kind,
+        ))
+    if time.monotonic() > deadline:
+        raise ValueError("complete tensor-table deadline exceeded")
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
+                            "tensor_count": len(receipts), "operand_budget_bytes": total, "tensors": tuple(receipts),
+                            "tensor_table_verification": "all_declared_ranges_match_caller_operands_and_frozen_payload",
+                            "source_file_verification": "not_checked", "model_metadata_verification": "not_checked",
+                            "gguf_reader_verification": "not_checked", "runtime_approval": "not_granted_by_tensor_table_verification"})
 
 
 class NativeModelTensor(ctypes.Structure):
