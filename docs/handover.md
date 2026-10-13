@@ -1,12 +1,16 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-12. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-13. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**Paused by user, 2026-10-12:** Stop at tested source checkpoint `b6a9f0d`,
+**Resumed by user, 2026-10-13:** Continue autonomous code-only caller/provenance
+preparation with bounded synthetic fixtures. Starting `5bbbd4e` matched
+`origin/main`; user settings remain untouched. Real-model approvals are unchanged.
+
+**Historical pause, 2026-10-12:** Stopped at tested source checkpoint `b6a9f0d`,
 following `c18e90f` and `4973863`. The user pushed all three; `main` matched
 `origin/main` before this documentation-only pause note. The default gate has
 322 passes/54 optional skips, and both pinned BF16/F32 vector controls pass.
@@ -15,16 +19,17 @@ read produced no result and made no edits. Resume only after an explicit user
 instruction. No tracked source changes or background jobs remain; the untracked
 user `.vscode/` directory is untouched. Real-model authorization is unchanged.
 
-**Quick orientation (2026-10-12):**
+**Quick orientation (2026-10-13):**
 
-1. The user explicitly resumed autonomous work on 2026-10-12. The bounded
+1. The user explicitly resumed autonomous work again on 2026-10-13. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   The user separately approved the code-only v2 metadata-budget correction below.
   After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [conversion plan and vector parity checkpoint](#conversion-plan-and-vector-parity-checkpoint-2026-10-12),
+2. Read the [GGUF vector binding checkpoint](#gguf-vector-binding-checkpoint-2026-10-13),
+   then the [conversion plan and vector parity checkpoint](#conversion-plan-and-vector-parity-checkpoint-2026-10-12),
    then the [bounded runtime hashing checkpoint](#bounded-runtime-hashing-checkpoint-2026-10-12),
    then the [symbol origin checkpoint](#symbol-origin-checkpoint-2026-10-12),
    then the [runtime file pin checkpoint](#runtime-file-pin-checkpoint-2026-10-12),
@@ -76,6 +81,47 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## GGUF Vector Binding Checkpoint (2026-10-13)
+
+The explicit resume now adds `verify_profile_gguf_vector()` beside the unchanged
+operand-only comparator. A read-only little-endian `GGUFReader` view must match
+the profile's F32 vector name/type/shape/byte count and share the reader's mmap
+at the declared offset. The wrapper checks v3 header counts, alignment/table end
+and the selected tensor-info record against actual file bytes, then checks the
+selected payload range. Cached name/alignment fields alone are not trusted.
+Two bounded unbuffered whole-file hashes must match the caller's byte/SHA-256
+pins around exact operand parity. Default file budget is 64 KiB, cap 16 MiB;
+one cooperative deadline defaults to 30 s and is capped at 600 s.
+
+This binds **one vector range**, not the complete converted table, model tags,
+tokenizer, matrices/convolution or source files. The caller constructs the reader
+first in the separately pinned environment: this wrapper does not bound parser
+construction or attest its imported code. The immutable receipt now marks
+`converted_file_verification: caller_sha256_and_reader_range_match`, retains
+`source_file_verification: not_checked`, and explicitly adds
+`gguf_reader_verification: not_checked`. File pins' issuer, immutable storage,
+concurrent writers and hard I/O/native deadlines are not proven. No runtime
+or real-profile execution approval follows.
+
+Verification: **329 default passes, 54 optional skips** in 3.32 s, Ruff,
+whitespace and editor diagnostics clean. **22 focused plan/vector/file cases**
+passed in 0.45 s. The two reused BF16/F32 pinned-source controls write seven
+vectors to a disposable <64 KiB GGUF and consume actual mapped tensor views.
+Both controls pass in **2.82 s**, peak process RSS 241,092 KiB, no swaps.
+They refuse wrong digests/budgets, writable readers, missing/duplicate names,
+wrong types/offsets, copied views, deterministic deadline expiry, stale name/
+alignment metadata, changed file payloads and mid-parity mutation. No failed
+checks occurred in this increment; no tolerance or native bound was relaxed.
+
+The cached converter/reader source files are clean at the pinned Prism revision.
+Temporary GGUFs are removed by `TemporaryDirectory`; no payload or report was
+retained. No source/candidate weight bytes, real checkpoint, native library,
+v1 factory or prefill hook was changed/read/rebuilt. No downloads, conversions
+of a real model, quality experiments, subagents, push or branches. Native
+actual-loader, sanitizer and CTest evidence remains at the prior checkpoints.
+Next local integration: exercise vector binding against the existing complete
+synthetic profile model before bounded prefill; no hook expansion is needed.
 
 ## Conversion Plan And Vector Parity Checkpoint (2026-10-12)
 

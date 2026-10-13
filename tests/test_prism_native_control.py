@@ -2480,10 +2480,13 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import numpy as np
 import torch
+import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import verify_profile_converted_vector
+from embedded_jev.prism_codec import verify_profile_converted_vector, verify_profile_gguf_vector
+import embedded_jev.prism_codec as prism_codec
 
 module = ast.parse((Path(sys.argv[1]) / "conversion/qwen.py").read_text())
 next_model = next(node for node in module.body
@@ -2575,6 +2578,7 @@ profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
 assert profile.sha256 == plan["profile_sha256"]
 payload = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(
     fixture["manifest"]["shape"][0], fixture["manifest"]["shape"][1] // 128, 34)
+vector_operands = {}
 for source_name in ("model.norm.weight", "model.layers.0.input_layernorm.weight",
                     "model.layers.1.self_attn.q_norm.weight", "model.layers.1.self_attn.k_norm.weight",
                     name + "norm.weight", name + "A_log", name + "dt_bias"):
@@ -2582,6 +2586,7 @@ for source_name in ("model.norm.weight", "model.layers.0.input_layernorm.weight"
     source = torch.tensor(np.arange(entry["source_shape"][0]) % 5 - 2, dtype=torch.float32)
     raw_source = source.to(torch.bfloat16).view(torch.uint16).numpy().copy() if entry["source_dtype"] == "BF16" else source.numpy().copy()
     converted = list(model.modify_tensors(source, source_name, 0))[0][1].numpy().copy()
+    vector_operands[entry["name"]] = (source_name, raw_source, converted)
     keywords = {"source_name": source_name, "source_values": raw_source, "converted_values": converted,
                 "expected_source_sha256": hashlib.sha256(memoryview(raw_source)).hexdigest()}
     receipt = verify_profile_converted_vector(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
@@ -2605,11 +2610,138 @@ for source_name in ("model.norm.weight", "model.layers.0.input_layernorm.weight"
         raise AssertionError("changed vector bytes were accepted")
     except ValueError as error:
         assert "byte parity" in str(error)
+with TemporaryDirectory(prefix="jev-vector-gguf-") as directory:
+    path = Path(directory) / "vectors.gguf"
+    writer = gguf.GGUFWriter(path, "qwen35")
+    writer.add_uint32("general.alignment", 32)
+    for tensor_name, (_, _, converted) in vector_operands.items():
+        writer.add_tensor(tensor_name, converted)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    assert path.stat().st_size < 64 * 1024
+    reader = gguf.GGUFReader(path)
+    file_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert len(reader.tensors) == len(vector_operands) == 7
+    for tensor in reader.tensors:
+        source_name, raw_source, converted = vector_operands[tensor.name]
+        assert tensor.tensor_type == gguf.GGMLQuantizationType.F32
+        assert tensor.data.shape == converted.shape
+        receipt = verify_profile_converted_vector(
+            profile, fixture["inventory"], fixture["manifest"], payload,
+            source_name=source_name, source_values=raw_source, converted_values=tensor.data,
+            expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest())
+        assert receipt["converted_sha256"] == hashlib.sha256(memoryview(converted)).hexdigest()
+        file_receipt = verify_profile_gguf_vector(
+            profile, fixture["inventory"], fixture["manifest"], payload,
+            reader=reader, source_name=source_name, source_values=raw_source,
+            expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest(),
+            expected_file_bytes=path.stat().st_size, expected_file_sha256=file_sha256)
+        assert file_receipt["converted_file_verification"] == "caller_sha256_and_reader_range_match"
+        assert file_receipt["gguf_reader_verification"] == "not_checked"
+        assert file_receipt["converted_tensor_offset"] == tensor.data_offset
+        assert file_receipt["source_file_verification"] == "not_checked"
+        file_keywords = {"reader": reader, "source_name": source_name, "source_values": raw_source,
+                         "expected_source_sha256": hashlib.sha256(memoryview(raw_source)).hexdigest(),
+                         "expected_file_bytes": path.stat().st_size, "expected_file_sha256": file_sha256}
+        for defect in ("digest", "file-budget", "reader-mode", "missing", "duplicate", "type", "offset", "copied-view", "deadline"):
+            changed_keywords = file_keywords.copy()
+            original_tensors = reader.tensors
+            original_clock = prism_codec.time.monotonic
+            if defect == "digest":
+                changed_keywords["expected_file_sha256"] = "0" * 64
+            elif defect == "file-budget":
+                changed_keywords["maximum_file_bytes"] = file_keywords["expected_file_bytes"] - 1
+            elif defect == "reader-mode":
+                changed_keywords["reader"] = gguf.GGUFReader(path, mode="r+")
+            elif defect == "missing":
+                reader.tensors = [item for item in reader.tensors if item.name != tensor.name]
+            elif defect == "duplicate":
+                reader.tensors = [*reader.tensors, tensor]
+            elif defect == "deadline":
+                prism_codec.time.monotonic = iter((0, 31)).__next__
+            else:
+                changed_tensor = tensor._replace(**{
+                    "type": {"tensor_type": gguf.GGMLQuantizationType.BF16},
+                    "offset": {"data_offset": tensor.data_offset + 4},
+                    "copied-view": {"data": tensor.data.copy()},
+                }[defect])
+                reader.tensors = [changed_tensor if item.name == tensor.name else item for item in reader.tensors]
+            try:
+                verify_profile_gguf_vector(profile, fixture["inventory"], fixture["manifest"], payload, **changed_keywords)
+                raise AssertionError("invalid GGUF vector binding was accepted: " + defect)
+            except ValueError:
+                pass
+            finally:
+                reader.tensors = original_tensors
+                prism_codec.time.monotonic = original_clock
+        for defect in ("stale-name", "stale-alignment"):
+            changed_offset = tensor.field.offset + 8 if defect == "stale-name" else reader.fields["general.alignment"].parts[-1].ctypes.data - reader.data.ctypes.data
+            with path.open("r+b") as output:
+                output.seek(changed_offset)
+                saved = output.read(1)
+                output.seek(changed_offset)
+                output.write(b"x" if defect == "stale-name" else b"@")
+            changed_keywords = {**file_keywords, "expected_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            try:
+                verify_profile_gguf_vector(profile, fixture["inventory"], fixture["manifest"], payload, **changed_keywords)
+                raise AssertionError("stale GGUF metadata was accepted: " + defect)
+            except ValueError:
+                pass
+            finally:
+                with path.open("r+b") as output:
+                    output.seek(changed_offset)
+                    output.write(saved)
+        original_verify = prism_codec.verify_profile_converted_vector
+        def changed_during_parity(*arguments, **keywords):
+            result = original_verify(*arguments, **keywords)
+            with path.open("r+b") as output:
+                output.seek(tensor.data_offset)
+                value = output.read(1)
+                output.seek(tensor.data_offset)
+                output.write(bytes([value[0] ^ 1]))
+            return result
+        prism_codec.verify_profile_converted_vector = changed_during_parity
+        try:
+            verify_profile_gguf_vector(profile, fixture["inventory"], fixture["manifest"], payload, **file_keywords)
+            raise AssertionError("mid-verification file mutation was accepted")
+        except ValueError as error:
+            assert "changed" in str(error)
+        finally:
+            prism_codec.verify_profile_converted_vector = original_verify
+            with path.open("r+b") as output:
+                output.seek(tensor.data_offset)
+                output.write(converted.tobytes()[:1])
+        with path.open("r+b") as output:
+            output.seek(tensor.data_offset)
+            original = output.read(1)
+            output.seek(tensor.data_offset)
+            output.write(bytes([original[0] ^ 1]))
+        try:
+            verify_profile_converted_vector(
+                profile, fixture["inventory"], fixture["manifest"], payload,
+                source_name=source_name, source_values=raw_source, converted_values=tensor.data,
+                expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest())
+            raise AssertionError("changed GGUF vector bytes were accepted")
+        except ValueError as error:
+            assert "byte parity" in str(error)
+        try:
+            verify_profile_gguf_vector(profile, fixture["inventory"], fixture["manifest"], payload, **file_keywords)
+            raise AssertionError("changed file identity was accepted")
+        except ValueError as error:
+            assert "file identity" in str(error)
+        finally:
+            with path.open("r+b") as output:
+                output.seek(tensor.data_offset)
+                output.write(original)
+    del tensor, reader
 print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3]}))
 """
     result = subprocess.run(
         [interpreter, "-c", code, str(source), json.dumps(plan)], check=True,
         capture_output=True, text=True, input=fixture, timeout=15,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))},
     )
     assert json.loads(result.stdout) == {"qkv_shape": [16, 8], "v_head_order": [0, 2, 1, 3]}
 

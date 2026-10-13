@@ -4,6 +4,7 @@ import ctypes
 import hashlib
 import os
 import stat
+import struct
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -326,6 +327,88 @@ def verify_profile_converted_vector(
                             "operand_byte_verification": "exact_f32_bytes_match_pinned_transform_reference",
                             "source_file_verification": "not_checked", "converted_file_verification": "not_checked",
                             "runtime_approval": "not_granted_by_operand_verification"})
+
+
+def verify_profile_gguf_vector(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
+    expected_file_sha256: str, maximum_file_bytes: int = 64 * 1024, maximum_seconds: float = 30,
+):
+    """Bind a reader vector view to caller file identity, not whole-model parity."""
+    from embedded_jev.model_profile import SHA256
+    from embedded_jev.streamed_text import bounded_native_file_record
+
+    if (
+        type(expected_file_bytes) is not int or type(maximum_file_bytes) is not int
+        or not 0 < expected_file_bytes <= maximum_file_bytes <= 16 * 1024**2
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+    ):
+        raise ValueError("invalid GGUF vector file identity or budget")
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if entry is None or entry["type"] != "F32" or len(entry["source_shape"]) != 1:
+        raise ValueError("GGUF vector requires a declared F32 vector")
+    import gguf
+
+    if (
+        type(reader) is not gguf.GGUFReader or reader.endianess != gguf.GGUFEndian.LITTLE
+        or not isinstance(reader.data, np.memmap) or reader.data.mode != "r" or reader.data.offset != 0
+        or reader.data.dtype != np.uint8 or reader.data.ndim != 1 or reader.data.size != expected_file_bytes
+    ):
+        raise ValueError("GGUF vector requires a read-only little-endian pinned reader")
+    matches = [item for item in reader.tensors if item.name == entry["name"]]
+    if len(matches) != 1:
+        raise ValueError("GGUF vector name is missing or duplicated")
+    tensor = matches[0]
+    size = entry["source_shape"][0] * 4
+    offset = int(tensor.data_offset)
+    alignment = reader.fields.get("general.alignment")
+    alignment = 32 if alignment is None else alignment.contents()
+    table_end = max(item.field.offset + sum(part.nbytes for part in item.field.parts) for item in reader.tensors)
+    if (
+        tensor.tensor_type != gguf.GGMLQuantizationType.F32 or list(tensor.shape) != entry["source_shape"]
+        or tensor.n_bytes != size or tensor.n_elements != entry["source_shape"][0]
+        or tensor.data.dtype != np.dtype("<f4") or tensor.data.shape != tuple(entry["source_shape"])
+        or not tensor.data.flags.c_contiguous or tensor.data.flags.writeable
+        or not np.shares_memory(reader.data, tensor.data)
+        or offset < reader.data_offset or offset + size > expected_file_bytes
+        or tensor.data.ctypes.data - reader.data.ctypes.data != offset
+        or not 1 <= len(reader.tensors) <= 427 or not 3 <= len(reader.fields) <= 259
+        or alignment != reader.alignment or alignment <= 0 or alignment & (alignment - 1)
+        or (table_end + alignment - 1) // alignment * alignment != reader.data_offset
+    ):
+        raise ValueError("GGUF vector type, geometry or mapped range mismatch")
+    path = Path(reader.data.filename)
+    deadline = time.monotonic() + maximum_seconds
+    before = bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline)
+    if before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256:
+        raise ValueError("GGUF vector file identity mismatch")
+    copied = tensor.data.copy()
+    name = tensor.name.encode("utf-8")
+    information = struct.pack("<Q", len(name)) + name + struct.pack("<IQIQ", 1, entry["source_shape"][0], 0, offset - reader.data_offset)
+    field_offset = int(tensor.field.offset)
+    if not 24 <= field_offset < field_offset + len(information) <= reader.data_offset:
+        raise ValueError("GGUF vector tensor table range mismatch")
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as source:
+        if source.read(24) != struct.pack("<4sIQQ", b"GGUF", 3, len(reader.tensors), len(reader.fields) - 3):
+            raise ValueError("GGUF vector header differs from reader")
+        source.seek(field_offset)
+        if source.read(len(information)) != information:
+            raise ValueError("GGUF vector tensor table differs from reader")
+        source.seek(offset)
+        if source.read(size) != copied.tobytes():
+            raise ValueError("GGUF vector mapping differs from file range")
+    receipt = verify_profile_converted_vector(
+        profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
+        converted_values=copied, expected_source_sha256=expected_source_sha256,
+    )
+    if bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) != before:
+        raise ValueError("GGUF vector file changed during verification")
+    return MappingProxyType({**receipt, "converted_file_verification": "caller_sha256_and_reader_range_match",
+                            "gguf_reader_verification": "not_checked",
+                            "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
+                            "converted_tensor_offset": offset, "runtime_approval": "not_granted_by_vector_file_verification"})
 
 
 class NativeModelTensor(ctypes.Structure):

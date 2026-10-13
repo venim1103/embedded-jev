@@ -302,16 +302,17 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-12 conversion plan and
-bounded vector operand parity, following runtime hashing at `c18e90f`,
+The latest tested source checkpoint is the 2026-10-13 bounded GGUF vector file
+binding, following conversion planning/vector operand parity at `b6a9f0d`
+and runtime hashing at `c18e90f`,
 following defining-symbol origins and optional six-module inference file pins
 at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#conversion-plan-and-vector-parity-checkpoint-2026-10-12) records
-322 default passes/54 optional skips, 15 focused plan/vector cases and two
-pinned-source synthetic vector controls. The preceding runtime hashing checkpoint
+[latest handover](handover.md#gguf-vector-binding-checkpoint-2026-10-13) records
+329 default passes/54 optional skips, 22 focused plan/vector/file cases and two
+pinned-source synthetic GGUF vector controls. The preceding runtime hashing checkpoint
 retains 56 focused file/owner/runtime cases and nine synthetic caller cases
 with verified full/parallel/recovery modes. The unchanged
 native metadata checkpoint retains 23 compiled controls and GCC sanitizer
@@ -1404,7 +1405,27 @@ Its immutable receipt marks `source_file_verification` and
 only against the caller's expectation, and the output array is not yet bound
 to a GGUF file. Torch loaded pages are not attested. No model runtime approval
 or whole-model conversion parity follows; actual file binding and matrix parity
-are separate prerequisites.
+are separate prerequisites for that operand-only API.
+
+`verify_profile_gguf_vector(..., reader=..., source_name=..., source_values=...,
+expected_source_sha256=..., expected_file_bytes=..., expected_file_sha256=...)`
+adds a separate file-binding check. It requires the imported `GGUFReader` type,
+read-only little-endian mmap and a one-dimensional F32 view with exact declared
+name/shape/count/offset. It independently rereads the v3 header and selected
+tensor-info/payload range, checking alignment/table end and shared mmap offsets.
+The whole file is hashed before/after operand comparison in bounded unbuffered
+chunks. `maximum_file_bytes` defaults to 64 KiB and is capped at 16 MiB;
+`maximum_seconds` is a cooperative 30 s default/600 s cap shared by both hashes.
+
+The caller constructs the reader first using the pinned environment and a
+separately bounded file: parser construction is outside this API's budget.
+Reader code is not attested by type checking; its receipt explicitly records
+`gguf_reader_verification: not_checked`. It binds only the selected vector range,
+not other tensor bytes, complete model metadata/tags or tokenizer behavior.
+The returned immutable receipt has file bytes/hash/offset and
+`converted_file_verification: caller_sha256_and_reader_range_match`; source-file
+authentication and runtime approval remain absent. Keep files unchanged; the
+checks do not guarantee immutable storage or safety under concurrent writers.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.
