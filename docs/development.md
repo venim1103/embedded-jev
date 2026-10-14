@@ -1662,6 +1662,14 @@ both shards and exact aggregate bytes <=16 MiB; restored source writes and
 fresh-pin converted corruption still refuse. These paired fixtures have zero
 dense sources, separate from nonzero arithmetic and representative quality.
 
+Each two-shard paired mode also changes either physical shard after successful
+native prefill, restores a byte plus mtime, or replaces it with identical bytes
+using <=64 KiB copy chunks. All 12 BF16/F32 shard/effect combinations require
+nonempty withheld native bytes, then exact source-exit refusal, cleared handles,
+closed public descriptor and baseline registry. A score-parse counter must not
+advance on failure. This proves post-prefill cleanup/withholding for both files,
+not atomic storage, nonzero model behavior or external pin authenticity.
+
 `verify_profile_safetensors_operand(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,
 expected_file_sha256=...)` binds one unfrozen BF16/F32 operand to an actual

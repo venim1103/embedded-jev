@@ -38,7 +38,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [multi shard exit checkpoint](#multi-shard-exit-checkpoint-2026-10-14),
+2. Read the [multi shard refusal checkpoint](#multi-shard-refusal-checkpoint-2026-10-14),
+   then the [multi shard exit checkpoint](#multi-shard-exit-checkpoint-2026-10-14),
    then the [source exit score checkpoint](#source-exit-score-checkpoint-2026-10-13),
    then the [source exit owner checkpoint](#source-exit-owner-checkpoint-2026-10-13),
    then the [source gated workflow checkpoint](#source-gated-workflow-checkpoint-2026-10-13),
@@ -118,6 +119,36 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Multi Shard Refusal Checkpoint (2026-10-14)
+
+After `332e901`, each paired two-shard BF16/F32 actual-loader fixture mutates
+either physical source file after successful native prefill: changed byte,
+restored byte plus original mtime, or identical-byte replacement copied in
+<=64 KiB chunks. Each requires nonempty withheld output, then the exact source
+identity error, cleared handles, closed public model descriptor and baseline
+registry. The score-parse counter cannot advance on exit refusal. Disposable
+data is restored between controls; source caches and frozen codes/scales remain
+untouched. This covers **12 post-prefill shard/effect/dtype combinations**, not
+nonzero model quality or atomic storage.
+
+Verification: **2 multi-shard paired controls** pass in 25.13 s, peak RSS
+310,156 KiB; **2 preserved single-shard owner controls** pass in 11.15 s, peak
+RSS 310,084 KiB; swaps zero. Gate **553 default passes, 74 optional skips** in
+16.14 s; Ruff, whitespace and diagnostics clean. Initial two-case run failed
+before policy creation: a nested copy output variable shadowed the enclosing
+GGUF destination path (`UnboundLocalError`). Renamed only that handle and reran
+the same focused controls successfully before widening validation; no assertion,
+tolerance, deadline or byte/token/tensor-bound relaxation. Scratch removed.
+
+No production/native changes, rebuild/CTest/sanitizer, real inputs/reads/hashes/
+conversion/execution/quality, downloads/refits/new candidates, push/branch or
+subagents. User settings/caches untouched. Next bounded integration: write
+physical shards for the existing nonzero seven-role source variant and preserve
+its independent full/peer/max128 oracles and output-withholding controls. Do not
+infer that integration from these zero-source paired fixtures. All real-profile
+approval, issuer/frozen equivalence, recurrent nonzero-state and quality limits
+remain unchanged.
 
 ## Multi Shard Exit Checkpoint (2026-10-14)
 

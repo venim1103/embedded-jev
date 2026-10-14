@@ -858,7 +858,8 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
         "expected_source_file_bytes": source_pin.bytes, "expected_source_file_sha256": source_pin.sha256,
         "expected_file_bytes": destination.stat().st_size, "expected_file_sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
     }
-    def verify():
+    owner_witness, parsed_scores = [None], [0]
+    def verify(active_source=None, source_effect="change"):
         if owned:
             import ctypes
             import os
@@ -884,6 +885,7 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
                 source_paths=source_paths, frozen_source_values=source_arrays[manifest["tensor"]],
                 verify_policy_metadata=True, verify_source_files_on_exit=True,
             ) as owner:
+                owner_witness[0] = owner, registry, baseline
                 assert owner.handle.value and owner.overrides.value
                 assert owner.verification["source_table_verification"] == "all_selected_source_ranges_match_profile_pins_and_caller_operands"
                 assert owner.verification["source_file_lifetime_verification"] == "entry_and_exit_checks_required"
@@ -904,8 +906,31 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
                     assert output.tell() <= 65536
                     output.seek(0)
                     prefill_bytes = output.read(65537)
+                    assert 0 < len(prefill_bytes) <= 65536
                     assert registry() == baseline + 1
+                if active_source is not None:
+                    import os
+                    observed = active_source.stat()
+                    if source_effect == "replace":
+                        import shutil
+                        replacement = active_source.with_suffix(".replacement")
+                        with active_source.open("rb") as source, replacement.open("wb") as replacement_file:
+                            shutil.copyfileobj(source, replacement_file, length=65536)
+                        os.replace(replacement, active_source)
+                    else:
+                        offset = profile.files[active_source.name].header_bytes
+                        with active_source.open("r+b") as source:
+                            source.seek(offset)
+                            saved = source.read(1)
+                            source.seek(offset)
+                            source.write(bytes([saved[0] ^ 1]))
+                            if source_effect == "restored":
+                                source.seek(offset)
+                                source.write(saved)
+                        if source_effect == "restored":
+                            os.utime(active_source, ns=(observed.st_atime_ns, observed.st_mtime_ns))
             score = json.loads(prefill_bytes)
+            parsed_scores[0] += 1
             assert owner.handle.value is owner.overrides.value is None and registry() == baseline
             assert score["model_policy_abi"] == 2 and score["backend"] == "bitnet"
             assert score["generated_answer_tokens"] == 0 and score["prefilled_tokens"] > 0
@@ -944,6 +969,31 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
         return source_receipt
 
     receipt = verify()
+    if owned and len(source_paths) == 2:
+        for active_source in source_paths.values():
+            offset = profile.files[active_source.name].header_bytes
+            with active_source.open("rb") as source:
+                source.seek(offset)
+                saved = source.read(1)
+            for source_effect in ("change", "restored", "replace"):
+                before_scores = parsed_scores[0]
+                try:
+                    verify(active_source=active_source, source_effect=source_effect)
+                    raise AssertionError("changed active shard accepted after native prefill")
+                except ValueError as error:
+                    assert "source table shard identity changed after operands" in str(error), str(error)
+                    owner, registry, baseline = owner_witness[0]
+                    assert owner.handle.value is owner.overrides.value is None and registry() == baseline
+                    assert parsed_scores[0] == before_scores
+                    try:
+                        owner.model_path
+                        raise AssertionError("source-exit failure retained public model descriptor")
+                    except ValueError as closed:
+                        assert "closed" in str(closed), str(closed)
+                finally:
+                    with active_source.open("r+b") as source:
+                        source.seek(offset)
+                        source.write(saved)
     if not frozen:
         from embedded_jev import prism_codec as codec
         original_check = codec._verify_profile_gguf_operand
