@@ -1230,13 +1230,13 @@ if len(sys.argv) > 5 and sys.argv[5]:
         prefix = len(encoded_header).to_bytes(8, "little") + encoded_header
         source_path = Path(sys.argv[2]).parent / shard
         source_bytes = prefix + b"".join(chunks[shard])
-        if sys.argv[5] == "pinned-source-range-mismatch":
+        if sys.argv[5].startswith("pinned-source-range-mismatch") and shard == profile.packaging["shards"][-1 if sys.argv[5].endswith("-last") else 0]:
             embedding_name = next(item["source_name"] for item in plan["tensors"] if item["name"] == "token_embd.weight")
-            if embedding_name in header:
-                changed_offset = len(prefix) + header[embedding_name]["data_offsets"][0]
-                source_bytes = bytearray(source_bytes)
-                source_bytes[changed_offset] ^= 1
-                source_bytes = bytes(source_bytes)
+            selected_name = embedding_name if embedding_name in header else next(item["source_name"] for item in plan["tensors"] if item["type"] != "PQ2_0" and item["source_name"] in header)
+            changed_offset = len(prefix) + header[selected_name]["data_offsets"][0]
+            source_bytes = bytearray(source_bytes)
+            source_bytes[changed_offset] ^= 1
+            source_bytes = bytes(source_bytes)
         total_source_bytes += len(source_bytes)
         assert total_source_bytes <= 16 * 1024**2
         source_path.write_bytes(source_bytes)
@@ -1364,7 +1364,7 @@ try:
     model_path = sys.argv[1]
     if mode.startswith("verified-"):
         tensor_arguments = {}
-        caller_refusal = mode in ("verified-table-source-key", "verified-table-source-parity", "verified-table-budget", "verified-policy-metadata-type", "verified-policy-metadata-copy", "verified-source-file", "verified-source-range")
+        caller_refusal = mode in ("verified-table-source-key", "verified-table-source-parity", "verified-table-budget", "verified-policy-metadata-type", "verified-policy-metadata-copy", "verified-source-file", "verified-source-range", "verified-source-last-file", "verified-source-last-range")
         if len(sys.argv) > 8 and sys.argv[8]:
             import hashlib
             import time
@@ -1427,6 +1427,8 @@ try:
                 "verified-policy-metadata-copy": "policy metadata field mapping mismatch",
                 "verified-source-file": "source operand file identity mismatch",
                 "verified-source-range": "source operand file range byte mismatch",
+                "verified-source-last-file": "source operand file identity mismatch",
+                "verified-source-last-range": "source operand file range byte mismatch",
             }[mode]
             assert expected_error in str(error), str(error)
             assert registry() == baseline
@@ -2076,7 +2078,6 @@ print(json.dumps(report))
                     if source_mode == "parallel":
                         np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
                 source_paths = [Path(source_directory) / name for name in source_expected["source_fixture"]["profile"]["packaging"]["shards"]]
-                source_path = source_paths[0]
                 for source_exit_mode in ("change", "restored", "replace", "last-change", "last-restored", "last-replace"):
                     active_source_path = source_paths[-1 if source_exit_mode.startswith("last-") else 0]
                     source_offset = source_expected["source_fixture"]["profile"]["files"][active_source_path.name]["header_bytes"]
@@ -2096,30 +2097,38 @@ print(json.dumps(report))
                         with active_source_path.open("r+b") as source:
                             source.seek(source_offset)
                             source.write(original_byte)
-                with source_path.open("r+b") as changed_source:
-                    offset = source_expected["source_fixture"]["profile"]["files"][source_path.name]["header_bytes"]
-                    changed_source.seek(offset)
-                    original_byte = changed_source.read(1)
-                    changed_source.seek(offset)
-                    changed_source.write(bytes([original_byte[0] ^ 1]))
-                for source_refusal in ("file", "range"):
-                    if source_refusal == "range":
+                for source_refusal in ("file", "last-file", "range", "last-range"):
+                    source_path = source_paths[-1 if source_refusal.startswith("last-") else 0]
+                    if source_refusal.endswith("range"):
                         refusal_writer = subprocess.run(
-                            [*source_writer.args[:-1], "pinned-source-range-mismatch"],
+                            [*source_writer.args[:-1], "pinned-source-range-mismatch-" + ("last" if source_refusal.startswith("last-") else "first")],
                             capture_output=True, text=True, timeout=30, input=source_fixture_input,
                             env={**environment, "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
                         )
                         assert refusal_writer.returncode == 0, refusal_writer.stderr
                         source_expected = json.loads(refusal_writer.stdout)
                         assert len(json.dumps(source_expected["source_fixture"])) < 1024**2
-                    control = subprocess.run(
-                        [parity_interpreter, "-c", driver_code, str(source_model), target, runtime_build, "verified-source-" + source_refusal,
-                         str(source_expected["model_bytes"]), source_expected["model_sha256"], json.dumps(expected_runtime),
-                         str(source_archive), str(source_expected["source_archive_bytes"]), source_expected["source_archive_sha256"]],
-                        capture_output=True, text=True, timeout=30, input=json.dumps(source_expected["source_fixture"]),
-                        env={**environment, "PYTHONPATH": os.pathsep.join((environment["PYTHONPATH"], str(Path(source_dir) / "gguf-py")))},
-                    )
-                    assert control.returncode == 33 and control.stdout == "", control.stderr
+                    else:
+                        source_offset = source_expected["source_fixture"]["profile"]["files"][source_path.name]["header_bytes"]
+                        with source_path.open("r+b") as changed_source:
+                            changed_source.seek(source_offset)
+                            original_byte = changed_source.read(1)
+                            changed_source.seek(source_offset)
+                            changed_source.write(bytes([original_byte[0] ^ 1]))
+                    try:
+                        control = subprocess.run(
+                            [parity_interpreter, "-c", driver_code, str(source_model), target, runtime_build, "verified-source-" + source_refusal,
+                             str(source_expected["model_bytes"]), source_expected["model_sha256"], json.dumps(expected_runtime),
+                             str(source_archive), str(source_expected["source_archive_bytes"]), source_expected["source_archive_sha256"]],
+                            capture_output=True, text=True, timeout=30, input=json.dumps(source_expected["source_fixture"]),
+                            env={**environment, "PYTHONPATH": os.pathsep.join((environment["PYTHONPATH"], str(Path(source_dir) / "gguf-py")))},
+                        )
+                        assert control.returncode == 33 and control.stdout == "", control.stderr
+                    finally:
+                        if source_refusal.endswith("file"):
+                            with source_path.open("r+b") as changed_source:
+                                changed_source.seek(source_offset)
+                                changed_source.write(original_byte)
     finally:
         model_file.unlink(missing_ok=True)
         payload_file.unlink(missing_ok=True)

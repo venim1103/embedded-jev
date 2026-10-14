@@ -1839,7 +1839,7 @@ dispatches and one repack; chunk's last dispatch has two tokens. Maximum has
 IDs/labels/token IDs and logits/scores follow C/A/B order. All compare to the
 existing independent oracle at unchanged `2e-5` tolerances; the second writer's
 128-token oracle must also exactly equal the original. The complete surface is
-49 positive source-gated role/workflow combinations, plus the 14 source refusals
+49 positive source-gated role/workflow combinations, plus the 28 source refusals
 below. Unsupported full-only/large-state controls remain refusals. This does
 not widen the native hook, source/model byte or operand caps, subprocess deadline,
 token bound, model support tier or real-model authorization.
@@ -1856,15 +1856,18 @@ source identity refusal, cleared pointers/restored registry and no score output.
 This is distinct from pre-yield input refusal; it does not prove continuous
 immutability, external issuer provenance, frozen equivalence or quality.
 
-Two physical-source refusal modes also run for every eligible role. One changes
-a source byte without changing its pin and requires `source operand file identity
-mismatch`. The other writes a selected embedding byte inconsistent with the
-archived operand, then computes fresh shard/header/profile pins and matching
-GGUF identity metadata; it requires `source operand file range byte mismatch`.
-Thus the latter checks selected-range equality rather than relying on stale
-hashes or metadata refusal. Both must refuse before owner yield/prefill, restore
-the registry baseline and emit no scores. Only disposable synthetic bytes/pins
-change; frozen payload and original frozen-source identity stay untouched.
+Two physical-source refusal modes run on either shard for every eligible role
+(28 combinations). One changes a source byte without changing its pin and
+requires `source operand file identity mismatch`; that byte is restored before
+checking the other shard. The other writes a selected embedding byte (or another
+unfrozen operand on the other shard) inconsistent with the archive, then computes
+fresh shard/header/profile pins and matching GGUF identity metadata; it requires
+`source operand file range byte mismatch`. Each fresh-pin writer starts from the
+same unchanged two-shard fixture/operands. Thus selected-range equality is tested
+without relying on stale hashes or metadata refusal. All must refuse before owner
+yield/prefill, restore the registry baseline and emit no scores. Only disposable
+synthetic bytes/pins change; frozen payload and original frozen-source identity
+stay untouched.
 
 Bounds: 427 tensors, 32 layers, <=19 GiB declared weight bytes plus 32 MiB
 metadata/alignment reserve; the single projection retains P3's geometry bounds.

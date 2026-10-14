@@ -38,7 +38,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [nonzero multi shard checkpoint](#nonzero-multi-shard-checkpoint-2026-10-14),
+2. Read the [nonzero multi shard refusal checkpoint](#nonzero-multi-shard-refusal-checkpoint-2026-10-14),
+   then the [nonzero multi shard checkpoint](#nonzero-multi-shard-checkpoint-2026-10-14),
    then the [multi shard refusal checkpoint](#multi-shard-refusal-checkpoint-2026-10-14),
    then the [multi shard exit checkpoint](#multi-shard-exit-checkpoint-2026-10-14),
    then the [source exit score checkpoint](#source-exit-score-checkpoint-2026-10-13),
@@ -120,6 +121,36 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Nonzero Multi Shard Refusal Checkpoint (2026-10-14)
+
+After `acc5f12`, the separate nonzero source-gated variant independently tests
+stale-file and fresh-pin selected-range pre-yield refusals on both physical
+shards for all seven roles: **28 refusal combinations**. Stale mutations are
+restored before testing the other shard. Fresh-pin writers independently start
+from the unchanged two-shard fixture and archive, select an unfrozen operand on
+the requested file (embedding where present), flip one disposable byte and
+update exact file/header/profile pins plus GGUF identity metadata. Each requires
+its specific identity/range error before owner yield/native prefill, baseline
+registry and empty score stdout. No stale hash is used to pass a range test.
+
+Verification: FFN-down **1 pass** in 57.18 s, peak RSS 310,984 KiB; remaining
+six eligible roles plus unsupported fixtures **8 passes** in 384.80 s, peak
+RSS 316,648 KiB; swaps zero. The **49 successful nonzero two-shard workflows**
+and **42 post-prefill exit refusals** remain intact with exact full/peer/max128
+references and unchanged `2e-5` native tolerances. Gate **553 default passes,
+74 optional skips** in 17.76 s; Ruff, whitespace and diagnostics clean. No failed
+checks or relaxed bounds/assertions; all scratch removed.
+
+No production/native changes, build/CTest/sanitizer, real inputs/reads/hashes/
+conversion/execution/quality, downloads/refits/new candidates, push/branch or
+subagents. Frozen codes/scales, independent original-frozen-source identity,
+v1, caches, user settings, file/operand/token/tensor limits and deadlines remain
+unchanged. This completes the queued bounded multi-shard caller checks, not a
+real-model/runtime/quality gate. The next real-profile comparison still needs
+separate approval and the existing [comparison preparation](#real-comparison-preparation-2026-10-12).
+Issuer/frozen equivalence, nonzero recurrent-state integration, atomic storage,
+the historical real MiMo discrepancy and other-model execution remain open.
 
 ## Nonzero Multi Shard Checkpoint (2026-10-14)
 
