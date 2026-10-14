@@ -681,7 +681,7 @@ for kind in ("valid", "metadata-large", "metadata-near-limit", "metadata-keys-li
     assert handle.value is overrides.value is None
 
 
-@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32", "complete-owner-BF16", "complete-owner-F32", "norm-nonzero-BF16", "norm-nonzero-F32", "exp-nonzero-BF16", "exp-nonzero-F32", "matrix-rows-nonzero-BF16", "matrix-columns-nonzero-BF16", "convolution-nonzero-BF16", "convolution-nonzero-F32"])
+@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32", "complete-owner-BF16", "complete-owner-F32", "norm-nonzero-BF16", "norm-nonzero-F32", "exp-nonzero-BF16", "exp-nonzero-F32", "matrix-rows-nonzero-BF16", "matrix-columns-nonzero-BF16", "convolution-nonzero-BF16", "convolution-nonzero-F32", "complete-owner-two-shards-BF16", "complete-owner-two-shards-F32"])
 def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
     from test_inventory import _prefill_model_policy_fixture
 
@@ -697,6 +697,7 @@ def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
         assert (Path(runtime_build) / "bin" / "libprism_bitnet_prefill_test.so").is_file()
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
+        source_shards=2 if "two-shards" in kind else 1,
         pin_zero_source=True, vector_dtype="F32" if kind == "vector-F32" or (kind.startswith(("complete", "norm-nonzero", "exp-nonzero")) and kind.endswith("F32")) else "BF16", conv_dtype="F32" if kind == "convolution-F32" or (kind.startswith(("complete", "convolution-nonzero")) and kind.endswith("F32")) else "BF16",
     )
     code = """
@@ -758,17 +759,31 @@ if complete:
     source_arrays = {item["source_name"]: np.zeros(item["source_shape"], dtype="<f4" if item["source_dtype"] == "F32" else "<u2") for item in plan["tensors"]}
     source_digests = {name: hashlib.sha256(memoryview(array)).hexdigest() for name, array in source_arrays.items()}
     manifest["source_tensor_sha256"] = source_digests[manifest["tensor"]]
-entries, payload_bytes = {}, 0
+entries = {}
+shard_entries = {name: {} for name in profile.packaging["shards"]}
+payload_bytes = dict.fromkeys(shard_entries, 0)
 for item in sorted(inventory["tensors"], key=lambda item: item["name"]):
+    shard = item["shard"]
     size = int(np.prod(item["shape"])) * (4 if item["dtype"] == "F32" else 2)
-    entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + size]}
-    payload_bytes += size
-header = json.dumps(entries, sort_keys=True).encode()
-prefix = len(header).to_bytes(8, "little") + header
+    entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes[shard], payload_bytes[shard] + size]}
+    shard_entries[shard][item["name"]] = entries[item["name"]]
+    payload_bytes[shard] += size
+prefixes = {}
+for shard, selected in shard_entries.items():
+    header = json.dumps(selected, sort_keys=True).encode()
+    prefixes[shard] = len(header).to_bytes(8, "little") + header
 with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
     directory = Path(directory)
-    source_path = directory / profile.packaging["shards"][0]
-    source_path.write_bytes(prefix + bytes(payload_bytes))
+    source_paths = {}
+    for shard in profile.packaging["shards"]:
+        source_path = directory / shard
+        source_path.write_bytes(prefixes[shard] + bytes(payload_bytes[shard]))
+        source_paths[shard] = source_path
+        assert source_path.stat().st_size == profile.files[shard].bytes
+        assert hashlib.sha256(source_path.read_bytes()).hexdigest() == profile.files[shard].sha256
+    assert sum(path.stat().st_size for path in source_paths.values()) <= 16 * 1024**2
+    selected_shard = next(item["shard"] for item in inventory["tensors"] if item["name"] == entry["source_name"])
+    source_path, prefix = source_paths[selected_shard], prefixes[selected_shard]
     source_pin = profile.files[source_path.name]
     assert source_path.stat().st_size == source_pin.bytes <= 16 * 1024**2
     assert hashlib.sha256(source_path.read_bytes()).hexdigest() == source_pin.sha256
@@ -866,7 +881,7 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
                 expected_bytes=arguments["expected_file_bytes"], expected_sha256=arguments["expected_file_sha256"],
                 tensor_reader=reader, source_values=dense_sources,
                 expected_source_sha256={name: source_digests[name] for name in dense_sources},
-                source_paths={source_path.name: source_path}, frozen_source_values=source_arrays[manifest["tensor"]],
+                source_paths=source_paths, frozen_source_values=source_arrays[manifest["tensor"]],
                 verify_policy_metadata=True, verify_source_files_on_exit=True,
             ) as owner:
                 assert owner.handle.value and owner.overrides.value
@@ -907,7 +922,7 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
             return evidence
         if complete:
             return verify_profile_gguf_source_tensor_table(
-                profile, inventory, manifest, blocks, reader=reader, source_paths={source_path.name: source_path},
+                profile, inventory, manifest, blocks, reader=reader, source_paths=source_paths,
                 source_values=source_arrays, expected_source_sha256=source_digests,
                 expected_file_bytes=arguments["expected_file_bytes"], expected_file_sha256=arguments["expected_file_sha256"],
             )
@@ -950,6 +965,8 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
             codec._verify_profile_gguf_operand = original_check
     if complete:
         assert receipt["tensor_count"] == receipt["source"]["tensor_count"] == receipt["converted"]["tensor_count"] == 28
+        assert receipt["source"]["source_shard_count"] == len(source_paths)
+        assert receipt["source"]["source_file_bytes"] == sum(path.stat().st_size for path in source_paths.values())
         assert receipt["source_to_frozen_quantization_verification"] == "not_checked"
         source_records = {item["source_name"]: item for item in receipt["source"]["tensors"]}
         converted_records = {item["source_name"]: item for item in receipt["converted"]["tensors"]}

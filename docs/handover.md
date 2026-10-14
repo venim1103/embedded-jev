@@ -1,12 +1,16 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-13. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-14. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**Paused by user, 2026-10-13:** Finish only the tested source-exit scoring
+**Resumed by user, 2026-10-14:** Continue autonomous bounded synthetic source/
+provenance work after user-pushed `81d583a`. Starting `main` matched `origin/main`
+with only untouched user settings untracked. Real-model approvals are unchanged.
+
+**Historical pause, 2026-10-13:** Finish only the tested source-exit scoring
 checkpoint below and stop for today. Multi-shard exit coverage is queued but
 not started; resume implementation only after an explicit user instruction.
 No background jobs, pushes, branch changes or user-settings changes. Real-model
@@ -25,16 +29,17 @@ read produced no result and made no edits. Resume only after an explicit user
 instruction. No tracked source changes or background jobs remain; the untracked
 user `.vscode/` directory is untouched. Real-model authorization is unchanged.
 
-**Quick orientation (2026-10-13):**
+**Quick orientation (2026-10-14):**
 
-1. The user explicitly resumed autonomous work again on 2026-10-13. The bounded
+1. The user explicitly resumed autonomous work again on 2026-10-14. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   The user separately approved the code-only v2 metadata-budget correction below.
   After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [source exit score checkpoint](#source-exit-score-checkpoint-2026-10-13),
+2. Read the [multi shard exit checkpoint](#multi-shard-exit-checkpoint-2026-10-14),
+   then the [source exit score checkpoint](#source-exit-score-checkpoint-2026-10-13),
    then the [source exit owner checkpoint](#source-exit-owner-checkpoint-2026-10-13),
    then the [source gated workflow checkpoint](#source-gated-workflow-checkpoint-2026-10-13),
    then the [source gated refusal checkpoint](#source-gated-refusal-checkpoint-2026-10-13),
@@ -113,6 +118,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Multi Shard Exit Checkpoint (2026-10-14)
+
+After user-pushed `81d583a`, extended the existing lifecycle fixture to one/two
+tiny physical source shards. First/last-shard changes, restored bytes/mtime,
+identical replacement, symlink/missing files, caller failures, path/inventory/
+cwd snapshot isolation and default opt-out retain free-before-close behavior.
+A deterministic clock charges 20 seconds per real bounded hash under one
+unchanged 30-second deadline: one shard succeeds, two hashes exceed the shared
+phase budget and refuse. No per-shard deadline reset or tolerance relaxation.
+
+The existing synthetic prefill fixture now optionally creates two headers with
+local offsets, index entries and profile pins; single-shard defaults preserve
+original ordering/names/zero bytes. Both layouts retain all seven native record
+geometries and frozen codes/scales. Two new BF16/F32 paired actual-loader modes
+verify 28 source/converted ranges, selected metadata and exit checks, count both
+physical shards/exact aggregate bytes <=16 MiB, and preserve restored source and
+fresh-pin converted corruption refusals. Zero dense source arithmetic is not
+nonzero quality evidence. No production/native source changes in this increment.
+
+Verification: **30 lifecycle controls** in 0.86 s; **44 focused fixture/record/
+lifecycle controls** in 1.21 s. Actual **2 new paired controls** in 9.19 s, peak
+RSS 309,484 KiB; **18 preserved paired modes** in 36.19 s, peak RSS 309,560 KiB;
+swaps zero. Gate **553 default passes, 74 optional skips** in 12.28 s; Ruff,
+whitespace and diagnostics clean. Pylance confirms all 20 resolved fixture
+callers compatible. No failed checks. Scratch removed; no rebuild/CTest/
+sanitizer, real inputs/reads/hashes/conversions/execution/quality, downloads/
+refits/new candidates, push/branch or subagents. User settings/caches untouched.
+Observed restart resources: 29 GiB RAM, about 22 GiB available, 8 GiB unused
+swap and 241 GiB free disk; these are not target-device or job guarantees.
+
+Next bounded integration: changed first/last physical shards after actual
+prefill must refuse at exit and discard the paired caller's output buffer.
+Existing 49 nonzero single-shard workflows/21 exit refusals remain historical
+evidence, not proof of nonzero multi-shard integration or atomic snapshots.
+Issuer provenance, frozen equivalence, the historical real MiMo discrepancy,
+Defiant Fable execution approval and broader real-model/quality work remain open.
 
 ## Source Exit Score Checkpoint (2026-10-13)
 

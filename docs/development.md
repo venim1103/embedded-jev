@@ -1649,6 +1649,19 @@ Both paired BF16/F32 source-gated actual-loader controls exercise this opt-in;
 the nonzero seven-role caller also opts in and tests deferred output/refusal as
 described below.
 
+Single/two-shard lifecycle controls exercise first/last-file changes, restored
+bytes/mtime, replacement, symlink/missing inputs, caller failure, mutable maps/
+path-like objects/cwd and default opt-out. A deterministic clock charges 20
+seconds per real bounded hash against the same 30-second exit deadline: one
+shard succeeds and two refuse after both hashes, with free-before-close in
+either case. This tests shared phase accounting, not actual hash throughput.
+The paired BF16/F32 controls also include two physical shards with separate
+headers/local offsets/index entries/profile pins, complete 28-tensor parity,
+selected metadata, native prefill and exit checks. Their receipt must count
+both shards and exact aggregate bytes <=16 MiB; restored source writes and
+fresh-pin converted corruption still refuse. These paired fixtures have zero
+dense sources, separate from nonzero arithmetic and representative quality.
+
 `verify_profile_safetensors_operand(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,
 expected_file_sha256=...)` binds one unfrozen BF16/F32 operand to an actual

@@ -474,7 +474,7 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -498,32 +498,38 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
           **{f"model.layers.{layer}." + name: shape for layer, kind in enumerate(geometry["layer_types"])
               for name, shape in inventory._layer_shapes(geometry, kind).items()},
     }
-    entries, offset = {}, 0
-    for name, shape in sorted(shapes.items()):
+    old_shards = record["packaging"]["shards"]
+    shards = old_shards if source_shards == 1 else ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]
+    record["packaging"]["shards"] = shards
+    entries, offsets, weight_map = {name: {} for name in shards}, dict.fromkeys(shards, 0), {}
+    for index, (name, shape) in enumerate(sorted(shapes.items())):
         dtype = vector_dtype if len(shape) == 1 else "BF16"
         if name.endswith("linear_attn.conv1d.weight"):
             dtype = conv_dtype
         count = int(np.prod(shape)) * (4 if dtype == "F32" else 2)
-        entries[name] = {"dtype": dtype, "shape": shape, "data_offsets": [offset, offset + count]}
-        offset += count
-    shard = record["packaging"]["shards"][0]
-    headers = {shard: _header(entries, offset)}
+        shard = shards[index % len(shards)]
+        entries[shard][name] = {"dtype": dtype, "shape": shape, "data_offsets": [offsets[shard], offsets[shard] + count]}
+        offsets[shard] += count
+        weight_map[name] = shard
+    headers = {shard: _header(entries[shard], offsets[shard]) for shard in shards}
     metadata["model.safetensors.index.json"] = json.dumps({
-        "metadata": {"total_size": offset}, "weight_map": dict.fromkeys(entries, shard),
+        "metadata": {"total_size": sum(offsets.values())}, "weight_map": weight_map,
     }).encode()
+    for shard in old_shards:
+        record["files"].pop(shard)
     for name, data in metadata.items():
         record["files"][name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-    header, size = headers[shard]
-    record["files"][shard] = {"bytes": size, "sha256": "a" * 64, "header_bytes": len(header),
-                              "header_sha256": hashlib.sha256(header).hexdigest()}
-    if pin_zero_source:
-        digest = hashlib.sha256(header)
-        remaining = size - len(header)
-        while remaining:
-            chunk_bytes = min(65536, remaining)
-            digest.update(bytes(chunk_bytes))
-            remaining -= chunk_bytes
-        record["files"][shard]["sha256"] = digest.hexdigest()
+    for shard, (header, size) in headers.items():
+        record["files"][shard] = {"bytes": size, "sha256": "a" * 64, "header_bytes": len(header),
+                                  "header_sha256": hashlib.sha256(header).hexdigest()}
+        if pin_zero_source:
+            digest = hashlib.sha256(header)
+            remaining = size - len(header)
+            while remaining:
+                chunk_bytes = min(65536, remaining)
+                digest.update(bytes(chunk_bytes))
+                remaining -= chunk_bytes
+            record["files"][shard]["sha256"] = digest.hexdigest()
     record["runtime"].update(converter_revision=PRISM_SOURCE_REVISION, runtime_revision=PRISM_SOURCE_REVISION)
     profile = parse_model_profile(json.dumps(record).encode())
     report = build_inventory(metadata, headers, profile=profile)
@@ -549,14 +555,17 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     return profile, report, manifest, blocks
 
 
+@pytest.mark.parametrize("source_shards", [1, 2])
 @pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o"])
-def test_profile_prefill_native_record_retains_checked_geometry_and_storage(target):
+def test_profile_prefill_native_record_retains_checked_geometry_and_storage(target, source_shards):
     import ctypes
     import gc
 
     from embedded_jev.prism_codec import native_model_specification, profile_model_specification
 
-    profile, report, manifest, blocks = _prefill_model_policy_fixture(target)
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(target, source_shards=source_shards)
+    assert len(profile.packaging["shards"]) == source_shards
+    assert {item["shard"] for item in report["tensors"]} == set(profile.packaging["shards"])
     specification = profile_model_specification(profile, report, manifest, blocks)
     record = native_model_specification(specification, blocks)
     del blocks, specification
@@ -1657,15 +1666,16 @@ def test_verified_model_policy_retains_storage_and_frees_before_file_close(tmp_p
             _ = table_owner[0].model_path
 
 
-@pytest.mark.parametrize("defect", ["ok", "default-change", "change", "restored", "replace", "symlink", "missing", "deadline", "caller", "caller-change", "paths", "relative-path", "inventory"])
-def test_verified_model_policy_source_exit_recheck_is_opt_in_and_frees(tmp_path, monkeypatch, defect):
+@pytest.mark.parametrize("shard_count", [1, 2])
+@pytest.mark.parametrize("defect", ["ok", "default-change", "change", "first-change", "restored", "replace", "symlink", "missing", "deadline", "shared-deadline", "caller", "caller-change", "paths", "relative-path", "inventory"])
+def test_verified_model_policy_source_exit_recheck_is_opt_in_and_frees(tmp_path, monkeypatch, defect, shard_count):
     import ctypes
     import os
     from contextlib import nullcontext
     from dataclasses import replace
     from types import MappingProxyType, SimpleNamespace
 
-    from embedded_jev import prism_codec
+    from embedded_jev import prism_codec, streamed_text
     from embedded_jev.model_profile import ProfileFile
 
     profile, report, manifest, blocks = _model_policy_fixture()
@@ -1677,17 +1687,29 @@ def test_verified_model_policy_source_exit_recheck_is_opt_in_and_frees(tmp_path,
     profile = replace(profile, files=MappingProxyType({**profile.files, shard: ProfileFile(len(source_bytes), hashlib.sha256(source_bytes).hexdigest())}))
     observed = source_path.stat()
     source_identity = observed.st_dev, observed.st_ino, observed.st_size, observed.st_mtime_ns, observed.st_ctime_ns
+    first_source_path = source_path
+    source_paths = {shard: source_path}
+    source_receipts = [MappingProxyType({"source_name": source_name, "source_file_identity": source_identity})]
+    if shard_count == 2:
+        shard = shard + ".second"
+        source_name = report["tensors"][1]["name"]
+        report["tensors"][1]["shard"] = shard
+        source_path = tmp_path / "second-source.safetensors"
+        source_path.write_bytes(source_bytes)
+        source_paths[shard] = source_path
+        profile = replace(profile, files=MappingProxyType({**profile.files, shard: ProfileFile(len(source_bytes), hashlib.sha256(source_bytes).hexdigest())}))
+        observed = source_path.stat()
+        source_identity = observed.st_dev, observed.st_ino, observed.st_size, observed.st_mtime_ns, observed.st_ctime_ns
+        source_receipts.append(MappingProxyType({"source_name": source_name, "source_file_identity": source_identity}))
     table = MappingProxyType({"tensor_table_verification": "unit_test_table_gate"})
-    source = MappingProxyType({"source_table_verification": "unit_test_source_gate", "tensors": (
-        MappingProxyType({"source_name": source_name, "source_file_identity": source_identity}),
-    )})
+    source = MappingProxyType({"source_table_verification": "unit_test_source_gate", "tensors": tuple(source_receipts)})
     evidence = MappingProxyType({"converted": table, "source": source, "source_conversion_table_verification": "unit_test_composed_gate"})
     path_value = [str(source_path)]
     class MutablePath:
         def __fspath__(self):
             return path_value[0]
 
-    source_paths = {shard: MutablePath()}
+    source_paths[shard] = MutablePath()
     if defect == "relative-path":
         monkeypatch.chdir(tmp_path)
         path_value[0] = source_path.name
@@ -1721,7 +1743,7 @@ def test_verified_model_policy_source_exit_recheck_is_opt_in_and_frees(tmp_path,
     monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
     monkeypatch.setattr(prism_codec, "verify_profile_gguf_source_tensor_table", verify_source)
     native = SimpleNamespace(prism_bitnet_cpu_model_policy_free_v2=Free())
-    expected_error = None if defect in ("ok", "default-change", "paths", "relative-path", "inventory") else OSError if defect in ("symlink", "missing") else RuntimeError if defect == "caller" else ValueError
+    expected_error = None if defect in ("ok", "default-change", "paths", "relative-path", "inventory") or (defect == "shared-deadline" and shard_count == 1) else OSError if defect in ("symlink", "missing") else RuntimeError if defect == "caller" else ValueError
     with (nullcontext() if expected_error is None else pytest.raises(expected_error)):
         with prism_codec.verified_profile_model_policy(
             native, model_path, profile, report, manifest, blocks,
@@ -1732,6 +1754,8 @@ def test_verified_model_policy_source_exit_recheck_is_opt_in_and_frees(tmp_path,
             assert owner.verification["source_file_lifetime_verification"] == ("pre_yield_only" if defect == "default-change" else "entry_and_exit_checks_required")
             if defect in ("change", "default-change", "caller-change"):
                 source_path.write_bytes(b"X" + source_bytes[1:])
+            elif defect == "first-change":
+                first_source_path.write_bytes(b"X" + source_bytes[1:])
             elif defect == "restored":
                 source_path.write_bytes(b"X" + source_bytes[1:])
                 source_path.write_bytes(source_bytes)
@@ -1762,6 +1786,17 @@ def test_verified_model_policy_source_exit_recheck_is_opt_in_and_frees(tmp_path,
                     return clock[0]
 
                 monkeypatch.setattr(prism_codec.time, "monotonic", expired)
+            elif defect == "shared-deadline":
+                clock, deadlines = [0], []
+                original_record = streamed_text.bounded_native_descriptor_record
+                def timed_record(descriptor, *, maximum_bytes, deadline):
+                    deadlines.append(deadline)
+                    result = original_record(descriptor, maximum_bytes=maximum_bytes, deadline=deadline)
+                    clock[0] += 20
+                    return result
+
+                monkeypatch.setattr(prism_codec.time, "monotonic", lambda: clock[0])
+                monkeypatch.setattr(streamed_text, "bounded_native_descriptor_record", timed_record)
             if defect in ("caller", "caller-change"):
                 raise RuntimeError("caller failed")
     assert events == ["create", "source", "free"] and handles[0].value is handles[1].value is None
@@ -1771,7 +1806,9 @@ def test_verified_model_policy_source_exit_recheck_is_opt_in_and_frees(tmp_path,
     if defect == "default-change":
         assert reads == []
     elif defect in ("ok", "paths", "relative-path", "inventory", "caller"):
-        assert len(reads) >= 2
+        assert len(reads) >= 2 * shard_count
+    if defect == "shared-deadline":
+        assert deadlines == [30] * shard_count and clock[0] == 20 * shard_count
 
 
 @pytest.mark.parametrize("kind", ["directory", "fifo", "symlink"])
