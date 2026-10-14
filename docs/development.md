@@ -1808,8 +1808,9 @@ their transform discrimination is separate from the native controls below.
 With `PRISM_PARITY_PYTHON` present, the existing seven-role profile/manifest
 native prefill test also creates a separate nonzero source-gated variant. It
 writes the same 27 dense operands plus a distinct zero-valued original frozen
-source into a disposable <=16 MiB BF16 safetensors shard, pins its bytes/header
-in a disposable profile and updates only that variant's identity declarations.
+source across two disposable BF16 safetensors shards, with separate headers,
+local offsets and profile pins under one aggregate <=16 MiB bound. It updates
+only that variant's identity declarations; the baseline stays single-shard.
 Frozen PQ2 codes and independent FP16 row/group scales stay unchanged. Its
 complete source/converted table and 25 selected policy metadata records pass
 inside the six-runtime-file-pinned owner before native full prefill. Nonuniform
@@ -1817,7 +1818,7 @@ logits and typed zero-generation conditional scores match the existing
 independent FFN/full-attention oracle at unchanged `2e-5` tolerances; the second
 writer's oracle must match the original exactly. Descriptor access, source
 recheck, registry cleanup and one genuine BitNet dispatch/repack are checked.
-The source shard and second GGUF/archive use one disposable directory, removed
+Both source shards and the second GGUF/archive use one disposable directory, removed
 on success/failure. This is nonzero synthetic integration, not upstream issuer
 provenance, nonzero recurrent-state coverage, source-to-frozen quantization
 equivalence, tokenizer semantics, quality or any real-profile execution approval.
@@ -1847,10 +1848,10 @@ All 49 nonzero source-gated workflows enable the exit recheck. Their caller
 captures native stdout in a disposable temporary file, requires successful
 prefill and <=64 KiB output, restores stdout before owner cleanup and releases
 the buffer only after successful owner/source/runtime closure and registry/
-pointer cleanup. Errors discard the buffer. Three further exit-refusal modes
-per role change a source byte after prefill, restore that byte plus mtime after
-writing, or replace the shard with identical bytes via <=64 KiB copy chunks.
-These 21 cases require successful prefill with a nonempty withheld buffer, then
+pointer cleanup. Six further exit-refusal modes per role change either shard's
+source byte after prefill, restore that byte plus mtime after writing, or replace
+that shard with identical bytes via <=64 KiB copy chunks.
+These 42 cases require successful prefill with a nonempty withheld buffer, then
 source identity refusal, cleared pointers/restored registry and no score output.
 This is distinct from pre-yield input refusal; it does not prove continuous
 immutability, external issuer provenance, frozen equivalence or quality.

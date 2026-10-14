@@ -38,7 +38,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [multi shard refusal checkpoint](#multi-shard-refusal-checkpoint-2026-10-14),
+2. Read the [nonzero multi shard checkpoint](#nonzero-multi-shard-checkpoint-2026-10-14),
+   then the [multi shard refusal checkpoint](#multi-shard-refusal-checkpoint-2026-10-14),
    then the [multi shard exit checkpoint](#multi-shard-exit-checkpoint-2026-10-14),
    then the [source exit score checkpoint](#source-exit-score-checkpoint-2026-10-13),
    then the [source exit owner checkpoint](#source-exit-owner-checkpoint-2026-10-13),
@@ -119,6 +120,42 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Nonzero Multi Shard Checkpoint (2026-10-14)
+
+After `3b373d2`, only the separate source-gated nonzero seven-role variant now
+uses two physical BF16 shards. Each has its own header, local offsets and exact
+profile pin; all files share the existing aggregate <=16 MiB source cap. A new
+matching two-shard fixture supplies both initial and fresh-pin refusal writers.
+The baseline fixture remains single-shard. Frozen payload bytes/codes/independent
+FP16 scales are identical, and the second writer's full/peer/max128 references
+must exactly equal the baseline before native comparisons at unchanged `2e-5`
+tolerances. Complete receipts require both shards/exact aggregate bytes.
+
+All **49 nonzero source-gated workflows** now pass with two physical shards,
+complete 28-tensor source/converted parity, 25 selected metadata records and six
+runtime-file pins. Changed bytes, restored bytes plus mtime and identical-byte
+replacement after native prefill each refuse for either first or last shard:
+**42 post-prefill refusals** require native success/nonempty withheld buffer,
+exact exit identity refusal, cleared pointers/restored registry and no scores.
+The **14 pre-yield source refusals** and unsupported fixtures remain intact.
+Scratch cleanup, token/tensor/byte/deadline bounds and hooks are unchanged.
+
+Verification: initial two-shard FFN-down **1 pass** in 46.56 s, then FFN-down
+with both-shard exit refusals **1 pass** in 56.41 s, peak RSS 310,904 KiB;
+remaining six eligible roles plus unsupported fixtures **8 passes** in
+312.53 s, peak RSS 316,428 KiB; swaps zero. Gate **553 default passes,
+74 optional skips** in 11.75 s; Ruff, whitespace and diagnostics clean. No
+failed checks, assertion relaxation or new native build/CTest/sanitizer run.
+
+No production/native changes, real inputs/reads/hashes/conversion/execution/
+quality, downloads/refits/new candidates, push/branch or subagents. Caches/user
+settings untouched. Nonzero FFN/full-attention arithmetic is not nonzero
+recurrent state, issuer provenance, frozen quantization equivalence, tokenizer
+semantics, atomic storage, representative quality or device evidence. Historical
+real MiMo discrepancy and all real-profile approval boundaries remain open.
+Next bounded slice: discriminate stale-file and fresh-pin selected-range
+pre-yield refusals for either physical source shard, without changing oracles.
 
 ## Multi Shard Refusal Checkpoint (2026-10-14)
 
