@@ -1823,6 +1823,23 @@ on success/failure. This is nonzero synthetic integration, not upstream issuer
 provenance, nonzero recurrent-state coverage, source-to-frozen quantization
 equivalence, tokenizer semantics, quality or any real-profile execution approval.
 
+The separate `recurrent-down` case adds bounded nonzero recurrent integration
+before the frozen FFN-down projection, without changing the native hook. Sparse
+BF16 QKV/gate/output matrices and a four-tap F32 convolution drive the existing
+fixed-gate delta-state reference (two key heads, four value heads, 32 dimensions).
+Dense inputs use the same explicit BF16 rounding as the other references. Toy
+source operands invert the literal four-head order `[0, 2, 1, 3]` on V rows,
+gate rows and output columns; the convolution coefficients are exactly BF16
+representable. Complete two-shard source/converted parity remains required.
+State and residual norms must exceed 0.01; skipping recurrence, resetting state
+per token or resetting convolution history must each change selected logits
+beyond the unchanged `2e-5` native tolerance. Both writers must reproduce the
+full/peer/max128 references and all three fault deltas exactly. This one extra
+case runs seven source-gated workflows, six exit refusals and four pre-yield
+refusals, separately from the original seven zero-recurrent role fixtures.
+It is fixed-gate synthetic state coverage, not arbitrary learned gates,
+initialized-state coverage, real-model numerical agreement or quality evidence.
+
 The same source-gated variant also runs parallel independent contexts and kernel
 recovery for all seven roles: three dispatch/prefill calls and one repack in
 parallel, or one rejected call/kernel error followed by one successful dispatch

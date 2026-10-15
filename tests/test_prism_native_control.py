@@ -1083,7 +1083,7 @@ print(json.dumps({"kind": sys.argv[1], "selected_ranges": 28 if complete else 1,
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o", "full-only", "large-state"])
+@pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o", "full-only", "large-state", "recurrent-down"])
 def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_path, target):
     import hashlib
     import sys
@@ -1092,6 +1092,8 @@ def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_pat
     from embedded_jev.prism_codec import profile_model_specification
     from test_inventory import _prefill_model_policy_fixture
 
+    recurrent = target.startswith("recurrent-")
+    target = target.removeprefix("recurrent-")
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     converter = os.environ.get("PRISM_CONVERTER_PYTHON")
     runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
@@ -1119,6 +1121,7 @@ spec = json.loads(sys.argv[1])
 rows, columns = spec["projection"]["rows"], spec["projection"]["columns"]
 hidden, intermediate = spec["hidden"], spec["intermediate"]
 metadata = {item["name"]: item["values"] for item in spec["metadata"]}
+recurrent = spec.get("synthetic_recurrent", False)
 heads, kv_heads = metadata["qwen35.attention.head_count"][0], metadata["qwen35.attention.head_count_kv"][0]
 head_dim = metadata["qwen35.attention.key_length"][0]
 payload = np.frombuffer(Path(sys.argv[3]).read_bytes(), dtype=np.uint8).copy().reshape(rows, columns // 128, 34)
@@ -1165,6 +1168,17 @@ if spec["projection"]["tensor_name"] == "blk.1.attn_output.weight":
     arrays["token_embd.weight"][:, 0] = 0.125
 arrays["blk.0.ffn_gate.weight"][:, 0] = 0.25
 arrays["blk.0.ffn_up.weight"][np.arange(intermediate), (np.arange(intermediate) * 7) % hidden] = np.repeat([0.125, 0.375], intermediate // 2)
+if recurrent:
+    assert metadata["qwen35.ssm.group_count"] == [2] and metadata["qwen35.ssm.time_step_rank"] == [4]
+    assert metadata["qwen35.ssm.state_size"] == [32] and metadata["qwen35.ssm.inner_size"] == [128]
+    recurrent_qkv = np.zeros((256, hidden), dtype=np.float32)
+    recurrent_qkv[np.arange(256), np.arange(256) % hidden] = 0.25
+    recurrent_gate = np.zeros((128, hidden), dtype=np.float32)
+    recurrent_gate[np.arange(128), np.arange(128) % hidden] = 0.5
+    recurrent_out = np.eye(hidden, 128, dtype=np.float32) * np.float32(0.125)
+    arrays.update({"blk.0.attn_qkv.weight": recurrent_qkv, "blk.0.attn_gate.weight": recurrent_gate,
+                   "blk.0.ssm_out.weight": recurrent_out,
+                   "blk.0.ssm_conv1d.weight": np.tile(np.array([0.0625, 0.125, 0.25, 1], dtype=np.float32), (256, 1))})
 attention = spec["projection"]["tensor_name"].startswith("blk.1.attn_")
 if attention:
     query = np.zeros((heads * head_dim * 2, hidden), dtype=np.float32)
@@ -1199,10 +1213,15 @@ for item in spec["tensors"]:
     else:
         writer.add_tensor(name, values)
         if sys.argv[4]:
-            source_values = values if name.endswith(".ssm_norm.weight") else np.zeros_like(values)
+            source_values = values if name.endswith((".ssm_norm.weight", ".ssm_conv1d.weight")) else np.zeros_like(values)
             if name.endswith(".ssm_conv1d.weight"):
                 source_values = source_values[:, None, :]
             source_operands[name] = (source_values.view(np.uint32) >> 16).astype("<u2")
+if recurrent and sys.argv[4]:
+    head_order = [0, 2, 1, 3]
+    source_operands["blk.0.attn_qkv.weight"][128:] = source_operands["blk.0.attn_qkv.weight"][128:].reshape(4, 32, hidden)[head_order].reshape(128, hidden)
+    source_operands["blk.0.attn_gate.weight"] = source_operands["blk.0.attn_gate.weight"].reshape(4, 32, hidden)[head_order].reshape(128, hidden)
+    source_operands["blk.0.ssm_out.weight"] = source_operands["blk.0.ssm_out.weight"].reshape(hidden, 4, 32)[:, head_order].reshape(hidden, 128)
 source_fixture = {}
 if len(sys.argv) > 5 and sys.argv[5]:
     import hashlib
@@ -1263,8 +1282,8 @@ def dense_projection(name, inputs):
     encoded = gguf.quants.quantize(inputs, gguf.GGMLQuantizationType.BF16)
     rounded = gguf.quants.dequantize(encoded, gguf.GGMLQuantizationType.BF16)
     return arrays[name] @ rounded
-def pre_attention(token):
-    hidden = arrays["token_embd.weight"][token].copy()
+def pre_attention(hidden):
+    hidden = hidden.copy()
     normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-6))
     gate = bitnet_projection(normalized) if spec["projection"]["tensor_name"] == "blk.0.ffn_gate.weight" else dense_projection("blk.0.ffn_gate.weight", normalized)
     up = bitnet_projection(normalized) if spec["projection"]["tensor_name"] == "blk.0.ffn_up.weight" else dense_projection("blk.0.ffn_up.weight", normalized)
@@ -1273,8 +1292,40 @@ def pre_attention(token):
     assert np.linalg.norm(projected) > 0.01
     hidden += projected
     return hidden
-def reference(tokens):
-    sequence = np.stack([pre_attention(token) for token in tokens])
+def reference(tokens, *, reset_state=False, reset_history=False, skip_recurrent=False):
+    sequence = arrays["token_embd.weight"][tokens].copy()
+    if recurrent and not skip_recurrent:
+        history = np.zeros((4, 256), dtype=np.float32)
+        state = np.zeros((4, 32, 32), dtype=np.float32)
+        original = sequence.copy()
+        for index, current in enumerate(original):
+            if reset_state:
+                state.fill(0)
+            if reset_history:
+                history.fill(0)
+            normalized = current / np.sqrt(np.mean(current * current) + np.float32(1e-6))
+            history[:-1] = history[1:]
+            history[-1] = dense_projection("blk.0.attn_qkv.weight", normalized)
+            convolved = np.sum(history * arrays["blk.0.ssm_conv1d.weight"].T, axis=0)
+            convolved /= np.float32(1) + np.exp(-convolved)
+            query = convolved[:64].reshape(2, 32).copy()
+            key = convolved[64:128].reshape(2, 32).copy()
+            query /= np.maximum(np.sqrt(np.sum(query * query, axis=1, keepdims=True)), np.float32(1e-5))
+            key /= np.maximum(np.sqrt(np.sum(key * key, axis=1, keepdims=True)), np.float32(1e-5))
+            query = np.tile(query, (2, 1)) / np.sqrt(np.float32(32))
+            key = np.tile(key, (2, 1))
+            value = convolved[128:].reshape(4, 32)
+            state *= np.float32(0.5)
+            predicted = np.einsum("hij,hj->hi", state, key)
+            delta = (value - predicted) * np.float32(0.5)
+            state += delta[:, :, None] * key[:, None, :]
+            output = np.einsum("hij,hj->hi", state, query)
+            output /= np.sqrt(np.mean(output * output, axis=1, keepdims=True) + np.float32(1e-6))
+            gating = dense_projection("blk.0.attn_gate.weight", normalized)
+            gated = output.reshape(128) * (gating / (np.float32(1) + np.exp(-gating)))
+            sequence[index] += dense_projection("blk.0.ssm_out.weight", gated)
+        assert np.linalg.norm(state) > 0.01 and np.linalg.norm(sequence - original) > 0.01
+    sequence = np.stack([pre_attention(current) for current in sequence])
     if attention:
         normalized = sequence / np.sqrt(np.mean(sequence * sequence, axis=1, keepdims=True) + np.float32(1e-6))
         def project(name):
@@ -1315,7 +1366,14 @@ if sys.argv[4]:
     archive_bytes = Path(sys.argv[4]).read_bytes()
     assert len(archive_bytes) <= 16 * 1024**2
     archive_identity = {"source_archive_bytes": len(archive_bytes), "source_archive_sha256": hashlib.sha256(archive_bytes).hexdigest()}
-print(json.dumps({"logits": reference([3, 5, 7]), "peer_logits": reference([4, 9, 19, 3, 5, 7]), "maximum_logits": reference([2] * 128),
+references = {"logits": reference([3, 5, 7]), "peer_logits": reference([4, 9, 19, 3, 5, 7]), "maximum_logits": reference([2] * 128)}
+recurrent_discrimination = {}
+if recurrent:
+    for defect in ("skip_recurrent", "reset_state", "reset_history"):
+        wrong = reference([3, 5, 7], **{defect: True})
+        assert not np.allclose(references["logits"], wrong, rtol=2e-5, atol=2e-5), defect
+        recurrent_discrimination[defect] = float(np.max(np.abs(np.asarray(references["logits"]) - wrong)))
+print(json.dumps({**references, "recurrent_discrimination": recurrent_discrimination,
                   "model_bytes": len(model_bytes), "model_sha256": hashlib.sha256(model_bytes).hexdigest(), **archive_identity, "source_fixture": source_fixture}))
 """
     driver_code = """
@@ -1581,7 +1639,7 @@ ctypes.CDLL(None).fflush(None)
 sys.exit(status)
 """
     try:
-        writer = subprocess.run([converter, "-c", writer_code, json.dumps({**specification, "label_token_ids": dict(profile.tokenization["label_token_ids"])}), str(model_file), str(payload_file), str(operands_file) if parity_interpreter else ""],
+        writer = subprocess.run([converter, "-c", writer_code, json.dumps({**specification, "label_token_ids": dict(profile.tokenization["label_token_ids"]), "synthetic_recurrent": recurrent}), str(model_file), str(payload_file), str(operands_file) if parity_interpreter else ""],
                                 capture_output=True, text=True, timeout=30,
                                 env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(source_dir) / "gguf-py"), str(Path.cwd()))),
                                      "PYTHONDONTWRITEBYTECODE": "1", "OPENBLAS_NUM_THREADS": "1"})
@@ -2036,7 +2094,7 @@ print(json.dumps(report))
                 assert source_manifest["payload_sha256"] == manifest["payload_sha256"]
                 source_fixture_input = _profile_parity_fixture(source_profile, source_inventory, source_manifest, source_blocks)
                 source_writer = subprocess.run(
-                    [converter, "-c", writer_code, json.dumps({**specification, "label_token_ids": dict(profile.tokenization["label_token_ids"])}),
+                    [converter, "-c", writer_code, json.dumps({**specification, "label_token_ids": dict(profile.tokenization["label_token_ids"]), "synthetic_recurrent": recurrent}),
                      str(source_model), str(payload_file), str(source_archive), "pinned-source"],
                     capture_output=True, text=True, timeout=30, input=source_fixture_input,
                     env={**environment, "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
@@ -2049,6 +2107,7 @@ print(json.dumps(report))
                 np.testing.assert_allclose(source_expected["logits"], logits, rtol=0, atol=0)
                 np.testing.assert_allclose(source_expected["peer_logits"], expected["peer_logits"], rtol=0, atol=0)
                 np.testing.assert_allclose(source_expected["maximum_logits"], expected["maximum_logits"], rtol=0, atol=0)
+                assert source_expected["recurrent_discrimination"] == expected["recurrent_discrimination"]
                 for source_mode in ("full", "chunked", "reset", "reordered", "parallel", "maximum", "kernel-recovery"):
                     control = subprocess.run(
                         [parity_interpreter, "-c", driver_code, str(source_model), target, runtime_build, "verified-source-" + source_mode,

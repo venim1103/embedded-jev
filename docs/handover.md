@@ -1,10 +1,14 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-14. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-15. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
+
+**Resumed by user, 2026-10-15:** Continue autonomous bounded synthetic source/
+provenance work after user-pushed `15d9d3c`. Starting `main` matched `origin/main`
+with only untouched user settings untracked. Real-model approvals are unchanged.
 
 **Resumed by user, 2026-10-14:** Continue autonomous bounded synthetic source/
 provenance work after user-pushed `81d583a`. Starting `main` matched `origin/main`
@@ -29,16 +33,17 @@ read produced no result and made no edits. Resume only after an explicit user
 instruction. No tracked source changes or background jobs remain; the untracked
 user `.vscode/` directory is untouched. Real-model authorization is unchanged.
 
-**Quick orientation (2026-10-14):**
+**Quick orientation (2026-10-15):**
 
-1. The user explicitly resumed autonomous work again on 2026-10-14. The bounded
+1. The user explicitly resumed autonomous work again on 2026-10-15. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   The user separately approved the code-only v2 metadata-budget correction below.
   After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [nonzero multi shard refusal checkpoint](#nonzero-multi-shard-refusal-checkpoint-2026-10-14),
+2. Read the [recurrent source probe checkpoint](#recurrent-source-probe-checkpoint-2026-10-15),
+   then the [nonzero multi shard refusal checkpoint](#nonzero-multi-shard-refusal-checkpoint-2026-10-14),
    then the [nonzero multi shard checkpoint](#nonzero-multi-shard-checkpoint-2026-10-14),
    then the [multi shard refusal checkpoint](#multi-shard-refusal-checkpoint-2026-10-14),
    then the [multi shard exit checkpoint](#multi-shard-exit-checkpoint-2026-10-14),
@@ -121,6 +126,42 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Recurrent Source Probe Checkpoint (2026-10-15)
+
+After user-pushed `15d9d3c`, added one `recurrent-down` case to the existing
+profile/manifest synthetic fixture. Sparse BF16 QKV/gate/output and four-tap
+F32 convolution now drive nonzero delta-state/residuals before the frozen
+FFN-down projection. Reused the existing tiny fixed-gate recurrence with
+two key/four value heads and 32 dimensions, explicit BF16 dense-input rounding
+and literal inverse toy V head layout on source rows/columns. No native hook,
+geometry, source/model/operand/token bound, deadline or tolerance was widened.
+
+The oracle requires state and residual norms >0.01. Omitting recurrence,
+resetting state every token or dropping convolution history must each produce
+logits outside the unchanged `2e-5` native tolerance. The second source writer
+must reproduce full/peer/max128 references and fault deltas exactly. The new
+probe passes seven two-shard source-gated workflows, six post-prefill exit
+refusals and four pre-yield source refusals, with complete 28-tensor parity,
+25 selected metadata records, six runtime-file pins, typed zero-generation
+scores and existing dispatch/repack/cleanup assertions. Baseline fixtures keep
+their zero recurrent state and previous independent references.
+
+Verification: initial new probe **1 pass** in 176.69 s; discriminating-oracle
+follow-up **1 pass** in 85.99 s, peak RSS 311,116 KiB. All **9 preserved native
+role/refusal controls** pass in 664.39 s, peak RSS 317,096 KiB; swaps zero.
+Gate **553 default passes, 75 optional skips** in 34.64 s; Ruff, whitespace and
+diagnostics clean. No failed checks. All scratch removed; no new native
+build/CTest/sanitizer run or production/native changes.
+
+No real input reads/hashes/conversion/execution/quality, downloads/refits/new
+candidates, push/branch or subagents. Frozen codes/independent FP16 scales,
+v1, cached inputs/libraries and user settings unchanged. Fixed-gate synthetic
+state is not arbitrary learned gates, initialized-state integration, issuer/
+frozen equivalence, atomic storage, model quality or target-device evidence.
+Historical real MiMo discrepancy and other-model runtime approvals remain open.
+Next bounded slice: extend this proven recurrent fixture to the other six
+eligible frozen roles, preserving all references and limits.
 
 ## Nonzero Multi Shard Refusal Checkpoint (2026-10-14)
 
