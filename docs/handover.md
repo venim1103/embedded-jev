@@ -6,6 +6,12 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Paused by user, 2026-10-15:** Finish only the completed singleton-dispatch
+evidence checkpoint and stop. The combined projection/convolution-history/GDN
+cached-block experiment has not started. Resume implementation only after an
+explicit user instruction; a terminal notification is not a resume request.
+See the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15).
+
 **Expanded approval, 2026-10-15:** After user-pushed `53074a8`, the user approved
 necessary further work, including the previously blocked real-input diagnostic.
 Selected next action: one disposable cached-MiMo dense BF16 conversion and
@@ -18,7 +24,8 @@ by stateless-stage, connected recurrent-block and whole-layer composition probes
 After user-pushed `df1da32`, autonomous continuation added whole-layer precision
 controls, bit-exact coupled convolution/core cache handoff and a separate
 projection-batch precision diagnostic; full conversion was not retried.
-Read the [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
+Read the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
+[coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
 [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
 [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15) and
 [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15)
@@ -53,14 +60,16 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
 
 **Quick orientation (2026-10-15):**
 
-1. The user explicitly resumed autonomous work again on 2026-10-15. The bounded
+1. The user paused again on 2026-10-15 after the completed dispatch controls;
+  autonomous implementation now requires an explicit resume instruction. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   The user separately approved the code-only v2 metadata-budget correction below.
   After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
+2. Read the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
+   then the [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
    then the [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
    then the [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15),
    then the [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15),
@@ -153,6 +162,72 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Batch Dispatch Control Checkpoint (2026-10-15)
+
+Continued the approved bounded cached-MiMo diagnostics after `d3e4f4a`, then
+honored the user's pause. No repository source, native library, policy, frozen
+candidate, independent FP16 scales, tolerance or resource guard was changed.
+All new scripts/reports remain outside Git in the existing scratch root; this
+checkpoint changes only documentation. No combined cached-block experiment
+was started, and diagnostic padding is not promoted into production.
+
+Localized the ten non-bit-exact `1+63+16` projection cases: every discrepancy
+is confined to token 0, with tokens 1-79 bit-exact. Previously saved maximum
+gaps and unequal-element counts reproduce exactly. BF16 output rounding removes
+all QKV/Z/alpha/beta differences on these operands, but leaves two unequal
+output-projection elements per native type: BF16-matrix max **3.051758e-5**,
+F32-matrix max **6.103516e-5**. This is output rounding, not a change to the
+native F32 execution path or justification for adding intermediate casts.
+
+Applied `1+63+16` projection batching to the existing connected native recurrent
+block, while keeping convolution/GDN monolithic. The old monolithic baseline
+reproduces all comparison metrics and original replay input/output hashes.
+QKV/Z/alpha/beta rounded inputs remain identical; their token-0 output changes
+propagate to **all 80 core-output tokens**, with max output gap **3.576279e-7**
+and final-state gap **1.907349e-6**. The output projection sees **16 unequal
+BF16-rounded inputs**, giving block max gap **3.719330e-5** across 15 tokens.
+These are measured precision effects, not a passed cache-parity tolerance.
+
+A reversible diagnostic pads each singleton linear batch with one zero-input
+row and discards that row afterward, leaving weights and all real operands
+unchanged. The existing native SGEMM selector can then accept the two-row
+batch. All **30 of 30** BF16/F32 projection/partition cases become bit-exact
+against the unchanged 80-token baseline. The separately padded connected-block
+control also has **bit-exact** projection outputs, rounded inputs, core outputs
+and final state, including identical full GDN replay input/output hashes. This
+supports the singleton reduction-path hypothesis on these exact inputs; it is
+not instrumented dispatch proof, a production workaround, a general padding
+contract or representative quality evidence. Original unpadded results remain
+preserved. Convolution/core are still monolithic in the connected-block control,
+so actual combined cache handoff remains a distinct untested question.
+
+Supervised stages (seconds / peak process RSS KiB): token localization
+**8.27 / 988,248**, unpadded block propagation **8.22 / 978,004**, padded
+projections **13.29 / 991,412**, padded block **14.13 / 993,724**. All observed
+zero host swap growth/process swaps and minimum available RAM above 16.2 GiB
+under unchanged guards. Scratch syntax/Ruff checks passed before execution;
+strict padding and baseline assertions passed without tolerance relaxation or
+arithmetic retries. None of these host observations is a target-device guarantee.
+
+Verified/reread small summaries: `batch_propagation_evidence_summary.json`
+SHA-256 `6a22dc8046f0d5ea3ab3e53e839655857e7817f2a0bdc8f176e254ae6e6949a9`;
+`padding_control_evidence_summary.json` SHA-256
+`2d25fbf20a5dc5e322d728f98d73c77c674608eb0d8284d32ccab5df52c0c493`.
+The latter save was interrupted with unknown outcome; checked that it was absent
+and spill remained before completing only the save/cleanup after the pause.
+All scratch files total 940,875 bytes; no GGUF, raw packets or spill remains.
+Source identities, candidate/manifest and six runtime hashes still match the
+original preflight; earlier evidence is preserved. Documentation link/content,
+whitespace and editor checks apply; the unchanged successful source/native gates
+are not rerun for reassurance. No download, full conversion retry, refit, new
+candidate, held-out scoring, push, branch or subagents occurred.
+
+After an explicit resume, the next bounded question is to combine native
+projection batching with convolution-history and recurrent-state carry on the
+same authenticated operands, keeping the diagnostic padding distinction explicit.
+Full-loader/v2 real-model parity, the historical selected-logit discrepancy,
+BitNet full-model execution, model quality and device performance remain open.
 
 ## Coupled Cache Checkpoint (2026-10-15)
 
