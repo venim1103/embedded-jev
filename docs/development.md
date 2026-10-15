@@ -2688,6 +2688,10 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
 No new complete native model was retained or converted for these controls.
 Matching full-loader native/reference captures remain a next diagnostic, not
 a result established by saved scores or exploratory whole-layer composition.
+The [coupled cache checkpoint](handover.md#coupled-cache-checkpoint-2026-10-15)
+records bit-exact convolution-history/GDN-state handoff on identical projected
+operands. Native projection batching is separately exact for `31+49`/`40+40`,
+but not `1+63+16`; fixed-operand cache checks do not establish whole-layer parity.
 The [whole layer checkpoint](handover.md#whole-layer-checkpoint-2026-10-15)
 records bounded MLP arithmetic, causal precision controls and real GDN state
 handoff; its split matmul/routing path is not the full-loader graph. The

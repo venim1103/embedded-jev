@@ -16,8 +16,10 @@ The one conversion attempt stopped on its swap guard before creating a GGUF;
 two smaller authenticated layer-0 recurrent-operand replays completed, followed
 by stateless-stage, connected recurrent-block and whole-layer composition probes.
 After user-pushed `df1da32`, autonomous continuation added whole-layer precision
-controls and bit-exact core-state chunk handoff; full conversion was not retried.
-Read the [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
+controls, bit-exact coupled convolution/core cache handoff and a separate
+projection-batch precision diagnostic; full conversion was not retried.
+Read the [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
+[whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
 [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15) and
 [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15)
 for the measured results and remaining full-model blocker.
@@ -58,7 +60,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
+2. Read the [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
+   then the [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
    then the [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15),
    then the [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15),
    then the [prompt trace checkpoint](#prompt-trace-checkpoint-2026-10-15),
@@ -150,6 +153,75 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Coupled Cache Checkpoint (2026-10-15)
+
+Continued after `5f54ba7` without repository source changes or another complete
+conversion. This increment closes the preceding fixed-projected-operand cache
+question, but records a separate projection-batch precision limitation. v1/v2
+policies, frozen codes/independent FP16 scales, numerical tolerances, token/tensor
+caps, cached libraries and user settings remain unchanged.
+
+A disposable convolution helper carries exactly three projected-input columns
+for the four-tap causal convolution. Each unchanged native call includes that
+history and therefore admits at most 125 new tokens under the existing 128-token
+bound; 126 is refused. A 32-channel synthetic fixture with nonzero initial
+history matches independent Torch raw convolution exactly. Raw convolution,
+SiLU output and final history are bit-exact for `31+49`, `1+63+16` and `40+40`;
+the lost-history fault is discriminating before real inputs are used.
+
+Captured the existing real 80-token F32/BF16-RHS layer-0 convolution operands
+and coupled native convolution/SiLU to the pinned raw-gate GDN file control.
+The real geometry is 8,192 convolution channels, width 128, 16 key/32 value
+heads, zero initial history and the captured value-by-key recurrent state.
+Grouped source V heads are explicitly converted to native tiled order; raw
+alpha/beta operands and A/bias remain unchanged. All three partitions require
+bit-exact raw convolution, SiLU, core output, final recurrent state and final
+three-column history against the same native-operation baseline. All pass.
+Losing only convolution history changes core output by up to **0.4066229**;
+resetting only recurrent state changes it by **1.3415415**. Native-versus-Torch
+SiLU produces a separately measured **4.768372e-7** core-output gap; it is not
+silently counted as bit-exact original-packet agreement. Original full-packet,
+output and executable hashes still match the preceding retained report.
+
+A separate diagnostic splits each of the five real recurrent projections in
+both BF16 and F32 native matrix types. **20 of 30** projection/partition cases
+are bit-exact: every `31+49` and `40+40` case. All ten `1+63+16` cases differ,
+with maximum batch-shape gap **7.629395e-6** and 21 to 6,021 unequal elements
+per case. Monolithic projection comparisons exactly match the earlier report.
+The pinned `ggml-cpu.c` calls the SGEMM selector, and
+`llamafile/sgemm.cpp` refuses `n < 2` on this platform. This is consistent with
+a one-token reduction-path difference, not an instrumented dispatch attribution
+or a correction. No cached source/build, tolerance or guard was changed to hide
+it. Coupled cache equality on fixed projected operands therefore does **not**
+establish bit-exact projection batching, whole-layer or full-loader caching.
+
+Supervised stages (seconds / peak process RSS KiB): synthetic convolution cache
+**1.92 / 239,100**, real coupled cache **7.17 / 731,276**, projection batching
+**10.88 / 992,112**. All observed zero host swap growth/process swaps, available
+RAM above 16.6 GiB, and unchanged deadline/address-space/reserve/swap guards.
+These are host observations, not target-device guarantees. Scratch syntax/Ruff
+checks passed before each new real stage; no failed arithmetic assertion,
+guard relaxation or retry occurred. The projection non-equality is a retained
+diagnostic result, not a passed exact-parity assertion.
+
+Small scripts/reports/two tools total 798,741 bytes in the existing scratch root.
+Both new summaries were reread and verified: `coupled_cache_evidence_summary.json`
+SHA-256 `16dedded0ce9c81c31bf31e707e3791554b8b6d742122247903536c8b4c04201`;
+`projection_batch_evidence_summary.json` SHA-256
+`66eedac4f5f9ebfcebf1c2aa5cf9b62d1b19c801d131031b51575881d176fc22`.
+No GGUF, raw packets, spill or experiment process remains. Source identities,
+candidate/manifest and six runtime hashes, both pinned tracked source worktrees
+and all earlier reports are unchanged. No push, branch, download, refit, new
+candidate, held-out scoring, subagent, BitNet/full-model acceptance or other-model
+execution is inferred. This repository checkpoint changes documentation only;
+scoped content/link/whitespace checks apply, not a repeated unchanged source gate.
+
+Next bounded question: locate projection mismatches within the token partitions
+and measure their propagation through a coupled recurrent block before making
+any broader cache claim. Exact full-loader intermediate parity and the historical
+full-model selected-logit discrepancy remain unresolved; the swap-refused complete
+conversion is not retried under unchanged conditions.
 
 ## Whole Layer Checkpoint (2026-10-15)
 
