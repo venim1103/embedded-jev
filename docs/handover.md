@@ -42,7 +42,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [recurrent source roles checkpoint](#recurrent-source-roles-checkpoint-2026-10-15),
+2. Read the [dynamic gate probe checkpoint](#dynamic-gate-probe-checkpoint-2026-10-15),
+   then the [recurrent source roles checkpoint](#recurrent-source-roles-checkpoint-2026-10-15),
    then the [recurrent source probe checkpoint](#recurrent-source-probe-checkpoint-2026-10-15),
    then the [nonzero multi shard refusal checkpoint](#nonzero-multi-shard-refusal-checkpoint-2026-10-14),
    then the [nonzero multi shard checkpoint](#nonzero-multi-shard-checkpoint-2026-10-14),
@@ -127,6 +128,41 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Dynamic Gate Probe Checkpoint (2026-10-15)
+
+After `64c497d`, added one `dynamic-recurrent-down` synthetic case. Sparse
+per-head alpha/beta BF16 projections and nonuniform F32 dt biases drive sigmoid
+beta and `exp(-softplus(alpha + bias))` decay with A fixed at -1. Verified that
+expression in the pinned native Qwen3.5 source before editing the independent
+NumPy oracle. Source alpha/beta rows and bias heads invert literal toy order
+`[0, 2, 1, 3]`; complete source/converted parity remains an independent gate.
+
+Both gates must vary across heads >0.01 and across changing token inputs >0.01;
+the repeated-token maximum does not incorrectly require time-varying gates.
+Fixed 0.5 gates now join omitted recurrence/reset state/reset history as a fourth
+faulty oracle that must differ outside unchanged `2e-5` tolerance. Both writers
+must exactly reproduce full/peer/max128 and all fault deltas. The new case
+passes seven two-shard source-gated workflows, six post-prefill and four
+pre-yield refusals with existing typed zero-generation/dispatch/repack/cleanup
+requirements. No native or production code changes.
+
+Verification: new dynamic probe **1 pass** in 94.96 s, peak RSS 311,240 KiB;
+fixed-gate recurrent-down and original zero-recurrent attention-output **2
+passes** in 164.46 s, peak RSS 311,228 KiB; swaps zero. Gate **553 default
+passes, 82 optional skips** in 54.02 s; Ruff, whitespace and diagnostics clean.
+Initial collection-only probe failed because a new decorator parameter had no
+function argument. Replaced it with exactly one intended target (not a Cartesian
+product); same collection check then passed with 17 selected cases before any
+native run. No arithmetic/native failure or relaxed assertion/budget/deadline.
+
+No rebuild/CTest/sanitizer, real input reads/hashes/conversion/execution/quality,
+downloads/refits/new candidates, push/branch or subagents. Scratch removed;
+frozen codes/independent scales, v1, bounds, caches and settings unchanged.
+Input-dependent synthetic gates are not learned-model/initialized-state quality,
+issuer/frozen equivalence, atomic storage or target performance. Real MiMo
+discrepancy and all real-profile approvals remain open. Next bounded slice:
+the other six dynamic frozen roles, with the same source/oracle/exit gates.
 
 ## Recurrent Source Roles Checkpoint (2026-10-15)
 
