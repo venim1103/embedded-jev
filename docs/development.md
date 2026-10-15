@@ -1844,7 +1844,7 @@ the same checks and tolerances.
 It is fixed-gate synthetic state coverage, not arbitrary learned gates,
 initialized-state coverage, real-model numerical agreement or quality evidence.
 
-The additional `dynamic-recurrent-down` probe uses synthetic input-dependent
+The additional `dynamic-recurrent-*` probes use synthetic input-dependent
 alpha/beta projections and nonuniform per-head dt biases, with A fixed at -1.
 Its independent NumPy reference evaluates sigmoid beta and
 `exp(-softplus(alpha + dt_bias))` decay, matching the pinned native expression.
@@ -1852,9 +1852,13 @@ Both gates must vary across heads by >0.01, and across tokens when inputs differ
 identical repeated tokens are not required to change gates. Replacing them with
 fixed 0.5 gates joins the three recurrent fault variants and must change logits
 outside `2e-5`. Source alpha/beta rows and bias heads invert the same literal
-toy head order, and complete physical/converted parity still applies. The probe
-runs the same seven workflows, six exit and four entry refusals; it is synthetic
-gate arithmetic, not learned-model quality or initialized-state coverage.
+toy head order, and complete physical/converted parity still applies. This extra
+seven-role set runs 49 workflows, 42 exit and 28 entry refusals, including
+combined recurrent/full-attention paths and the different output geometry.
+Together the fixed- and dynamic-gate recurrent sets add 98 successful workflows,
+84 exit and 56 pre-yield refusals, separate from the zero-recurrent baseline.
+These checks cover synthetic gate arithmetic, not learned-model quality or
+initialized-state coverage.
 
 The same source-gated variant also runs parallel independent contexts and kernel
 recovery for all seven roles: three dispatch/prefill calls and one repack in

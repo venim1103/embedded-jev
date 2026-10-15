@@ -1084,7 +1084,8 @@ print(json.dumps({"kind": sys.argv[1], "selected_ranges": 28 if complete else 1,
 
 
 @pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o", "full-only", "large-state",
-                                  "recurrent-down", "recurrent-up", "recurrent-gate", "recurrent-q", "recurrent-k", "recurrent-v", "recurrent-o", "dynamic-recurrent-down"])
+                                  "recurrent-down", "recurrent-up", "recurrent-gate", "recurrent-q", "recurrent-k", "recurrent-v", "recurrent-o",
+                                  "dynamic-recurrent-down", "dynamic-recurrent-up", "dynamic-recurrent-gate", "dynamic-recurrent-q", "dynamic-recurrent-k", "dynamic-recurrent-v", "dynamic-recurrent-o"])
 def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_path, target):
     import hashlib
     import sys

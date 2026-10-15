@@ -42,7 +42,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [dynamic gate probe checkpoint](#dynamic-gate-probe-checkpoint-2026-10-15),
+2. Read the [dynamic gate roles checkpoint](#dynamic-gate-roles-checkpoint-2026-10-15),
+   then the [dynamic gate probe checkpoint](#dynamic-gate-probe-checkpoint-2026-10-15),
    then the [recurrent source roles checkpoint](#recurrent-source-roles-checkpoint-2026-10-15),
    then the [recurrent source probe checkpoint](#recurrent-source-probe-checkpoint-2026-10-15),
    then the [nonzero multi shard refusal checkpoint](#nonzero-multi-shard-refusal-checkpoint-2026-10-14),
@@ -128,6 +129,44 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Dynamic Gate Roles Checkpoint (2026-10-15)
+
+After `ec9a06f`, added only the remaining six dynamic role parameters. All
+seven frozen roles now pass with synthetic input-dependent alpha/beta/bias
+gates and nonzero recurrent state; Q/K/V/O also include nonzero full causal
+attention. Both hidden1024/head32 and output hidden128/head64 geometries retain
+complete physical two-shard source/converted parity, selected metadata/runtime
+pins, exact full/peer/max128 references and unchanged `2e-5` native tolerances.
+
+The dynamic set verifies **49 successful workflows, 42 post-prefill exit and
+28 pre-yield refusals**, separately from the identical-count fixed-gate set and
+the original zero-recurrent set. Combined new recurrent coverage is **98
+successful workflows, 84 exit and 56 pre-yield refusals**. Every dynamic role
+rejects omitted recurrence, per-token state reset, lost convolution history and
+fixed gates through independent oracle comparisons; head/token gate variation
+is explicit. Typed zero-generation scores, genuine BitNet dispatch/repack,
+parallel/chunk/reset/reorder/maximum/recovery and cleanup checks remain active.
+
+Verification: dynamic attention-output **1 pass** in 101.86 s, peak RSS
+255,676 KiB; dynamic FFN-up/gate **2 passes** in 237.45 s, peak RSS 311,056 KiB;
+dynamic Q/K/V **3 passes** in 312.06 s, peak RSS 316,800 KiB; swaps zero.
+Dynamic-down and fixed/zero representatives were verified in the immediately
+preceding checkpoint and are unchanged, not rerun for reassurance. Gate
+**553 default passes, 88 optional skips** in 36.04 s; Ruff, whitespace and
+diagnostics clean. No failed checks in this parameter-only increment. Earlier
+collection failure and repair remain recorded in the probe checkpoint below.
+
+No production/native changes, rebuild/CTest/sanitizer, real input reads/hashes/
+conversion/execution/quality, downloads/refits/new candidates, push/branch or
+subagents. Scratch removed; frozen codes/independent FP16 scales, v1, hook/
+byte/operand/tensor/token/deadline bounds, caches and user settings unchanged.
+This completes the bounded zero-initial-state recurrent source integration,
+not arbitrary learned-model gates, injected initialized-state integration,
+issuer/frozen equivalence, atomic storage, representative quality or device
+performance. The next real-profile comparison still requires separate approval
+and the existing [comparison preparation](#real-comparison-preparation-2026-10-12).
+The historical real MiMo discrepancy and other-model execution remain open.
 
 ## Dynamic Gate Probe Checkpoint (2026-10-15)
 
