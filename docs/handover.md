@@ -11,7 +11,8 @@ checkpoint commits. Starting `218d5c6` matched `origin/main`, with only untouche
 user settings untracked. The combined recurrent-cache check below completed
 within the existing cached-MiMo diagnostic approval and unchanged resource guards;
 this does not authorize another full conversion or other-profile execution.
-Read the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15).
+Whole-layer and token-by-token controls subsequently completed; read the
+[cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15).
 
 **Historical pause, 2026-10-15:** Finish only the completed singleton-dispatch
 evidence checkpoint and stop. The combined projection/convolution-history/GDN
@@ -31,7 +32,8 @@ by stateless-stage, connected recurrent-block and whole-layer composition probes
 After user-pushed `df1da32`, autonomous continuation added whole-layer precision
 controls, bit-exact coupled convolution/core cache handoff and a separate
 projection-batch precision diagnostic; full conversion was not retried.
-Read the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
+Read the [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
+[combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
 [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
 [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
 [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
@@ -76,7 +78,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
+2. Read the [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
+   then the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
    then the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
    then the [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
    then the [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
@@ -171,6 +174,74 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Cached Layer Continuation Checkpoint (2026-10-15)
+
+After `c435eb7`, extended the combined recurrent-cache composition through
+post-attention RMS and the existing split MLP/residual, using exactly the same
+14 layer-0 parameters and 80 known tokens. Gate/up retain two row blocks; down
+retains three input blocks and the original F32 sum order. No cached library,
+production policy, frozen codes/independent FP16 scales, intermediate casts,
+bound, tolerance, source-profile approval or model-quality data was changed.
+
+Before new partitions, every captured whole-layer native stage, output and final
+state reproduces the preceding monolithic composition exactly. Original whole-
+layer reference-comparison metrics, split-down controls and full GDN replay bytes
+also match. Unmodified `31+49` and `40+40`, and diagnostic singleton-padded
+`1+63+16`, then require **bit-exact** equality at every stage, residual and final
+history/state; all pass. Unmodified `1+63+16` remains nonexact: layer max gap
+**0.0003347397**, MLP max **0.0003361702**, final-state max **1.907349e-6**.
+These maxima are not new accepted tolerances or proof of the historical
+full-model discrepancy's cause.
+
+The two independent `31+49` faults still discriminate through the complete
+layer. Lost convolution history yields layer/MLP maxima **0.6954083 / 0.4530827**;
+reset recurrent state yields **1.145927 / 1.461804**. Their final-state gaps
+remain **1.678816 / 5.347192**. These are controlled faults on this fixture,
+not representative quality judgments.
+
+A second serial experiment exercises **80 one-token steps** and **64-token
+prefill plus 16 one-token continuations**. With diagnostic singleton padding,
+every stage of every step and final history/state are bit-exact against the
+authenticated monolithic baseline. An unmodified 80-singleton run remains
+different at all 80 layer outputs: max **0.0003347397**, final-state max
+**7.629395e-6**. All inputs are the existing known tokens; **zero generated
+tokens**, no output head or option scores. Padding is diagnostic only, not a
+production cache fix or BitNet/full-loader/v2 real-model acceptance.
+
+Extended the existing compiled synthetic GDN file regression, not a new test
+file: added `40+40`, 80 singleton chunks and `64+16` singleton continuation to
+the same nonzero-initialized raw-gate fixture. Original two partitions, malformed
+packets, maximum geometries, exact per-token output/final-state assertions and
+15-second child deadlines remain unchanged. Focused compiled control: **1 pass
+in 3.47 s**. Required source gate: **553 passes / 88 optional skips in 25.59 s**;
+Ruff/whitespace/editor clean. No failed syntax/lint/arithmetic run or tolerance
+relaxation occurred; no cached-library rebuild, CTest or sanitizer is claimed.
+
+Supervised real stages (seconds / peak process RSS KiB): cached full layer
+**27.20 / 2,001,964**; token continuation **146.61 / 2,012,272**. Minimum host
+available RAM was **20,247,728,128 / 20,209,770,496 bytes**, with zero swap
+growth/process swaps under unchanged 300 s/32 GiB/2 GiB reserve/512 MiB swap
+guards. Continuation makes 177 chunk GDN calls plus its baseline/capture calls;
+this diagnostic subprocess overhead is not deployment performance evidence.
+
+Verified/reread summaries: `cached_layer_evidence_summary.json` SHA-256
+`98371669b643f7a5fa4f2c2bb9bde7094349e73f210faa818de0a495c07df73e`;
+`cached_decode_evidence_summary.json` SHA-256
+`c25216ecf0af969aeb23be6617e0386f50e85d483ea6ae0e1a7b24b9c1d7eb95`.
+All scratch scripts/reports/two tools total 1,247,229 bytes, with no raw replay
+packets, GGUF or owned spill. Source identities and frozen candidate/manifest/
+six runtime hashes were rechecked before/after both stages and remain unchanged;
+earlier evidence is preserved. No full conversion retry, download, refit,
+retained candidate, held-out scoring, push, branch or subagents occurred.
+
+The learned layer-0 recurrent composition now has exact diagnostic-padded cached
+and token-continuation evidence on this fixture, not full-model runtime parity.
+The next numerical boundary is full-attention/KV-cache composition with its own
+head geometry, rotary positions and storage precision; inspect and bound that
+path before any real probe. Do not reuse recurrent state-layout assumptions or
+claim the historical selected-logit discrepancy, BitNet full-model dispatch,
+quality, device performance or another profile's execution is resolved.
 
 ## Combined Recurrent Cache Checkpoint (2026-10-15)
 

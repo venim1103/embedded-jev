@@ -2539,7 +2539,7 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     replayed = np.fromfile(output_path, dtype="<f4")
     np.testing.assert_array_equal(replayed[:80 * 4 * 128].reshape(80, 4, 128), outputs)
     np.testing.assert_array_equal(replayed[80 * 4 * 128:].reshape(4, 128, 128), state)
-    for partition in ((31, 49), (1, 63, 16)):
+    for partition in ((31, 49), (1, 63, 16), (40, 40), (1,) * 80, (64,) + (1,) * 16):
         carried = np.asarray(operands[5], dtype="<f4")
         completed = 0
         chunks = []

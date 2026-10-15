@@ -2668,9 +2668,10 @@ refuse with status 6 and no report. Computation/nonfinite failures have their
 existing statuses. Use trusted regular offline files and an external deadline;
 this diagnostic is not a source authenticator, model loader or hard I/O timer.
 The compiled control verifies exact legacy raw-gate replay, maximum geometries
-and refusals without real weights. Its `31+49` and `1+63+16` initialized-state
-file partitions carry each returned F32 value-by-key state into the next packet,
-requiring bit-exact output and final-state equality with the 80-token baseline.
+and refusals without real weights. Its `31+49`, `1+63+16`, `40+40`, 80 singleton
+and 64-token-prefill/16-singleton initialized-state partitions carry each returned
+F32 value-by-key state into the next packet, requiring bit-exact output and
+final-state equality with the 80-token baseline.
 This tests only GDN handoff on supplied Q/K/V and raw gates, not convolution or
 full-model cache behavior; it does not change the original numerical tolerances.
 
@@ -2701,6 +2702,11 @@ then combines projection batching, convolution history and recurrent state:
 `31+49`/`40+40` are exact unmodified, while singleton padding remains necessary
 for exact `1+63+16` agreement on these operands. This is one recurrent block,
 not full-layer/full-loader caching or BitNet full-model execution.
+The [cached layer continuation checkpoint](handover.md#cached-layer-continuation-checkpoint-2026-10-15)
+extends that diagnostic composition through the original split MLP, including
+80 one-token steps and 64-token prefill plus 16 one-token continuations. Exact
+controls still use diagnostic singleton padding; the unchanged unmodified
+execution retains measured drift. No full-loader/BitNet/quality claim follows.
 The [whole layer checkpoint](handover.md#whole-layer-checkpoint-2026-10-15)
 records bounded MLP arithmetic, causal precision controls and real GDN state
 handoff; its split matmul/routing path is not the full-loader graph. The
