@@ -6,7 +6,14 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**Paused by user, 2026-10-15:** Finish only the completed singleton-dispatch
+**Resumed by user, 2026-10-15:** Continue autonomously with periodic local
+checkpoint commits. Starting `218d5c6` matched `origin/main`, with only untouched
+user settings untracked. The combined recurrent-cache check below completed
+within the existing cached-MiMo diagnostic approval and unchanged resource guards;
+this does not authorize another full conversion or other-profile execution.
+Read the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15).
+
+**Historical pause, 2026-10-15:** Finish only the completed singleton-dispatch
 evidence checkpoint and stop. The combined projection/convolution-history/GDN
 cached-block experiment has not started. Resume implementation only after an
 explicit user instruction; a terminal notification is not a resume request.
@@ -24,7 +31,8 @@ by stateless-stage, connected recurrent-block and whole-layer composition probes
 After user-pushed `df1da32`, autonomous continuation added whole-layer precision
 controls, bit-exact coupled convolution/core cache handoff and a separate
 projection-batch precision diagnostic; full conversion was not retried.
-Read the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
+Read the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
+[batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
 [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
 [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
 [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15) and
@@ -60,15 +68,16 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
 
 **Quick orientation (2026-10-15):**
 
-1. The user paused again on 2026-10-15 after the completed dispatch controls;
-  autonomous implementation now requires an explicit resume instruction. The bounded
+1. The user explicitly resumed again on 2026-10-15 after pushing `218d5c6`;
+  autonomous bounded work and periodic local checkpoint commits are active. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   The user separately approved the code-only v2 metadata-budget correction below.
   After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
+2. Read the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
+   then the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
    then the [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
    then the [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
    then the [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15),
@@ -162,6 +171,55 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Combined Recurrent Cache Checkpoint (2026-10-15)
+
+After user-pushed `218d5c6`, combined actual native projection batching with
+convolution-history and GDN-state carry on the same authenticated 80-token MiMo
+layer-0 operands. A disposable helper composes input RMS, four input projections,
+causal convolution/SiLU, raw-gate GDN, gated RMS, output projection and residual.
+All original monolithic stages and final state are bit-exact, including original
+full replay input/output hashes and reference-comparison metrics. This baseline
+check precedes all new partitions; model-repository code is not executed.
+
+Six cases preserve the distinction between unmodified and diagnostic-padded
+execution. Every captured stage, residual, final three-column convolution history
+and final recurrent state is **bit-exact** for unpadded `31+49` and `40+40`, and
+diagnostic singleton-padded `1+63+16`. No intermediate casts or tolerances are
+added. Unpadded `1+63+16` retains the preceding block gap **3.719330e-5** across
+15 output tokens and final-state gap **1.907349e-6**; combined cache carry does
+not erase the native singleton projection difference.
+
+Separately losing only convolution history at token 31 changes block output by
+**0.3304701** and final state by **1.678816**. Resetting only recurrent state
+changes block output by **0.3158770** and final state by **5.347192**. Both affect
+all 49 remaining output tokens. Thus the exact positive cache cases are
+discriminating, not zero-state/no-history degeneracies. These are real source
+operands on one synthetic prompt, not representative quality or full-loader/v2
+real-model acceptance. Diagnostic singleton padding is still not promoted.
+
+The single supervised stage completed in **13.58 s**, peak process RSS
+**998,372 KiB**, minimum available host RAM **22,054,682,624 bytes**, zero host
+swap growth/process swaps. Existing 300 s, 32 GiB address-space, 2 GiB reserve,
+512 MiB swap-growth and disk guards remain unchanged; process measurements are
+not device guarantees. Syntax/Ruff and strict baseline/cache assertions passed
+without arithmetic retries, tolerance changes or cached-library rebuilds.
+
+Verified/reread `cached_block_evidence_summary.json` SHA-256
+`4974ca69c635e94816a0c54df6dc5ef26a8f0273d6ceff46f74ed4f004748339`.
+Scratch scripts/reports/two tools total 1,012,077 bytes; raw replay files and owned
+spill were removed, and no GGUF was created. Source identities, frozen candidate/
+manifest and all six runtime hashes were rechecked before/after execution and
+remain unchanged. Earlier evidence remains intact. No conversion retry, download,
+refit, retained candidate, held-out scoring, push, branch or subagents occurred.
+Repository changes are documentation only, validated with scoped link/content,
+whitespace and editor checks; unchanged successful source/native gates are not
+rerun. v1/v2 policies and the production execution path remain untouched.
+
+Next bounded question: extend the same cached composition through post-attention
+RMS and the existing split-MLP/residual path, keeping its matmul-order and padding
+limits explicit. This is not full-loader cache, BitNet full-model dispatch,
+resolution of the historical selected-logit discrepancy or model-quality evidence.
 
 ## Batch Dispatch Control Checkpoint (2026-10-15)
 

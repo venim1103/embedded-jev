@@ -2696,6 +2696,11 @@ The [batch dispatch control checkpoint](handover.md#batch-dispatch-control-check
 localizes those differences to the singleton token and measures block propagation.
 Diagnostic-only zero-row padding restores exact projection/block agreement on
 these operands; it is not a production change or combined cached-decoder result.
+The [combined recurrent cache checkpoint](handover.md#combined-recurrent-cache-checkpoint-2026-10-15)
+then combines projection batching, convolution history and recurrent state:
+`31+49`/`40+40` are exact unmodified, while singleton padding remains necessary
+for exact `1+63+16` agreement on these operands. This is one recurrent block,
+not full-layer/full-loader caching or BitNet full-model execution.
 The [whole layer checkpoint](handover.md#whole-layer-checkpoint-2026-10-15)
 records bounded MLP arithmetic, causal precision controls and real GDN state
 handoff; its split matmul/routing path is not the full-loader graph. The
