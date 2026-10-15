@@ -6,7 +6,16 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**Resumed by user, 2026-10-15:** Continue autonomously with periodic local
+**Paused by user, 2026-10-15:** Stop after the completed `f723065` checkpoint,
+which the user pushed before this pause. Only a final read-only API lookup was
+interrupted; no bounded ctypes attention helper or learned layer-3 capture was
+created or run. No experiment process, raw replay packet, GGUF or owned spill
+remains; user settings are untouched. Resume implementation only after an
+explicit user instruction. Next: validate a bounded same-input attention helper
+synthetically before capturing post-Q/K-norm/post-rotary learned operands. Native
+rotary, KV writes, learned projections and full-loader parity remain separate.
+
+**Historical resume, 2026-10-15:** Continue autonomously with periodic local
 checkpoint commits. Starting `218d5c6` matched `origin/main`, with only untouched
 user settings untracked. The combined recurrent-cache check below completed
 within the existing cached-MiMo diagnostic approval and unchanged resource guards;
@@ -72,8 +81,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
 
 **Quick orientation (2026-10-15):**
 
-1. The user explicitly resumed again on 2026-10-15 after pushing `218d5c6`;
-  autonomous bounded work and periodic local checkpoint commits are active. The bounded
+1. The user paused again on 2026-10-15 after pushing `f723065`; implementation
+  now requires an explicit resume instruction. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   The user separately approved the code-only v2 metadata-budget correction below.
   After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
