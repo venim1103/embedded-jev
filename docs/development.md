@@ -2662,6 +2662,17 @@ not a result established by the saved scores. Another temporary complete-model
 conversion requires separate approval; do not refit or score held-out data to
 hide the unresolved numerical contract.
 
+The additive native command
+`--prefill-text-trace-control MODEL PROMPT TRACE_DIRECTORY` combines the existing
+text scorer with its finite F32 intermediate capture. The destination must not
+exist; prompt <=4096 bytes, <=128 tokens, three distinct contextual option tokens,
+<=36 stages and <=96 MiB trace bytes retain their original guards. Reports must
+exactly equal untraced text scoring in synthetic controls. This is dense tracing,
+not BitNet dispatch or profile-v2 execution. Real captures require an explicitly
+approved temporary model; keep raw tensors outside Git and remove them after
+verified small numerical summaries. The 2026-10-15 approved MiMo experiment's
+resource/cleanup plan is in the [handover](handover.md#prompt-trace-checkpoint-2026-10-15).
+
 ## Single-Projection Native Fixture
 
 One searched-FP16 group-128 layer-3 FFN-down candidate is retained under

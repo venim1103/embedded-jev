@@ -1277,6 +1277,9 @@ int main(int argc, char** argv) {
     if (argc == 4 && std::strcmp(argv[1], "--prefill-text-control") == 0) {
         return test_prefill_control(argv[2], false, "full", argv[3]);
     }
+    if (argc == 5 && std::strcmp(argv[1], "--prefill-text-trace-control") == 0) {
+        return test_prefill_control(argv[2], false, "full", argv[3], nullptr, argv[4]);
+    }
     if ((argc == 3 || argc == 4) && std::strcmp(argv[1], "--prefill-bitnet-control") == 0) {
         return test_prefill_control(argv[2], true, argc == 4 ? argv[3] : "full");
     }

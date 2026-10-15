@@ -6,6 +6,13 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Expanded approval, 2026-10-15:** After user-pushed `53074a8`, the user approved
+necessary further work, including the previously blocked real-input diagnostic.
+Selected next action: one disposable cached-MiMo dense BF16 conversion and
+serial native/reference intermediate comparison on the existing 80-token
+synthetic fixture. See the budget below; this is not a retained candidate,
+refit, held-out quality run or another-model compatibility claim.
+
 **Resumed by user, 2026-10-15:** Continue autonomous bounded synthetic source/
 provenance work after user-pushed `15d9d3c`. Starting `main` matched `origin/main`
 with only untouched user settings untracked. Real-model approvals are unchanged.
@@ -40,9 +47,10 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   The user separately approved the code-only v2 metadata-budget correction below.
   After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
   the verified-file owner below is the first tested increment in that scope.
-  No further download, complete-model conversion, fit or new retained candidate
-  is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [dynamic gate roles checkpoint](#dynamic-gate-roles-checkpoint-2026-10-15),
+  The latest approval now permits the bounded cached-MiMo diagnostic below;
+  synthetic execution itself still grants no other-profile runtime approval.
+2. Read the [prompt trace checkpoint](#prompt-trace-checkpoint-2026-10-15),
+   then the [dynamic gate roles checkpoint](#dynamic-gate-roles-checkpoint-2026-10-15),
    then the [dynamic gate probe checkpoint](#dynamic-gate-probe-checkpoint-2026-10-15),
    then the [recurrent source roles checkpoint](#recurrent-source-roles-checkpoint-2026-10-15),
    then the [recurrent source probe checkpoint](#recurrent-source-probe-checkpoint-2026-10-15),
@@ -109,10 +117,9 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   The Python profile/inventory/manifest adapter now reaches actual BF16/PQ2
   model prefill for all seven eligible FFN/full-attention roles with independent
   synthetic references. Bounded P4 code-only preparation is complete; the next
-  real-profile comparison needs approval and the prerequisites below. The
-  metadata-cap blocker is corrected within explicit bounds; no real
-  checkpoint execution is approved; P2,
-  real-model P4 and the MiMo layer-0 diagnostic still need new approval.
+  cached-MiMo numerical diagnostic now has user approval within the budget
+  below. The metadata-cap blocker is corrected within explicit bounds; this
+  diagnostic is not new-profile P2, v2 real-model P4 or quality acceptance.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
 
@@ -129,6 +136,38 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Prompt Trace Checkpoint (2026-10-15)
+
+After user-pushed `53074a8` and expanded approval, added
+`--prefill-text-trace-control MODEL PROMPT TRACE_DIRECTORY` to the native CLI.
+It composes existing prompt/token/option validation and bounded finite trace
+capture without changing v1 factories or the synthetic v2 prefill hook. All
+four tiny dense recurrent/attention combinations require exact traced/untraced
+score reports, complete eight-stage geometry, finite bytes and existing-trace
+destination refusal for two-token and 128-token prompts.
+
+Verification: nonzero recurrent+attention dense **1 pass** in 1.37 s; remaining
+three dense cases **3 passes** in 3.06 s. Direct compiled early/late init controls
+pass; gate **553 default passes, 88 optional skips** in 22.06 s; Ruff and
+whitespace clean. The editor CMake integration had no targets and failed to
+configure with no diagnostics. Fallback compiled only the changed CLI with
+clang++-18 against cached libraries in disposable scratch; no cached runtime
+library/source overwrite or fresh complete-runtime build/CTest is claimed.
+
+Approved experiment plan (not yet executed at this checkpoint): reuse cached
+MiMo `2367e865` and pinned sources/environments; authenticate inputs and preserve
+the sole frozen candidate. One dense BF16 text-only conversion, no vision/MTP,
+no model-repository code, no download/refit/quality data. Stages run serially:
+conversion <=1200 s, native <=900 s, each streamed diagnostic <=300 s, one
+80-token fixture and zero generated tokens. Scratch cap 48 GiB; virtual address
+cap 32 GiB; stop if host available RAM falls below 2 GiB or swap grows by more
+than 512 MiB from the stage baseline. Initial host observation: about 17 GiB
+available RAM, 342 MiB swap used, 510 GiB free disk. Historical conversion/native
+RSS was about 10/17 GiB, not a current resource guarantee. On any refusal stop
+and diagnose, not automatically rerun. Preserve a small report before deleting
+all temporary GGUF/spill/raw traces. No model-parity tolerance is being accepted.
+Scratch root: `$cache/native/mimo-layer0-20261015`; cached libraries unchanged.
 
 ## Dynamic Gate Roles Checkpoint (2026-10-15)
 

@@ -363,6 +363,27 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                 scores = np.exp(logits - logits.max())
                 scores /= scores.sum()
                 np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+                text_trace_path = tmp_path / ("text-trace-" + str(len(token_ids)))
+                text_trace = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                             "--prefill-text-trace-control", str(model_file), prompt, str(text_trace_path)],
+                                            capture_output=True, text=True, timeout=30)
+                assert text_trace.returncode == 0, text_trace.stderr
+                assert json.loads(text_trace.stdout) == report
+                manifest = json.loads((text_trace_path / "manifest.json").read_text())
+                assert manifest["format"] == "jev-prefill-f32-trace-v1" and manifest["dtype"] == "float32"
+                assert manifest["byte_order"] == "little" and len(manifest["tensors"]) == 8
+                assert {item["name"]: item["shape"] for item in manifest["tensors"]} == {
+                    "model.input_embed": [len(token_ids), 32], "ffn_input": [len(token_ids), 256],
+                    "ffn_output": [len(token_ids), 32], "final_norm": [1, 32],
+                    **{f"l_out-{layer}": [len(token_ids), 32] for layer in range(4)},
+                }
+                for item in manifest["tensors"]:
+                    values = np.fromfile(text_trace_path / (item["name"] + ".f32"), dtype="<f4")
+                    assert values.size == np.prod(item["shape"]) and np.isfinite(values).all()
+                refused_trace = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                                "--prefill-text-trace-control", str(model_file), prompt, str(text_trace_path)],
+                                               capture_output=True, text=True, timeout=30)
+                assert refused_trace.returncode == 35 and refused_trace.stdout == ""
             for prompt in ("", "a" * 129, "a" * 4097):
                 rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                            "--prefill-text-control", str(model_file), prompt],
