@@ -2675,6 +2675,17 @@ final-state equality with the 80-token baseline.
 This tests only GDN handoff on supplied Q/K/V and raw gates, not convolution or
 full-model cache behavior; it does not change the original numerical tolerances.
 
+The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
+synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
+window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.
+It reports F32 scores/probabilities/token-major values and verifies unchanged
+Q/K/V/mask bytes. CPU F16 matmuls round query and probability operands; compare
+each operation against the matching rounded-operand reference, not an assumed
+batch-invariant answer. The [nonflash attention checkpoint](handover.md#nonflash-attention-checkpoint-2026-10-15)
+records the measured rounding discontinuity and allocator-lifetime repair.
+This is prepopulated synthetic KV reading, not rotary, cache-write or learned
+full-attention compatibility evidence. The focused command below runs it too.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash

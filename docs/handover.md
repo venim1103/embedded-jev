@@ -12,6 +12,7 @@ user settings untracked. The combined recurrent-cache check below completed
 within the existing cached-MiMo diagnostic approval and unchanged resource guards;
 this does not authorize another full conversion or other-profile execution.
 Whole-layer and token-by-token controls subsequently completed; read the
+[nonflash attention checkpoint](#nonflash-attention-checkpoint-2026-10-15) and
 [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15).
 
 **Historical pause, 2026-10-15:** Finish only the completed singleton-dispatch
@@ -32,7 +33,8 @@ by stateless-stage, connected recurrent-block and whole-layer composition probes
 After user-pushed `df1da32`, autonomous continuation added whole-layer precision
 controls, bit-exact coupled convolution/core cache handoff and a separate
 projection-batch precision diagnostic; full conversion was not retried.
-Read the [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
+Read the [nonflash attention checkpoint](#nonflash-attention-checkpoint-2026-10-15),
+[cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
 [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
 [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
 [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
@@ -78,7 +80,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
+2. Read the [nonflash attention checkpoint](#nonflash-attention-checkpoint-2026-10-15),
+   then the [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
    then the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
    then the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
    then the [coupled cache checkpoint](#coupled-cache-checkpoint-2026-10-15),
@@ -174,6 +177,73 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Nonflash Attention Checkpoint (2026-10-15)
+
+After `897ce02`, added a bounded synthetic full-attention primitive beside the
+existing FWHT/QK/GDN controls. The loader explicitly disables flash attention and
+selects F16 K/V caches, so this control mirrors the pinned non-flash
+`llama-graph.cpp` sequence: QK matmul with declared F32 precision, causal scaled
+softmax, F16-value matmul, head permutation and contiguous output. On the pinned
+CPU path, F16 matrix dot traits still round the right-hand operands: queries
+for QK and softmax probabilities for V. Declared F32 accumulation is not proof
+of unrounded F32 operands.
+
+The additive `--attention-control TOKENS [FIRST_TOKEN]` command accepts only
+1/7/80 queries, with a strict integer absolute position and total window within
+80 tokens. Geometry is fixed at width 256, four query/two KV heads, 128 F16 cache
+slots and one CPU thread; source/profile/candidate inputs are not used. Its head
+broadcast is **grouped**, unlike the recurrent core's tiled V-head layout.
+Outputs expose finite F32 scores, probabilities and token-major attention values;
+all Q/K/V/mask bytes must remain unchanged. Invalid counts, windows, negative,
+trailing and overflow positions refuse with code 5 and no report.
+
+The existing compiled control now covers **83 attention cases**: 1/7/80 prefill,
+a seven-query window at position 64, and every remaining singleton position
+1-79. Independent FP64 dot/value references explicitly round the appropriate
+operands to F16; softmax has its own independent stable causal reference.
+Original `rtol=2e-5, atol=2e-6` arithmetic tolerances are unchanged. Future-slot
+probabilities are exactly zero, and wrong-head/unmasked faults discriminate.
+This tests prepopulated synthetic KV reads, not cache writes, rotary positions,
+learned projection/norm/gate behavior or full-loader integration.
+
+Failed-check history is retained, not rewritten as exact prefill/decode parity:
+
+- A first absolute-position test incorrectly required direct output closeness
+  across batch sizes. It failed at singleton position 41: score max gap
+  **4.768372e-7**, probability gap **3.725290e-9**, one changed F16-rounded
+  probability and output gap **1.049042e-5**. Independently contracting that
+  rounded-probability delta with V explains the output delta **exactly**. The
+  corrected oracle keeps each operation's arithmetic tolerances and checks this
+  causal delta relation; no tolerance was raised, and exact batch parity is not
+  claimed. The corrected focused control passed in **3.85 s**.
+- Adding post-graph input-byte checks then refused at the first query. A
+  disposable debug executable/GDB showed K storage reused after its last graph
+  consumer; the pinned allocator frees/reuses owned non-output buffers. Marking
+  these synthetic inputs as live graph outputs preserves their lifetime through
+  verification. Byte checks remain, and the same focused control passed in
+  **3.21 s** after this local lifetime repair. The debug executable was removed;
+  no host/security setting, debugger configuration file or cached library changed.
+
+Required final source gate: **553 passes / 88 optional skips in 16.95 s**,
+Ruff/whitespace/editor clean. No model weights, generated tokens, output head,
+option scores, conversion, download, refit or quality data were used by the new
+synthetic control. No CTest, sanitizer, cached-library rebuild, BitNet full-model
+dispatch or new-profile compatibility is inferred.
+
+Reread/verified small `attention_control_evidence.json` SHA-256
+`71a6892b5784f9b693231062c653b0212b6fa7758b4b80feae61ebd00376d466`.
+It retains scalar precision effects, source/test/executable hashes and input
+preservation, not raw attention arrays. Existing scratch totals 1,247,925 bytes;
+no raw replay packets, GGUF or owned spill remains. Original source identities,
+frozen candidate/manifest and all six runtime hashes still match preflight;
+both frozen scale axes and earlier evidence remain unchanged. No push, branch
+or subagents occurred.
+
+Next bounded boundary: inspect the selected MiMo full-attention projection,
+Q/K norm, rotary and KV-write contracts before a same-input learned-operand
+comparison. Do not describe synthetic prepopulated KV reads as a working learned
+cache or silently replace the unresolved full-model selected-logit comparison.
 
 ## Cached Layer Continuation Checkpoint (2026-10-15)
 

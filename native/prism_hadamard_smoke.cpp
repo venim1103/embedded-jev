@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -56,6 +57,121 @@ static int qk_norm_control() {
         std::printf("%s%.9g", index ? "," : "", actual[index]);
     }
     std::puts("]}");
+    return 0;
+}
+
+static int attention_control(int tokens, int first_token) {
+    constexpr int width = 256;
+    constexpr int query_heads = 4;
+    constexpr int cache_heads = 2;
+    constexpr int cache_tokens = 128;
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+    if (!context) {
+        return 1;
+    }
+    auto* query = ggml_new_tensor_3d(context.get(), GGML_TYPE_F32, width, tokens, query_heads);
+    auto* key = ggml_new_tensor_3d(context.get(), GGML_TYPE_F16, width, cache_tokens, cache_heads);
+    auto* value = ggml_new_tensor_3d(context.get(), GGML_TYPE_F16, cache_tokens, width, cache_heads);
+    auto* mask = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, cache_tokens, tokens);
+    for (auto* input : { query, key, value, mask }) {
+        ggml_set_input(input);
+        ggml_set_output(input);
+    }
+    auto* scores = ggml_mul_mat(context.get(), key, query);
+    ggml_mul_mat_set_prec(scores, GGML_PREC_F32);
+    auto* probabilities = ggml_soft_max_ext(context.get(), scores, mask, 1.0f / 16.0f, 0.0f);
+    auto* weighted = ggml_mul_mat(context.get(), value, probabilities);
+    auto* output = ggml_cont(context.get(), ggml_permute(context.get(), weighted, 0, 2, 1, 3));
+    auto* graph = ggml_new_graph(context.get());
+    for (auto* tensor : { scores, probabilities, output }) {
+        ggml_set_output(tensor);
+        ggml_build_forward_expand(graph, tensor);
+    }
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
+    std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+        ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+    if (!backend || !allocator || !ggml_backend_supports_op(backend.get(), scores) ||
+            !ggml_backend_supports_op(backend.get(), probabilities) ||
+            !ggml_backend_supports_op(backend.get(), weighted) ||
+            !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    std::vector<float> queries(width * tokens * query_heads);
+    std::vector<ggml_fp16_t> keys(width * cache_tokens * cache_heads);
+    std::vector<ggml_fp16_t> values(keys.size());
+    std::vector<float> masks(cache_tokens * tokens);
+    for (int head = 0; head < query_heads; ++head) {
+        for (int token = 0; token < tokens; ++token) {
+            for (int column = 0; column < width; ++column) {
+                queries[(head * tokens + token) * width + column] =
+                    ((column * 7 + (first_token + token) * 3 + head * 11) % 29 - 14) / 8.0f +
+                    ((column + first_token + token + head) % 5 - 2) * 0.0003f;
+            }
+        }
+    }
+    for (int head = 0; head < cache_heads; ++head) {
+        for (int token = 0; token < cache_tokens; ++token) {
+            for (int column = 0; column < width; ++column) {
+                keys[(head * cache_tokens + token) * width + column] =
+                    ggml_fp32_to_fp16(((column * 3 + token * 7 + head * 5) % 31 - 15) / 32.0f);
+                values[(head * width + column) * cache_tokens + token] =
+                    ggml_fp32_to_fp16(((column * 5 + token * 2 + head * 13) % 23 - 11) / 32.0f);
+            }
+        }
+    }
+    for (int token = 0; token < tokens; ++token) {
+        for (int cached = 0; cached < cache_tokens; ++cached) {
+            masks[token * cache_tokens + cached] = cached <= first_token + token ? 0.0f : -INFINITY;
+        }
+    }
+    ggml_backend_tensor_set(query, queries.data(), 0, queries.size() * sizeof(float));
+    ggml_backend_tensor_set(key, keys.data(), 0, keys.size() * sizeof(ggml_fp16_t));
+    ggml_backend_tensor_set(value, values.data(), 0, values.size() * sizeof(ggml_fp16_t));
+    ggml_backend_tensor_set(mask, masks.data(), 0, masks.size() * sizeof(float));
+    if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+        return 3;
+    }
+    std::vector<float> actual(width * tokens * query_heads);
+    std::vector<float> actual_scores(cache_tokens * tokens * query_heads);
+    std::vector<float> actual_probabilities(actual_scores.size());
+    ggml_backend_tensor_get(output, actual.data(), 0, actual.size() * sizeof(float));
+    ggml_backend_tensor_get(scores, actual_scores.data(), 0, actual_scores.size() * sizeof(float));
+    ggml_backend_tensor_get(probabilities, actual_probabilities.data(), 0, actual_probabilities.size() * sizeof(float));
+    for (const auto* data : { &actual, &actual_scores, &actual_probabilities }) {
+        if (!std::all_of(data->begin(), data->end(), [](float entry) { return std::isfinite(entry); })) {
+            return 4;
+        }
+    }
+    std::vector<float> unchanged_query(queries.size());
+    std::vector<float> unchanged_mask(masks.size());
+    std::vector<ggml_fp16_t> unchanged_key(keys.size());
+    std::vector<ggml_fp16_t> unchanged_value(values.size());
+    ggml_backend_tensor_get(query, unchanged_query.data(), 0, queries.size() * sizeof(float));
+    ggml_backend_tensor_get(mask, unchanged_mask.data(), 0, masks.size() * sizeof(float));
+    ggml_backend_tensor_get(key, unchanged_key.data(), 0, keys.size() * sizeof(ggml_fp16_t));
+    ggml_backend_tensor_get(value, unchanged_value.data(), 0, values.size() * sizeof(ggml_fp16_t));
+    if (std::memcmp(queries.data(), unchanged_query.data(), queries.size() * sizeof(float)) != 0 ||
+            std::memcmp(masks.data(), unchanged_mask.data(), masks.size() * sizeof(float)) != 0 ||
+            std::memcmp(keys.data(), unchanged_key.data(), keys.size() * sizeof(ggml_fp16_t)) != 0 ||
+            std::memcmp(values.data(), unchanged_value.data(), values.size() * sizeof(ggml_fp16_t)) != 0) {
+        return 4;
+    }
+    std::printf("{\"width\":%d,\"tokens\":%d,\"first_token\":%d,\"query_heads\":%d,\"cache_heads\":%d,\"cache_tokens\":%d,"
+                "\"cache_type\":\"f16\",\"broadcast\":\"grouped\",\"flash_attention\":false,\"inputs_unchanged\":true",
+                width, tokens, first_token, query_heads, cache_heads, cache_tokens);
+    const auto emit = [](const char* name, const std::vector<float>& data) {
+        std::printf(",\"%s\":[", name);
+        for (std::size_t index = 0; index < data.size(); ++index) {
+            std::printf("%s%.9g", index ? "," : "", data[index]);
+        }
+        std::printf("]");
+    };
+    emit("scores", actual_scores);
+    emit("probabilities", actual_probabilities);
+    emit("outputs", actual);
+    std::puts("}");
     return 0;
 }
 
@@ -215,6 +331,20 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates,
 }
 
 int main(int argc, char** argv) {
+    if ((argc == 3 || argc == 4) && std::strcmp(argv[1], "--attention-control") == 0) {
+        const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
+                           std::strcmp(argv[2], "80") == 0 ? 80 : 0;
+        int first_token = 0;
+        if (argc == 4) {
+            const char* end = argv[3] + std::strlen(argv[3]);
+            const auto parsed = std::from_chars(argv[3], end, first_token);
+            if (parsed.ec != std::errc() || parsed.ptr != end) {
+                return 5;
+            }
+        }
+        return tokens && first_token >= 0 && first_token < 80 && first_token + tokens <= 80 ?
+            attention_control(tokens, first_token) : 5;
+    }
     if (argc == 4 && std::strcmp(argv[1], "--gdn-file-control") == 0) {
         std::unique_ptr<std::FILE, decltype(&std::fclose)> source(std::fopen(argv[2], "rb"), std::fclose);
         std::array<std::uint32_t, 5> header;

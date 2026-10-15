@@ -2454,6 +2454,60 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     assert np.max(np.abs(actual[1] - additive_expected[1])) > 0.02
     assert np.max(np.abs(actual[2] - additive_expected[2])) > 0.005
 
+    attention_baselines = {}
+    attention_cases = [(tokens, 0) for tokens in (1, 7, 80)] + [(7, 64)] + [(1, first) for first in range(1, 80)]
+    for tokens, first_token in attention_cases:
+        result = subprocess.run([str(binary), "--attention-control", str(tokens), str(first_token)],
+                                check=True, capture_output=True, text=True, timeout=15)
+        report = json.loads(result.stdout)
+        assert report["width"] == 256 and report["tokens"] == tokens
+        assert report["first_token"] == first_token
+        assert report["query_heads"] == 4 and report["cache_heads"] == 2 and report["cache_tokens"] == 128
+        assert report["cache_type"] == "f16" and report["broadcast"] == "grouped"
+        assert report["flash_attention"] is False
+        assert report["inputs_unchanged"] is True
+        column = np.arange(256)[None, None, :]
+        query_head = np.arange(4)[:, None, None]
+        query_token = np.arange(first_token, first_token + tokens)[None, :, None]
+        query = ((column * 7 + query_token * 3 + query_head * 11) % 29 - 14).astype(np.float32) / 8
+        query += ((column + query_token + query_head) % 5 - 2).astype(np.float32) * np.float32(0.0003)
+        cache_head = np.arange(2)[:, None, None]
+        cached_token = np.arange(128)[None, :, None]
+        key = ((column * 3 + cached_token * 7 + cache_head * 5) % 31 - 15).astype(np.float16).astype(np.float64) / 32
+        value = ((column * 5 + cached_token * 2 + cache_head * 13) % 23 - 11).astype(np.float16).astype(np.float64) / 32
+        mapping = np.arange(4) // 2
+        expected_scores = np.einsum("htd,hkd->htk", query.astype(np.float16).astype(np.float64), key[mapping])
+        scores = np.asarray(report["scores"], dtype=np.float32).reshape(4, tokens, 128)
+        probabilities = np.asarray(report["probabilities"], dtype=np.float32).reshape(4, tokens, 128)
+        actual = np.asarray(report["outputs"], dtype=np.float32).reshape(tokens, 4, 256)
+        assert all(np.isfinite(data).all() for data in (scores, probabilities, actual))
+        np.testing.assert_allclose(scores, expected_scores, rtol=2e-5, atol=2e-6)
+        causal = np.arange(128)[None, :] <= np.arange(first_token, first_token + tokens)[:, None]
+        logits = np.where(causal[None], scores.astype(np.float64) / 16, -np.inf)
+        expected_probabilities = np.exp(logits - logits.max(axis=-1, keepdims=True))
+        expected_probabilities /= expected_probabilities.sum(axis=-1, keepdims=True)
+        np.testing.assert_allclose(probabilities, expected_probabilities, rtol=2e-5, atol=2e-6)
+        np.testing.assert_array_equal(probabilities[:, ~causal], np.zeros((4, np.count_nonzero(~causal)), dtype=np.float32))
+        expected = np.einsum("htk,hkd->thd", probabilities.astype(np.float16).astype(np.float64), value[mapping])
+        np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-6)
+        if tokens == 80:
+            attention_baselines.update(scores=scores, probabilities=probabilities, outputs=actual)
+        elif first_token:
+            np.testing.assert_allclose(scores, attention_baselines["scores"][:, first_token:first_token + tokens], rtol=2e-5, atol=2e-6)
+            np.testing.assert_allclose(probabilities, attention_baselines["probabilities"][:, first_token:first_token + tokens], rtol=2e-5, atol=2e-6)
+            baseline_probabilities = attention_baselines["probabilities"][:, first_token:first_token + tokens]
+            rounded_difference = probabilities.astype(np.float16).astype(np.float64) - baseline_probabilities.astype(np.float16).astype(np.float64)
+            expected_delta = np.einsum("htk,hkd->thd", rounded_difference, value[mapping])
+            observed_delta = actual.astype(np.float64) - attention_baselines["outputs"][first_token:first_token + tokens]
+            np.testing.assert_allclose(observed_delta, expected_delta, rtol=2e-5, atol=2e-6)
+        wrong_heads = np.einsum("htk,hkd->thd", probabilities.astype(np.float16).astype(np.float64), value[np.arange(4) % 2])
+        assert np.max(np.abs(actual - wrong_heads)) > 0.01
+        if tokens > 1:
+            unmasked = np.exp(scores.astype(np.float64) / 16 - (scores.astype(np.float64) / 16).max(axis=-1, keepdims=True))
+            unmasked /= unmasked.sum(axis=-1, keepdims=True)
+            wrong_mask = np.einsum("htk,hkd->thd", unmasked.astype(np.float16).astype(np.float64), value[mapping])
+            assert np.max(np.abs(actual - wrong_mask)) > 0.01
+
     def recurrence(tokens, initialized, raw_gates=False, interleaved=False):
         token_index = np.arange(tokens)[:, None, None]
         key_head = np.arange(2)[None, :, None]
@@ -2597,7 +2651,11 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
         np.testing.assert_array_equal(maximum, np.zeros(2 * 32 * 128 * 128, dtype=np.float32))
         output_path.unlink()
 
-    for arguments in (["--unknown"], ["--qk-norm-control", "extra"], ["--gdn-control"],
+    for arguments in (["--attention-control"], ["--attention-control", "0"], ["--attention-control", "81"],
+                      ["--attention-control", "80", "1"], ["--attention-control", "1", "80"],
+                      ["--attention-control", "1", "-1"], ["--attention-control", "1", "1junk"],
+                      ["--attention-control", "1", "999999999999999999999999999"],
+                      ["--unknown"], ["--qk-norm-control", "extra"], ["--gdn-control"],
                       ["--gdn-control", "0", "zero"], ["--gdn-control", "129", "zero"],
                       ["--gdn-control", "7", "unknown"], ["--gdn-control", "7", "zero", "extra"]):
         rejected = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
