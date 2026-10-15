@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -58,10 +59,10 @@ static int qk_norm_control() {
     return 0;
 }
 
-static int gdn_control(int tokens, bool initialized, bool raw_gates) {
+static int gdn_control(int tokens, bool initialized, bool raw_gates,
+                       int key_heads = 2, int value_heads = 4,
+                       std::FILE* source = nullptr, const char* output_path = nullptr) {
     constexpr int width = 128;
-    constexpr int key_heads = 2;
-    constexpr int value_heads = 4;
     ggml_init_params params = { 1024 * 1024, nullptr, true };
     std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
     if (!context) {
@@ -133,6 +134,17 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates) {
             }
         }
     }
+    const auto read = [source](std::vector<float>& data) {
+        return std::fread(data.data(), sizeof(float), data.size(), source) == data.size() &&
+            std::all_of(data.begin(), data.end(), [](float value) { return std::isfinite(value); });
+    };
+    if (source) {
+        for (auto* data : { &queries, &keys, &values, &decays, &betas, &initial }) {
+            if (!read(*data)) {
+                return 6;
+            }
+        }
+    }
     const auto upload = [](ggml_tensor* tensor, const std::vector<float>& data) {
         ggml_backend_tensor_set(tensor, data.data(), 0, data.size() * sizeof(float));
     };
@@ -148,6 +160,11 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates) {
         for (int head = 0; head < value_heads; ++head) {
             biases[head] = (head - 2) / 8.0f;
             multipliers[head] = -(head + 1) / 4.0f;
+        }
+        if (source && (!read(biases) || !read(multipliers) || std::fgetc(source) != EOF ||
+                std::ferror(source) || !std::all_of(multipliers.begin(), multipliers.end(),
+                    [](float value) { return value < 0; }))) {
+            return 6;
         }
         upload(dt_bias, biases);
         upload(decay_multiplier, multipliers);
@@ -166,6 +183,23 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates) {
     if (unchanged != initial || !std::all_of(actual.begin(), actual.end(), [](float value) { return std::isfinite(value); })) {
         return 4;
     }
+    if (output_path) {
+        std::FILE* destination = std::fopen(output_path, "wbx");
+        if (!destination) {
+            return 6;
+        }
+        const bool written = std::fwrite(actual.data(), sizeof(float), actual.size(), destination) == actual.size();
+        const bool closed = std::fclose(destination) == 0;
+        if (!written || !closed) {
+            std::remove(output_path);
+            return 6;
+        }
+        std::printf("{\"width\":%d,\"key_heads\":%d,\"value_heads\":%d,\"tokens\":%d,"
+                    "\"raw_gates\":true,\"broadcast\":\"tiled\",\"state_layout\":\"value_by_key\","
+                    "\"output_floats\":%zu,\"state_floats\":%zu}\n",
+                    width, key_heads, value_heads, tokens, values.size(), initial.size());
+        return 0;
+    }
     std::printf("{\"width\":%d,\"key_heads\":%d,\"value_heads\":%d,\"tokens\":%d,"
                 "\"initialized\":%s,\"raw_gates\":%s,\"broadcast\":\"tiled\",\"state_layout\":\"value_by_key\",\"outputs\":[",
                 width, key_heads, value_heads, tokens, initialized ? "true" : "false", raw_gates ? "true" : "false");
@@ -181,6 +215,17 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates) {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 4 && std::strcmp(argv[1], "--gdn-file-control") == 0) {
+        std::unique_ptr<std::FILE, decltype(&std::fclose)> source(std::fopen(argv[2], "rb"), std::fclose);
+        std::array<std::uint32_t, 5> header;
+        if (!source || std::fread(header.data(), sizeof(header), 1, source.get()) != 1 ||
+                header[0] != 0x3144474a || header[1] < 1 || header[1] > 128 || header[2] != 128 ||
+                header[3] < 1 || header[3] > 32 || header[4] < 1 || header[4] > 32 ||
+                header[4] % header[3] != 0) {
+            return 6;
+        }
+        return gdn_control(header[1], false, true, header[3], header[4], source.get(), argv[3]);
+    }
     if (argc == 2 && std::strcmp(argv[1], "--qk-norm-control") == 0) {
         return qk_norm_control();
     }

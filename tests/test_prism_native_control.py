@@ -2512,6 +2512,67 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
         assert np.max(np.abs(outputs - wrong_output)) > 2e-5
         assert np.max(np.abs(state - wrong_state)) > 1e-4
 
+    token_index = np.arange(80)[:, None, None]
+    key_head = np.arange(2)[None, :, None]
+    column = np.arange(128)[None, None, :]
+    value_head = np.arange(4)[None, :, None]
+    operands = [
+        ((column * 7 + token_index * 3 + key_head * 11) % 29 - 14) / 64,
+        ((column * 3 + token_index * 7 + key_head * 5) % 31 - 15) / 64,
+        ((column * 5 + token_index * 2 + value_head * 13) % 23 - 11) / 32,
+        np.array([-25, -3, 0, 20, 25])[(token_index[:, :, 0] + 2 * np.arange(4)[None, :]) % 5],
+        ((token_index[:, :, 0] + np.arange(4)[None, :]) % 7 - 3) / 4,
+        ((np.arange(128)[None, None, :] * 3 + np.arange(128)[None, :, None] * 5 +
+          np.arange(4)[:, None, None] * 7) % 19 - 9) / 4096,
+        (np.arange(4) - 2) / 8, -(np.arange(4) + 1) / 4,
+    ]
+    header = np.array([0x3144474a, 80, 128, 2, 4], dtype="<u4").tobytes()
+    payload = header + b"".join(np.asarray(operand, dtype="<f4").tobytes() for operand in operands)
+    input_path, output_path = tmp_path / "gdn-input.bin", tmp_path / "gdn-output.f32"
+    input_path.write_bytes(payload)
+    replay = subprocess.run([str(binary), "--gdn-file-control", str(input_path), str(output_path)],
+                            check=True, capture_output=True, text=True, timeout=15)
+    replay_report = json.loads(replay.stdout)
+    assert replay_report == {"width": 128, "key_heads": 2, "value_heads": 4, "tokens": 80,
+                             "raw_gates": True, "broadcast": "tiled", "state_layout": "value_by_key",
+                             "output_floats": 80 * 4 * 128, "state_floats": 4 * 128 * 128}
+    replayed = np.fromfile(output_path, dtype="<f4")
+    np.testing.assert_array_equal(replayed[:80 * 4 * 128].reshape(80, 4, 128), outputs)
+    np.testing.assert_array_equal(replayed[80 * 4 * 128:].reshape(4, 128, 128), state)
+    preserved = output_path.read_bytes()
+    rejected = subprocess.run([str(binary), "--gdn-file-control", str(input_path), str(output_path)],
+                              capture_output=True, text=True, timeout=15)
+    assert rejected.returncode == 6 and rejected.stdout == "" and output_path.read_bytes() == preserved
+    output_path.unlink()
+    for bad_payload in (payload[:-1], payload + bytes(1), bytes(20),
+                        header + np.array([np.nan], dtype="<f4").tobytes() + payload[24:]):
+        input_path.write_bytes(bad_payload)
+        rejected = subprocess.run([str(binary), "--gdn-file-control", str(input_path), str(output_path)],
+                                  capture_output=True, text=True, timeout=15)
+        assert rejected.returncode == 6 and rejected.stdout == "" and not output_path.exists()
+
+    for field, invalid in ((0, 0), (1, 0), (1, 129), (2, 64), (3, 0), (3, 33), (3, 3), (4, 0), (4, 33)):
+        bad_header = np.array([0x3144474a, 80, 128, 2, 4], dtype="<u4")
+        bad_header[field] = invalid
+        input_path.write_bytes(bad_header.tobytes() + payload[20:])
+        rejected = subprocess.run([str(binary), "--gdn-file-control", str(input_path), str(output_path)],
+                                  capture_output=True, text=True, timeout=15)
+        assert rejected.returncode == 6 and rejected.stdout == "" and not output_path.exists()
+
+    for key_heads in (16, 32):
+        maximum_operands = [np.zeros((128, key_heads, 128)), np.zeros((128, key_heads, 128)),
+                            np.zeros((128, 32, 128)), np.zeros((128, 32)), np.zeros((128, 32)),
+                            np.zeros((32, 128, 128)), np.zeros(32), -np.ones(32)]
+        maximum_header = np.array([0x3144474a, 128, 128, key_heads, 32], dtype="<u4").tobytes()
+        input_path.write_bytes(maximum_header + b"".join(np.asarray(item, dtype="<f4").tobytes()
+                                                       for item in maximum_operands))
+        result = subprocess.run([str(binary), "--gdn-file-control", str(input_path), str(output_path)],
+                                check=True, capture_output=True, text=True, timeout=15)
+        assert json.loads(result.stdout)["key_heads"] == key_heads
+        maximum = np.fromfile(output_path, dtype="<f4")
+        np.testing.assert_array_equal(maximum, np.zeros(2 * 32 * 128 * 128, dtype=np.float32))
+        output_path.unlink()
+
     for arguments in (["--unknown"], ["--qk-norm-control", "extra"], ["--gdn-control"],
                       ["--gdn-control", "0", "zero"], ["--gdn-control", "129", "zero"],
                       ["--gdn-control", "7", "unknown"], ["--gdn-control", "7", "zero", "extra"]):

@@ -2645,6 +2645,31 @@ head-order difference alone is therefore not evidence of a model mismatch.
 This is a bounded numerical fixture, not all-source authentication, complete
 model/recurrent-cache equivalence, or an accepted model-parity tolerance.
 
+The additive `--gdn-file-control INPUT OUTPUT` accepts externally captured
+recurrent operands on the supported little-endian Linux/x86-64 host. A 20-byte
+little-endian uint32 header contains magic `0x3144474a` (`JGD1`), token count,
+width, Q/K-head count and value-head count. Width is exactly 128, tokens 1-128,
+heads 1-32, and value heads must be divisible by Q/K heads. It is followed by
+contiguous little-endian F32 arrays in this order:
+
+1. Query, then key: each `[tokens, key_heads, 128]`, unnormalized.
+2. Value: `[tokens, value_heads, 128]` in native tiled head order.
+3. Raw alpha, then beta logits: each `[tokens, value_heads]`, same head order.
+4. Initial state: `[value_heads, 128, 128]`, value-by-key.
+5. Delta-time bias, then negative A multiplier: each `[value_heads]`.
+
+Every operand must be finite, each multiplier negative, and EOF must follow the
+last array. The maximum input is 8,421,652 bytes. The actual pinned native L2
+and raw-gate GDN graph runs on one CPU thread and leaves initial state unchanged.
+Output is exclusively created little-endian F32: all token/value-head output
+vectors, followed by final state in the same orientation (maximum 4 MiB).
+Stdout contains only counts/geometry; malformed inputs and existing output
+refuse with status 6 and no report. Computation/nonfinite failures have their
+existing statuses. Use trusted regular offline files and an external deadline;
+this diagnostic is not a source authenticator, model loader or hard I/O timer.
+The compiled control verifies exact legacy raw-gate replay, maximum geometries
+and refusals without real weights.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
@@ -2657,10 +2682,12 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
 ```
 
 No new complete native model was retained or converted for these controls.
-Matching layer-0 native/reference intermediate captures remain a next diagnostic,
-not a result established by the saved scores. Another temporary complete-model
-conversion requires separate approval; do not refit or score held-out data to
-hide the unresolved numerical contract.
+Matching whole-layer native/reference captures remain a next diagnostic, not
+a result established by saved scores or identical-core-operand replay. The
+[real operand checkpoint](handover.md#real-operand-replay-checkpoint-2026-10-15)
+records expanded approval, the swap-guarded failed conversion and two smaller
+MiMo layer-0 replays. These observations do not resolve full-model parity or
+authorize a guard-relaxed retry, refitting or held-out scoring.
 
 The additive native command
 `--prefill-text-trace-control MODEL PROMPT TRACE_DIRECTORY` combines the existing

@@ -12,6 +12,10 @@ Selected next action: one disposable cached-MiMo dense BF16 conversion and
 serial native/reference intermediate comparison on the existing 80-token
 synthetic fixture. See the budget below; this is not a retained candidate,
 refit, held-out quality run or another-model compatibility claim.
+The one conversion attempt stopped on its swap guard before creating a GGUF;
+two smaller authenticated layer-0 recurrent-operand replays completed. Read the
+[real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15)
+for the measured result and remaining full-model blocker.
 
 **Resumed by user, 2026-10-15:** Continue autonomous bounded synthetic source/
 provenance work after user-pushed `15d9d3c`. Starting `main` matched `origin/main`
@@ -49,7 +53,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [prompt trace checkpoint](#prompt-trace-checkpoint-2026-10-15),
+2. Read the [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15),
+   then the [prompt trace checkpoint](#prompt-trace-checkpoint-2026-10-15),
    then the [dynamic gate roles checkpoint](#dynamic-gate-roles-checkpoint-2026-10-15),
    then the [dynamic gate probe checkpoint](#dynamic-gate-probe-checkpoint-2026-10-15),
    then the [recurrent source roles checkpoint](#recurrent-source-roles-checkpoint-2026-10-15),
@@ -117,8 +122,10 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   The Python profile/inventory/manifest adapter now reaches actual BF16/PQ2
   model prefill for all seven eligible FFN/full-attention roles with independent
   synthetic references. Bounded P4 code-only preparation is complete; the next
-  cached-MiMo numerical diagnostic now has user approval within the budget
-  below. The metadata-cap blocker is corrected within explicit bounds; this
+  cached-MiMo numerical diagnostic has user approval within the budget below.
+  Its one conversion attempt hit the swap guard; smaller real-operand kernel
+  replays completed, not full-model tracing. The metadata-cap blocker is
+  corrected within explicit bounds; this
   diagnostic is not new-profile P2, v2 real-model P4 or quality acceptance.
 6. Keep the sole frozen candidate and untouched held-out data; no push, branch
    change or subagents.
@@ -136,6 +143,87 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Real Operand Replay Checkpoint (2026-10-15)
+
+After `fe17c9e`, authenticated all four cached MiMo source shards against the
+profile, metadata/tokenizer, the sole frozen candidate, six runtime modules and
+the exact historical 80-token fixture prompt. The supervisor's output-size
+sanity range was corrected before execution to include the documented
+17,909,729,280-byte dense payload (16.68 GiB); no executed acceptance gate or
+numerical tolerance was relaxed. Offline rendering passed in 8.98 s.
+
+The single approved dense BF16 conversion was stopped after **71.05 s** because
+host swap increased **545,566,720 bytes**, exceeding the declared 512 MiB limit.
+Minimum observed available RAM was 11,470,553,088 bytes. The converter reached
+`output.weight` but created no GGUF or tensor spill. Its entire process group
+was terminated and no converter remained. Interrupted `/usr/bin/time` output
+was empty: the supervisor's 10,236 KiB wrapper RSS is **not** converter peak RSS.
+There was no retry, guard relaxation, download or candidate change.
+
+Added a separately bounded `--gdn-file-control INPUT OUTPUT` to the existing
+native graph smoke executable, not the v1/v2 model factories or prefill hook.
+It replays finite raw recurrent operands through actual pinned GGML L2/GDN
+operations, width 128, <=128 tokens, <=32 Q/K and value heads, divisible head
+counts and negative decay multipliers. Input is <9 MiB; output <=4 MiB, created
+exclusively after successful finite computation. Existing synthetic commands
+are unchanged. The old 80-token nonzero-state/raw-gate output and state replay
+bit-for-bit; malformed headers, dimensions, short/nonfinite/trailing operands
+and existing output refuse without reports. Zero-input 16/32 and maximum
+32/32 heads at 128 tokens also pass.
+
+Smaller serial diagnostics loaded only the prompt's embedding rows, layer-0
+input norm and recurrent block from authenticated source. No full embedding,
+MLP, output head, complete model or frozen substitution was loaded. BF16 and
+F32-with-BF16-rounded-linear-input captures preserve the exact prompt. The
+native replay receives identical captured operands; HF grouped V heads/gates
+are explicitly tiled, and returned state is restored to grouped order and
+value-by-key orientation for comparison. Raw gates use F32 sigmoid/softplus.
+These are core-operation observations, not matching whole-layer captures.
+
+| Reference Against Native Core | BF16 Output Max Gap | BF16 State Max Gap | F32/BF16-Input Output Max Gap | F32/BF16-Input State Max Gap |
+| --- | --- | --- | --- | --- |
+| Original HF chunk | 0.01220393 | 0.03936386 | 2.622604e-6 | 4.553795e-5 |
+| F32 recurrent, original captured beta | 9.807348e-4 | 0.02059507 | 2.682209e-6 | 4.625320e-5 |
+| F32 gates, additive Q/K norm | 2.548099e-6 | 4.601479e-5 | 2.682209e-6 | 4.625320e-5 |
+| F32 gates, native clamped Q/K norm | 4.768372e-7 | 5.722046e-6 | 4.768372e-7 | 2.384186e-6 |
+
+BF16 sigmoid rounding alone changes beta by up to 0.0019530654; that difference
+is zero in the F32 diagnostic. Matching gate precision and normalization
+substantially narrows this core's gap. This does **not** attribute or resolve
+the historical full-model selected-logit discrepancy: projections, convolution,
+gated norm, residual/MLP, attention/cache and accumulated rounding remain
+outside the identical-operand replay. No model-parity tolerance, quality result,
+BitNet model dispatch or other-profile runtime acceptance is inferred.
+
+BF16 diagnostic: **6.37 s**, peak process RSS **528,352 KiB**; F32/BF16-input:
+**5.02 s**, **729,284 KiB**. Both observed zero host swap growth/process swaps;
+host available RAM stayed above 17 GiB. These are host/process observations,
+not target-device guarantees. Each retained report was reread and raw-file
+hashes independently verified before parent-finally cleanup. No GGUF, raw
+operands/output or compiler spill remains. Small reports, scripts and two
+diagnostic executables remain outside Git at
+`$cache/native/mimo-layer0-20261015`. Combined `evidence_summary.json` SHA-256:
+`a55ab5fd360567b64c14d8f461e41903e2e77c48a4d25c157213c475cb0da365`.
+Candidate and all six runtime hashes, source file identities and both pinned
+tracked source worktrees are unchanged.
+
+Focused compiled control: **1 pass** in 3.28 s; Ruff, Pylance syntax and editor
+diagnostics clean. Initial test collection failed from an over-indented new
+block, repaired before native execution; its focused rerun passed in 3.05 s,
+then maximum-geometry/header cases passed in 3.28 s. The disposable capture
+script first failed Ruff for one unused import, removed before execution.
+Required source gate: **553 passes, 88 optional skips** in 26.50 s; Ruff and
+whitespace clean. Documentation: eight files, 314 local links, 40 tables clean.
+No cached-library rebuild, CTest, sanitizer, refit, held-out scoring, push,
+branch or subagents.
+Untracked user `.vscode/` remains untouched.
+
+Next useful bounded slice: compare real layer-0 projection/convolution stages
+with matching native arithmetic and precision, without a complete conversion.
+Do not retry the full conversion under unchanged conditions or weaken its swap
+guard. Full native traces and real-profile v2/P4 acceptance remain unverified;
+Defiant Fable remains offline-only.
 
 ## Prompt Trace Checkpoint (2026-10-15)
 
