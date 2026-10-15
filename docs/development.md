@@ -2668,7 +2668,11 @@ refuse with status 6 and no report. Computation/nonfinite failures have their
 existing statuses. Use trusted regular offline files and an external deadline;
 this diagnostic is not a source authenticator, model loader or hard I/O timer.
 The compiled control verifies exact legacy raw-gate replay, maximum geometries
-and refusals without real weights.
+and refusals without real weights. Its `31+49` and `1+63+16` initialized-state
+file partitions carry each returned F32 value-by-key state into the next packet,
+requiring bit-exact output and final-state equality with the 80-token baseline.
+This tests only GDN handoff on supplied Q/K/V and raw gates, not convolution or
+full-model cache behavior; it does not change the original numerical tolerances.
 
 Run the focused checks without any complete model or source-weight load:
 
@@ -2682,8 +2686,11 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
 ```
 
 No new complete native model was retained or converted for these controls.
-Matching whole-layer native/reference captures remain a next diagnostic, not
-a result established by saved scores or identical-core-operand replay. The
+Matching full-loader native/reference captures remain a next diagnostic, not
+a result established by saved scores or exploratory whole-layer composition.
+The [whole layer checkpoint](handover.md#whole-layer-checkpoint-2026-10-15)
+records bounded MLP arithmetic, causal precision controls and real GDN state
+handoff; its split matmul/routing path is not the full-loader graph. The
 [real operand checkpoint](handover.md#real-operand-replay-checkpoint-2026-10-15)
 records expanded approval, the swap-guarded failed conversion and two smaller
 MiMo layer-0 replays. These observations do not resolve full-model parity or

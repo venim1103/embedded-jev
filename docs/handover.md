@@ -14,7 +14,10 @@ synthetic fixture. See the budget below; this is not a retained candidate,
 refit, held-out quality run or another-model compatibility claim.
 The one conversion attempt stopped on its swap guard before creating a GGUF;
 two smaller authenticated layer-0 recurrent-operand replays completed, followed
-by stateless-stage and connected recurrent-block probes. Read the
+by stateless-stage, connected recurrent-block and whole-layer composition probes.
+After user-pushed `df1da32`, autonomous continuation added whole-layer precision
+controls and bit-exact core-state chunk handoff; full conversion was not retried.
+Read the [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
 [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15) and
 [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15)
 for the measured results and remaining full-model blocker.
@@ -55,7 +58,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15),
+2. Read the [whole layer checkpoint](#whole-layer-checkpoint-2026-10-15),
+   then the [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15),
    then the [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15),
    then the [prompt trace checkpoint](#prompt-trace-checkpoint-2026-10-15),
    then the [dynamic gate roles checkpoint](#dynamic-gate-roles-checkpoint-2026-10-15),
@@ -146,6 +150,91 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Whole Layer Checkpoint (2026-10-15)
+
+After user-pushed `df1da32`, continued the approved cached-MiMo investigation.
+Starting `main` matched `origin/main`, with only untouched user settings. No
+full conversion retry, download, refit, retained candidate, held-out scoring or
+other-profile execution followed. The source change is only an extension of
+the existing compiled replay test; real diagnostics remain disposable scripts.
+
+Added explicit full-MLP composition bounds: dimensions <=12,288 and at most
+50,331,648 weights, using unchanged native calls <=8,192 rows/4,096 inputs.
+Up/gate use two row blocks; down uses three input blocks and F32 addition.
+Native GGML SiLU/product is separately bounded. Full-size sparse fixtures
+have bit-exact up/down answers and reject oversized shapes; activation checks
+pass before real inputs. This is not the unblocked full-loader matmul order.
+The actual same-input down control measures native/Torch split and Torch
+split/full maximum gaps of **4.768372e-7** each, not enough to explain the
+larger propagated error.
+
+Loaded exactly 14 layer-0 parameters and the existing prompt's embedding rows.
+The complete dense composition propagates input norm, recurrent block,
+residual, post-attention norm and gated MLP/residual through 18 native primitive
+calls. Tensor routing, source A conversion and residual/split addition use
+Torch/NumPy; no output head, scores, frozen substitution, full model or v2
+policy is involved. Captures compare BF16, F32/BF16-RHS and clamped-Q/K F32
+references from pinned Torch/Transformers. Metadata is reauthenticated, source
+file identities checked before/after, and all earlier scripts/reports preserved.
+
+| Reference | Recurrent Output Max Gap | MLP Output Max Gap | Whole-Layer Max Gap | Whole-Layer RMS Gap |
+| --- | --- | --- | --- | --- |
+| BF16 | 0.02888966 | 0.01967311 | 0.04315233 | 0.0003198404 |
+| F32/BF16-RHS | 0.0001754761 | 0.0003361702 | 0.0003347397 | 1.030825e-5 |
+| F32/BF16-RHS, clamped Q/K | 9.346008e-5 | 0.0003361702 | 0.0003347397 | 7.723088e-6 |
+
+Two separately labeled causal controls preserve the negative/remaining results:
+
+- Replacing only the two ordinary native RMS outputs with same-input Torch F32
+  expressions lowers clamped-reference whole-layer RMS gap to **5.226836e-6**,
+  but leaves maximum gap **0.0003347397** unchanged. Post-attention maximum gap
+  actually grows to **0.0004983544**. Thus ordinary RMS alone does not explain
+  the maximum. Projection inputs match at alpha/beta/QKV/Z after this control,
+  but 123 recurrent-output and 58,047 MLP-down BF16-rounded inputs still differ
+  against the clamped reference; upstream rounding discontinuities remain.
+- Pinning only the MLP input to the clamped reference gives exactly matching
+  rounded gate/up operands. Its intrinsic MLP max/RMS gaps fall to
+  **9.179115e-6 / 2.779796e-7**, with 412 remaining rounded down-input
+  differences. Whole-layer maximum is then **9.346008e-5**, preserving the
+  uncorrected recurrent-prefix difference. This isolates propagation, not a
+  runtime fix or accepted model tolerance. Neither diagnostic is promoted.
+
+Extended the pinned compiled synthetic GDN file test with `31+49` and
+`1+63+16` chunks, carrying returned F32 value-by-key state. Every output and
+final-state bit equals the original initialized 80-token raw-gate run. Real
+captured 16-key/32-value-head operands additionally pass `40+40`; all three
+partitions are **bit-exact**. Full captured input/output/executable hashes
+match the preceding diagnostic. Resetting state at the `31+49` boundary changes
+core output by up to **1.3415413**, so the carry test is discriminating. This is
+GDN state handoff on preconvolved operands, not convolution history, projection
+batching, full-layer/loader caches, BitNet dispatch or representative quality.
+
+Supervised stages (seconds / peak process RSS KiB): sparse MLP control
+**3.87 / 491,784**; whole layer **10.83 / 1,588,516**; RMS control
+**9.73 / 1,640,956**; MLP control **11.33 / 1,605,940**; real core cache
+**6.77 / 727,632**. All observed zero host swap growth/process swaps under the
+unchanged 300 s/32 GiB/2 GiB reserve/512 MiB swap guards; available RAM stayed
+above 15 GiB. No device or aggregate-process peak guarantee is inferred.
+
+Compiled focused control: **1 pass** in 3.82 s. Mandatory source gate:
+**553 passes, 88 optional skips** in 28.97 s; Ruff/whitespace/editor clean.
+Editor test discovery returned no tests, so the exact opt-in compiled test ran
+directly. No failed syntax/lint/arithmetic check, tolerance relaxation, cached
+library rebuild, CTest or sanitizer occurred in this increment.
+
+Reports/scripts/two tools total 676,605 bytes outside Git in the existing
+scratch root. Combined `whole_layer_evidence_summary.json` was reread and
+verified; SHA-256
+`6ff7c8fb72ccc25bc6066e03aeded40ee542aa0e55b9d063ce8b3fa5c89074f0`.
+No GGUF, raw replay input/output or compiler spill remains. Candidate/manifest
+and all six runtime hashes, source identities and both pinned tracked source
+worktrees are unchanged. No push, branch, subagents or user-settings changes.
+
+Next bounded check: include convolution-history handoff with core state, before
+any full-layer cached claim. Exact full-loader intermediate parity and the
+historical full-model selected-logit discrepancy remain open; do not retry the
+refused conversion under unchanged conditions or silently replace its candidate.
 
 ## Layer Zero Stage Checkpoint (2026-10-15)
 

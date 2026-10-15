@@ -2539,6 +2539,30 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     replayed = np.fromfile(output_path, dtype="<f4")
     np.testing.assert_array_equal(replayed[:80 * 4 * 128].reshape(80, 4, 128), outputs)
     np.testing.assert_array_equal(replayed[80 * 4 * 128:].reshape(4, 128, 128), state)
+    for partition in ((31, 49), (1, 63, 16)):
+        carried = np.asarray(operands[5], dtype="<f4")
+        completed = 0
+        chunks = []
+        for tokens in partition:
+            chunk_header = np.array([0x3144474a, tokens, 128, 2, 4], dtype="<u4").tobytes()
+            chunk_operands = [item[completed:completed + tokens] for item in operands[:5]]
+            chunk_operands.extend((carried, *operands[6:]))
+            input_path.write_bytes(chunk_header + b"".join(np.asarray(item, dtype="<f4").tobytes()
+                                                         for item in chunk_operands))
+            chunk_path = tmp_path / "gdn-chunk.f32"
+            result = subprocess.run([str(binary), "--gdn-file-control", str(input_path), str(chunk_path)],
+                                    check=True, capture_output=True, text=True, timeout=15)
+            assert json.loads(result.stdout)["tokens"] == tokens
+            values = np.fromfile(chunk_path, dtype="<f4")
+            chunks.append(values[:tokens * 4 * 128].reshape(tokens, 4, 128))
+            carried = values[tokens * 4 * 128:].reshape(4, 128, 128)
+            assert np.isfinite(carried).all() and np.linalg.norm(carried) > 0
+            chunk_path.unlink()
+            completed += tokens
+        assert completed == 80
+        np.testing.assert_array_equal(np.concatenate(chunks), outputs)
+        np.testing.assert_array_equal(carried, state)
+    input_path.write_bytes(payload)
     preserved = output_path.read_bytes()
     rejected = subprocess.run([str(binary), "--gdn-file-control", str(input_path), str(output_path)],
                               capture_output=True, text=True, timeout=15)
