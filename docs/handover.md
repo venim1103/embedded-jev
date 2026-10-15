@@ -13,9 +13,11 @@ serial native/reference intermediate comparison on the existing 80-token
 synthetic fixture. See the budget below; this is not a retained candidate,
 refit, held-out quality run or another-model compatibility claim.
 The one conversion attempt stopped on its swap guard before creating a GGUF;
-two smaller authenticated layer-0 recurrent-operand replays completed. Read the
+two smaller authenticated layer-0 recurrent-operand replays completed, followed
+by stateless-stage and connected recurrent-block probes. Read the
+[layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15) and
 [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15)
-for the measured result and remaining full-model blocker.
+for the measured results and remaining full-model blocker.
 
 **Resumed by user, 2026-10-15:** Continue autonomous bounded synthetic source/
 provenance work after user-pushed `15d9d3c`. Starting `main` matched `origin/main`
@@ -53,7 +55,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15),
+2. Read the [layer zero stage checkpoint](#layer-zero-stage-checkpoint-2026-10-15),
+   then the [real operand replay checkpoint](#real-operand-replay-checkpoint-2026-10-15),
    then the [prompt trace checkpoint](#prompt-trace-checkpoint-2026-10-15),
    then the [dynamic gate roles checkpoint](#dynamic-gate-roles-checkpoint-2026-10-15),
    then the [dynamic gate probe checkpoint](#dynamic-gate-probe-checkpoint-2026-10-15),
@@ -143,6 +146,89 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Layer Zero Stage Checkpoint (2026-10-15)
+
+After `75392c1`, continued the approved cached-MiMo numerical investigation
+without another complete conversion or repository source changes. Disposable
+ctypes probes bind the actual pinned public GGML API with explicit signatures,
+bounded dimensions, one native CPU thread and deterministic graph/buffer/backend
+cleanup. They reuse the authenticated source and exact 80-token prompt below;
+no model-repository code, MLP, output head, score or quality data is executed.
+Source and six runtime/candidate identities are rechecked, not assumed from
+successful arithmetic.
+
+Synthetic projection control passed in **1.62 s**, peak RSS **235,556 KiB**:
+BF16 exact and F32 max gap 4.627509e-8 versus independent FP64 dot products;
+a separate wrong-unrounded-RHS result must differ. Synthetic RMS/gated-RMS,
+four-tap convolution and SiLU control passed in **2.02 s**, **239,080 KiB**:
+convolution bit-exact, RMS max gap 2.339752e-7. These self-tests ran before
+real operands. Source/library revision, public declarations, enum sizes and
+returned byte counts were checked rather than guessed.
+
+Five real layer-0 recurrent projections compare identical BF16-rounded inputs
+through BF16 and F32 native matrices. Both native types give the listed same
+maximum gap against Torch F32; rounding native output to BF16 still differs
+from Torch BF16 for some elements, so near-equal accumulation is not bit parity.
+
+| Projection | Native/Torch F32 Max Gap | RHS Rounding Max Effect | Rounded Native/Torch BF16 Unequal Elements |
+| --- | --- | --- | --- |
+| Alpha | 5.722046e-6 | 0.01130962 | 0 |
+| Beta | 1.430511e-6 | 0.003746033 | 0 |
+| QKV | 1.525879e-5 | 0.03787613 | 84 |
+| Z | 1.335144e-5 | 0.02638054 | 36 |
+| Output | 4.768372e-6 | 0.008557796 | 96 |
+
+Stateless probes compare input RMS norm (source weight +1), recurrent gated
+RMS norm (no +1) and zero-history four-tap convolution in both precision modes.
+Native raw convolution is **bit-exact against Torch F32 on identical inputs**
+in both modes; SiLU max gap is 9.536743e-7 in BF16-input mode and 4.768372e-7
+in F32/BF16-input mode. BF16 raw convolution differs from native F32 by up to
+0.1159668, but rounding native raw output to BF16 restores exact convolution
+output equality. This does not establish equal downstream SiLU rounding.
+Input norm differs from the F32 expression by up to 3.814697e-6; gated norm
+by 7.152557e-7. Against original BF16 computation, gaps are much larger
+(input norm 0.1218643, gated norm 0.01136088); final BF16 rounding alone does
+not reproduce every intermediate gated-norm cast. These are measured precision
+effects, not reasons to relax a complete-model acceptance threshold.
+
+Finally connected native input norm, five BF16 matrix projections, convolution/
+SiLU, raw-gate GDN and gated norm, each exactly once, using Torch only for
+tensor routing and source-derived A conversion. Outputs from each native stage
+feed the next; explicit grouped/tiled head transformations surround GDN. This
+is an exploratory recurrent-block composition, **not** the full loader graph,
+v2/P4, complete layer, cache reuse or BitNet path. Against BF16 Torch, block
+output max/RMS gaps are **0.02888966 / 0.000212030**; against the F32/BF16-input
+reference, **0.0001754761 / 7.744376e-7**. After residual addition, maximum gaps
+are 0.03126431 and 0.0001754761 respectively. The remaining nonzero difference
+is preserved, not hidden by promotion or a new tolerance.
+
+Real projections: **6.01 s / 981,876 KiB** peak process RSS; both stateless
+modes: **5.17 s / 747,072 KiB**; connected block: **6.22 s / 923,804 KiB**.
+All five stages observed zero host swap growth/process swaps under unchanged
+guards; available host RAM stayed above 16 GiB. No target-device performance
+or host-wide peak guarantee is claimed. Script lint initially caught deletion
+of a decoder name retained by callbacks; clearing its cell after execution
+fixed that before the connected real-input run. All script syntax/Ruff checks
+and five supervised stages passed; no failed arithmetic run was retried.
+
+The original `evidence_summary.json` and scripts remain unchanged. Additional
+`stage_evidence_summary.json` was copied/reread and verified with SHA-256
+`88c91a9ff0f0b3b3b3b08369e8e8e6b4c413fa04d1903185479dd9a8cb1cd7a1`.
+The scratch root now retains 540,123 bytes of small reports/scripts/two tools,
+not raw activations, model artifacts or compiler spill. Block replay files
+were removed in child and parent finally paths; no experiment process remains.
+Source identities, frozen payload/manifest and all six runtime hashes match
+the earlier baseline. No library rebuild, download, refit, held-out run, push,
+branch, subagent or user-settings change followed. Repository source gate at
+`75392c1` is unchanged, not rerun for reassurance; this checkpoint changes only
+the scoped handover documentation. Content/link/anchor/fence/table and whitespace
+checks passed: eight files, 316 local links, 41 tables.
+
+Next bounded diagnostic would add explicit MLP geometry/budgets and its own
+controls before attempting a propagated whole layer. Full-loader intermediate
+agreement and the historical full-model logit discrepancy remain open; the
+one refused conversion is not automatically retried.
 
 ## Real Operand Replay Checkpoint (2026-10-15)
 
