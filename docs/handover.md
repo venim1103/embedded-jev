@@ -42,7 +42,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   No further download, complete-model conversion, fit or new retained candidate
   is authorized; synthetic execution does not grant real-profile approval.
-2. Read the [recurrent source probe checkpoint](#recurrent-source-probe-checkpoint-2026-10-15),
+2. Read the [recurrent source roles checkpoint](#recurrent-source-roles-checkpoint-2026-10-15),
+   then the [recurrent source probe checkpoint](#recurrent-source-probe-checkpoint-2026-10-15),
    then the [nonzero multi shard refusal checkpoint](#nonzero-multi-shard-refusal-checkpoint-2026-10-14),
    then the [nonzero multi shard checkpoint](#nonzero-multi-shard-checkpoint-2026-10-14),
    then the [multi shard refusal checkpoint](#multi-shard-refusal-checkpoint-2026-10-14),
@@ -126,6 +127,40 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Recurrent Source Roles Checkpoint (2026-10-15)
+
+After `2e7b990`, extended only the recurrent case parameters to all seven
+eligible frozen FFN/full-attention roles. Attention-output's hidden128/head64
+geometry passes alongside hidden1024/head32 cases. Nonzero recurrent residuals
+feed full causal attention for Q/K/V/O; FFN cases retain nonzero delta-state
+before their selected BitNet projection. No oracle, hook, bounds, tolerance,
+frozen payload, source transform or baseline-control changes in this increment.
+
+The extra recurrent set now covers **49 successful two-shard source-gated
+workflows, 42 post-prefill exit refusals and 28 pre-yield source refusals**,
+separate from the original zero-recurrent seven-role set. For every recurrent
+role, omitted recurrence, per-token state reset and lost convolution history
+must change logits beyond `2e-5`; both writers exactly reproduce full/peer/
+max128 references and diagnostic deltas. All existing typed zero-generation,
+BitNet dispatch/repack, parallel/chunk/reset/reorder/maximum/recovery, complete
+source/converted/selected-metadata/runtime pins and cleanup checks remain active.
+
+Verification: attention-output **1 pass** in 55.77 s, peak RSS 255,956 KiB;
+FFN-up/gate **2 passes** in 273.37 s, peak RSS 311,284 KiB; Q/K/V **3 passes**
+in 349.66 s, peak RSS 316,908 KiB; swaps zero. Recurrent-down and all nine
+original controls were verified in the immediately preceding checkpoint and
+are unchanged, not rerun for reassurance. Gate **553 default passes, 81 optional
+skips** in 27.96 s; Ruff, whitespace and diagnostics clean. No failed checks.
+
+No production/native changes, build/CTest/sanitizer, real input reads/hashes/
+conversion/execution/quality, downloads/refits/new candidates, push/branch or
+subagents. Scratch removed; caches/user settings unchanged. Host observation:
+29 GiB RAM, about 18 GiB available, 8 GiB swap with 1.1 MiB used and 518 GiB
+free disk; per-process swap counts above are not host/target-device guarantees.
+Fixed-gate synthetic recurrence is not learned-gate or initialized-state
+integration, issuer/frozen equivalence, representative quality or performance.
+Historical real MiMo discrepancy and all real-profile approval boundaries remain.
 
 ## Recurrent Source Probe Checkpoint (2026-10-15)
 

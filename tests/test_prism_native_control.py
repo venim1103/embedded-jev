@@ -1083,7 +1083,8 @@ print(json.dumps({"kind": sys.argv[1], "selected_ranges": 28 if complete else 1,
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o", "full-only", "large-state", "recurrent-down"])
+@pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o", "full-only", "large-state",
+                                  "recurrent-down", "recurrent-up", "recurrent-gate", "recurrent-q", "recurrent-k", "recurrent-v", "recurrent-o"])
 def test_pinned_prism_profile_manifest_native_prefill_without_generation(tmp_path, target):
     import hashlib
     import sys

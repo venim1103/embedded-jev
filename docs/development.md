@@ -1823,8 +1823,8 @@ on success/failure. This is nonzero synthetic integration, not upstream issuer
 provenance, nonzero recurrent-state coverage, source-to-frozen quantization
 equivalence, tokenizer semantics, quality or any real-profile execution approval.
 
-The separate `recurrent-down` case adds bounded nonzero recurrent integration
-before the frozen FFN-down projection, without changing the native hook. Sparse
+The separate `recurrent-*` cases add bounded nonzero recurrent integration
+for all seven frozen FFN/full-attention roles, without changing the native hook. Sparse
 BF16 QKV/gate/output matrices and a four-tap F32 convolution drive the existing
 fixed-gate delta-state reference (two key heads, four value heads, 32 dimensions).
 Dense inputs use the same explicit BF16 rounding as the other references. Toy
@@ -1834,9 +1834,13 @@ representable. Complete two-shard source/converted parity remains required.
 State and residual norms must exceed 0.01; skipping recurrence, resetting state
 per token or resetting convolution history must each change selected logits
 beyond the unchanged `2e-5` native tolerance. Both writers must reproduce the
-full/peer/max128 references and all three fault deltas exactly. This one extra
-case runs seven source-gated workflows, six exit refusals and four pre-yield
+full/peer/max128 references and all three fault deltas exactly. This extra
+seven-role set runs 49 source-gated workflows, 42 exit refusals and 28 pre-yield
 refusals, separately from the original seven zero-recurrent role fixtures.
+Attention roles combine recurrent state with nonzero causal attention, including
+the output role's different hidden/head geometry; dispatch/repack, typed order,
+parallel contexts, chunk/reset, 128-token maximum and kernel recovery retain
+the same checks and tolerances.
 It is fixed-gate synthetic state coverage, not arbitrary learned gates,
 initialized-state coverage, real-model numerical agreement or quality evidence.
 
