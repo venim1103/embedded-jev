@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [attention layer continuation checkpoint](#attention-layer-continuation-checkpoint-2026-10-16),
+2. Read the [native prefix composition checkpoint](#native-prefix-composition-checkpoint-2026-10-16),
+   then the [attention layer continuation checkpoint](#attention-layer-continuation-checkpoint-2026-10-16),
    then the [attention decoder layer checkpoint](#attention-decoder-layer-checkpoint-2026-10-16),
    then the [attention continuation checkpoint](#attention-continuation-checkpoint-2026-10-16),
    then the [cached attention sublayer checkpoint](#cached-attention-sublayer-checkpoint-2026-10-16),
@@ -206,6 +207,67 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Native Prefix Composition Checkpoint (2026-10-16)
+
+After user-pushed `4754bca`, composed separately parameterized native recurrent
+decoder layers 0-2 with the complete dense attention layer on the existing
+80-token MiMo fixture. A scratch parameter adapter reuses unchanged
+`CachedLayer`: BF16 projections, `weight+1` input/post norms, direct gated-norm
+scale, per-layer convolution and reordered bias/negative-exp decay. Independent
+marker/order/scale checks, invalid geometry refusal and full-geometry zero-weight
+residual identity pass in **4.72 s**, **576,416 KiB** peak child RSS, zero swap.
+
+Each recurrent layer processes one 80-token prefill with its own zero initial
+history/state. Weights stream serially, not three retained copies. Layer 0 must
+reproduce both prior raw GDN packet hashes and its full-layer metric dictionary
+exactly. Layers 1/2 separately compare native execution on the propagated native
+input against a same-input HF call and against the independent trusted HF
+prefix. No diagnostic singleton padding is used.
+
+| Recurrent Layer | Same-Input Native/HF Max | Propagated Native/HF Max | Propagated RMS |
+| --- | --- | --- | --- |
+| 0 | 0.0003347397 | 0.0003347397 | 0.000007723088 |
+| 1 | 0.0002883747 | 0.001556396 | 0.00005988301 |
+| 2 | 0.005167007 | 0.007488251 | 0.0001387589 |
+
+The final native prefix hash must exactly match the attention layer's input
+hash. Complete four-layer output versus the trusted HF prefix/attention
+reference has max **0.01222134**, RMS **0.0002470044**. Replaying only attention
+on that fixed native prefix retains exact `31+49`/`40+40` stage agreement;
+`1+63+16` final max/RMS are **0.0002279878 / 0.00001261400**, with **2/3** F16
+K/V crossings. Complete-cache and matching-operand core checks pass with zero
+native attention cache restores. These are measured arithmetic differences,
+not acceptance thresholds or end-to-end four-layer cached decoding.
+
+The first learned run stopped after **13.98 s** on the diagnostic wrapper's
+overly broad recurrent-only assertion when the existing helper called its
+complete layer-3 HF attention reference. Raw packets were cleaned. Repaired
+only that dispatch boundary to pass through the expected layer-3 full-attention
+call; retained failed logs, unchanged numerical checks and resource limits.
+The repaired stage passes in **27.34 s**, **1,923,248 KiB** peak child RSS,
+minimum host-available RAM **14,582,423,552 bytes**, zero swap growth. Runtime,
+frozen/source/profile/metadata/installed-code checks and final GDN binary hash
+hold. Original fixed score check remains false; full-model logit gap **0.0971508**
+is unresolved. No new conversion, download, candidate, head/scoring or generation.
+
+Retained/reread small-report SHA-256 values:
+
+- `native-prefix-adapter-selftest-result.json`:
+  `0495a2569e5400f53f9d60202b2a2aad8ceeb9bcecb5c8121d4e7ce1129db2fe`.
+- `native-prefix-attention-comparison.json`:
+  `f997f3e1386628b60b4e2268b4f1e4f6686f71ee9848dfd20e2abfdb941abc40`.
+
+Scratch totals **1,970,829 bytes** outside Git; no raw arrays/replay packet,
+GGUF or owned compiler spill remains. Scoped Ruff, synthetic/learned and
+documentation/link/whitespace/editor checks accompany this documentation-only
+checkpoint; the unchanged source gate at `c79b06e` was not rerun. Recurrent state
+is copied host state; attention cache has its separate persistent native owner.
+Residuals/down-block sums remain host F32. This is bounded dense four-layer
+prefill composition, not a single loader graph, full-model BitNet/v2 P4,
+target-device performance or quality acceptance. Next: bounded coarse-partition
+continuation across all four layers, preserving each layer's history/state and
+absolute attention positions; do not infer it from fixed-prefix attention replay.
 
 ## Attention Layer Continuation Checkpoint (2026-10-16)
 

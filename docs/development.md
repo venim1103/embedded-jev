@@ -2800,6 +2800,18 @@ Separate native-input-norm layer results from earlier fixed-HF-normalized
 sublayer results; their operands differ. Observed post-norm/MLP propagation
 does not establish batching invariance or authorize numerical-policy changes.
 
+The [native prefix composition checkpoint](handover.md#native-prefix-composition-checkpoint-2026-10-16)
+feeds three separately parameterized recurrent native prefills into that complete
+attention layer. Reuse the original recurrent/blocked-MLP helpers and verify
+per-layer geometry, head order, direct gated scale and `weight+1` residual norms
+synthetically. Require exact prior layer-0 packet hashes/metric reproduction,
+separate same-input versus propagated HF comparisons, and exact prefix-output/
+attention-input hash handoff. Stream weights serially and repeat all final pins.
+Each recurrent layer starts with its own zero caches; replaying attention on a
+fixed final native prefix is not end-to-end four-layer cached continuation.
+Keep copied recurrent state, persistent native attention ownership and host F32
+residual/down sums explicit; no loader, BitNet or quality claim follows.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
