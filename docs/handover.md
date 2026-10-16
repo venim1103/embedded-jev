@@ -62,6 +62,8 @@ After `9f597bb`, a bounded two-size allocation control also verifies that the
 new paths avoid the older verifier's source-sized Python allocation growth.
 After `0211d3c`, a shared shard owner retains one descriptor/header across
 serial matrix contexts, with two whole-shard hashes and fail-closed lifecycle checks.
+After `e5c94ba`, the pinned synthetic writer uses that shared owner across all
+16 matrices and withholds publication through final shard-identity checks.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -146,7 +148,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 shared shard checkpoint](#bf16-shared-shard-checkpoint-2026-10-16),
+2. Read the [BF16 shared writer checkpoint](#bf16-shared-writer-checkpoint-2026-10-16),
+   then the [BF16 shared shard checkpoint](#bf16-shared-shard-checkpoint-2026-10-16),
    then the [BF16 allocation scaling checkpoint](#bf16-allocation-scaling-checkpoint-2026-10-16),
    then the [BF16 mapped payload checkpoint](#bf16-mapped-payload-checkpoint-2026-10-16),
    then the [BF16 mapped source checkpoint](#bf16-mapped-source-checkpoint-2026-10-16),
@@ -283,6 +286,41 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Shared Writer Checkpoint (2026-10-16)
+
+After `e5c94ba`, the existing optional pinned BF16 converter control uses one
+shared source shard around all **16 matrix** contexts, rather than a new shard
+owner per operand. Each read-only matrix mapping feeds the existing chunked raw
+payload owner and actual `GGUFWriter(use_temp_file=True)` spool. Payload and
+source mappings close before the next matrix. The control asserts **one
+whole-shard hash** while all operands are spooled, then **exactly two** on the
+same descriptor after successful parent exit. GGUF header/metadata/tensor output
+is written only after that parent closure. Existing exact file/range/shape/
+operand/corruption controls remain unchanged.
+
+Three new publication refusals change the source only after both first/last
+selected matrix consumers have finished: changed bytes, restored bytes/mtime,
+and identical-file replacement. Each must fail the parent's exact
+`mapped source file identity changed` guard, leave no published GGUF bytes,
+close the temporary writer stream and restore only the disposable synthetic
+source. The earlier two selected-byte mutations inside a mapped payload still
+require the earlier live-source array-hash error. No source-identity or output
+comparison assertion was loosened.
+
+Both optional **BF16/F32 controls pass in 4.92 s**, with cached pinned sources
+and the existing 30-second subprocess bound. Required source gate:
+**677 passed, 89 optional skips in 18.31 s**, Ruff/whitespace/editor clean.
+No failures, learned inputs, complete-model conversion, downloads, native
+runtime build/execution, refits, candidate changes or quality run occurred.
+All generated shards/payloads/GGUFs/spools are disposable fixture scratch.
+
+The bounded descriptor-to-chunks-to-writer path and shared-shard publication
+gate are now verified. This is not a complete converter, measured process-RAM
+reduction, runtime approval or real-model parity. Existing caps remain
+**16 MiB**. Next: prepare a separately versioned large-file policy proposal
+with explicit file/operand/resource budgets; do not raise existing API limits
+or retry the guarded complete-model conversion without separate approval.
 
 ## BF16 Shared Shard Checkpoint (2026-10-16)
 

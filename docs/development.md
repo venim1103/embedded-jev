@@ -1551,6 +1551,14 @@ failure and closed-owner calls refuse. Finish all child contexts and aliases
 first. Concurrency/truncation/issuer limitations are unchanged. See the
 [shared shard checkpoint](handover.md#bf16-shared-shard-checkpoint-2026-10-16).
 
+The optional pinned synthetic writer uses one shared shard around all 16 BF16
+matrix consumers and checks exactly two whole-file hashes on the same descriptor.
+It writes the GGUF header/metadata/tensors only after successful parent exit.
+Changed/restored/replaced source shards after child closure must leave no
+published output and close the writer's temporary stream. Existing selected-byte
+live-mapping refusals remain separate. See the
+[shared writer checkpoint](handover.md#bf16-shared-writer-checkpoint-2026-10-16).
+
 `temporary_profile_mapped_bf16_payload(..., source_path=..., source_name=...,
 expected_source_sha256=..., expected_file_bytes=..., expected_file_sha256=...,
 directory=...)` composes this source mapping with the chunked raw payload owner,

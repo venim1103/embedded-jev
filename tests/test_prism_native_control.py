@@ -4550,29 +4550,45 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         fixture["manifest"]["source_tensor_sha256"] = hashlib.sha256(memoryview(source_arrays[fixture["manifest"]["tensor"]])).hexdigest()
         path = Path(directory) / "matrices.gguf"
         writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
+        import embedded_jev.streamed_text as streamed_text
+
+        source_hash_descriptors = []
+        original_record = streamed_text.bounded_native_descriptor_record
+        def source_record(descriptor, **keywords):
+            source_hash_descriptors.append(descriptor)
+            return original_record(descriptor, **keywords)
+
+        streamed_text.bounded_native_descriptor_record = source_record
         try:
-            for tensor_name, (source_name, raw_source, values) in matrix_operands.items():
-                source_range_offset = len(source_prefix) + source_header[source_name]["data_offsets"][0]
-                with prism_codec.temporary_profile_mapped_bf16_payload(profile, fixture["inventory"], fixture["manifest"], payload,
-                         source_path=source_path, source_name=source_name,
-                         expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest(),
-                         expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256,
-                         directory=directory) as (payload_path, payload_receipt):
-                    mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
-                    try:
-                        writer.add_tensor(tensor_name, mapped.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
-                        assert writer.tensors[-1][tensor_name].tensor is None
-                        assert payload_receipt["converted_sha256"] == hashlib.sha256(memoryview(values)).hexdigest()
-                        assert payload_receipt["source_file"]["source_range_offset"] == source_range_offset
-                        assert payload_receipt["source_file"]["source_file_sha256"] == source_sha256
-                        assert payload_receipt["profile_sha256"] == profile.sha256
-                    finally:
-                        mapped._mmap.close()
-                assert not payload_path.exists() and not payload_path.parent.exists()
+            with prism_codec.mapped_profile_safetensors_bf16_shard(profile, fixture["inventory"], fixture["manifest"], payload,
+                     source_path=source_path, source_shard=source_path.name,
+                     expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256) as (source_matrix, shard_receipt):
+                for tensor_name, (source_name, raw_source, values) in matrix_operands.items():
+                    source_range_offset = len(source_prefix) + source_header[source_name]["data_offsets"][0]
+                    source_pin = hashlib.sha256(memoryview(raw_source)).hexdigest()
+                    with source_matrix(source_name, source_pin) as (source_mapping, source_receipt):
+                        with prism_codec.temporary_profile_bf16_matrix_payload(profile, fixture["inventory"], fixture["manifest"], payload,
+                                 source_name=source_name, source_values=source_mapping,
+                                 expected_source_sha256=source_pin, directory=directory) as (payload_path, payload_receipt):
+                            mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
+                            try:
+                                writer.add_tensor(tensor_name, mapped.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
+                                assert writer.tensors[-1][tensor_name].tensor is None
+                                assert payload_receipt["converted_sha256"] == hashlib.sha256(memoryview(values)).hexdigest()
+                                assert source_receipt["source_range_offset"] == source_range_offset
+                                assert source_receipt["source_file_sha256"] == source_sha256
+                                assert shard_receipt["profile_sha256"] == payload_receipt["profile_sha256"] == profile.sha256
+                            finally:
+                                mapped._mmap.close()
+                        assert not payload_path.exists() and not payload_path.parent.exists()
+                    assert source_mapping._mmap.closed
+                assert len(source_hash_descriptors) == 1
+            assert len(source_hash_descriptors) == 2 and source_hash_descriptors[0] == source_hash_descriptors[1]
             writer.write_header_to_file()
             writer.write_kv_data_to_file()
             writer.write_tensors_to_file()
         finally:
+            streamed_text.bounded_native_descriptor_record = original_record
             writer.close()
             if writer.temp_file is not None:
                 writer.temp_file.close()
@@ -4601,6 +4617,55 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
                 except ValueError as error:
                     assert str(error) == "temporary BF16 payload source identity mismatch"
                 assert not payload_path.exists() and not payload_path.parent.exists()
+                assert not fault_path.exists() or fault_path.stat().st_size == 0
+            finally:
+                fault_writer.close()
+                if fault_writer.temp_file is not None:
+                    fault_writer.temp_file.close()
+                    assert fault_writer.temp_file.closed
+                source_path.write_bytes(source_bytes)
+                fault_path.unlink(missing_ok=True)
+        assert hashlib.sha256(source_path.read_bytes()).hexdigest() == source_sha256
+        for change in ("changed", "restored", "replacement"):
+            fault_path = Path(directory) / "refused-shared-matrices.gguf"
+            fault_writer = gguf.GGUFWriter(fault_path, "qwen35", use_temp_file=True)
+            try:
+                try:
+                    with prism_codec.mapped_profile_safetensors_bf16_shard(profile, fixture["inventory"], fixture["manifest"], payload,
+                             source_path=source_path, source_shard=source_path.name,
+                             expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256) as (source_matrix, _):
+                        for tensor_name in (next(iter(matrix_operands)), next(reversed(matrix_operands))):
+                            source_name, raw_source, values = matrix_operands[tensor_name]
+                            source_pin = hashlib.sha256(memoryview(raw_source)).hexdigest()
+                            with source_matrix(source_name, source_pin) as (source_mapping, _):
+                                with prism_codec.temporary_profile_bf16_matrix_payload(profile, fixture["inventory"], fixture["manifest"], payload,
+                                         source_name=source_name, source_values=source_mapping,
+                                         expected_source_sha256=source_pin, directory=directory) as (payload_path, _):
+                                    mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
+                                    try:
+                                        fault_writer.add_tensor(tensor_name, mapped.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
+                                        assert fault_writer.tensors[-1][tensor_name].tensor is None
+                                    finally:
+                                        mapped._mmap.close()
+                                assert not payload_path.exists() and not payload_path.parent.exists()
+                            assert source_mapping._mmap.closed
+                        before = source_path.stat()
+                        if change == "replacement":
+                            source_path.unlink()
+                            source_path.write_bytes(source_bytes)
+                        else:
+                            with source_path.open("r+b") as output:
+                                output.seek(len(source_bytes) - 1)
+                                output.write(bytes([source_bytes[-1] ^ 1]))
+                                if change == "restored":
+                                    output.seek(len(source_bytes) - 1)
+                                    output.write(source_bytes[-1:])
+                            if change == "restored":
+                                import os
+                                os.utime(source_path, ns=(before.st_atime_ns, before.st_mtime_ns))
+                    raise AssertionError("late source-shard change was accepted for GGUF publication")
+                except ValueError as error:
+                    assert str(error) == "mapped source file identity changed"
                 assert not fault_path.exists() or fault_path.stat().st_size == 0
             finally:
                 fault_writer.close()
