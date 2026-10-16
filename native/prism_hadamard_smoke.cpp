@@ -242,6 +242,197 @@ static int rope_control(int tokens, int first_token, bool distinct_axes) {
     return 0;
 }
 
+static int cached_attention_control(const std::vector<int>& partition, bool reset) {
+    constexpr int width = 256, query_heads = 4, cache_heads = 2, channels = width * cache_heads;
+    constexpr int cache_tokens = 128, total_tokens = 80;
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> cache_context(ggml_init(params), ggml_free);
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
+    if (!cache_context || !backend) {
+        return 1;
+    }
+    auto* key = ggml_new_tensor_2d(cache_context.get(), GGML_TYPE_F16, channels, cache_tokens);
+    auto* value = ggml_new_tensor_2d(cache_context.get(), GGML_TYPE_F16, 1, channels * cache_tokens);
+    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> cache_buffer(
+        ggml_backend_alloc_ctx_tensors(cache_context.get(), backend.get()), ggml_backend_buffer_free);
+    if (!cache_buffer) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    const auto* key_address = key->data;
+    const auto* value_address = value->data;
+    std::vector<ggml_fp16_t> initial_key(cache_tokens * channels), initial_value(initial_key.size());
+    for (int slot = 0; slot < cache_tokens; ++slot) {
+        for (int channel = 0; channel < channels; ++channel) {
+            initial_key[slot * channels + channel] = ggml_fp32_to_fp16(((channel * 3 + slot * 7) % 31 - 15) / 32.0f);
+            initial_value[channel * cache_tokens + slot] = ggml_fp32_to_fp16(((channel * 5 + slot * 2) % 23 - 11) / 32.0f);
+        }
+    }
+    ggml_backend_tensor_set(key, initial_key.data(), 0, initial_key.size() * sizeof(ggml_fp16_t));
+    ggml_backend_tensor_set(value, initial_value.data(), 0, initial_value.size() * sizeof(ggml_fp16_t));
+    auto expected_key = initial_key, expected_value = initial_value;
+    std::vector<float> all_scores(query_heads * total_tokens * cache_tokens), all_probabilities(all_scores.size());
+    std::vector<float> all_outputs(total_tokens * query_heads * width);
+    const auto matches = [](ggml_tensor* tensor, const auto& expected) {
+        const auto bytes = expected.size() * sizeof(expected[0]);
+        if (ggml_nbytes(tensor) != bytes) {
+            return false;
+        }
+        std::vector<std::uint8_t> actual(bytes);
+        ggml_backend_tensor_get(tensor, actual.data(), 0, bytes);
+        return std::memcmp(actual.data(), expected.data(), bytes) == 0;
+    };
+    int first = 0;
+    for (const int tokens : partition) {
+        if (reset && first) {
+            expected_key = initial_key;
+            expected_value = initial_value;
+            ggml_backend_tensor_set(key, initial_key.data(), 0, initial_key.size() * sizeof(ggml_fp16_t));
+            ggml_backend_tensor_set(value, initial_value.data(), 0, initial_value.size() * sizeof(ggml_fp16_t));
+        }
+        const auto step = [&]() -> int {
+            std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+            if (!context) {
+                return 1;
+            }
+            auto* key_source = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, channels, tokens);
+            auto* value_source = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, 1, channels * tokens);
+            auto* key_indices = ggml_new_tensor_1d(context.get(), GGML_TYPE_I64, tokens);
+            auto* value_indices = ggml_new_tensor_1d(context.get(), GGML_TYPE_I64, channels * tokens);
+            auto* query = ggml_new_tensor_3d(context.get(), GGML_TYPE_F32, width, tokens, query_heads);
+            auto* mask = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, cache_tokens, tokens);
+            for (auto* input : { key_source, value_source, key_indices, value_indices, query, mask }) {
+                ggml_set_input(input);
+                ggml_set_output(input);
+            }
+            auto* key_written = ggml_set_rows(context.get(), key, key_source, key_indices);
+            auto* value_written = ggml_set_rows(context.get(), value, value_source, value_indices);
+            auto* key_view = ggml_view_3d(context.get(), key_written, width, cache_tokens, cache_heads,
+                                         channels * sizeof(ggml_fp16_t), width * sizeof(ggml_fp16_t), 0);
+            auto* value_view = ggml_view_3d(context.get(), value_written, cache_tokens, width, cache_heads,
+                                           cache_tokens * sizeof(ggml_fp16_t), cache_tokens * width * sizeof(ggml_fp16_t), 0);
+            auto* scores = ggml_mul_mat(context.get(), key_view, query);
+            ggml_mul_mat_set_prec(scores, GGML_PREC_F32);
+            auto* probabilities = ggml_soft_max_ext(context.get(), scores, mask, 1.0f / 16.0f, 0.0f);
+            auto* weighted = ggml_mul_mat(context.get(), value_view, probabilities);
+            auto* output = ggml_cont(context.get(), ggml_permute(context.get(), weighted, 0, 2, 1, 3));
+            auto* graph = ggml_new_graph(context.get());
+            for (auto* tensor : { scores, probabilities, output }) {
+                ggml_set_output(tensor);
+                ggml_build_forward_expand(graph, tensor);
+            }
+            std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+                ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+            if (!allocator || !ggml_backend_supports_op(backend.get(), key_written) ||
+                    !ggml_backend_supports_op(backend.get(), value_written) ||
+                    !ggml_backend_supports_op(backend.get(), scores) ||
+                    !ggml_backend_supports_op(backend.get(), probabilities) ||
+                    !ggml_backend_supports_op(backend.get(), weighted) || !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+                return 2;
+            }
+            std::vector<float> updates_key(tokens * channels), updates_value(updates_key.size());
+            std::vector<std::int64_t> indices_key(tokens), indices_value(updates_key.size());
+            std::vector<float> queries(query_heads * tokens * width), masks(tokens * cache_tokens);
+            for (int token = 0; token < tokens; ++token) {
+                const int slot = first + token;
+                indices_key[token] = slot;
+                for (int head = 0; head < cache_heads; ++head) {
+                    for (int column = 0; column < width; ++column) {
+                        const int channel = head * width + column, index = token * channels + channel;
+                        updates_key[index] = ((column * 3 + slot * 7 + head * 5) % 31 - 15) / 32.0f;
+                        updates_value[index] = ((column * 5 + slot * 2 + head * 13) % 23 - 11) / 32.0f;
+                        indices_value[index] = channel * cache_tokens + slot;
+                        expected_key[slot * channels + channel] = ggml_fp32_to_fp16(updates_key[index]);
+                        expected_value[channel * cache_tokens + slot] = ggml_fp32_to_fp16(updates_value[index]);
+                    }
+                }
+                for (int head = 0; head < query_heads; ++head) {
+                    for (int column = 0; column < width; ++column) {
+                        queries[(head * tokens + token) * width + column] =
+                            ((column * 7 + slot * 3 + head * 11) % 29 - 14) / 8.0f +
+                            ((column + slot + head) % 5 - 2) * 0.0003f;
+                    }
+                }
+                for (int cached = 0; cached < cache_tokens; ++cached) {
+                    masks[token * cache_tokens + cached] = cached <= slot ? 0.0f : -INFINITY;
+                }
+            }
+            for (const auto& entry : { std::make_pair(key_source, &updates_key), std::make_pair(value_source, &updates_value),
+                                       std::make_pair(query, &queries), std::make_pair(mask, &masks) }) {
+                ggml_backend_tensor_set(entry.first, entry.second->data(), 0, entry.second->size() * sizeof(float));
+            }
+            for (const auto& entry : { std::make_pair(key_indices, &indices_key), std::make_pair(value_indices, &indices_value) }) {
+                ggml_backend_tensor_set(entry.first, entry.second->data(), 0, entry.second->size() * sizeof(std::int64_t));
+            }
+            if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+                return 3;
+            }
+            for (const auto& entry : { std::make_pair(key_source, &updates_key), std::make_pair(value_source, &updates_value),
+                                       std::make_pair(query, &queries), std::make_pair(mask, &masks) }) {
+                if (!matches(entry.first, *entry.second)) {
+                    return 4;
+                }
+            }
+            if (!matches(key_indices, indices_key) || !matches(value_indices, indices_value)) {
+                return 4;
+            }
+            std::vector<float> step_scores(query_heads * tokens * cache_tokens), step_probabilities(step_scores.size());
+            ggml_backend_tensor_get(scores, step_scores.data(), 0, step_scores.size() * sizeof(float));
+            ggml_backend_tensor_get(probabilities, step_probabilities.data(), 0, step_probabilities.size() * sizeof(float));
+            ggml_backend_tensor_get(output, all_outputs.data() + first * query_heads * width, 0, tokens * query_heads * width * sizeof(float));
+            for (int head = 0; head < query_heads; ++head) {
+                std::copy_n(step_scores.data() + head * tokens * cache_tokens, tokens * cache_tokens,
+                            all_scores.data() + (head * total_tokens + first) * cache_tokens);
+                std::copy_n(step_probabilities.data() + head * tokens * cache_tokens, tokens * cache_tokens,
+                            all_probabilities.data() + (head * total_tokens + first) * cache_tokens);
+            }
+            return 0;
+        };
+        const int status = step();
+        if (status) {
+            return status;
+        }
+        if (key->data != key_address || value->data != value_address || key->buffer != cache_buffer.get() ||
+                value->buffer != cache_buffer.get() || !matches(key, expected_key) || !matches(value, expected_value)) {
+            return 4;
+        }
+        first += tokens;
+    }
+    if (first != total_tokens) {
+        return 4;
+    }
+    for (const auto* data : { &all_scores, &all_probabilities, &all_outputs }) {
+        if (!std::all_of(data->begin(), data->end(), [](float entry) { return std::isfinite(entry); })) {
+            return 4;
+        }
+    }
+    std::vector<ggml_fp16_t> actual_key(expected_key.size()), actual_value(expected_value.size());
+    ggml_backend_tensor_get(key, actual_key.data(), 0, actual_key.size() * sizeof(ggml_fp16_t));
+    ggml_backend_tensor_get(value, actual_value.data(), 0, actual_value.size() * sizeof(ggml_fp16_t));
+    std::printf("{\"tokens\":80,\"width\":256,\"query_heads\":4,\"cache_heads\":2,\"cache_tokens\":128,"
+                "\"cache_type\":\"f16\",\"flash_attention\":false,\"steps\":%zu,\"reset\":%s,"
+                "\"cache_addresses_stable\":true,\"cache_exact_after_graph_free\":true,\"sources_and_indices_unchanged\":true,"
+                "\"initial_cache_uploads\":2,\"host_cache_restore_calls\":%zu",
+                partition.size(), reset ? "true" : "false", reset ? (partition.size() - 1) * 2 : 0);
+    for (const auto& entry : { std::make_pair("key_bits", &actual_key), std::make_pair("value_transposed_bits", &actual_value) }) {
+        std::printf(",\"%s\":[", entry.first);
+        for (std::size_t index = 0; index < entry.second->size(); ++index) {
+            std::printf("%s%u", index ? "," : "", static_cast<unsigned>((*entry.second)[index]));
+        }
+        std::printf("]");
+    }
+    for (const auto& entry : { std::make_pair("scores", &all_scores), std::make_pair("probabilities", &all_probabilities),
+                               std::make_pair("outputs", &all_outputs) }) {
+        std::printf(",\"%s\":[", entry.first);
+        for (std::size_t index = 0; index < entry.second->size(); ++index) {
+            std::printf("%s%.9g", index ? "," : "", (*entry.second)[index]);
+        }
+        std::printf("]");
+    }
+    std::puts("}");
+    return 0;
+}
+
 static int attention_control(int tokens, int first_token) {
     constexpr int width = 256;
     constexpr int query_heads = 4;
@@ -513,6 +704,29 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates,
 }
 
 int main(int argc, char** argv) {
+    if ((argc == 3 || argc == 4) && std::strcmp(argv[1], "--cached-attention-control") == 0) {
+        std::vector<int> partition;
+        if (std::strcmp(argv[2], "80") == 0) {
+            partition = {80};
+        } else if (std::strcmp(argv[2], "31+49") == 0) {
+            partition = {31, 49};
+        } else if (std::strcmp(argv[2], "40+40") == 0) {
+            partition = {40, 40};
+        } else if (std::strcmp(argv[2], "1+63+16") == 0) {
+            partition = {1, 63, 16};
+        } else if (std::strcmp(argv[2], "singletons") == 0) {
+            partition.assign(80, 1);
+        } else if (std::strcmp(argv[2], "64+singletons") == 0) {
+            partition.assign(17, 1);
+            partition[0] = 64;
+        } else {
+            return 5;
+        }
+        if (argc == 4 && std::strcmp(argv[3], "carry") != 0 && std::strcmp(argv[3], "reset") != 0) {
+            return 5;
+        }
+        return cached_attention_control(partition, argc == 4 && std::strcmp(argv[3], "reset") == 0);
+    }
     if ((argc == 3 || argc == 4 || argc == 5) && std::strcmp(argv[1], "--kv-write-control") == 0) {
         const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
                            std::strcmp(argv[2], "80") == 0 ? 80 : 0;

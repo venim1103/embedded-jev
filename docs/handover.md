@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [KV composition checkpoint](#kv-composition-checkpoint-2026-10-16),
+2. Read the [persistent cache checkpoint](#persistent-cache-checkpoint-2026-10-16),
+   then the [KV composition checkpoint](#kv-composition-checkpoint-2026-10-16),
    then the [KV write checkpoint](#kv-write-checkpoint-2026-10-16),
    then the [connected attention checkpoint](#connected-attention-checkpoint-2026-10-16),
    then the [learned rotary checkpoint](#learned-rotary-checkpoint-2026-10-16),
@@ -200,6 +201,63 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Persistent Cache Checkpoint (2026-10-16)
+
+After `e0077c5`, added the bounded synthetic command
+`--cached-attention-control PARTITION [carry|reset]` beside unchanged controls.
+`PARTITION` is exactly `80`, `31+49`, `40+40`, `1+63+16`, `singletons` or
+`64+singletons`; unknown partitions/modes, missing and extra arguments refuse
+with code 5 and no stdout. Geometry is fixed: 80 total tokens, width 256,
+four grouped query heads, two KV heads, 128 F16 slots, one CPU thread and
+non-flash attention. No file, model, arbitrary index or native policy input.
+
+A cache-only GGML context owns K and transposed V through one explicitly
+allocated backend buffer. Each chunk allocates a **new** context/graph/graph
+allocator, writes actual `ggml_set_rows` updates, then reads dependency-linked
+views of those write outputs through QK, causal softmax and value contraction.
+The K view preserves physical token/GQA-row strides; the V view preserves
+channel-major transposition. After the chunk's allocator and graph context
+are freed, the owning K/V addresses/buffers must be unchanged and both complete
+cache buffers must exactly match expected F16 bytes. Source/query/mask/index
+bytes remain unchanged. Normal carry uploads the two initial cache buffers
+only once and performs **zero host cache restores** across graph lifetimes.
+The JSON emits actual final readback bits, not just a status flag.
+
+The existing compiled regression now checks all six partitions with independent
+NumPy complete-cache bit oracles and per-chunk score references, including
+nonzero unwritten future slots. Probability/output operation references retain
+`rtol=2e-5, atol=2e-6`, with exactly zero future probabilities. The monolithic
+causal scores/probabilities/outputs match the earlier prepopulated control
+bit-for-bit. Other partitions retain the explicit F16-probability-delta
+attribution rather than asserting false batching invariance. An intentional
+`31+49 reset` performs two host restores and changes later outputs by more
+than 0.01, while its first 31 outputs stay exact. Default/explicit carry and
+eight malformed invocations are covered.
+
+The first focused run failed in the **new Python oracle's KV-head broadcasting**
+(`[1,2,1]` instead of `[2,1,1]`), after native readback succeeded. Corrected the
+reference and explicitly modeled the cache's per-chunk future-slot state;
+no tolerance was relaxed. The repaired check passed in **10.15 s**, then
+**8.06 s** after reporting actual readback and covering explicit carry mode.
+The mandatory default gate reports **553 passes / 88 optional skips in
+22.76 s**, Ruff and whitespace clean. Scoped documentation/editor checks
+accompany the commit. The opt-in compiled control uses pinned existing CPU/
+base libraries; no cached source/library rebuild, CTest or sanitizer is claimed.
+The final pin probe initially passed symlink names to the helper that refuses
+symlinks; hashing their strictly resolved targets, as in preflight, verifies
+both original library hashes and the clean pinned source revision.
+
+This establishes bounded synthetic same-allocation cache ownership across
+temporary graph destruction, not learned persistent-state replay, cache
+eviction/concurrency/multistream, padded/centered/quantized caches, learned
+projection/rotary batching, full-loader parity, whole-model BitNet, real-model
+v2 P4 or quality. No weights, output head, generation, conversion, download,
+candidate or refit is involved. Prior learned score failures and the complete-
+model max logit gap **0.0971508** remain open. Next: synthetically validate a
+similarly bounded persistent-cache helper against this compiled control before
+any fixed learned-operand replay; do not reuse host-restored cache evidence as
+persistent-state proof.
 
 ## KV Composition Checkpoint (2026-10-16)
 

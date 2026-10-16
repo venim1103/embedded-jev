@@ -2617,6 +2617,80 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
             wrong_mask = np.einsum("htk,hkd->thd", unmasked.astype(np.float16).astype(np.float64), value[mapping])
             assert np.max(np.abs(actual - wrong_mask)) > 0.01
 
+    cached_baselines = {}
+    for partition_name, partition in (("80", [80]), ("31+49", [31, 49]), ("40+40", [40, 40]),
+                                      ("1+63+16", [1, 63, 16]), ("singletons", [1] * 80),
+                                      ("64+singletons", [64] + [1] * 16)):
+        arguments = [str(binary), "--cached-attention-control", partition_name]
+        if partition_name == "80":
+            arguments.append("carry")
+        result = subprocess.run(arguments,
+                                check=True, capture_output=True, text=True, timeout=15)
+        report = json.loads(result.stdout)
+        assert report["tokens"] == 80 and report["width"] == 256
+        assert report["query_heads"] == 4 and report["cache_heads"] == 2 and report["cache_tokens"] == 128
+        assert report["cache_type"] == "f16" and report["flash_attention"] is False
+        assert report["steps"] == len(partition) and report["reset"] is False
+        assert report["cache_addresses_stable"] and report["cache_exact_after_graph_free"]
+        assert report["sources_and_indices_unchanged"] and report["initial_cache_uploads"] == 2
+        assert report["host_cache_restore_calls"] == 0
+        channel, slots = np.arange(512).reshape(2, 256), np.arange(128)
+        expected_key = ((channel[None] * 3 + slots[:, None, None] * 7) % 31 - 15).astype(np.float16) / 32
+        expected_value = ((channel[:, :, None] * 5 + slots[None, None, :] * 2) % 23 - 11).astype(np.float16) / 32
+        step_key = expected_key.copy()
+        column, head, absolute = np.arange(256)[None, None, :], np.arange(2)[:, None, None], np.arange(80)[None, :, None]
+        update_key = ((column * 3 + absolute * 7 + head * 5) % 31 - 15).astype(np.float16) / 32
+        update_value = ((column * 5 + absolute * 2 + head * 13) % 23 - 11).astype(np.float16) / 32
+        expected_key[:80] = update_key.transpose(1, 0, 2)
+        expected_value[:, :, :80] = update_value.transpose(0, 2, 1)
+        np.testing.assert_array_equal(np.asarray(report["key_bits"], dtype=np.uint16).reshape(128, 2, 256), expected_key.view(np.uint16))
+        np.testing.assert_array_equal(np.asarray(report["value_transposed_bits"], dtype=np.uint16).reshape(2, 256, 128), expected_value.view(np.uint16))
+        query_head = np.arange(4)[:, None, None]
+        query = ((column * 7 + absolute * 3 + query_head * 11) % 29 - 14).astype(np.float32) / 8
+        query += ((column + absolute + query_head) % 5 - 2).astype(np.float32) * np.float32(0.0003)
+        effective_value = expected_value.transpose(0, 2, 1).astype(np.float64)[np.arange(4) // 2]
+        scores = np.asarray(report["scores"], dtype=np.float32).reshape(4, 80, 128)
+        probabilities = np.asarray(report["probabilities"], dtype=np.float32).reshape(4, 80, 128)
+        actual = np.asarray(report["outputs"], dtype=np.float32).reshape(80, 4, 256)
+        assert all(np.isfinite(item).all() for item in (scores, probabilities, actual))
+        expected_scores = np.empty((4, 80, 128), dtype=np.float64)
+        first = 0
+        for length in partition:
+            step_key[first:first + length] = update_key[:, first:first + length].transpose(1, 0, 2)
+            effective_key = step_key.transpose(1, 0, 2).astype(np.float64)[np.arange(4) // 2]
+            expected_scores[:, first:first + length] = np.einsum("htd,hkd->htk", query[:, first:first + length].astype(np.float16).astype(np.float64), effective_key)
+            first += length
+        np.testing.assert_allclose(scores, expected_scores, rtol=2e-5, atol=2e-6)
+        causal = np.arange(128)[None, :] <= np.arange(80)[:, None]
+        logits = np.where(causal[None], scores.astype(np.float64) / 16, -np.inf)
+        expected_probabilities = np.exp(logits - logits.max(axis=-1, keepdims=True))
+        expected_probabilities /= expected_probabilities.sum(axis=-1, keepdims=True)
+        np.testing.assert_allclose(probabilities, expected_probabilities, rtol=2e-5, atol=2e-6)
+        np.testing.assert_array_equal(probabilities[:, ~causal], np.zeros((4, np.count_nonzero(~causal)), dtype=np.float32))
+        expected_outputs = np.einsum("htk,hkd->thd", probabilities.astype(np.float16).astype(np.float64), effective_value)
+        np.testing.assert_allclose(actual, expected_outputs, rtol=2e-5, atol=2e-6)
+        rounded_delta = probabilities.astype(np.float16).astype(np.float64) - attention_baselines["probabilities"].astype(np.float16).astype(np.float64)
+        expected_delta = np.einsum("htk,hkd->thd", rounded_delta, effective_value)
+        np.testing.assert_allclose(actual.astype(np.float64) - attention_baselines["outputs"], expected_delta, rtol=2e-5, atol=2e-6)
+        if partition_name == "80":
+            np.testing.assert_array_equal(scores[:, causal].view(np.uint32), attention_baselines["scores"][:, causal].view(np.uint32))
+            np.testing.assert_array_equal(probabilities.view(np.uint32), attention_baselines["probabilities"].view(np.uint32))
+            np.testing.assert_array_equal(actual.view(np.uint32), attention_baselines["outputs"].view(np.uint32))
+        cached_baselines[partition_name] = actual
+    reset = subprocess.run([str(binary), "--cached-attention-control", "31+49", "reset"],
+                           check=True, capture_output=True, text=True, timeout=15)
+    report = json.loads(reset.stdout)
+    assert report["reset"] and report["host_cache_restore_calls"] == 2 and report["cache_exact_after_graph_free"]
+    reset_outputs = np.asarray(report["outputs"], dtype=np.float32).reshape(80, 4, 256)
+    np.testing.assert_array_equal(reset_outputs[:31].view(np.uint32), cached_baselines["31+49"][:31].view(np.uint32))
+    assert np.max(np.abs(reset_outputs[31:] - cached_baselines["31+49"][31:])) > 0.01
+    for arguments in (["--cached-attention-control"], ["--cached-attention-control", "0"],
+                      ["--cached-attention-control", "81"], ["--cached-attention-control", "31+48"],
+                      ["--cached-attention-control", "80junk"], ["--cached-attention-control", "-1"],
+                      ["--cached-attention-control", "80", "unknown"], ["--cached-attention-control", "80", "carry", "extra"]):
+        refused = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
+        assert refused.returncode == 5 and not refused.stdout
+
     def recurrence(tokens, initialized, raw_gates=False, interleaved=False):
         token_index = np.arange(tokens)[:, None, None]
         key_head = np.arange(2)[None, :, None]

@@ -2742,6 +2742,19 @@ separately: existing singleton reduction/F16 probability-rounding differences
 are not cache-write defects. This does not establish persistent native cache
 ownership or integrate learned chunkwise projections, rotary or the loader.
 
+`--cached-attention-control PARTITION [carry|reset]` is the separate synthetic
+same-allocation lifetime control. Fixed partitions are `80`, `31+49`, `40+40`,
+`1+63+16`, `singletons` and `64+singletons`; carry is the default. One explicit
+native backend buffer owns 128 F16 K/transposed-V slots across each chunk's
+temporary graph/context/allocator destruction. Actual write-output views feed
+causal attention in the same graph. Check stable owner addresses, complete
+cache bytes after teardown, unchanged sources/indices, actual final bit
+readback and operation-level attention references. Carry restores no cache
+from host arrays; reset deliberately restores initial state between chunks as
+a lost-state fault. See the [persistent cache checkpoint](handover.md#persistent-cache-checkpoint-2026-10-16).
+This is synthetic state ownership, not a learned persistent cache or loader
+integration, eviction, concurrency, multistream or model acceptance.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
