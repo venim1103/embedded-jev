@@ -2787,6 +2787,54 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
         rejected = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
         assert rejected.returncode == 5 and rejected.stdout == ""
 
+    conv_features = ((np.arange(8)[:, None] * 11 + np.arange(80)[None, :] * 7) % 31 - 15) / 64
+    conv_initial = ((np.arange(8)[:, None] * 5 + np.arange(3)[None, :] * 3) % 19 - 9) / 32
+    conv_weight = ((np.arange(8)[:, None] * 3 + np.arange(4)[None, :] * 5) % 11 - 5) / 16
+    for partition_name, partition in (("80", (80,)), ("31+49", (31, 49)), ("40+40", (40, 40)),
+                                      ("1+63+16", (1, 63, 16)), ("singletons", (1,) * 80),
+                                      ("64+singletons", (64,) + (1,) * 16)):
+        for reset in (False, True):
+            result = subprocess.run([str(binary), "--cached-conv-control", partition_name, "reset" if reset else "carry"],
+                                    check=True, capture_output=True, text=True, timeout=15)
+            report = json.loads(result.stdout)
+            assert report["channels"] == 8 and report["tokens"] == 80 and report["chunks"] == len(partition)
+            assert report["reset"] is reset and report["initial_history_uploads"] == 1
+            assert report["host_history_restores"] == (len(partition) - 1 if reset else 0)
+            assert report["native_history_copies"] == len(partition)
+            assert report["history_owner_and_bytes_stable_after_graph_teardown"] and report["sources_unchanged"]
+            conv_raw = np.asarray(report["raw"], dtype=np.float32).reshape(80, 8)
+            conv_silu = np.asarray(report["silu"], dtype=np.float32).reshape(80, 8)
+            conv_history = np.asarray(report["history"], dtype=np.float32).reshape(8, 3)
+            expected_history, first, pieces = conv_initial.copy(), 0, []
+            for length in partition:
+                if reset and first:
+                    expected_history = conv_initial.copy()
+                combined = np.concatenate((expected_history, conv_features[:, first:first + length]), axis=1)
+                pieces.append(sum(combined[:, tap:tap + length] * conv_weight[:, tap:tap + 1] for tap in range(4)).T)
+                expected_history = combined[:, -3:].copy()
+                first += length
+            expected_raw = np.concatenate(pieces)
+            np.testing.assert_array_equal(conv_raw.view(np.uint32), expected_raw.astype(np.float32).view(np.uint32))
+            np.testing.assert_array_equal(conv_history.view(np.uint32), expected_history.astype(np.float32).view(np.uint32))
+            np.testing.assert_allclose(conv_silu, expected_raw / (1 + np.exp(-expected_raw)), rtol=2e-5, atol=2e-6)
+            if partition == (80,) and not reset:
+                monolithic_conv = conv_raw.copy(), conv_silu.copy(), conv_history.copy()
+            if not reset or len(partition) == 1:
+                for actual, expected in zip((conv_raw, conv_silu, conv_history), monolithic_conv, strict=True):
+                    np.testing.assert_array_equal(actual.view(np.uint32), expected.view(np.uint32))
+            else:
+                np.testing.assert_array_equal(conv_raw[:partition[0]].view(np.uint32), monolithic_conv[0][:partition[0]].view(np.uint32))
+                assert np.max(np.abs(conv_raw[partition[0]:] - monolithic_conv[0][partition[0]:])) > 2e-5
+        default = subprocess.run([str(binary), "--cached-conv-control", partition_name],
+                                 check=True, capture_output=True, text=True, timeout=15)
+        assert json.loads(default.stdout)["host_history_restores"] == 0
+    for arguments in (["--cached-conv-control"], ["--cached-conv-control", "0"], ["--cached-conv-control", "81"],
+                      ["--cached-conv-control", "31+48"], ["--cached-conv-control", "80junk"],
+                      ["--cached-conv-control", "-1"], ["--cached-conv-control", "80", "unknown"],
+                      ["--cached-conv-control", "80", "carry", "extra"]):
+        rejected = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
+        assert rejected.returncode == 5 and rejected.stdout == ""
+
     token_index = np.arange(80)[:, None, None]
     key_head = np.arange(2)[None, :, None]
     column = np.arange(128)[None, None, :]

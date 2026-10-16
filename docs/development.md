@@ -2722,6 +2722,23 @@ and compare only actually recorded historical fields. The retained independent
 all-singleton reference has full hashes and must not be recomputed merely to
 obtain a newer receipt schema.
 
+The same executable's `--cached-conv-control PARTITION [carry|reset]` is a
+separate synthetic history-ownership primitive: eight channels, four nonuniform
+taps/channel, 80 tokens, nonzero F32 history and one CPU thread. Reuses the six
+strict cached GDN/attention partitions. Native concat prepends `[3,8]` history
+to `[tokens,8]` inputs; SSM convolution/SiLU produce token-major outputs and a
+strided last-three-input view feeds native CPY into the persistent history
+buffer. Expand raw/SiLU roots before the copy; preserve source/filter bytes and
+check all history bytes, data address and buffer identity **after** each graph
+context/allocator dies. Carry uploads history once with zero host restores;
+reset deliberately restores original history at boundaries. JSON exposes copy/
+restore counts, raw/SiLU/history values and preservation flags. Independent
+raw/history bits, reset-aware arithmetic, all six native schedule bits and
+strict refusals are covered by the existing focused compiled test, with
+unchanged SiLU tolerance. See the
+[native convolution ownership checkpoint](handover.md#native-convolution-ownership-checkpoint-2026-10-16).
+This does not yet integrate native history into the learned driver.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.

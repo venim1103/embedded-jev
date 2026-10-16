@@ -852,9 +852,143 @@ static int cached_gdn_control(const std::vector<int>& partition, bool reset) {
     return 0;
 }
 
+static int cached_conv_control(const std::vector<int>& partition, bool reset) {
+    constexpr int channels = 8, total_tokens = 80;
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> cache_context(ggml_init(params), ggml_free);
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
+    if (!cache_context || !backend) {
+        return 1;
+    }
+    auto* history = ggml_new_tensor_2d(cache_context.get(), GGML_TYPE_F32, 3, channels);
+    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> cache_buffer(
+        ggml_backend_alloc_ctx_tensors(cache_context.get(), backend.get()), ggml_backend_buffer_free);
+    if (!cache_buffer) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    const auto* history_address = history->data;
+    std::vector<float> initial(channels * 3), expected(initial.size()), actual(initial.size());
+    for (int channel = 0; channel < channels; ++channel) {
+        for (int index = 0; index < 3; ++index) {
+            initial[channel * 3 + index] = ((channel * 5 + index * 3) % 19 - 9) / 32.0f;
+        }
+    }
+    expected = initial;
+    ggml_backend_tensor_set(history, initial.data(), 0, initial.size() * sizeof(float));
+    std::vector<float> raw_outputs(total_tokens * channels), silu_outputs(raw_outputs.size());
+    int first = 0;
+    for (const int tokens : partition) {
+        if (reset && first) {
+            ggml_backend_tensor_set(history, initial.data(), 0, initial.size() * sizeof(float));
+            expected = initial;
+        }
+        const auto step = [&]() -> int {
+            std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+            if (!context) {
+                return 1;
+            }
+            auto* input = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, tokens, channels);
+            auto* weight = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, 4, channels);
+            for (auto* source : { input, weight }) {
+                ggml_set_input(source);
+                ggml_set_output(source);
+            }
+            auto* combined = ggml_concat(context.get(), history, input, 0);
+            auto* output = ggml_ssm_conv(context.get(), combined, weight);
+            auto* activated = ggml_silu(context.get(), output);
+            auto* tail = ggml_view_2d(context.get(), combined, 3, channels,
+                (tokens + 3) * sizeof(float), tokens * sizeof(float));
+            auto* copied = ggml_cpy(context.get(), tail, history);
+            auto* graph = ggml_new_graph(context.get());
+            for (auto* result : { output, activated, copied }) {
+                ggml_set_output(result);
+                ggml_build_forward_expand(graph, result);
+            }
+            std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+                ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+            if (!allocator || !ggml_backend_supports_op(backend.get(), combined) ||
+                    !ggml_backend_supports_op(backend.get(), output) || !ggml_backend_supports_op(backend.get(), activated) ||
+                    !ggml_backend_supports_op(backend.get(), copied) || !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+                return 2;
+            }
+            std::vector<float> features(tokens * channels), weights(4 * channels);
+            for (int channel = 0; channel < channels; ++channel) {
+                for (int token = 0; token < tokens; ++token) {
+                    features[channel * tokens + token] = ((channel * 11 + (first + token) * 7) % 31 - 15) / 64.0f;
+                }
+                for (int tap = 0; tap < 4; ++tap) {
+                    weights[channel * 4 + tap] = ((channel * 3 + tap * 5) % 11 - 5) / 16.0f;
+                }
+            }
+            const auto sources = { std::make_pair(input, &features), std::make_pair(weight, &weights) };
+            for (const auto& entry : sources) {
+                ggml_backend_tensor_set(entry.first, entry.second->data(), 0, entry.second->size() * sizeof(float));
+            }
+            if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+                return 3;
+            }
+            for (const auto& entry : sources) {
+                std::vector<float> unchanged(entry.second->size());
+                ggml_backend_tensor_get(entry.first, unchanged.data(), 0, unchanged.size() * sizeof(float));
+                if (std::memcmp(unchanged.data(), entry.second->data(), unchanged.size() * sizeof(float)) != 0) {
+                    return 4;
+                }
+            }
+            const auto output_bytes = tokens * channels * sizeof(float);
+            if (ggml_nbytes(output) != output_bytes || ggml_nbytes(activated) != output_bytes) {
+                return 4;
+            }
+            ggml_backend_tensor_get(output, raw_outputs.data() + first * channels, 0, output_bytes);
+            ggml_backend_tensor_get(activated, silu_outputs.data() + first * channels, 0, output_bytes);
+            for (int channel = 0; channel < channels; ++channel) {
+                for (int index = 0; index < 3; ++index) {
+                    const int source = tokens + index;
+                    expected[channel * 3 + index] = source < 3 ? expected[channel * 3 + source] :
+                        features[channel * tokens + source - 3];
+                }
+            }
+            return 0;
+        };
+        const int status = step();
+        if (status) {
+            return status;
+        }
+        ggml_backend_tensor_get(history, actual.data(), 0, actual.size() * sizeof(float));
+        if (history->data != history_address || history->buffer != cache_buffer.get() ||
+                std::memcmp(actual.data(), expected.data(), actual.size() * sizeof(float)) != 0) {
+            return 4;
+        }
+        first += tokens;
+    }
+    if (first != total_tokens || !std::all_of(raw_outputs.begin(), raw_outputs.end(),
+            [](float value) { return std::isfinite(value); }) || !std::all_of(silu_outputs.begin(), silu_outputs.end(),
+            [](float value) { return std::isfinite(value); })) {
+        return 4;
+    }
+    std::printf("{\"channels\":%d,\"tokens\":%d,\"chunks\":%zu,\"reset\":%s,\"initial_history_uploads\":1,"
+                "\"host_history_restores\":%zu,\"native_history_copies\":%zu,"
+                "\"history_owner_and_bytes_stable_after_graph_teardown\":true,\"sources_unchanged\":true,\"raw\":[",
+                channels, total_tokens, partition.size(), reset ? "true" : "false",
+                reset ? partition.size() - 1 : 0, partition.size());
+    for (std::size_t index = 0; index < raw_outputs.size(); ++index) {
+        std::printf("%s%.9g", index ? "," : "", raw_outputs[index]);
+    }
+    std::printf("],\"silu\":[");
+    for (std::size_t index = 0; index < silu_outputs.size(); ++index) {
+        std::printf("%s%.9g", index ? "," : "", silu_outputs[index]);
+    }
+    std::printf("],\"history\":[");
+    for (std::size_t index = 0; index < actual.size(); ++index) {
+        std::printf("%s%.9g", index ? "," : "", actual[index]);
+    }
+    std::puts("]}");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if ((argc == 3 || argc == 4) && (std::strcmp(argv[1], "--cached-attention-control") == 0 ||
-            std::strcmp(argv[1], "--cached-gdn-control") == 0)) {
+            std::strcmp(argv[1], "--cached-gdn-control") == 0 || std::strcmp(argv[1], "--cached-conv-control") == 0)) {
         std::vector<int> partition;
         if (std::strcmp(argv[2], "80") == 0) {
             partition = {80};
@@ -876,6 +1010,9 @@ int main(int argc, char** argv) {
             return 5;
         }
         const bool reset = argc == 4 && std::strcmp(argv[3], "reset") == 0;
+        if (std::strcmp(argv[1], "--cached-conv-control") == 0) {
+            return cached_conv_control(partition, reset);
+        }
         return std::strcmp(argv[1], "--cached-gdn-control") == 0 ?
             cached_gdn_control(partition, reset) : cached_attention_control(partition, reset);
     }

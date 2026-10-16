@@ -18,7 +18,9 @@ recurrent-state ownership control, typed helper and learned four-layer coarse
 resident integration now pass. Three native recurrent buffers carry state;
 host readbacks are oracles and convolution history remains host-carried.
 Learned 64-prefill/16-singleton and all-80-singleton continuation also pass
-against unchanged same-schedule references. No full conversion was retried.
+against unchanged same-schedule references. A subsequent bounded synthetic
+native convolution-history ownership control passes; its learned integration
+is not yet established. No full conversion was retried.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -103,7 +105,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [native state singleton checkpoint](#native-state-singleton-checkpoint-2026-10-16),
+2. Read the [native convolution ownership checkpoint](#native-convolution-ownership-checkpoint-2026-10-16),
+   then the [native state singleton checkpoint](#native-state-singleton-checkpoint-2026-10-16),
    then the [learned native state checkpoint](#learned-native-state-checkpoint-2026-10-16),
    then the [typed recurrent owner checkpoint](#typed-recurrent-owner-checkpoint-2026-10-16),
    then the [native recurrent ownership checkpoint](#native-recurrent-ownership-checkpoint-2026-10-16),
@@ -221,6 +224,53 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Native Convolution Ownership Checkpoint (2026-10-16)
+
+After `d428f69`, the existing smoke executable adds separately bounded
+`--cached-conv-control PARTITION [carry|reset]` using the same six strict
+partitions as cached GDN/attention. This fixed synthetic control has eight
+channels, four nonuniform taps/channel, 80 tokens, nonzero F32 `[3,8]` history
+and one CPU thread. A cache-only context and explicit **96-byte** history
+buffer survive each chunk graph/context/allocator destruction.
+
+The graph uses native `ggml_concat(history,input,0)` to form `[tokens+3,8]`,
+actual `ggml_ssm_conv` and SiLU. A strided `[3,8]` view of concatenated inputs,
+offset `tokens*sizeof(float)` with row stride `(tokens+3)*sizeof(float)`, feeds
+native `ggml_cpy` into the history owner. Raw/SiLU graph roots are expanded
+before the copy root; the copy depends on the materialized concatenation, so
+the old history is consumed before its owner is overwritten. Both F32
+features/filters remain byte-exact. After all step resources die, the history
+address, buffer identity and every byte must match the independently advanced
+last-three-input oracle. That host oracle is never a runtime restore.
+
+Carry uploads initial history once and performs one native copy/chunk with
+zero host restores. Reset deliberately reuploads original nonzero history at
+chunk boundaries; it is a fault control, not a runtime API. JSON distinguishes
+initial uploads, fault restores and actual copy counts. Existing cached GDN,
+attention, raw-file replay and other commands are unchanged.
+
+Extended the existing pinned compiled test, not a new test file. Six schedules
+times carry/reset match an independent FP64 four-tap oracle **bit-exactly** for
+raw F32 outputs and full history. SiLU uses the existing `rtol=2e-5, atol=2e-6`.
+All carry schedules match native monolithic raw/SiLU/history bits; reset keeps
+the first chunk exact and changes later output by more than `2e-5`, with all
+reset values still matching the independent reset-aware oracle. Six default
+carry forms and eight malformed/extra-argument status-5, empty-stdout refusals
+pass. This discriminates singleton tail stride, channel routing, reset state,
+graph ordering and post-teardown ownership without learned weights.
+
+Focused compiled check: **1 passed in 6.03 s** using the cached pinned Prism
+headers/CPU/base libraries, no library rebuild. Required source checkpoint
+gate: **553 passed, 88 optional skips in 12.93 s**, Ruff and whitespace clean;
+native/test editor diagnostics and documentation/link/table validation clean.
+No test failure, tolerance relaxation, model conversion/download/refit or
+learned experiment accompanied this source slice. Earlier GDN learned results
+remain valid but still use **host convolution history**; this primitive alone
+is not a typed helper, learned convolution owner, full loader/BitNet/v2 P4/
+quality/device acceptance. Next: a bounded typed history owner checked against
+the compiled control and unchanged host-history helper, then synthetic
+full-layer routing before any learned integration.
 
 ## Native State Singleton Checkpoint (2026-10-16)
 
