@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [learned rotary checkpoint](#learned-rotary-checkpoint-2026-10-16),
+2. Read the [connected attention checkpoint](#connected-attention-checkpoint-2026-10-16),
+   then the [learned rotary checkpoint](#learned-rotary-checkpoint-2026-10-16),
    then the [partial rotary checkpoint](#partial-rotary-checkpoint-2026-10-16),
    then the [learned attention checkpoint](#learned-attention-checkpoint-2026-10-16),
    then the [nonflash attention checkpoint](#nonflash-attention-checkpoint-2026-10-15),
@@ -197,6 +198,97 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Connected Attention Checkpoint (2026-10-16)
+
+After user-pushed `cb3d461`, connected the previously verified primitives from
+the **same trusted normalized layer-3 input**: three BF16 Q/K/V projections,
+two F32 Q/K RMS operations with independent learned `weight+1` scales, two
+native partial IMRoPE rotations and the non-flash F16 KV core. Query projection
+is split into query/gate **per head**, not by cutting the whole vector in half.
+The seven-token synthetic composition has exact independent rounded-operand
+projection references; RMS, rotary and each attention operation pass their
+unchanged oracles. The unused gate split is preserved. No primitive bounds or
+earlier helpers were changed; the synthetic stage took **4.47 s**,
+**346,456 KiB** peak child RSS, zero swap growth.
+
+The learned composition reproduces the authenticated HF operand baseline and
+uses eight native graph calls. Q/K/V projection maxima versus the trusted
+Torch reference are **1.239777e-5 / 5.722046e-6 / 3.695488e-6**. Propagated
+Q/K norm maxima are **9.536743e-6 / 6.675720e-6**, versus only **1.907349e-6**
+each when normalizing the identical HF projection inputs. Core F16 query/key/
+value crossings versus HF are **505 / 146 / 124**. The resulting core differs
+from the same-HF-operands native core by score/probability/output maxima
+**0.005935669 / 3.305078e-5 / 0.0006723404**; versus the original F32 HF core,
+output max **0.003058434**, RMS **0.0001325029**. This run took **7.07 s**,
+**1,461,148 KiB** RSS, zero swap growth. These are measured differences, not
+accepted tolerances or proof of the complete-model discrepancy's cause.
+
+A separately bounded native **sigmoid-times-feature** helper then passed small
+and maximum 80-by-4096 synthetic geometry, extreme gates from -100 to 100,
+seven invalid-input refusals, byte-preserved input lifetimes and a wrong-SiLU
+fault. Its independent FP64 probability/product references passed unchanged
+`rtol=2e-5, atol=2e-6`. That helper stage took **2.37 s**, **249,352 KiB** RSS.
+The extended synthetic composition independently verifies gating and a BF16
+output projection in **5.67 s**, **348,788 KiB** RSS. Both had zero swap growth.
+
+The final learned diagnostic extends the same composition through that gate
+and BF16 `o_proj`, ten native graph calls in all. It requires the preceding
+connected-core SHA-256 to reproduce exactly before reporting anything. A
+prepended hook captures the HF gated tensor **before** its BF16-RHS rounding,
+so same-input controls compare the intended boundary rather than an already
+rounded intermediate:
+
+| Comparison | Max Absolute Gap | RMS |
+| --- | --- | --- |
+| Complete native attention output vs HF F32/BF16-RHS | 0.002011299 | 0.00002913632 |
+| Propagated gated input vs HF gated input | 0.0005471706 | 0.000008805949 |
+| Same-input native sigmoid vs Torch sigmoid | 0.00000005960464 | 0.000000001649476 |
+| Same-input native sigmoid product vs HF gated input | 0.0000004768372 | 0.000000001189732 |
+| Same-input native output projection vs Torch | 0.000001192093 | 0.00000001185630 |
+
+There are **37,253** BF16 crossings at the output-projection input; final
+outputs are not bit-exact. The final stage took **9.32 s**, peak child RSS
+**1,460,692 KiB**, zero swap growth and minimum observed host-available memory
+**16,983,191,552 bytes**. All synthetic/learned stages retain their 60/300-second
+deadlines, 32-GiB address-space and unchanged host RAM/swap/disk guards.
+
+Retained/reread small-report SHA-256 values:
+
+- `connected-attention-selftest-result.json`:
+  `bf0f42814d206dc84653849f01e9905e8f4b700d1ee843fb1eddb2d41d196a83`.
+- `connected-attention-comparison.json`:
+  `36e2b1d57b124f2b224851e2927cb3edafc370343de68f1e0a6a461e208252f8`.
+- `attention-gate-selftest-result.json`:
+  `586376bd9176b469d3d180e8f5396f2c26953811c440889b188ee07a279bed10`.
+- `complete-attention-selftest-result.json`:
+  `d241f89f92ef17a1342e9e8f3e9ac7c1ca92a8f1aa8b038dffb21643b2767fee`.
+- `complete-attention-comparison.json`:
+  `cc49ac4d5dc261a434ded37039b99fd84204a9fc6992e29bb61ca4cf59ecf9f8`.
+
+The frozen codes/independent scales/manifest, six runtime hashes, profile/
+metadata and source identities remain pinned on entry/exit. Helpers, failures,
+small reports and diagnostic executables remain outside Git; arrays are
+memory-only, and no replay packet, GGUF or owned compiler spill remains after
+empty-directory cleanup. Only the expected installed Torch fallback warning
+appeared. Syntax/Ruff, focused synthetic/learned checks and scoped documentation/
+whitespace/editor checks ran. The unchanged successful `054190f` source gate
+was not rerun for this documentation-only checkpoint; no cached library rebuild,
+CTest or sanitizer is inferred.
+
+This is a **dense attention sublayer diagnostic composition**, not a native
+residual/MLP, native prefix, actual KV-write cache, full loader, model-quality
+or whole-model BitNet path. It neither changes a production phase/precision
+policy nor substitutes the frozen ternary candidate. There were zero generated
+tokens, output-head/option scores, new conversions, downloads, refits, retained
+candidates, held-out runs or other-profile execution. The original learned fixed
+score failure and historical full-model max logit gap **0.0971508** remain open.
+
+Next bounded boundary: inspect the pinned loader's KV-write operation and
+physical layouts, then verify writes/readback on synthetic operands before any
+learned cache composition. Do not describe the current prepopulated KV reads
+as actual cache updates or retry the refused full conversion under unchanged
+resource conditions.
 
 ## Learned Rotary Checkpoint (2026-10-16)
 

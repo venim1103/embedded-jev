@@ -2713,6 +2713,14 @@ HF phase generation; small differences can cross F16 query/key thresholds and
 propagate through the unchanged attention core. Do not substitute one phase
 policy or interpret this isolated comparison as native KV-write/loader parity.
 
+The [connected attention checkpoint](handover.md#connected-attention-checkpoint-2026-10-16)
+composes dense Q/K/V projections, Q/K norm, partial rotary, the non-flash core,
+sigmoid gate and output projection on a trusted normalized input. Keep query/
+gate splitting per head, RMS `weight+1` semantics and the F16-core/BF16-projection
+boundaries distinct. For output-projection controls, capture gated inputs before
+the BF16-RHS hook. This remains a diagnostic composition without native prefix,
+residual/MLP, KV writes, full-loader or whole-model BitNet acceptance.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
