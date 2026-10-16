@@ -43,6 +43,8 @@ policy backends, plus deliberate state-loss refusal. No learned model ran in
 this new source checkpoint.
 After user-pushed `fb2852c`, long singleton warmup/reset/replay also passes
 through the same three backends, without rebuilding runtime libraries.
+After `443e1f1`, deterministic singleton alternation between two contexts
+sharing one loaded model also passes independent history-sensitive references.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -127,7 +129,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [native loader reset checkpoint](#native-loader-reset-checkpoint-2026-10-16),
+2. Read the [native loader isolation checkpoint](#native-loader-isolation-checkpoint-2026-10-16),
+   then the [native loader reset checkpoint](#native-loader-reset-checkpoint-2026-10-16),
    then the [native loader continuation checkpoint](#native-loader-continuation-checkpoint-2026-10-16),
    then the [detached singleton checkpoint](#detached-singleton-checkpoint-2026-10-16),
    then the [detached decode checkpoint](#detached-decode-checkpoint-2026-10-16),
@@ -255,6 +258,48 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Native Loader Isolation Checkpoint (2026-10-16)
+
+After `443e1f1`, added `interleaved-singletons` to the existing bounded tiny
+actual-loader control and NumPy-backed test. Two native contexts share one
+loaded model. The peer first consumes 4, 9, 19 in one batch; both contexts
+then consume 80 singleton calls each, alternating primary/peer deterministically.
+The primary stream remains repeating 3, 5, 7 and ending 3, 5. The complete
+83-token peer stream is 26 repetitions of 4, 9, 19 followed by 4, 9, 7, 3, 5.
+Thus both end with **7, 3, 5**, but have different histories. Checked native
+hybrid position intersections are **[79,79]** and **[82,82]**, respectively.
+
+Independent NumPy references check both contexts' selected logits at unchanged
+**rtol/atol 2e-5**; primary typed conditional scores and zero generated answer
+tokens remain checked. Active recurrent and/or attention references must differ
+at the existing **rtol/atol 1e-4** history discriminator despite identical final
+three tokens. BitNet paths require **161 genuine counted dispatches**, one
+shared weight repack and one final input row. No host cache restore or second
+model load occurs. The existing concurrent `parallel` batch control remains
+separate and passes; alternation is not a new production concurrency guarantee.
+
+Immediate focused recurrent-plus-attention profile-policy check passes in
+**1.33 s**. All **12** backend/cache combinations pass in **12.60 s**, adding
+12 long interleaved workflows, two reference streams per case and nine active
+history discriminators. The required source gate passes **553 tests, 88 optional
+skips in 17.66 s**, Ruff and whitespace clean. Optional compiled checks ran
+separately; source/test editor diagnostics and scoped documentation checks pass.
+No failed arithmetic/native check, relaxed tolerance or expanded deadline.
+
+Only the control executable was rebuilt. Six runtime library hashes and both
+pinned upstream revisions/tracked-file cleanness are reverified unchanged.
+External `tiny-native-singleton-isolation-evidence.json` retains source,
+executable and runtime hashes, stream descriptions and actual results, reread
+SHA-256 `a6dd44978d593f03681358bac5d3031a1ebe99d825001c0391e8464bad0414aa`.
+Existing temporary fixture cleanup, geometry/token bounds and 30-second
+per-control deadlines are unchanged. No learned weights, frozen-artifact
+changes, conversion, download, candidate/refit, quality or other-model work.
+This proves bounded synthetic context isolation with shared repacked weights,
+not simultaneous loading/freeing, registry mutation safety, speedup, learned
+full-loader parity, whole-model BitNet, representative quality or device support.
+The selected synthetic continuation/reset/isolation slice is complete; next
+learned full-runtime work requires its separate artifact/resource approval.
 
 ## Native Loader Reset Checkpoint (2026-10-16)
 

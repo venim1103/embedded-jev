@@ -855,11 +855,12 @@ static int test_prefill_control(
     const bool singleton_reset = std::strcmp(mode, "singletons-reset") == 0;
     const bool reset_singletons = std::strcmp(mode, "reset-singletons") == 0;
     const bool singletons = std::strcmp(mode, "singletons") == 0 || singleton_reset || reset_singletons;
-    const bool extended_singletons = std::strcmp(mode, "singletons-80") == 0;
+    const bool interleaved_singletons = std::strcmp(mode, "interleaved-singletons") == 0;
+    const bool extended_singletons = std::strcmp(mode, "singletons-80") == 0 || interleaved_singletons;
     const bool prefill_singletons = std::strcmp(mode, "prefill64-singletons") == 0;
     const bool reset = std::strcmp(mode, "reset") == 0 || reset_singletons;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
-    const bool parallel = std::strcmp(mode, "parallel") == 0;
+    const bool parallel = std::strcmp(mode, "parallel") == 0 || interleaved_singletons;
     const bool maximum_batch = std::strcmp(mode, "maximum") == 0;
     const bool kernel_error = use_bitnet && std::strcmp(mode, "kernel-error") == 0;
     const bool kernel_recovery = use_bitnet && std::strcmp(mode, "kernel-recovery") == 0;
@@ -1103,8 +1104,14 @@ static int test_prefill_control(
         }
     }
     std::vector<llama_token> peer_tokens = tokens;
+    if (interleaved_singletons) {
+        const llama_token pattern[] = { 4, 9, 19 };
+        for (std::size_t index = 0; index + 3 < peer_tokens.size(); ++index) {
+            peer_tokens[index] = pattern[index % 3];
+        }
+    }
     std::future<int> peer_result;
-    if (parallel) {
+    if (parallel && !interleaved_singletons) {
         peer_result = std::async(std::launch::async, [&] {
             return llama_decode(peer.get(), llama_batch_get_one(peer_tokens.data(), peer_tokens.size()));
         });
@@ -1127,6 +1134,12 @@ static int test_prefill_control(
                 return 29;
             }
             ++prefill_calls;
+            if (interleaved_singletons) {
+                if (llama_decode(peer.get(), llama_batch_get_one(peer_tokens.data() + index, 1)) != 0) {
+                    return 29;
+                }
+                ++prefill_calls;
+            }
         }
     }
     const std::size_t offset = (singletons || extended_singletons || prefill_singletons) ? tokens.size() - 1 : chunked ? 1 : 0;
@@ -1138,12 +1151,20 @@ static int test_prefill_control(
     }
     ++prefill_calls;
     if (parallel) {
-        if (peer_result.get() != 0) {
-            return 29;
+        if (interleaved_singletons) {
+            if (llama_decode(peer.get(), llama_batch_get_one(peer_tokens.data() + peer_tokens.size() - 1, 1)) != 0) {
+                return 29;
+            }
+        } else {
+            if (peer_result.get() != 0) {
+                return 29;
+            }
         }
         ++prefill_calls;
         const auto peer_memory = llama_get_memory(peer.get());
-        if (llama_memory_seq_pos_min(peer_memory, 0) != 5 || llama_memory_seq_pos_max(peer_memory, 0) != 5) {
+        const auto peer_position = static_cast<llama_pos>(peer_tokens.size() + 2);
+        if (llama_memory_seq_pos_min(peer_memory, 0) != peer_position ||
+                llama_memory_seq_pos_max(peer_memory, 0) != peer_position) {
             return 31;
         }
     }

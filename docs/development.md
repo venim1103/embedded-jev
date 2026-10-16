@@ -2257,6 +2257,15 @@ one repack and one final input row. A separate NumPy uncleared-history oracle
 must differ for nonzero recurrent/attention fixtures. See the
 [native loader reset checkpoint](handover.md#native-loader-reset-checkpoint-2026-10-16).
 
+`interleaved-singletons` alternates 80 singleton calls per context while sharing
+one loaded model. The peer starts with a three-token prefix; both streams end
+with 7, 3, 5 but have different histories. Independent references check both
+selected-logit vectors, native final positions are 79/82, and BitNet requires
+161 dispatches, one repack and one final input row. This is deterministic
+context isolation, not simultaneous model loading/freeing or a speedup claim;
+the existing concurrent-batch `parallel` control remains separate. See the
+[native loader isolation checkpoint](handover.md#native-loader-isolation-checkpoint-2026-10-16).
+
 BitNet-only `kernel-error` temporarily selects unsupported upward rounding after
 loading. The test requires `llama_decode` success but tensor status 1, NaN logits,
 zero counted kernel calls, one repack, and no stdout score report. In
