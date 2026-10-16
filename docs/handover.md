@@ -64,6 +64,8 @@ After `0211d3c`, a shared shard owner retains one descriptor/header across
 serial matrix contexts, with two whole-shard hashes and fail-closed lifecycle checks.
 After `e5c94ba`, the pinned synthetic writer uses that shared owner across all
 16 matrices and withholds publication through final shard-identity checks.
+After `622e307`, the next larger-source API/resource proposal below is prepared
+but not authorized or implemented; current limits and real-model approvals stand.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -148,7 +150,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 shared writer checkpoint](#bf16-shared-writer-checkpoint-2026-10-16),
+2. Read the [larger source proposal](#larger-source-proposal-2026-10-16),
+   then the [BF16 shared writer checkpoint](#bf16-shared-writer-checkpoint-2026-10-16),
    then the [BF16 shared shard checkpoint](#bf16-shared-shard-checkpoint-2026-10-16),
    then the [BF16 allocation scaling checkpoint](#bf16-allocation-scaling-checkpoint-2026-10-16),
    then the [BF16 mapped payload checkpoint](#bf16-mapped-payload-checkpoint-2026-10-16),
@@ -286,6 +289,44 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Larger Source Proposal (2026-10-16)
+
+After `622e307`, the bounded shared-shard BF16 source-to-writer prerequisites
+are verified. Further work toward real source geometry crosses the existing
+**16 MiB** source-file/operand/payload caps. This proposal is **not authorization,
+implementation or a complete-model conversion plan**.
+
+A structured read of the repository's pinned MiMo profile, with no cached
+weight reads, gives largest shard **5,276,436,216 bytes** and BF16 embedding/head
+extent **2,034,237,440 bytes**. Proposed separate versioned source policy:
+
+- File cap **6 GiB (6,442,450,944 bytes)** and operand/raw-payload cap
+  **2 GiB (2,147,483,648 bytes)**, each still requiring caller/profile identity.
+- Keep all current 16 MiB APIs and the existing bounded descriptor hasher's
+  64 MiB maximum unchanged. Use an explicit opt-in versioned policy, not
+  inference from file size, environment variables or profile runtime approval.
+- Preserve 64 KiB reads/default chunks, 1 MiB chunk/header caps, one live matrix,
+  shared entry/exit hashes, zero full-matrix F32 expansion, provisional receipts,
+  child/parent lifetime refusals and existing numerical/BitNet boundaries.
+- First validation is **synthetic only**: no more than **128 MiB per source
+  fixture**, **32 MiB selected operands**, **256 MiB aggregate logical scratch**,
+  serial stages at most **60 s** with parent/finally cleanup. Existing opt-in
+  converter subprocess tests retain their 30 s bound. Reuse caches/environments;
+  no downloads, library rebuilds or changes to host RAM/swap/security guards.
+- Exercise offsets/file extents above the old caps, streaming fixture creation,
+  exact bytes, hash counts, allocation scaling, malformed budgets and partial
+  failure cleanup. Boundary tests for proposed 6 GiB/2 GiB caps must reject
+  before opening/allocating; no actual multi-GiB synthetic artifact is needed.
+
+Approval for this bounded API/test expansion would **not** authorize reading
+cached learned weights, another complete-model conversion/artifact, runtime
+execution, refit, candidate, compensation promotion, held-out quality or another
+model. A future real-model job still needs its own complete artifact/resource
+plan and explicit approval; historical guard/numerical failures remain open.
+Existing source gate is unchanged from `622e307` and is not rerun for this
+documentation-only proposal. Next action: ask for this precise synthetic-only
+policy/budget expansion before modifying the larger-file implementation.
 
 ## BF16 Shared Writer Checkpoint (2026-10-16)
 
