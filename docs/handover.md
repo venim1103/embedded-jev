@@ -58,6 +58,8 @@ After user-pushed `c03ef1e`, a descriptor-owned verified source mapping removes
 whole-operand copies from the new bounded matrix reader, not the older verifier.
 After `967e2cc`, that source owner composes with chunked raw payload production
 without caller source arrays and passes the pinned 16-matrix GGUF control.
+After `9f597bb`, a bounded two-size allocation control also verifies that the
+new paths avoid the older verifier's source-sized Python allocation growth.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -142,7 +144,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 mapped payload checkpoint](#bf16-mapped-payload-checkpoint-2026-10-16),
+2. Read the [BF16 allocation scaling checkpoint](#bf16-allocation-scaling-checkpoint-2026-10-16),
+   then the [BF16 mapped payload checkpoint](#bf16-mapped-payload-checkpoint-2026-10-16),
    then the [BF16 mapped source checkpoint](#bf16-mapped-source-checkpoint-2026-10-16),
    then the [BF16 source-bound writer checkpoint](#bf16-source-bound-writer-checkpoint-2026-10-16),
    then the [BF16 source-bound payload checkpoint](#bf16-source-bound-payload-checkpoint-2026-10-16),
@@ -277,6 +280,42 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Allocation Scaling Checkpoint (2026-10-16)
+
+After `9f597bb`, a bounded `tracemalloc` probe compared warmed copying,
+descriptor-mapped and mapped-payload paths on the same synthetic shard. Input
+operands were **65,536 bytes** and **2,097,152 bytes**; fixture construction,
+caller inputs and warmup were outside tracing. Observed peak tracked bytes:
+
+| Path | 64 KiB Operand | 2 MiB Operand |
+| --- | --- | --- |
+| Copy-based source verifier | 2,405,621 | 4,377,855 |
+| Descriptor-owned source mapping | 2,407,157 | 2,407,085 |
+| Mapped source to raw payload | 2,529,134 | 2,528,902 |
+
+The probe used the explicit existing `/opt/venv/bin/python`, not an inferred
+editor interpreter, and automatic temporary cleanup. These are Python-tracked
+allocation peaks, not process RSS, native allocations, mapped pages, OS cache,
+whole-converter RAM or attribution of the original swap-guard failure.
+
+The existing lifecycle fixture now runs a two-size peak-scaling regression
+for both new consumers. The 2 MiB copying control must expose at least two
+operand-sized buffers; the mapped path must stay below **3 MiB** tracked peak
+and grow by at most **256 KiB** from the 64 KiB case. These newly introduced
+budgets passed unchanged. All mappings/descriptors and private payloads must
+close. If an external allocation tracer already owns the process, only these
+two isolated-tracer cases skip. Focused controls: **46 passed in 3.54 s**.
+Required gate: **653 passed, 89 optional skips in 23.96 s**, Ruff/whitespace/
+editor clean. No new failures, dependency installs, learned inputs, conversion,
+native execution/build, candidate change or quality run occurred.
+
+The verified source/payload and source-file caps remain **16 MiB**. Current
+per-matrix mapping hashes the shard repeatedly; this is intentionally bounded
+evidence, not yet an efficient full-model source adapter. Next: retain one
+verified shard owner across its selected matrix consumers before proposing a
+separately capped larger-file policy. Never raise the current limits or retry
+the guarded complete-model conversion implicitly.
 
 ## BF16 Mapped Payload Checkpoint (2026-10-16)
 

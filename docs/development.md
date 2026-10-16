@@ -1548,6 +1548,14 @@ uses this composition for 16 matrices; selected-byte post-spool mutations fail
 on its live-source array hash before the outer file check. See the
 [mapped payload checkpoint](handover.md#bf16-mapped-payload-checkpoint-2026-10-16).
 
+The bounded allocation regression compares warmed 64 KiB/2 MiB operands under
+an isolated `tracemalloc` session. The 2 MiB copy-based control must expose two
+source-sized buffers; mapped source and mapped payload checks require tracked
+peaks below 3 MiB and growth at most 256 KiB across the two sizes. Setup/caller
+inputs are excluded; mappings, native allocations and OS caches are not a
+process-RAM measurement. Only these two cases skip when an external tracer
+already owns the process. See the [allocation scaling checkpoint](handover.md#bf16-allocation-scaling-checkpoint-2026-10-16).
+
 `temporary_profile_safetensors_bf16_payload(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,
 expected_file_sha256=..., directory=...)` composes that owner with

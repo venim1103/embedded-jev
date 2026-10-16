@@ -1310,12 +1310,13 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
 
 @pytest.mark.parametrize("consumer", ["mapping", "payload"])
 @pytest.mark.parametrize("defect", [
-    None, "allocation", "source-pin", "file-pin", "file-size", "operand-budget", "boolean-budget", "file-budget",
+    None, "allocation", "peak-scaling", "source-pin", "file-pin", "file-size", "operand-budget", "boolean-budget", "file-budget",
     "deadline-budget", "frozen", "vector", "missing", "symlink", "fifo", "before-yield", "changed", "restored",
     "replacement", "deleted", "deadline", "body-error", "cwd",
 ])
 def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, monkeypatch, defect, consumer):
     import errno
+    import gc
     import tracemalloc
 
     from embedded_jev import prism_codec
@@ -1377,7 +1378,7 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
         else:
             prism_codec.os.mkfifo(alternate)
         arguments["source_path"] = alternate
-    expected_failure = defect not in (None, "allocation", "cwd")
+    expected_failure = defect not in (None, "allocation", "peak-scaling", "cwd")
     was_tracing = tracemalloc.is_tracing()
 
     def ownership():
@@ -1386,6 +1387,43 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
         return prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments)
 
     try:
+        if defect == "peak-scaling":
+            if was_tracing:
+                pytest.skip("requires isolated ownership of the Python allocation tracer")
+
+            def peak_allocations(check):
+                check()
+                gc.collect()
+                tracemalloc.start()
+                try:
+                    check()
+                    return tracemalloc.get_traced_memory()[1]
+                finally:
+                    tracemalloc.stop()
+
+            peaks = []
+            for selected_name in ("lm_head.weight", source_name):
+                selected_bytes = int(np.prod(entries[selected_name]["shape"])) * 2
+                arguments.update(source_name=selected_name, expected_source_sha256=hashlib.sha256(bytes(selected_bytes)).hexdigest())
+                with prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments) as (supplied, _):
+                    def copied_source():
+                        prism_codec.verify_profile_safetensors_operand(profile, inventory, manifest, blocks, source_values=supplied, **arguments)
+
+                    def mapped_source():
+                        with ownership():
+                            pass
+
+                    peaks.append((peak_allocations(copied_source), peak_allocations(mapped_source)))
+            assert selected_bytes == 2 * 1024**2
+            assert peaks[1][0] >= 2 * selected_bytes
+            assert peaks[1][1] < 3 * 1024**2
+            assert peaks[1][1] <= peaks[0][1] + 256 * 1024
+            assert all(mapped._mmap.closed for mapped in mappings)
+            assert not list(tmp_path.glob("jev-bf16-payload-*"))
+            for descriptor in opened:
+                with pytest.raises(OSError):
+                    prism_codec.os.fstat(descriptor)
+            return
         if defect == "allocation":
             with ownership():
                 pass
