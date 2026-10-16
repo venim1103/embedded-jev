@@ -28,7 +28,9 @@ variant now passes synthetic/coarse learned checks with lower native-phase
 retention and unchanged arithmetic/guards. Its longer continuation reaches
 final publication but fails the source/proof identity guard; no accepted
 numerical report exists. The new synthetic pin audit passes. Learned jobs
-remain stopped pending source/proof stability; read the latest checkpoint.
+remain stopped pending source/proof stability. A later event-observed attempt
+captures writes to the newly edited observer scripts and correctly withholds
+publication; see the newest file-event checkpoint and editor-side prerequisite.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -113,7 +115,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [lifetime pin audit checkpoint](#lifetime-pin-audit-checkpoint-2026-10-16),
+2. Read the [file event checkpoint](#file-event-checkpoint-2026-10-16),
+   then the [lifetime pin audit checkpoint](#lifetime-pin-audit-checkpoint-2026-10-16),
    then the [reference lifetime checkpoint](#reference-lifetime-checkpoint-2026-10-16),
    then the [learned convolution owner checkpoint](#learned-convolution-owner-checkpoint-2026-10-16),
    then the [native convolution ownership checkpoint](#native-convolution-ownership-checkpoint-2026-10-16),
@@ -235,6 +238,93 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## File Event Checkpoint (2026-10-16)
+
+Resumed after user-pushed `a455312` with only untouched editor settings
+untracked. A before/after ordinary editor-read probe leaves all five watched
+identities/hashes unchanged. No `inotifywait` executable is installed; no
+software, privilege, host or editor-setting changes were made.
+
+Added scratch `pin_events.py`, using typed libc inotify bindings with a
+nonblocking/close-on-exec descriptor and both parent-directory/file watches.
+Synthetic fixtures verify reads produce no mutation events, while touches,
+writes, same-byte replacement and deletion are detected. Queue overflow,
+truncated packets and closed reads refuse; descriptor cleanup is exact.
+Completed source-matched proof passes in **0.066 s**, **19,040 KiB**, zero
+swap growth/process swaps. The earlier proof and explicit stale-source-proof
+refusal remain; source extensions use a separately named proof, never overwrite
+old evidence. Scoped Ruff passes. Inotify does **not** identify a writer PID;
+file/directory watches can produce duplicate notifications.
+
+New **watched synthetic native** control passes in **37.38 s**, **1,064,524 KiB**
+peak child RSS, minimum host-available RAM **16,115,978,240 bytes**, zero host
+swap growth/process swaps under unchanged 60-second/resource guards. All eight
+watched helper/proof identities remain exact, with zero mutation events.
+Its entire synthetic native-history result matches the retained control
+exactly. No learned weights are loaded. This new observation window does not
+prove longer-run stability or identify the historical writer.
+
+Added separate `observed_lifetime.py` around the unchanged pin-audited lifetime
+adapter. It watches ten source/proof files, records all initial/final identities
+and mutation events, and **buffers** the numerical report until both full
+identity equality and event checks pass. Six synthetic cases across two event
+observers cover success, metadata touch, content write, replacement, deletion
+and injected compute failure. All required refusal/observation/publication
+checks pass in **3.17 s**, **326,788 KiB**, zero swap growth/process swaps,
+under unchanged synthetic guards. Original helper files/proofs, native
+arithmetic, resource guards and numerical tolerances are unchanged.
+
+One fresh event-observed cached-MiMo **64+16** diagnostic returns **1** after
+**85.02 s**, **no resource refusal**, **3,154,012 KiB** peak child RSS, minimum
+host-available RAM **14,358,519,808 bytes**, zero host swap growth/process swaps
+and observed filesystem growth **1,777,664 bytes**, under unchanged 300-second
+limits. The inner replay/reference/owner/original-pin checks complete and the
+report reaches the publication buffer. The outer observation check refuses:
+
+- Original eight pinned helper/proof identities remain unchanged.
+- Newly edited `pin_events.py` and `observed_lifetime.py` retain their device,
+  inode, size and endpoint SHA-256 values, but both mtime/ctime pairs change
+  to the same observed timestamp during the run.
+- Each script has four modify and two close-write **notifications**, including
+  possible duplicate file/directory notifications, not four distinct writes.
+- This proves writes occurred; endpoint hashes do not exclude transient
+  content changes. No accepted numerical report is published or reconstructed.
+
+This is materially stronger failure evidence than the old missing-entry-pin
+case, not an accepted learned continuation. The earlier failed evidence remains
+unchanged. No retry follows this event failure, and combined all-80-singleton
+execution remains **not started**. A delayed editor save is a **hypothesis**,
+not writer attribution: a post-event open-descriptor scan finds no current
+holder, and no workspace autosave override was found. The available VS Code
+command tool is restricted to workspace creation; no broad save-all command,
+user-setting change, timestamp reset or privileged tracing was attempted.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `pin-events-native-observation.json` | `fb36c9a44f4de2501a6b1e1280cf53f0e91cf54428bb52595929234ad3d04f19` |
+| `observed-lifetime-selftest-result.json` | `8f5a7f661fd8657049f56987972695831abde145513b3b5ea5a7dcdc37104e6b` |
+| `event-audited-lifetime-decode-learned-observation.json` | `ac2c9f7938c814b00a09c22fa89dcdf8177f3f66d28f131f4efb495d889a7cb9` |
+| `event-audited-lifetime-rewrite-diagnosis.json` | `236bfd811db6651d86d8e943f58e010aebc443dd08c14d8e75bb4575add4baa0` |
+
+Post-failure six runtime/three frozen hashes, nine original helper hashes,
+profile/metadata, authenticated source shard identities, installed model code
+and pinned Prism/BitNet revisions verify unchanged; Prism tracked files remain
+clean. Scratch totals **3,053,422 bytes**, no owned children/raw packets/spill
+files. All failed logs remain outside Git. No model conversion, download,
+refit, candidate, compensation, quality or other-model action was started.
+
+**Editor-side prerequisite:** save pending buffers for the two named scratch
+scripts without changing their content, and confirm whether they were open or
+autosaving when these writes occurred. Do not save unrelated user buffers or
+change settings automatically. Then verify source/proof stability before a
+separately justified learned attempt; do not retry the unchanged failed job or
+remove the outer audit. Unchanged successful `b52e20b` source gate (**553 passed,
+88 optional skips**) is not rerun for this docs-only source-tree checkpoint;
+scoped docs/link/editor/whitespace checks apply. Original fixed-score failure,
+full-model discrepancy and BitNet/v2 P4/quality/device limits remain open.
 
 ## Lifetime Pin Audit Checkpoint (2026-10-16)
 

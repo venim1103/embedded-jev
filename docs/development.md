@@ -2777,6 +2777,18 @@ to accept a completed calculation. Test stable/touched/changed-byte cases and
 publication-hook restoration synthetically before any learned use. Keep
 supervisor, phase-marker, failure and numerical report filenames distinct.
 
+The [file event checkpoint](handover.md#file-event-checkpoint-2026-10-16)
+adds unprivileged parent-directory/file inotify observation. Treat modify,
+close-write, attribute, replacement/deletion and overflow events as integrity
+evidence; duplicate notifications are not distinct write counts, and inotify
+does not attribute a writer PID. Buffer numerical publication until both
+source/proof identity comparisons and event checks pass. Preserve observations
+even when computation fails. A short stable synthetic window is not proof
+that a longer learned run is safe; same-byte endpoint rewrites still refuse.
+Save only relevant owned scratch buffers before execution, not unrelated user
+documents, and never reset timestamps, alter user autosave settings or weaken
+the audit to obtain acceptance.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.
