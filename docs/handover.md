@@ -14,8 +14,10 @@ cached-MiMo approval. Original failed numerical checks remain failed, not
 replaced by looser acceptance. A subsequent bounded synthetic partial-rotary
 source control also passes. Latest continuation starts at user-pushed `d88871b`
 with only untouched editor settings untracked. A separately bounded native
-recurrent-state ownership control now passes; learned-driver integration is
-not yet established. No full conversion was retried.
+recurrent-state ownership control, typed helper and learned four-layer coarse
+resident integration now pass. Three native recurrent buffers carry state;
+host readbacks are oracles and convolution history remains host-carried.
+Learned singleton continuation is next. No full conversion was retried.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -100,7 +102,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [typed recurrent owner checkpoint](#typed-recurrent-owner-checkpoint-2026-10-16),
+2. Read the [learned native state checkpoint](#learned-native-state-checkpoint-2026-10-16),
+   then the [typed recurrent owner checkpoint](#typed-recurrent-owner-checkpoint-2026-10-16),
    then the [native recurrent ownership checkpoint](#native-recurrent-ownership-checkpoint-2026-10-16),
    then the [resident all singleton checkpoint](#resident-all-singleton-checkpoint-2026-10-16),
    then the [resident singleton continuation checkpoint](#resident-singleton-continuation-checkpoint-2026-10-16),
@@ -216,6 +219,76 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Learned Native State Checkpoint (2026-10-16)
+
+After `10f938e`, scratch `native_state_resident.py` replaces only the resident
+driver's recurrent core file/host-state handoff. Each of layers 0-2 has a
+separately parameterized `PersistentGDN` buffer, native GDN/state-tail CPY
+updates, stable post-graph address/byte checks and a hook refusing all host
+state uploads after initialization. Returned host snapshots are **oracles**,
+not restoration inputs. Reuses unchanged BF16 projections, tiled head order,
+convolution, norms, blocked MLP, host F32 residual/down sums and persistent
+attention owner. Convolution histories remain independent **host** arrays.
+The adapter opens no raw recurrent packet; unchanged reference controls may
+still create disposable packets. Parent finally blocks cover all own packet
+paths. All three recurrent owners close with the resident stack, including a
+failure after layer 0 has advanced but layer 1 has not.
+
+Scoped Ruff first caught an unused import before any child launch; removing
+it permitted the same focused check. Full-geometry, nonzero sparse seven-token
+synthetic monolithic/all-singleton stack passes in **37.63 s**, **1,058,528 KiB**
+peak child RSS, minimum host-available RAM **14,176,804,864 bytes**, zero swap
+growth/process swaps. Every recurrent/attention stage and final cache is
+bit-exact to the unchanged layer-major reference. Four invalid inputs refuse
+before mutation; injected mid-layer failure, closed refusal and idempotent
+close pass. Nine recurrent owners were created and all closed.
+
+The authorized cached-MiMo fixed 80-token learned run passes **80**, **31+49**,
+**40+40**, **1+63+16** schedules in **39.53 s**, **3,609,732 KiB** peak child RSS,
+minimum host-available RAM **11,848,736,768 bytes**, maximum host swap growth
+**65,191,936 bytes**, zero process swaps. Unchanged 300-second/resource guards
+remained active. All prior native prefix output/history/state and four-layer
+output/metric checks pass; 12 recurrent owners close with zero host restores.
+Every-step full attention-cache/matching-core and source-input byte checks
+remain exact. Monolithic output remains
+`3ecd5277dfed96c30180bcae87163b67bbea2d8def49f61a5f7ce1209c1504b2`;
+monolithic/HF and chunk/monolithic gaps remain the historical measurements,
+not relaxed acceptance limits or quality claims.
+
+An extra **whole-dictionary** comparison with the historical coarse resident
+report failed because that older schema lacks stage hashes and uses older
+receipt names. A read-only structural diff found no changed shared value;
+schema-aware comparison verifies all **561 shared leaves**, explicit four-layer
+outputs, per-layer output/history/state hashes, attention caches and identical
+runtime/model/helper pins. There are 76 added and 16 old-only nested fields.
+Missing historical stage hashes remain unavailable; no model rerun or schema
+rewrite was used to hide this comparison failure. Existing in-child stage/cache
+metric and monolithic byte checks were unchanged.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `native-state-resident-selftest-result.json` | `90722a3fefebab1264eae6a841434d3489d9288a0947121091e6dc6ea3b87a2c` |
+| `native-state-resident-comparison.json` | `c7cb60534f39abfe7f697a5e57715a0be4a3aa60ac71f179e6dfefbcb605f83b` |
+
+Adapter/helper source pins match the synthetic proof and remain unchanged
+through learned execution; original six runtime libraries, frozen candidate,
+source/metadata identities and installed Transformers model pins recheck at
+exit. Scratch totals **2,584,163 bytes**, no raw arrays/packets/GGUF/owned spill.
+Original reports/scripts are not overwritten. The retained inherited report
+scope still says host recurrent state before the appended adapter-specific
+replacement note; this checkpoint's native-owner/oracle distinction is the
+current interpretation, not a claim about the old reference implementation.
+Docs/link/editor/whitespace checks accompany this docs-only checkpoint; source
+gate `6eb8959` is unchanged and not rerun. Next: matching learned 64-prefill /
+16-singleton and all-80-singleton checks under the same limits. This does not
+establish native convolution-history ownership, a complete-model loader,
+BitNet whole-model dispatch, v2 P4 acceptance, decision quality or device
+performance. Original score failure, full-model logit gap and conversion
+blocker remain open; no conversion/download/refit/new candidate or broader
+quality action started.
 
 ## Typed Recurrent Owner Checkpoint (2026-10-16)
 

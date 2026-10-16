@@ -2703,6 +2703,16 @@ with compiled controls before learned integration. Record failed preflight
 RAM/disk readings and no-child status without lowering initial 12 GiB RAM /
 50 GiB disk prerequisites; missing historical readings remain unknown.
 
+The [learned native state checkpoint](handover.md#learned-native-state-checkpoint-2026-10-16)
+composes three independently parameterized native recurrent owners with the
+existing four-layer resident driver. Only GDN state carry changes; host
+convolution history and F32 residual/down sums remain explicit. Compare
+all stage/cache records against the **same schedule** reference, enforce
+readback-only snapshots and forbidden host restores, and close all owners on
+partial advancement. Historical reports may have different schemas: compare
+shared values and explicit output/history/state/cache hashes, never infer
+unrecorded stage hashes or rerun a successful model job to replace evidence.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.
