@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [resident stack checkpoint](#resident-stack-checkpoint-2026-10-16),
+2. Read the [resident singleton continuation checkpoint](#resident-singleton-continuation-checkpoint-2026-10-16),
+   then the [resident stack checkpoint](#resident-stack-checkpoint-2026-10-16),
    then the [four layer continuation checkpoint](#four-layer-continuation-checkpoint-2026-10-16),
    then the [native prefix composition checkpoint](#native-prefix-composition-checkpoint-2026-10-16),
    then the [attention layer continuation checkpoint](#attention-layer-continuation-checkpoint-2026-10-16),
@@ -209,6 +210,65 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Resident Singleton Continuation Checkpoint (2026-10-16)
+
+After `7fbb893`, extended the bounded resident driver to **64-token prefill
+plus 16 singleton steps** on the fixed 80-token MiMo prompt. An independent
+layer-major reference executes the same partition with each layer's own
+history/state and absolute attention offsets. No generated tokens, output
+head, padding or new runtime API is involved.
+
+The full-geometry nonzero synthetic stack uses `4+1+1+1`. Every recurrent
+stage, history/state, attention stage and final native cache matches its
+same-schedule layer-major reference bit-for-bit, without assuming batching
+invariance. Input-refusal, injected-failure closure and raw-packet cleanup
+checks also pass. Synthetic runtime is **29.58 s**, **1,048,700 KiB** peak
+child RSS, zero swap growth.
+
+Learned resident versus independent layer-major matches **every recurrent
+stage, final history/state, attention stage and final K/V cache bit-for-bit**.
+The preceding monolithic recurrent hashes and full HF metric dictionary
+reproduce exactly. Per-step full-cache/matching-core checks hold after all
+MLP work, with zero host attention cache restores; all owners close.
+
+| Recurrent Layer | Output Max vs Monolithic | Final History Max | Final State Max |
+| --- | --- | --- | --- |
+| 0 | 0.00006723404 | 0.000007629395 | 0.000003814697 |
+| 1 | 0.0007896423 | 0.001676083 | 0.0001956820 |
+| 2 | 0.003899574 | 0.005183101 | 0.0003766641 |
+
+The complete four-layer result has max **0.004378319**, RMS **0.00008131786**,
+versus native monolithic; versus trusted HF, max **0.01222134**, RMS
+**0.0002478968**. Final F16 K/V differs from full-stack monolithic in
+**14,455 / 14,692** elements. These include changed prefix operands and are not
+fixed-prefix attention-only crossings or acceptance thresholds. Final output
+SHA-256: `f6a2224433cfd8eddf20a245b207e75c0e66321e2cbf16f2b9b1f5fd91533bdc`.
+
+The learned stage passes in **91.07 s**, **3,464,932 KiB** peak child RSS,
+minimum host-available RAM **12,149,075,968 bytes**, zero host swap growth and
+process swaps. All original 60/300-second/resource guards and final runtime/
+frozen/source/profile/metadata/installed-code/GDN/helper pins hold. No failed
+check or refusal occurred. Original fixed score criterion remains false;
+full-model logit gap **0.0971508** is unresolved. No conversion, download,
+refit, compensation, padding promotion, scoring or generation.
+
+Retained/reread small-report SHA-256 values:
+
+- `resident-stack-decode-selftest-result.json`:
+  `07f6c75904b438c38d8bcae5a72a38e6809562c94776d2c265d8dd9f90fd652f`.
+- `resident-stack-decode-comparison.json`:
+  `227f43af882d51722c89d8d8cfd6547e3299805b6c45e0eccaec97d29dfd7d74`.
+
+Scratch totals **2,299,409 bytes** outside Git; no raw arrays/replay packets,
+GGUF or owned compiler spill remains. Scoped Ruff, synthetic/learned and
+documentation/link/whitespace/editor checks accompany this documentation-only
+checkpoint; unchanged source gates were not rerun. This is dense four-layer
+prefill/singleton continuation, not all-80-singleton execution, full-loader/
+whole-model BitNet/v2 P4, target-device performance or quality acceptance.
+Next: separately budget an all-singleton layer-major reference and resident
+comparison, retaining only small hashes/metrics and preserving each existing
+300-second deadline rather than adding both long paths to one stage.
 
 ## Resident Stack Checkpoint (2026-10-16)
 

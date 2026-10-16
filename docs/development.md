@@ -2831,6 +2831,15 @@ partially advanced step. Separate host swap growth from process swaps and keep
 the unchanged deadlines/reserve. Resident routing does not repair batch drift
 or establish full-loader, whole-model BitNet, device or quality acceptance.
 
+The [resident singleton continuation checkpoint](handover.md#resident-singleton-continuation-checkpoint-2026-10-16)
+adds 64-token prefill plus 16 singleton steps through all four dense layers.
+Require exact resident versus independent same-schedule layer-major stages,
+histories/states and final attention cache, not singleton/monolithic equality.
+Keep original monolithic evidence and report propagated full-stack max/RMS and
+cache crossings separately from fixed-prefix attention replay. This schedule
+still consumes the fixed prompt and is not token generation or an all-singleton
+result. Keep long reference/comparison stages serial and individually bounded.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
