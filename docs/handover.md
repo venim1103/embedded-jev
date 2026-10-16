@@ -30,7 +30,9 @@ final publication but fails the source/proof identity guard; no accepted
 numerical report exists. The new synthetic pin audit passes. Learned jobs
 remain stopped pending source/proof stability. A later event-observed attempt
 captures writes to the newly edited observer scripts and correctly withholds
-publication; see the newest file-event checkpoint and editor-side prerequisite.
+publication. A separate disposable execution snapshot now passes bounded
+fixture/native controls without editor-attached execution files; learned
+validation of this materially different path is next. The writer is unknown.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -115,7 +117,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [file event checkpoint](#file-event-checkpoint-2026-10-16),
+2. Read the [detached execution checkpoint](#detached-execution-checkpoint-2026-10-16),
+   then the [file event checkpoint](#file-event-checkpoint-2026-10-16),
    then the [lifetime pin audit checkpoint](#lifetime-pin-audit-checkpoint-2026-10-16),
    then the [reference lifetime checkpoint](#reference-lifetime-checkpoint-2026-10-16),
    then the [learned convolution owner checkpoint](#learned-convolution-owner-checkpoint-2026-10-16),
@@ -238,6 +241,82 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Detached Execution Checkpoint (2026-10-16)
+
+Resumed after user-pushed `b599678`; all ten current source/proof identities
+still match the last refusal endpoint. The user could not inspect the editor
+buffers. A bounded read-only inspection of installed edit/save code did not
+establish a supported document-specific flush operation; no extension internals
+were invoked. One disposable text-fixture observation initially failed its
+byte-exact precondition because the fixture lacked the required newline. After
+repairing only that fixture, the same observation completes in **52.14 s**,
+**19,000 KiB**, minimum host-available RAM **15,832,399,872 bytes**, zero swap
+growth/process swaps, with no watched mutation of the fixture or the two prior
+observer scripts. The single filtered wakeup contains no watched events or
+observable holder. This neither reproduces nor identifies the historical
+writer; the failed setup log remains.
+
+Added separate scratch `execution_snapshot.py` as an alternative to depending
+on editor-buffer access. It copies only the small existing diagnostic tree
+into a disposable sibling directory, with **1 MiB per file, 8 MiB aggregate,
+1,024-file** bounds and a strict diagnostic/ELF-smoke-executable allowlist.
+Weight/raw-data suffixes, symlinks and nonregular files refuse. No model
+weights, quantized arrays, shared libraries or upstream checkouts are copied.
+Existing weights/libraries stay at their original pinned cache locations.
+
+Capture original full identities/hashes, verify every copy's hash/bytes and
+recheck origins through the handoff. Record both identity tables in a small
+external manifest. After handoff, the **copies** are the executed source;
+original editor buffers are not execution inputs. This deliberately establishes
+a new provenance boundary, not a claim that original paths stayed unchanged
+after handoff. Copies are ordinary files, not immutable storage or a security
+boundary. The unchanged inner helper/proof and file-event guards still apply
+to actual execution files, and every copied input identity is rechecked after
+the child. Model/profile/runtime checks retain their original external inputs.
+
+Only prior output filenames belonging to the selected diagnostic mode are
+excluded to avoid exclusive-write collisions; original failed reports stay
+untouched. After execution, copy only bounded new JSON/stdout/stderr/time
+reports back under a distinct prefix and reread/hash-verify them. Parent-finally
+raw-packet cleanup precedes removal of the entire owned execution tree. No
+source code, numerical tolerance, guard, user setting, permission or clock is
+changed inside this handoff.
+
+Tiny snapshot self-test passes in **0.116 s**, **25,364 KiB**, zero swap
+growth/process swaps: exact copied bytes/distinct inodes, later origin-touch
+isolation, changed-origin-during-copy refusal, per-file/aggregate/type/symlink
+refusals and success/failure cleanup. Scoped Ruff passes. Scratch Python is
+outside the editor workspace; no Pylance diagnostic-clean claim is made.
+
+The first **detached native synthetic** control passes in **36.58 s**,
+**1,065,472 KiB** peak child RSS, minimum host-available RAM
+**14,994,997,248 bytes**, zero host swap growth/process swaps and observed
+filesystem growth **167,936 bytes**, under unchanged 60-second/resource guards.
+The snapshot has **498 files, 3,065,002 bytes**. All copied input identities
+remain exact; the eight-file event audit reports zero mutations. Its **entire**
+numerical dictionary matches the retained native-history synthetic control.
+All retained report hashes verify and the temporary execution directory is
+confirmed absent. No learned model ran in this checkpoint.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `execution-snapshot-selftest-result.json` | `e452f58c971ac710b9659e252eba6836901d7a2c46c925d0f2f0d6a499958775` |
+| `execution-snapshot-native-manifest.json` | `11e6d058131850bb70b323a45eec30517ba957bb44d0bce0026d5c096d62fb29` |
+| `execution-snapshot-native-verification.json` | `a69db2ef7139d2339e73627befe94d960863518f5430f609e0e96b0b510e3ae2` |
+
+Next: one separately observed **64+16** cached-MiMo diagnostic through this
+tested detached execution handoff, with unchanged 300-second/resource guards,
+reference/pin/event checks and buffered publication. This is a material source
+ownership change, not an unchanged retry or acceptance of either old failed
+run. Preserve those failed verdicts and do not recompute the retained independent
+reference. The editor-side prerequisite remains for the old direct-edit path;
+the alternative path must establish its own learned evidence. Unchanged
+successful `b52e20b` source gate (**553 passed, 88 optional skips**) is not
+rerun for this docs-only source-tree checkpoint. Original conversion,
+fixed-score/full-model/BitNet/v2 P4/quality/device limits are unchanged.
 
 ## File Event Checkpoint (2026-10-16)
 

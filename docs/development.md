@@ -2789,6 +2789,20 @@ Save only relevant owned scratch buffers before execution, not unrelated user
 documents, and never reset timestamps, alter user autosave settings or weaken
 the audit to obtain acceptance.
 
+The [detached execution checkpoint](handover.md#detached-execution-checkpoint-2026-10-16)
+tests an alternative when editor-owned scratch sources cannot be flushed.
+Use a disposable diagnostic-code snapshot with explicit type/count/byte bounds,
+source identity checks through handoff, byte-identical copies and a retained
+original/copy identity manifest. Do not copy weights, quantized arrays, shared
+libraries or upstream source checkouts. Declare that copies, not the original
+editor paths, become the execution inputs; this is not immutable storage or
+continuous verification of the originals. Preserve every execution-file,
+model/profile/runtime, event, numerical and resource guard. Exclude only the
+current mode's prior output names, keep failed evidence untouched, verify
+copied reports before removing the disposable tree, and clean raw packets in
+the parent even on failure. Validate the handoff synthetically and natively
+before learned use; do not reinterpret a previously refused run as accepted.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.
