@@ -528,6 +528,38 @@ def temporary_profile_safetensors_bf16_payload(
         raise ValueError("source-bound BF16 payload source file changed")
 
 
+@contextmanager
+def temporary_profile_mapped_bf16_payload(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_name: str,
+    expected_source_sha256: str, expected_file_bytes: int, expected_file_sha256: str,
+    directory, maximum_bytes: int = 16 * 1024**2, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_chunk_bytes: int = 64 * 1024, maximum_seconds: float = 30,
+):
+    """Compose verified source mapping and disposable payload ownership without caller source arrays."""
+    if type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600:
+        raise ValueError("invalid mapped BF16 payload deadline")
+    deadline = time.monotonic() + maximum_seconds
+
+    def remaining():
+        seconds = deadline - time.monotonic()
+        if seconds <= 0:
+            raise ValueError("mapped BF16 payload deadline exceeded")
+        return seconds
+
+    with mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, pq2_blocks,
+             source_path=source_path, source_name=source_name, expected_source_sha256=expected_source_sha256,
+             expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+             maximum_bytes=maximum_bytes, maximum_file_bytes=maximum_file_bytes,
+             maximum_seconds=remaining()) as (values, source_receipt):
+        with temporary_profile_bf16_matrix_payload(profile, inventory, manifest, pq2_blocks,
+                 source_name=source_name, source_values=values, expected_source_sha256=expected_source_sha256,
+                 directory=directory, maximum_bytes=maximum_bytes, maximum_chunk_bytes=maximum_chunk_bytes,
+                 maximum_seconds=remaining()) as (path, receipt):
+            yield path, MappingProxyType({**receipt, "source_file": source_receipt,
+                                         "source_file_verification": source_receipt["source_file_verification"],
+                                         "runtime_approval": "not_granted_by_mapped_source_payload"})
+
+
 def verify_profile_converted_matrix(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
     source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,

@@ -1308,12 +1308,13 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
             actual_path.unlink()
 
 
+@pytest.mark.parametrize("consumer", ["mapping", "payload"])
 @pytest.mark.parametrize("defect", [
     None, "allocation", "source-pin", "file-pin", "file-size", "operand-budget", "boolean-budget", "file-budget",
     "deadline-budget", "frozen", "vector", "missing", "symlink", "fifo", "before-yield", "changed", "restored",
     "replacement", "deleted", "deadline", "body-error", "cwd",
 ])
-def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, monkeypatch, defect):
+def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, monkeypatch, defect, consumer):
     import errno
     import tracemalloc
 
@@ -1378,21 +1379,32 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
         arguments["source_path"] = alternate
     expected_failure = defect not in (None, "allocation", "cwd")
     was_tracing = tracemalloc.is_tracing()
+
+    def ownership():
+        if consumer == "payload":
+            return prism_codec.temporary_profile_mapped_bf16_payload(profile, inventory, manifest, blocks, **arguments, directory=tmp_path)
+        return prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments)
+
     try:
         if defect == "allocation":
-            with prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments):
+            with ownership():
                 pass
             if not was_tracing:
                 tracemalloc.start()
             baseline = tracemalloc.get_traced_memory()[0]
         try:
-            with prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments) as (values, receipt):
+            with ownership() as (values, receipt):
                 if defect == "allocation":
                     retained = tracemalloc.get_traced_memory()[0] - baseline
                     assert operand_bytes == 2 * 1024**2 and retained < operand_bytes // 2
-                assert values.shape == shape and values.dtype == np.dtype("<u2")
-                assert not values.flags.owndata and not values.flags.writeable
-                assert receipt["source_range_bytes"] == operand_bytes
+                if consumer == "mapping":
+                    assert values.shape == shape and values.dtype == np.dtype("<u2")
+                    assert not values.flags.owndata and not values.flags.writeable
+                    assert receipt["source_range_bytes"] == operand_bytes
+                else:
+                    assert values.stat().st_size == operand_bytes
+                    assert receipt["source_file"]["source_range_bytes"] == operand_bytes
+                    assert receipt["converted_sha256"] == arguments["expected_source_sha256"]
                 if defect in ("changed", "restored"):
                     before = path.stat()
                     with path.open("r+b") as output:
@@ -1418,9 +1430,10 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
                         elsewhere = tmp_path / "elsewhere"
                         elsewhere.mkdir()
                         monkeypatch.chdir(elsewhere)
-                    for _, chunk in prism_codec.iter_profile_bf16_matrix_chunks(profile, inventory, manifest, blocks,
-                             source_name=source_name, source_values=values):
-                        assert chunk.nbytes <= 65536 and chunk.flags.owndata and not np.any(chunk)
+                    if consumer == "mapping":
+                        for _, chunk in prism_codec.iter_profile_bf16_matrix_chunks(profile, inventory, manifest, blocks,
+                               source_name=source_name, source_values=values):
+                           assert chunk.nbytes <= 65536 and chunk.flags.owndata and not np.any(chunk)
             assert not expected_failure
         except (ValueError, OSError, RuntimeError) as error:
             assert expected_failure, str(error)
@@ -1432,6 +1445,7 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
                 expected_message = (
                     "tensor identity mismatch" if defect == "source-pin" else
                     "file pin or operand budget mismatch" if defect in ("file-pin", "file-size", "operand-budget") else
+                    "invalid mapped BF16 payload deadline" if defect == "deadline-budget" and consumer == "payload" else
                     "invalid mapped source identity or budget" if defect in ("boolean-budget", "file-budget", "deadline-budget") else
                     "requires an unfrozen BF16 matrix" if defect in ("frozen", "vector", "missing") else
                     "not regular" if defect == "fifo" else
@@ -1439,6 +1453,7 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
                 )
                 assert isinstance(error, ValueError) and expected_message in str(error)
         assert all(mapped._mmap.closed for mapped in mappings)
+        assert not list(tmp_path.glob("jev-bf16-payload-*"))
         for descriptor in opened:
             with pytest.raises(OSError):
                 prism_codec.os.fstat(descriptor)

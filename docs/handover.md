@@ -56,6 +56,8 @@ After `75a9205`, all 16 pinned-converter matrix writes also pass through physica
 synthetic safetensors mappings, with first/last post-spool source refusals.
 After user-pushed `c03ef1e`, a descriptor-owned verified source mapping removes
 whole-operand copies from the new bounded matrix reader, not the older verifier.
+After `967e2cc`, that source owner composes with chunked raw payload production
+without caller source arrays and passes the pinned 16-matrix GGUF control.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -140,7 +142,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 mapped source checkpoint](#bf16-mapped-source-checkpoint-2026-10-16),
+2. Read the [BF16 mapped payload checkpoint](#bf16-mapped-payload-checkpoint-2026-10-16),
+   then the [BF16 mapped source checkpoint](#bf16-mapped-source-checkpoint-2026-10-16),
    then the [BF16 source-bound writer checkpoint](#bf16-source-bound-writer-checkpoint-2026-10-16),
    then the [BF16 source-bound payload checkpoint](#bf16-source-bound-payload-checkpoint-2026-10-16),
    then the [BF16 payload owner checkpoint](#bf16-payload-owner-checkpoint-2026-10-16),
@@ -274,6 +277,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Mapped Payload Checkpoint (2026-10-16)
+
+After `967e2cc`, added `temporary_profile_mapped_bf16_payload`, composing the
+descriptor-owned source mapping with the existing chunked raw payload owner.
+The caller supplies source-file/tensor pins, not a complete source array. One
+cooperative **30 s default/600 s max** deadline spans source verification,
+payload production, caller lifetime and both owners' exit checks. Source and
+operand/payload caps remain **16 MiB**; chunk limits remain **64 KiB default/
+1 MiB max**. The immutable provisional receipt nests the mapped-source receipt.
+Finish payload users first and publish only after both contexts close
+successfully. Older copy-based APIs, v1 factories and native policies are unchanged.
+
+All 22 source-entry/lifetime/allocation cases now run for both direct mappings
+and mapped payloads: **44 pass in 2.70 s**. Both retain less than **1 MiB** of
+additional traced Python allocations while owning the **2 MiB** selected source
+or payload. File reads stay at most 64 KiB; mapping/descriptor/private-directory
+cleanup is checked on normal and failed exits. This remains retained-allocation
+evidence, not peak RAM, mapped RSS, OS cache or whole-converter memory evidence.
+
+The pinned synthetic BF16 GGUF writer now uses this API for all **16 matrices**
+without caller-created source mappings/arrays passed to the producer. Existing
+exact GGUF range/shape/byte checks remain intact. First/last selected-byte
+post-spool mutations now fail on the earlier live-source array-hash guard,
+`temporary BF16 payload source identity mismatch`, before outer shard recheck;
+the assertion requires that exact error. Unrelated shard changes remain covered
+by the unit file-identity guards. Both optional **BF16/F32 controls pass in
+5.02 s** using unchanged cached dependencies and deadlines. Required gate:
+**651 passed, 89 optional skips in 25.66 s**, Ruff/whitespace/editor clean.
+
+No new failures occurred in this increment. Synthetic source setup still
+assembles its small shard in memory. No complete-model conversion, native
+build/execution, learned inputs, downloads, refits, candidate or quality run.
+All new files are automatically cleaned scratch; user editor settings remain
+untouched. Next: compare bounded allocation peaks against the older copying
+verifier before designing any larger-file conversion plan. Real artifacts and
+larger resource budgets remain separately approved; historical failures stand.
 
 ## BF16 Mapped Source Checkpoint (2026-10-16)
 

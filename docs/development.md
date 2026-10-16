@@ -1534,6 +1534,20 @@ chunk consumer checks those. The retained-allocation fixture is not a peak-RAM,
 mapped-RSS, OS page-cache or full-model memory claim. See the
 [mapped source checkpoint](handover.md#bf16-mapped-source-checkpoint-2026-10-16).
 
+`temporary_profile_mapped_bf16_payload(..., source_path=..., source_name=...,
+expected_source_sha256=..., expected_file_bytes=..., expected_file_sha256=...,
+directory=...)` composes this source mapping with the chunked raw payload owner,
+requiring no caller source array. Its single cooperative 30 s default/600 s
+maximum spans both owners and caller lifetime; 16 MiB source/operand/payload
+caps and existing chunk limits remain unchanged. It yields a private payload
+path and provisional immutable receipt with nested source evidence. Finish
+payload users before exit, then publish only after successful closure. Both
+mapping and temporary payload cleanup apply on failure. Existing source-mapping
+concurrency/alias limitations remain. The pinned synthetic GGUF writer control
+uses this composition for 16 matrices; selected-byte post-spool mutations fail
+on its live-source array hash before the outer file check. See the
+[mapped payload checkpoint](handover.md#bf16-mapped-payload-checkpoint-2026-10-16).
+
 `temporary_profile_safetensors_bf16_payload(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,
 expected_file_sha256=..., directory=...)` composes that owner with
