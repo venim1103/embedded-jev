@@ -1535,6 +1535,16 @@ These are caller/profile pin checks, not issuer authentication, an atomic or
 continuous snapshot, a full-shard low-memory reader, complete conversion or
 runtime approval. See the [source-bound payload checkpoint](handover.md#bf16-source-bound-payload-checkpoint-2026-10-16).
 
+The optional pinned `test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors`
+BF16 branch builds one at-most-16-MiB physical synthetic safetensors shard with
+explicit fixture-only file/header/profile pins. All 16 selected matrices use
+read-only source mappings, source-bound raw payloads and the temporary GGUF
+writer, followed by the existing exact GGUF file-range controls. First/last
+post-spool source mutations must refuse before output publication and close
+the writer's temporary stream. The paired F32 branch remains unchanged. This
+fixture assembles source bytes in memory and does not measure converter RAM;
+see the [source-bound writer checkpoint](handover.md#bf16-source-bound-writer-checkpoint-2026-10-16).
+
 `verify_profile_converted_convolution(..., source_name=..., source_values=...,
 converted_values=..., expected_source_sha256=...)` checks declared convolution
 weights from BF16/F32 3D source arrays to F32 2D outputs. It decodes BF16,

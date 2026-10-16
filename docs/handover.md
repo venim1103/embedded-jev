@@ -52,6 +52,8 @@ After `1ca8ac2`, a disposable raw payload owner also passes bounded lifetime
 refusals and actual pinned GGUF temporary-writer integration for 16 matrices.
 After `fc54e54`, a separate source-bound payload owner composes the existing
 profile-pinned safetensors range verifier with matching entry/exit receipts.
+After `75a9205`, all 16 pinned-converter matrix writes also pass through physical
+synthetic safetensors mappings, with first/last post-spool source refusals.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -136,7 +138,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 source-bound payload checkpoint](#bf16-source-bound-payload-checkpoint-2026-10-16),
+2. Read the [BF16 source-bound writer checkpoint](#bf16-source-bound-writer-checkpoint-2026-10-16),
+   then the [BF16 source-bound payload checkpoint](#bf16-source-bound-payload-checkpoint-2026-10-16),
    then the [BF16 payload owner checkpoint](#bf16-payload-owner-checkpoint-2026-10-16),
    then the [BF16 chunk primitive checkpoint](#bf16-chunk-primitive-checkpoint-2026-10-16),
    then the [native loader isolation checkpoint](#native-loader-isolation-checkpoint-2026-10-16),
@@ -268,6 +271,45 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Source-Bound Writer Checkpoint (2026-10-16)
+
+After `75a9205`, the existing pinned converter control writes all **16 BF16
+matrices** through the source-bound payload owner into
+`GGUFWriter(use_temp_file=True)`. A physical synthetic safetensors shard,
+at most **16 MiB**, contains the selected nonzero matrix/vector/convolution
+operands, explicit zero unselected norm vectors and the distinct zero original
+frozen source. Only the fixture's shard/header/profile/manifest identity fields
+are updated; frozen codes/scales and cached profiles remain unchanged. The
+source-bound writer reads each matrix through a read-only selected-range mmap,
+checks receipt range/file/profile pins, closes payload mappings before exit,
+then closes source mappings. Existing exact converted GGUF range/shape/byte
+and corruption checks are retained.
+
+Two additional controls mutate the source after the first/last selected matrix
+is actually spooled. Each refuses on the final source-file hash, removes the
+private raw payload/directory, leaves no published GGUF bytes, closes the writer
+and temporary stream, and restores only the disposable synthetic source.
+
+The initial fixture run failed in **2.02 s**. Local inspection found the shard
+builder assumed all inventory vectors were among the seven selected-vector
+operands; three unselected norm vectors were absent. Supplying explicit zeros
+only for missing BF16 vectors, while refusing missing matrices/convolutions,
+made the same test function pass. The original terminal capture did not retain
+the child stderr; no exact exception diagnosis is claimed. After adding the
+post-spool refusals, both optional **BF16/F32 controls pass in 5.52 s** using
+the existing pinned Prism source and cached dense interpreter. Required source
+gate: **607 passed, 89 optional skips in 19.91 s**, Ruff/whitespace/editor clean.
+
+This is bounded synthetic source-to-payload-to-writer evidence, not complete
+model conversion, native execution, quality or measured RAM reduction. The
+fixture still assembles its small source shard in memory; source verification
+still copies selected operands. All new shard/GGUF files live in automatic
+temporary directories; no downloads, learned inputs, retained candidate,
+runtime builds or full-model experiments were used. Scoped docs checks pass.
+Next: a genuinely low-memory verified source-range reader requires its own
+bounded synthetic implementation and allocation/lifetime checks; larger source
+budgets and a complete-model conversion remain separately scoped/approved.
 
 ## BF16 Source-Bound Payload Checkpoint (2026-10-16)
 

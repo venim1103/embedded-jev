@@ -4516,20 +4516,62 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         matrix_count += 1
     assert matrix_count == 16
     with TemporaryDirectory(prefix="jev-matrix-gguf-") as directory:
+        from embedded_jev.model_profile import profile_source
+
+        source_arrays = {source_name: raw_source for source_name, raw_source, _ in matrix_operands.values()}
+        source_arrays.update({source_name: raw_source for source_name, raw_source, _ in vector_operands.values()})
+        source_arrays[convolution["source_name"]] = raw_conv
+        source_arrays[fixture["manifest"]["tensor"]] = np.zeros(fixture["manifest"]["shape"], dtype="<u2")
+        source_header, source_chunks, source_offset = {}, [], 0
+        for item in fixture["inventory"]["tensors"]:
+            if item["name"] not in source_arrays:
+                assert len(item["shape"]) == 1 and item["dtype"] == "BF16"
+                source_arrays[item["name"]] = np.zeros(item["shape"], dtype="<u2")
+            source_array = source_arrays[item["name"]]
+            assert source_array.shape == tuple(item["shape"])
+            assert source_array.dtype == np.dtype("<u2")
+            source_header[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"],
+                                         "data_offsets": [source_offset, source_offset + source_array.nbytes]}
+            source_chunks.append(source_array.tobytes())
+            source_offset += source_array.nbytes
+        encoded_header = json.dumps(source_header, sort_keys=True).encode()
+        source_prefix = len(encoded_header).to_bytes(8, "little") + encoded_header
+        source_bytes = source_prefix + b"".join(source_chunks)
+        assert len(source_bytes) <= 16 * 1024**2
+        assert len(profile.packaging["shards"]) == 1
+        source_path = Path(directory) / profile.packaging["shards"][0]
+        source_path.write_bytes(source_bytes)
+        source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        fixture["profile"]["files"][source_path.name].update(bytes=len(source_bytes), sha256=source_sha256,
+            header_bytes=len(source_prefix), header_sha256=hashlib.sha256(source_prefix).hexdigest())
+        profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+        fixture["inventory"]["source"].update(profile_source(profile))
+        fixture["manifest"]["profile_sha256"] = profile.sha256
+        fixture["manifest"]["source_tensor_sha256"] = hashlib.sha256(memoryview(source_arrays[fixture["manifest"]["tensor"]])).hexdigest()
         path = Path(directory) / "matrices.gguf"
         writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
         try:
             for tensor_name, (source_name, raw_source, values) in matrix_operands.items():
-                with prism_codec.temporary_profile_bf16_matrix_payload(profile, fixture["inventory"], fixture["manifest"], payload,
-                         source_name=source_name, source_values=raw_source,
-                         expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest(), directory=directory) as (payload_path, payload_receipt):
-                    mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
-                    try:
-                        writer.add_tensor(tensor_name, mapped.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
-                        assert writer.tensors[-1][tensor_name].tensor is None
-                        assert payload_receipt["converted_sha256"] == hashlib.sha256(memoryview(values)).hexdigest()
-                    finally:
-                        mapped._mmap.close()
+                source_range_offset = len(source_prefix) + source_header[source_name]["data_offsets"][0]
+                source_mapping = np.memmap(source_path, mode="r", dtype="<u2", offset=source_range_offset, shape=raw_source.shape)
+                try:
+                    with prism_codec.temporary_profile_safetensors_bf16_payload(profile, fixture["inventory"], fixture["manifest"], payload,
+                             source_path=source_path, source_name=source_name, source_values=source_mapping,
+                             expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest(),
+                             expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256,
+                             directory=directory) as (payload_path, payload_receipt):
+                        mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
+                        try:
+                            writer.add_tensor(tensor_name, mapped.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
+                            assert writer.tensors[-1][tensor_name].tensor is None
+                            assert payload_receipt["converted_sha256"] == hashlib.sha256(memoryview(values)).hexdigest()
+                            assert payload_receipt["source_file"]["source_range_offset"] == source_range_offset
+                            assert payload_receipt["source_file"]["source_file_sha256"] == source_sha256
+                            assert payload_receipt["profile_sha256"] == profile.sha256
+                        finally:
+                            mapped._mmap.close()
+                finally:
+                    source_mapping._mmap.close()
                 assert not payload_path.exists() and not payload_path.parent.exists()
             writer.write_header_to_file()
             writer.write_kv_data_to_file()
@@ -4538,6 +4580,40 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
             writer.close()
             if writer.temp_file is not None:
                 writer.temp_file.close()
+        for tensor_name in (next(iter(matrix_operands)), next(reversed(matrix_operands))):
+            source_name, raw_source, values = matrix_operands[tensor_name]
+            fault_path = Path(directory) / "refused-matrix.gguf"
+            fault_writer = gguf.GGUFWriter(fault_path, "qwen35", use_temp_file=True)
+            try:
+                try:
+                    with prism_codec.temporary_profile_safetensors_bf16_payload(profile, fixture["inventory"], fixture["manifest"], payload,
+                             source_path=source_path, source_name=source_name, source_values=raw_source,
+                             expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest(),
+                             expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256,
+                             directory=directory) as (payload_path, _):
+                        mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
+                        try:
+                            fault_writer.add_tensor(tensor_name, mapped.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
+                            assert fault_writer.tensors[-1][tensor_name].tensor is None
+                        finally:
+                            mapped._mmap.close()
+                        changed_offset = len(source_prefix) + source_header[source_name]["data_offsets"][0]
+                        with source_path.open("r+b") as output:
+                            output.seek(changed_offset)
+                            output.write(bytes([source_bytes[changed_offset] ^ 1]))
+                    raise AssertionError("source-mutated matrix spool was accepted for publication")
+                except ValueError as error:
+                    assert "file identity mismatch" in str(error)
+                assert not payload_path.exists() and not payload_path.parent.exists()
+                assert not fault_path.exists() or fault_path.stat().st_size == 0
+            finally:
+                fault_writer.close()
+                if fault_writer.temp_file is not None:
+                    fault_writer.temp_file.close()
+                    assert fault_writer.temp_file.closed
+                source_path.write_bytes(source_bytes)
+                fault_path.unlink(missing_ok=True)
+        assert hashlib.sha256(source_path.read_bytes()).hexdigest() == source_sha256
         assert path.stat().st_size <= 16 * 1024**2
         file_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
         reader = gguf.GGUFReader(path)
