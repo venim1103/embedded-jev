@@ -823,7 +823,7 @@ def test_profile_converted_matrix_identity_and_refusals(defect):
 @pytest.mark.parametrize("value_heads", [2, 4])
 @pytest.mark.parametrize("suffix", ["in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b", "out_proj"])
 def test_profile_converted_matrix_reorders_exact_head_indices(value_heads, suffix, tmp_path):
-    from embedded_jev.prism_codec import iter_profile_bf16_matrix_chunks, verify_profile_converted_matrix
+    from embedded_jev.prism_codec import iter_profile_bf16_matrix_chunks, temporary_profile_bf16_matrix_payload, verify_profile_converted_matrix
 
     profile, report, manifest, blocks = _prefill_model_policy_fixture("down", value_heads=value_heads)
     name = "model.layers.0.linear_attn." + suffix + ".weight"
@@ -858,6 +858,16 @@ def test_profile_converted_matrix_reorders_exact_head_indices(value_heads, suffi
     assert np.array_equal(np.concatenate([chunk for _, chunk in mapped_chunks]), converted)
     assert all(chunk.flags.owndata and chunk.flags.c_contiguous and not chunk.flags.writeable and
                not np.shares_memory(chunk, mapped) for _, chunk in mapped_chunks)
+    with temporary_profile_bf16_matrix_payload(profile, report, manifest, blocks, source_name=name,
+             source_values=mapped, expected_source_sha256=arguments["expected_source_sha256"], directory=tmp_path,
+             maximum_chunk_bytes=row_count * source.shape[1] * 2) as (payload, payload_receipt):
+        assert payload.read_bytes() == converted.tobytes()
+        assert payload_receipt["converted_sha256"] == receipt["converted_sha256"]
+        assert payload_receipt["converted_bytes"] == converted.nbytes
+        assert payload_receipt["source_file_verification"] == "not_checked"
+        with pytest.raises(TypeError):
+            payload_receipt["converted_sha256"] = "0" * 64
+    assert not payload.exists() and not payload.parent.exists() and path.exists()
     del mapped
     if value_heads == 4:
         assert not np.array_equal(source, converted)
@@ -936,6 +946,80 @@ def test_profile_bf16_matrix_chunks_borrow_source_but_own_each_result(monkeypatc
     assert second == 2 and np.all(later == 0x8000)
     assert not np.shares_memory(chunk, later) and not np.shares_memory(later, source)
     chunks.close()
+
+
+@pytest.mark.parametrize("defect", ["digest", "boolean-budget", "large-budget", "small-budget", "deadline", "boolean-deadline",
+                                    "chunk-budget", "frozen", "nonfinite", "late-nonfinite", "mid-write", "source-mutation",
+                                    "payload-mutation", "payload-restored", "payload-replaced", "payload-deleted", "exit-deadline", "body-error"])
+def test_temporary_profile_bf16_payload_refuses_and_cleans_partial_files(tmp_path, monkeypatch, defect):
+    import os
+
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
+    source = np.zeros((64, 1024), dtype="<u2")
+    arguments = {"source_name": "model.layers.1.self_attn.k_proj.weight", "source_values": source,
+                 "directory": tmp_path, "maximum_chunk_bytes": 2 * source.shape[1] * 2}
+    if defect == "nonfinite":
+        source[0, 0] = 0x7F80
+    elif defect == "late-nonfinite":
+        source[2, 0] = 0x7FC0
+    arguments["expected_source_sha256"] = hashlib.sha256(memoryview(source)).hexdigest()
+    if defect == "digest":
+        arguments["expected_source_sha256"] = "0" * 64
+    elif defect == "boolean-budget":
+        arguments["maximum_bytes"] = True
+    elif defect == "large-budget":
+        arguments["maximum_bytes"] = 16 * 1024**2 + 1
+    elif defect == "small-budget":
+        arguments["maximum_bytes"] = source.nbytes - 1
+    elif defect == "deadline":
+        arguments["maximum_seconds"] = float("nan")
+    elif defect == "boolean-deadline":
+        arguments["maximum_seconds"] = True
+    elif defect == "chunk-budget":
+        arguments["maximum_chunk_bytes"] = True
+    elif defect == "frozen":
+        arguments["source_name"] = manifest["tensor"]
+    elif defect == "mid-write":
+        original = prism_codec.iter_profile_bf16_matrix_chunks
+        def interrupted(*args, **kwargs):
+            chunks = original(*args, **kwargs)
+            yield next(chunks)
+            raise RuntimeError("injected chunk failure")
+        monkeypatch.setattr(prism_codec, "iter_profile_bf16_matrix_chunks", interrupted)
+    sentinel = tmp_path / "keep.txt"
+    sentinel.write_text("unrelated fixture")
+    failure = RuntimeError if defect in ("mid-write", "body-error") else ValueError
+    with monkeypatch.context() as patch:
+        with pytest.raises(failure):
+            with prism_codec.temporary_profile_bf16_matrix_payload(profile, report, manifest, blocks, **arguments) as (path, _):
+                if defect == "source-mutation":
+                    source[0, 0] ^= 1
+                elif defect == "payload-mutation":
+                    with path.open("ab") as output:
+                        output.write(b"x")
+                elif defect == "payload-restored":
+                    before = path.stat()
+                    with path.open("r+b") as output:
+                        output.write(b"x")
+                        output.seek(0)
+                        output.write(bytes(1))
+                    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+                elif defect == "payload-replaced":
+                    saved = path.read_bytes()
+                    path.rename(path.with_suffix(".old"))
+                    path.write_bytes(saved)
+                elif defect == "payload-deleted":
+                    path.unlink()
+                elif defect == "exit-deadline":
+                    clock = prism_codec.time.monotonic
+                    patch.setattr(prism_codec.time, "monotonic", lambda: clock() + 31)
+                elif defect == "body-error":
+                    raise RuntimeError("injected consumer failure")
+                else:
+                    pytest.fail("invalid temporary payload was yielded")
+    assert list(tmp_path.iterdir()) == [sentinel] and sentinel.read_text() == "unrelated fixture"
 
 
 @pytest.mark.parametrize("source_dtype", ["BF16", "F32"])

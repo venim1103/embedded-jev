@@ -48,6 +48,8 @@ sharing one loaded model also passes independent history-sensitive references.
 After user-pushed `1b9c2f6`, a profile-gated BF16 matrix chunk primitive passes
 exhaustive finite-storage and pinned-transform controls. It is not a complete
 converter or approval to retry the refused real-model conversion.
+After `1ca8ac2`, a disposable raw payload owner also passes bounded lifetime
+refusals and actual pinned GGUF temporary-writer integration for 16 matrices.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -132,7 +134,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 chunk primitive checkpoint](#bf16-chunk-primitive-checkpoint-2026-10-16),
+2. Read the [BF16 payload owner checkpoint](#bf16-payload-owner-checkpoint-2026-10-16),
+   then the [BF16 chunk primitive checkpoint](#bf16-chunk-primitive-checkpoint-2026-10-16),
    then the [native loader isolation checkpoint](#native-loader-isolation-checkpoint-2026-10-16),
    then the [native loader reset checkpoint](#native-loader-reset-checkpoint-2026-10-16),
    then the [native loader continuation checkpoint](#native-loader-continuation-checkpoint-2026-10-16),
@@ -262,6 +265,54 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Payload Owner Checkpoint (2026-10-16)
+
+After `1ca8ac2`, added `temporary_profile_bf16_matrix_payload` beside the
+unchanged model-policy owners. It consumes the chunk primitive into an
+exclusive raw payload inside a private temporary directory. Total payload
+size is at most **16 MiB**; the chunk cap remains **64 KiB default/1 MiB max**.
+One cooperative **30-second default/600-second max** deadline covers source
+hashing, chunk production/writes, payload verification and the caller lifetime.
+It is not a hard interruption of I/O, profile validation or caller code.
+
+The caller's source-array SHA-256 must match before creation, after writing
+and at successful exit. The payload's device/inode/size/mtime/ctime and bounded
+SHA-256 reads must match before yielding and at exit. An immutable receipt
+explicitly requires entry/exit checks and leaves source-file verification
+`not_checked`; publish derived results only after successful owner closure.
+Private payload/directory cleanup runs on success, partial-write failure,
+consumer exception or failed exit verification. Existing caller files remain
+untouched. All mappings/readers using the payload must finish before exit.
+
+Ten existing equal/unequal-head mapped-source workflows pass exact raw bytes,
+receipt hashes and cleanup in **0.50 s**. Eighteen additional lifecycle cases
+exercise malformed pins/budgets, late nonfinite values, injected mid-stream
+failure, changed source, changed/restored/replaced/deleted payload, caller
+failure and exit deadline. The first run had **one missing local `os` import**
+in the restored-byte fixture (**27 passed, one failed in 0.87 s**); adding that
+import, without changing checks, gives **28 passes in 0.83 s**.
+
+The existing pinned upstream converter control now feeds all **16 BF16
+matrices** to `GGUFWriter(use_temp_file=True)` through these disposable raw
+payloads/read-only mappings. It asserts the writer retains no tensor array,
+closes each mapping before payload-owner exit, and explicitly closes the
+writer's temporary stream on failure. Existing exact GGUF range, shape,
+operand and corruption checks pass in **3.15 s**. Required source gate:
+**587 tests passed, 89 optional skips in 16.03 s**, Ruff/whitespace clean;
+the optional compiled/native controls did not run implicitly. Editor and
+scoped docs validation pass.
+
+External `bf16-matrix-payload-owner-evidence.json` has reread SHA-256
+`cc069a0a8c8ab0907d423f05b8b26ba0d22d05fac532e9ae607c85438a0f5d07`.
+Pinned Prism source revision/tracked files are unchanged/clean. All new raw
+payloads use automatic temporary cleanup; no learned weights, frozen-candidate
+changes, download, complete-model conversion, runtime build or quality run.
+This is a bounded matrix-payload consumer and synthetic GGUF integration,
+not a complete converter, source-shard authentication, atomic/continuous
+immutability guarantee, measured converter-RAM reduction or real-model parity.
+Next: bind the borrowed source to verified safetensors ranges before considering
+a whole-model writer; real artifacts/experiments remain separately approved.
 
 ## BF16 Chunk Primitive Checkpoint (2026-10-16)
 

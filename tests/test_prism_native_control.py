@@ -4517,13 +4517,27 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
     assert matrix_count == 16
     with TemporaryDirectory(prefix="jev-matrix-gguf-") as directory:
         path = Path(directory) / "matrices.gguf"
-        writer = gguf.GGUFWriter(path, "qwen35")
-        for tensor_name, (_, _, values) in matrix_operands.items():
-            writer.add_tensor(tensor_name, values.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
-        writer.write_header_to_file()
-        writer.write_kv_data_to_file()
-        writer.write_tensors_to_file()
-        writer.close()
+        writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
+        try:
+            for tensor_name, (source_name, raw_source, values) in matrix_operands.items():
+                with prism_codec.temporary_profile_bf16_matrix_payload(profile, fixture["inventory"], fixture["manifest"], payload,
+                         source_name=source_name, source_values=raw_source,
+                         expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest(), directory=directory) as (payload_path, payload_receipt):
+                    mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
+                    try:
+                        writer.add_tensor(tensor_name, mapped.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
+                        assert writer.tensors[-1][tensor_name].tensor is None
+                        assert payload_receipt["converted_sha256"] == hashlib.sha256(memoryview(values)).hexdigest()
+                    finally:
+                        mapped._mmap.close()
+                assert not payload_path.exists() and not payload_path.parent.exists()
+            writer.write_header_to_file()
+            writer.write_kv_data_to_file()
+            writer.write_tensors_to_file()
+        finally:
+            writer.close()
+            if writer.temp_file is not None:
+                writer.temp_file.close()
         assert path.stat().st_size <= 16 * 1024**2
         file_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
         reader = gguf.GGUFReader(path)

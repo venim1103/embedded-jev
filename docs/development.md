@@ -1495,6 +1495,26 @@ validation. This is not a peak-RAM guarantee, file verifier, GGUF writer or
 runtime approval. See the [BF16 chunk checkpoint](handover.md#bf16-chunk-primitive-checkpoint-2026-10-16)
 for the mmap ownership repair and scoped evidence.
 
+`temporary_profile_bf16_matrix_payload(..., source_name=..., source_values=...,
+expected_source_sha256=..., directory=...)` owns a disposable raw matrix file
+inside private scratch and yields `(path, immutable_receipt)`. It streams the
+iterator without whole-matrix F32 expansion, checks the caller's source-array
+hash before creation/after writing/at exit, and checks payload identity/hash
+before yield/at exit. `maximum_bytes` defaults to and is capped at 16 MiB;
+chunk limits are unchanged. `maximum_seconds` is one cooperative 30 s
+default/600 s cap including caller lifetime, not hard I/O/native cancellation.
+
+Finish payload mappings/readers before exit; publish derived results only
+after successful closure. Partial files/private directories are removed on
+every exit, including source/payload changes, deletion, replacement, deadline
+or consumer failure. Source files are not authenticated, and mutable-array
+hash checks are not a continuous or atomic snapshot guarantee. The cap excludes
+caller storage, profile validation, writer spooling and process peak RAM.
+The optional pinned test uses `GGUFWriter(use_temp_file=True)`, requires it
+retain no tensor array, closes mappings before owner exit, and closes its
+temporary stream on failure. This is not a full converter or real-run approval.
+See the [payload owner checkpoint](handover.md#bf16-payload-owner-checkpoint-2026-10-16).
+
 `verify_profile_converted_convolution(..., source_name=..., source_values=...,
 converted_values=..., expected_source_sha256=...)` checks declared convolution
 weights from BF16/F32 3D source arrays to F32 2D outputs. It decodes BF16,

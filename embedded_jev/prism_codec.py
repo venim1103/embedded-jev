@@ -385,6 +385,106 @@ def iter_profile_bf16_matrix_chunks(
         yield first, chunk
 
 
+@contextmanager
+def temporary_profile_bf16_matrix_payload(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, directory,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Own a bounded raw payload; finish file users before exit and publish only after successful exit."""
+    from tempfile import TemporaryDirectory
+
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
+        or not isinstance(source_values, np.ndarray) or source_values.dtype != np.dtype("<u2")
+        or source_values.ndim != 2 or not source_values.flags.c_contiguous
+        or not 0 < source_values.nbytes <= maximum_bytes
+    ):
+        raise ValueError("invalid temporary BF16 payload source or resource budget")
+    source_values = np.asarray(source_values).view()
+    source_bytes = memoryview(source_values).cast("B")
+    started = time.monotonic()
+
+    def check_deadline():
+        if time.monotonic() - started > maximum_seconds:
+            raise ValueError("temporary BF16 payload deadline exceeded")
+
+    def check_source():
+        digest = hashlib.sha256()
+        for offset in range(0, len(source_bytes), 65536):
+            check_deadline()
+            digest.update(source_bytes[offset:offset + 65536])
+        check_deadline()
+        if digest.hexdigest() != expected_source_sha256:
+            raise ValueError("temporary BF16 payload source identity mismatch")
+
+    check_source()
+    chunks = iter_profile_bf16_matrix_chunks(profile, inventory, manifest, pq2_blocks,
+                 source_name=source_name, source_values=source_values, maximum_chunk_bytes=maximum_chunk_bytes)
+    with TemporaryDirectory(prefix="jev-bf16-payload-", dir=directory) as temporary:
+        path = Path(temporary) / "matrix.bf16"
+        digest = hashlib.sha256()
+        written = 0
+        with path.open("xb") as output:
+            for first, chunk in chunks:
+                check_deadline()
+                if first * source_values.shape[1] * 2 != written or written + chunk.nbytes > source_values.nbytes:
+                    raise ValueError("temporary BF16 payload chunk extent mismatch")
+                if output.write(memoryview(chunk)) != chunk.nbytes:
+                    raise ValueError("temporary BF16 payload short write")
+                digest.update(memoryview(chunk))
+                written += chunk.nbytes
+        if written != source_values.nbytes:
+            raise ValueError("temporary BF16 payload size mismatch")
+        converted_sha256 = digest.hexdigest()
+
+        def identity(value):
+            return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+        before = identity(path.lstat())
+
+        def check_payload():
+            check_deadline()
+            try:
+                descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(descriptor, "rb", buffering=0) as payload:
+                    info = os.fstat(payload.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_size != written or identity(info) != before:
+                        raise ValueError("temporary BF16 payload file identity mismatch")
+                    actual = hashlib.sha256()
+                    remaining = written
+                    while remaining:
+                        check_deadline()
+                        data = payload.read(min(65536, remaining))
+                        if not data:
+                            raise ValueError("temporary BF16 payload truncated")
+                        actual.update(data)
+                        remaining -= len(data)
+                    check_deadline()
+                    if identity(os.fstat(payload.fileno())) != before or identity(path.lstat()) != before or actual.hexdigest() != converted_sha256:
+                        raise ValueError("temporary BF16 payload file identity mismatch")
+            except OSError as error:
+                raise ValueError("temporary BF16 payload file unavailable") from error
+
+        check_source()
+        check_payload()
+        receipt = MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                                   "source_name": source_name, "source_sha256": expected_source_sha256,
+                                   "converted_sha256": converted_sha256, "converted_bytes": written,
+                                   "source_array_verification": "entry_and_exit_checks_required",
+                                   "source_file_verification": "not_checked",
+                                   "payload_file_verification": "entry_and_exit_checks_required",
+                                   "runtime_approval": "not_granted_by_temporary_payload"})
+        yield path, receipt
+        check_source()
+        check_payload()
+
+
 def verify_profile_converted_matrix(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
     source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,
