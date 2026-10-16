@@ -100,7 +100,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [native recurrent ownership checkpoint](#native-recurrent-ownership-checkpoint-2026-10-16),
+2. Read the [typed recurrent owner checkpoint](#typed-recurrent-owner-checkpoint-2026-10-16),
+   then the [native recurrent ownership checkpoint](#native-recurrent-ownership-checkpoint-2026-10-16),
    then the [resident all singleton checkpoint](#resident-all-singleton-checkpoint-2026-10-16),
    then the [resident singleton continuation checkpoint](#resident-singleton-continuation-checkpoint-2026-10-16),
    then the [resident stack checkpoint](#resident-stack-checkpoint-2026-10-16),
@@ -215,6 +216,60 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Typed Recurrent Owner Checkpoint (2026-10-16)
+
+After `6eb8959`, added a scratch typed `PersistentGDN` helper using the same
+pinned GGML libraries and explicit native state-buffer/context ownership.
+Its constructor requires finite F32 `[value_heads,128,128]` state and per-head
+bias/negative multipliers, with heads 1-32 and value heads divisible by Q/K
+heads. Each append-only F32 step consumes at most the remaining 80-token
+window. There is no reset/restore API. Snapshots return independent host arrays
+for checking, not runtime carry. Actual L2/raw-gate GDN and dependency-linked
+state-tail `ggml_cpy` update the native owner; graph resources die before
+address/buffer-base and copied state bytes are verified. Input bytes remain
+exact. Invalid input refuses before mutation; computation/readback failure
+closes the owner instead of reusing partially advanced state.
+
+The initial supervisor preflight refused before launching the helper and
+did not save its RAM/disk readings. A subsequent read-only diagnostic showed
+**14,122,102,784 bytes** available RAM and **545,150,955,520 bytes** free disk,
+both above unchanged prerequisites; the earlier exact readings are unknown.
+Repaired only refusal observability: failed preflights now record actual
+RAM/swap/disk readings, required 12/50 GiB reserves and `child_started=false`.
+Two synthetic probes one byte below each threshold verify exact records and
+forbid any child launch. No threshold was reduced or unrelated process killed.
+
+The first actual helper run failed in **2.22 s** with nonsensical allocator
+dimensions. The pinned header proved the ctypes GDN `K` argument must be
+`int64_t`, not `int`; repaired that declaration and added an output-byte bound
+before graph allocation. Failed logs remain. The repaired test passes in
+**2.97 s**, **282,220 KiB** peak child RSS, minimum host-available RAM
+**14,286,848,000 bytes**, zero swap growth/process swaps, unchanged 60-second
+and resource guards. This is a binding repair, not a numerical change.
+
+All **18 cases** (Q/K:value heads **2:4, 16:32, 32:32**, six schedules each)
+match monolithic bits. Six 2:4 cases match the new compiled native-owned control;
+the larger monolithic geometries match the legacy compiled raw-file GDN control
+exactly. All schedules forbid host state uploads after initialization. Eight
+invalid step cases, noncontiguous-input equivalence, exhausted/closed refusal,
+idempotent close and injected failure **after** a native state update pass.
+Parent and child finally blocks remove disposable raw packets. No learned
+model, conversion, candidate/refit or quality run started.
+
+Retained/reread `persistent-gdn-selftest-result.json` SHA-256:
+`d96b93ba8414ff5214cea55aa65760e58690b54056b21d7e765302aae008d834`.
+The separately compiled scratch control SHA-256 is
+`7f91b5f91ff3aeff78dea4b88f5056fb5612be9b5276bab7fef759988d004b8f`;
+cached libraries/binaries were not replaced. Scratch totals **2,496,789 bytes**
+outside Git, with no raw arrays/replay packets, GGUF or owned compiler spill.
+Scoped Ruff, focused synthetic and documentation/link/whitespace/editor
+validation accompany this documentation-only checkpoint. The successful source
+gate at `6eb8959` is unchanged and was not rerun. Native ownership is still not
+integrated into the learned resident driver; convolution history also remains
+host-carried. Next: a synthetic full-layer adapter comparison before learned
+resident-driver integration, preserving earlier stage/cache hashes and all
+original numerical/resource/frozen-candidate/full-loader approval boundaries.
 
 ## Native Recurrent Ownership Checkpoint (2026-10-16)
 

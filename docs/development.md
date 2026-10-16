@@ -2691,6 +2691,18 @@ The [native recurrent ownership checkpoint](handover.md#native-recurrent-ownersh
 records all six schedules, CLI refusals and unchanged tolerances. This is a
 synthetic primitive, not convolution/learned-driver/native-loader integration.
 
+The [typed recurrent owner checkpoint](handover.md#typed-recurrent-owner-checkpoint-2026-10-16)
+validates a scratch native-state helper for Q/K:value head geometries 2:4,
+16:32 and 32:32. Keep the pinned `ggml_gated_delta_net` final `K` argument
+**int64_t**, and verify output byte bounds before graph allocation. Require
+finite F32 operands, negative decay multipliers, valid head divisibility,
+append-only total tokens <=80, exact post-teardown state/address checks and
+no host restores. Invalid input must leave the owner usable; an error after
+native update must close it. Compare noncontiguous inputs and all six schedules
+with compiled controls before learned integration. Record failed preflight
+RAM/disk readings and no-child status without lowering initial 12 GiB RAM /
+50 GiB disk prerequisites; missing historical readings remain unknown.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.
