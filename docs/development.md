@@ -2803,6 +2803,13 @@ copied reports before removing the disposable tree, and clean raw packets in
 the parent even on failure. Validate the handoff synthetically and natively
 before learned use; do not reinterpret a previously refused run as accepted.
 
+The [detached singleton checkpoint](handover.md#detached-singleton-checkpoint-2026-10-16)
+records separately verified cached-MiMo 64+16 and all-80-singleton results
+through that handoff. Both preserve exact same-schedule stage/cache evidence,
+native history/GDN ownership, reference reuse and buffered publication. These
+bounded dense four-layer controls do not certify a production loader, another
+profile, complete-model BitNet execution, quality or device performance.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.

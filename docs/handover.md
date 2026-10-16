@@ -34,7 +34,9 @@ publication. A separate disposable execution snapshot now passes bounded
 fixture/native controls without editor-attached execution files; learned
 64+16 validation of this materially different path also passes, with all
 execution identities/events and same-schedule numerical evidence verified.
-All-80-singleton validation is next. The historical writer remains unknown.
+All-80-singleton validation now also passes. The selected bounded combined
+native-history/GDN/attention continuation slice is complete; full-model/runtime
+acceptance remains separate. The historical writer remains unknown.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -119,7 +121,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [detached decode checkpoint](#detached-decode-checkpoint-2026-10-16),
+2. Read the [detached singleton checkpoint](#detached-singleton-checkpoint-2026-10-16),
+   then the [detached decode checkpoint](#detached-decode-checkpoint-2026-10-16),
    then the [detached execution checkpoint](#detached-execution-checkpoint-2026-10-16),
    then the [file event checkpoint](#file-event-checkpoint-2026-10-16),
    then the [lifetime pin audit checkpoint](#lifetime-pin-audit-checkpoint-2026-10-16),
@@ -244,6 +247,66 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Detached Singleton Checkpoint (2026-10-16)
+
+After `151e4c5`, the remaining cached-MiMo **all-80-singleton** continuation
+through the tested detached execution handoff passes in **171.24 s**,
+**3,153,772 KiB** peak child RSS, minimum host-available RAM
+**14,492,889,088 bytes**, zero host swap growth/process swaps and observed
+filesystem growth **151,552 bytes**, under unchanged 300-second/resource guards.
+The existing independent same-schedule reference is reused, not recomputed.
+
+The snapshot has **527 files, 3,719,720 bytes**, no weight/library copies.
+Every copied input identity remains exact after the child. All ten watched
+source/proof identities remain exact, zero mutation events occur, and the
+buffered numerical report publishes only after those checks. Retained report
+hashes and the embedded observation hash verify; the temporary execution
+directory is confirmed absent.
+
+The **entire same-schema four-layer numerical dictionary** exactly matches
+the retained native-state all-singleton result; the in-child independent
+reference/stage/cache checks pass too. Six history and six GDN state owners
+all close, with zero host history/state restores. Host snapshots remain
+oracle-only; host F32 residual/down sums are unchanged. All 11 original F32
+reference parameter objects are released during replay; only the verified
+down weight is restored afterward. Observed release RSS
+**2,978,881,536 -> 2,173,558,784 bytes** is not a device-memory guarantee.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `execution-snapshot-singletons-event-audited-lifetime-history-resident-singletons-comparison.json` | `36999668c43eaa3482660ca6bbe6ffe9fc3338ba6835bf8546ab89eb10ae6539` |
+| `execution-snapshot-singletons-verification.json` | `1dcabd9805730b16f863e1e49f55d8ef2f3a5dc412ad96e055adad9a1b050d10` |
+| `detached-execution-final-evidence.json` | `7048f63d079120c95cef52031b4255a205dc451aca07f898c34f3e627202c01f` |
+
+Final post-run audit verifies six runtime/three frozen hashes, nine original
+helper hashes, profile/metadata, original authenticated shard identities
+(not another whole-weight rehash), installed model-code hash and both pinned
+upstream revisions/clean tracked sources. All retained reports from native,
+64+16 and all-singleton runs are reread/hash-verified. All three owned
+execution trees are absent; no owned child/raw replay packet/spill file remains.
+Scratch totals **4,080,698 bytes**, only small diagnostic code/evidence/tools.
+No cached library/source rebuild, model conversion/download/refit/new candidate,
+compensation, held-out scoring, quality or other-model action was started.
+
+**Completed scope:** selected bounded dense four-layer continuation with
+native history, native GDN state and native attention cache across the prior
+coarse schedules plus 64+16 and all-80-singleton schedules. This is synchronous
+scratch integration, not a production loader, complete-model BitNet execution,
+v2 P4 acceptance, representative quality or edge-device certification. Preserve
+all old failed direct-run/conversion evidence; the original fixed-score failure
+and full-model selected-logit gap remain unresolved. The old editor-attached
+execution path still has an unidentified writer; the verified detached
+execution handoff is the tested alternative, not proof that the writer stopped.
+
+Next full-runtime comparison needs an explicit artifact/resource plan; another
+complete-model conversion or broader experiment remains separately approval-
+gated. Do not repeat the old guarded conversion or manufacture full-model
+evidence from this slice. No further unchanged successful gate is rerun:
+`b52e20b` default source gate remains **553 passed, 88 optional skips**; only
+scoped docs/link/editor/whitespace checks apply to these source-tree updates.
 
 ## Detached Decode Checkpoint (2026-10-16)
 
