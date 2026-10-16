@@ -23,6 +23,9 @@ control/typed helper and combined learned coarse adapter also pass. Combined
 64+16 continuation stopped on the unchanged swap guard; its numerical verdict
 is unavailable and combined all-singleton execution was not started. No retry
 or full conversion was attempted after that guard stop.
+Latest resume starts at user-pushed `ab484a8`. A separate reference-lifetime
+variant now passes synthetic/coarse learned checks with lower native-phase
+retention and unchanged arithmetic/guards; its longer continuation is next.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -107,7 +110,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [learned convolution owner checkpoint](#learned-convolution-owner-checkpoint-2026-10-16),
+2. Read the [reference lifetime checkpoint](#reference-lifetime-checkpoint-2026-10-16),
+   then the [learned convolution owner checkpoint](#learned-convolution-owner-checkpoint-2026-10-16),
    then the [native convolution ownership checkpoint](#native-convolution-ownership-checkpoint-2026-10-16),
    then the [native state singleton checkpoint](#native-state-singleton-checkpoint-2026-10-16),
    then the [learned native state checkpoint](#learned-native-state-checkpoint-2026-10-16),
@@ -227,6 +231,73 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Reference Lifetime Checkpoint (2026-10-16)
+
+After user-pushed `ab484a8`, no unchanged guarded job was retried. Nearby
+inspection found the complete attention-layer helper retains its entire F32
+reference decoder throughout native replay, although afterward it only needs
+the down-projection weight for existing same-input controls. Added separate
+scratch `reference_lifetime.py` and `lifetime_history_resident.py`; all original
+helpers, installed model code, native arithmetic, frozen artifact and their
+existing pins remain unchanged.
+
+Before native replay, verify **every F32 parameter bit** survives BF16/F32
+round trip, in <=65,536-element chunks, and the supplied BF16 down weight
+matches the original F32 down weight exactly. Then move the reference's 11
+parameters to meta, require all original parameter weak references to die,
+and call the unchanged replay. After success restore only the exact F32 down
+weight from its verified BF16 copy. All remaining reference parameters stay
+meta; no further reference forward is allowed/needed. A failed replay does not
+recreate the source weights. Native cache owners retain their existing
+fail-closed behavior. Hooks restore on exit; this remains synchronous scratch
+diagnostic code, not a thread-safe production loader.
+
+Synthetic lifetime test passes in **2.52 s**, **232,372 KiB** child RSS,
+zero swap growth/process swaps: release/restoration and outputs match bits,
+injected post-release failure leaves meta parameters, mismatched down and
+lossy F32 source refuse before mutation. Separate 11-parameter hook-plumbing
+test passes in **4.72 s**, **337,408 KiB**, zero swap growth/process swaps,
+with exact source/replay/restored-down outputs and restored functions. Both
+remain under unchanged 60-second/resource guards; scoped Ruff passes.
+
+The new cached-MiMo learned **80, 31+49, 40+40, 1+63+16** coarse job passes in
+**34.18 s**, **3,155,144 KiB** peak child RSS, minimum host-available RAM
+**15,622,369,280 bytes**, zero host swap growth/process swaps, unchanged
+300-second/resource guards. Every original stage/cache/control check passes.
+Direct comparison verifies the **entire** same-schema four-layer numerical
+dictionary, original native-owner records and runtime/model/helper pins match
+the retained combined native-history coarse result exactly.
+
+Measured native-phase lifetime change: **838,895,616 bytes** of F32 reference
+parameters removed, all 11 original parameter objects released; observed RSS
+**2,980,425,728 -> 2,175,102,976 bytes** at release. Only **201,326,592 bytes**
+of down weight are restored after replay for the original reference control.
+The removed parameter-byte count is not an OS/device RAM guarantee. The new
+small native-entry report records the phase boundary so any future guard stop
+can be located before/after release. Host availability also improved between
+sessions; zero swap growth is **not** attributed solely to this change and
+does not establish target-device performance or explain the old guard event.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `reference-lifetime-selftest-result.json` | `517484af12c406d74e7df5bda6bde11d52e3946d92268b77145ff202f3b2ee7e` |
+| `lifetime-history-selftest-result.json` | `1bfef57b42207644e24b6369fd0943c7ef6f7ada50fe4d677df185282afd99bc` |
+| `lifetime-history-resident-comparison.json` | `a82b34b11f35e1ef37c2b5e662926f0864e49b9cc06897103831b81a9f705855` |
+
+Scratch totals **2,976,018 bytes**, no raw arrays/replay packets/GGUF. Original
+failed logs/diagnosis remain untouched; the old combined 64+16 run still has
+no numerical verdict, and no old all-singleton job was started. This new
+variant is a substantive lifetime change, not a looser guard or substitution
+of a different schedule to seek green. Next: bounded new-variant 64+16 against
+the unchanged same-schedule reference, after verifying the new synthetic
+proof/source pins; no unchanged old-command retry. Docs/link/editor/whitespace
+checks accompany this docs-only checkpoint; unchanged successful source gate
+`b52e20b` (**553 passed, 88 optional skips**) was not rerun. No conversion,
+download/refit/new candidate/compensation/quality/other-model action started;
+original numerical/full-model/BitNet/v2 P4/device acceptance limits remain.
 
 ## Learned Convolution Owner Checkpoint (2026-10-16)
 

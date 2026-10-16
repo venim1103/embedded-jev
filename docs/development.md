@@ -2753,6 +2753,18 @@ substitute another schedule seeking green, infer a completed numerical verdict,
 or use wrapper RSS/swaps when the timing file is empty. Retain explicit null
 experiment measurements, check termination/cleanup and recheck pins read-only.
 
+The [reference lifetime checkpoint](handover.md#reference-lifetime-checkpoint-2026-10-16)
+tests a separately pinned scratch variant that removes the no-longer-needed
+F32 reference decoder during native replay. Require full bitwise BF16 round
+trips and exact supplied down-weight matching before mutation; release all
+original parameter objects, retain native operands independently, and restore
+only down weight after successful replay for unchanged reference controls.
+Do not run another reference forward on the meta-weight module. Keep the
+original helper files/pins, numerical/control comparisons and resource guards;
+record native-entry RSS and parameter counts without treating object bytes as
+guaranteed OS/device savings. This new coarse-tested lifetime variant does not
+retroactively pass the old resource-stopped continuation.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.
