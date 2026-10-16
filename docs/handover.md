@@ -12,7 +12,10 @@ user settings were untracked. The bounded attention helper and learned-operand
 precision/read-partition diagnostics below completed under the existing
 cached-MiMo approval. Original failed numerical checks remain failed, not
 replaced by looser acceptance. A subsequent bounded synthetic partial-rotary
-source control also passes. No full conversion was retried.
+source control also passes. Latest continuation starts at user-pushed `d88871b`
+with only untouched editor settings untracked. A separately bounded native
+recurrent-state ownership control now passes; learned-driver integration is
+not yet established. No full conversion was retried.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -97,7 +100,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [resident all singleton checkpoint](#resident-all-singleton-checkpoint-2026-10-16),
+2. Read the [native recurrent ownership checkpoint](#native-recurrent-ownership-checkpoint-2026-10-16),
+   then the [resident all singleton checkpoint](#resident-all-singleton-checkpoint-2026-10-16),
    then the [resident singleton continuation checkpoint](#resident-singleton-continuation-checkpoint-2026-10-16),
    then the [resident stack checkpoint](#resident-stack-checkpoint-2026-10-16),
    then the [four layer continuation checkpoint](#four-layer-continuation-checkpoint-2026-10-16),
@@ -211,6 +215,54 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Native Recurrent Ownership Checkpoint (2026-10-16)
+
+After user-pushed `d88871b`, added the separately bounded synthetic command
+`--cached-gdn-control PARTITION [carry|reset]` to the existing native smoke
+executable. Supported partitions are exactly `80`, `31+49`, `40+40`, `1+63+16`,
+`singletons` and `64+singletons`. It uses width 128, two Q/K heads, four tiled
+value heads, nonzero initial F32 value-by-key state, raw alpha/beta gates and
+one CPU thread. No weights, model conversion or learned execution is involved.
+
+A dedicated cache-only context and explicit backend buffer own the **262,144
+state bytes**. Each chunk uses a new graph/context/allocator. Actual native L2
+and raw-gate GDN output contains token vectors followed by final state; a
+dependency-linked view of that tail feeds actual `ggml_cpy` into the persistent
+state tensor. After chunk graph/context/allocator destruction, the state data
+address and buffer owner must still match, and every state byte must equal
+the GDN output tail captured before destruction. Input operands remain exact.
+Readbacks are oracles, not runtime state restores. Carry mode uploads initial
+state once, performs one native state copy per chunk and no host state restore.
+Reset mode explicitly reuploads initial state between chunks as a lost-state
+fault, not an accepted continuation policy.
+
+The existing compiled regression now checks all six carry/reset schedules
+against its independent NumPy FP64 recurrence with unchanged `rtol=2e-5,
+atol=2e-6`. Every carry output and final-state bit exactly matches the old
+80-token initialized raw-gate control. Reset preserves first-chunk bits but
+changes later outputs; its entire output/state still matches the reset-aware
+independent recurrence. Six default-carry invocations and eight malformed-CLI
+refusals also pass. The shared partition parser preserves neighboring native
+attention behavior; its existing controls run in the same focused test.
+
+Focused pinned compile/execution: **1 passed in 11.75 s**. Required source
+gate: **553 passed, 88 skipped in 24.80 s**, clean Ruff and whitespace. Scoped
+editor diagnostics and Pylance test-file syntax checks pass. CPU/base library
+SHA-256 pins reproduce exactly and the cached pinned source remains clean;
+no cached library rebuild, CTest, sanitizer or model gate is claimed. No
+failed check, numerical change or resource-limit relaxation occurred.
+
+This is a synthetic native recurrent-state ownership primitive, not convolution
+history ownership, a learned cached block/decoder, full-loader/model parity,
+BitNet/v2 P4 acceptance, device performance or quality. The learned resident
+driver below still carries recurrent state in host arrays; its previous results
+are not retroactively native-owned. Frozen candidate, MiMo v1 factories and
+profile/runtime approvals remain unchanged. The original failed score criterion,
+full-model logit gap **0.0971508** and swap-guarded conversion remain unresolved.
+Next: validate a bounded typed native-state helper against this compiled control
+before replacing any learned driver's host-state handoff. Keep source/policy
+integration and model-artifact approval separate from this synthetic result.
 
 ## Resident All Singleton Checkpoint (2026-10-16)
 

@@ -2691,7 +2691,7 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
         refused = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
         assert refused.returncode == 5 and not refused.stdout
 
-    def recurrence(tokens, initialized, raw_gates=False, interleaved=False):
+    def recurrence(tokens, initialized, raw_gates=False, interleaved=False, reset_at=()):
         token_index = np.arange(tokens)[:, None, None]
         key_head = np.arange(2)[None, :, None]
         column = np.arange(128)[None, None, :]
@@ -2716,8 +2716,11 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
             key_index = np.arange(128)[None, None, :]
             state = ((key_index * 3 + value_index * 5 + np.arange(4)[:, None, None] * 7) % 19 - 9) / 4096
         outputs = np.empty((tokens, 4, 128), dtype=np.float64)
+        initial_state = state.copy()
         mapping = np.arange(4) // 2 if interleaved else np.arange(4) % 2
         for token in range(tokens):
+            if token in reset_at:
+                state = initial_state.copy()
             selected_key = key[token, mapping].astype(np.float64)
             selected_query = query[token, mapping].astype(np.float64)
             state *= np.exp(decay[token])[:, None, None]
@@ -2748,6 +2751,41 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
         wrong_output, wrong_state = recurrence(tokens, initialized, raw_gates, interleaved=True)
         assert np.max(np.abs(outputs - wrong_output)) > 2e-5
         assert np.max(np.abs(state - wrong_state)) > 1e-4
+
+    for partition_name, partition in (("80", (80,)), ("31+49", (31, 49)), ("40+40", (40, 40)),
+                                      ("1+63+16", (1, 63, 16)), ("singletons", (1,) * 80),
+                                      ("64+singletons", (64,) + (1,) * 16)):
+        for reset in (False, True):
+            result = subprocess.run([str(binary), "--cached-gdn-control", partition_name, "reset" if reset else "carry"],
+                                    check=True, capture_output=True, text=True, timeout=15)
+            report = json.loads(result.stdout)
+            assert report["tokens"] == 80 and report["chunks"] == len(partition)
+            assert (report["width"], report["key_heads"], report["value_heads"]) == (128, 2, 4)
+            assert report["initialized"] and report["raw_gates"] and report["reset"] is reset
+            assert report["initial_state_uploads"] == 1 and report["native_state_copies"] == len(partition)
+            assert report["host_state_restores"] == (len(partition) - 1 if reset else 0)
+            assert report["state_owner_and_bytes_stable_after_graph_teardown"] and report["sources_unchanged"]
+            cached_output = np.asarray(report["outputs"], dtype=np.float32).reshape(80, 4, 128)
+            cached_state = np.asarray(report["state"], dtype=np.float32).reshape(4, 128, 128)
+            reset_at = np.cumsum(partition)[:-1] if reset else ()
+            expected_output, expected_state = recurrence(80, True, True, reset_at=reset_at)
+            np.testing.assert_allclose(cached_output, expected_output, rtol=2e-5, atol=2e-6)
+            np.testing.assert_allclose(cached_state, expected_state, rtol=2e-5, atol=2e-6)
+            if not reset or len(partition) == 1:
+                np.testing.assert_array_equal(cached_output.view(np.uint32), outputs.view(np.uint32))
+                np.testing.assert_array_equal(cached_state.view(np.uint32), state.view(np.uint32))
+            else:
+                np.testing.assert_array_equal(cached_output[:partition[0]].view(np.uint32), outputs[:partition[0]].view(np.uint32))
+                assert np.max(np.abs(cached_output[partition[0]:] - outputs[partition[0]:])) > 2e-5
+        default = subprocess.run([str(binary), "--cached-gdn-control", partition_name],
+                                 check=True, capture_output=True, text=True, timeout=15)
+        assert json.loads(default.stdout)["host_state_restores"] == 0
+    for arguments in (["--cached-gdn-control"], ["--cached-gdn-control", "0"], ["--cached-gdn-control", "81"],
+                      ["--cached-gdn-control", "31+48"], ["--cached-gdn-control", "80junk"],
+                      ["--cached-gdn-control", "-1"], ["--cached-gdn-control", "80", "unknown"],
+                      ["--cached-gdn-control", "80", "carry", "extra"]):
+        rejected = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
+        assert rejected.returncode == 5 and rejected.stdout == ""
 
     token_index = np.arange(80)[:, None, None]
     key_head = np.arange(2)[None, :, None]

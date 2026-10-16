@@ -2675,6 +2675,22 @@ final-state equality with the 80-token baseline.
 This tests only GDN handoff on supplied Q/K/V and raw gates, not convolution or
 full-model cache behavior; it does not change the original numerical tolerances.
 
+The additive `--cached-gdn-control PARTITION [carry|reset]` uses exactly `80`,
+`31+49`, `40+40`, `1+63+16`, `singletons` or `64+singletons`, with fixed 80
+tokens, width 128, two Q/K/four tiled value heads, nonzero F32 initial state,
+raw gates and one CPU thread. A separate native buffer/context owns the
+262,144-byte value-by-key state across per-chunk graph/context/allocator
+destruction. The GDN output tail begins after `tokens * 4 * 128` F32 outputs;
+its `[128,128,4,1]` view feeds dependency-linked `ggml_cpy` into that owner.
+Require exact post-teardown data/buffer ownership and state bytes, unchanged
+source operands and bit-exact carry results against the old raw-gate control.
+Readbacks verify the copy; they must not be used to restore runtime state.
+Carry uploads initial state once and never restores it from the host. Reset
+is an explicit lost-state fault with an independent reset-aware recurrence.
+The [native recurrent ownership checkpoint](handover.md#native-recurrent-ownership-checkpoint-2026-10-16)
+records all six schedules, CLI refusals and unchanged tolerances. This is a
+synthetic primitive, not convolution/learned-driver/native-loader integration.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.

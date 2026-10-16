@@ -703,8 +703,158 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates,
     return 0;
 }
 
+static int cached_gdn_control(const std::vector<int>& partition, bool reset) {
+    constexpr int width = 128, key_heads = 2, value_heads = 4, total_tokens = 80;
+    constexpr int state_count = width * width * value_heads;
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> cache_context(ggml_init(params), ggml_free);
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
+    if (!cache_context || !backend) {
+        return 1;
+    }
+    auto* state = ggml_new_tensor_4d(cache_context.get(), GGML_TYPE_F32, width, width, value_heads, 1);
+    std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> cache_buffer(
+        ggml_backend_alloc_ctx_tensors(cache_context.get(), backend.get()), ggml_backend_buffer_free);
+    if (!cache_buffer) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    const auto* state_address = state->data;
+    std::vector<float> initial(state_count), expected(state_count), actual(state_count);
+    for (int head = 0; head < value_heads; ++head) {
+        for (int value_index = 0; value_index < width; ++value_index) {
+            for (int key_index = 0; key_index < width; ++key_index) {
+                initial[(head * width + value_index) * width + key_index] =
+                    ((key_index * 3 + value_index * 5 + head * 7) % 19 - 9) / 4096.0f;
+            }
+        }
+    }
+    ggml_backend_tensor_set(state, initial.data(), 0, initial.size() * sizeof(float));
+    std::vector<float> all_outputs(total_tokens * value_heads * width);
+    const std::array<float, 5> raw_alpha = { -25.0f, -3.0f, 0.0f, 20.0f, 25.0f };
+    int first = 0;
+    for (const int tokens : partition) {
+        if (reset && first) {
+            ggml_backend_tensor_set(state, initial.data(), 0, initial.size() * sizeof(float));
+        }
+        const auto step = [&]() -> int {
+            std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+            if (!context) {
+                return 1;
+            }
+            auto* query = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, width, key_heads, tokens, 1);
+            auto* key = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, width, key_heads, tokens, 1);
+            auto* value = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, width, value_heads, tokens, 1);
+            auto* alpha = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, 1, value_heads, tokens, 1);
+            auto* beta = ggml_new_tensor_4d(context.get(), GGML_TYPE_F32, 1, value_heads, tokens, 1);
+            auto* bias = ggml_new_tensor_1d(context.get(), GGML_TYPE_F32, value_heads);
+            auto* multiplier = ggml_new_tensor_1d(context.get(), GGML_TYPE_F32, value_heads);
+            for (auto* input : { query, key, value, alpha, beta, bias, multiplier }) {
+                ggml_set_input(input);
+                ggml_set_output(input);
+            }
+            auto* output = ggml_gated_delta_net(context.get(), ggml_l2_norm(context.get(), query, 1e-6f),
+                ggml_l2_norm(context.get(), key, 1e-6f), value, alpha, beta, state, 1);
+            ggml_gated_delta_net_set_raw_gates(output, bias, multiplier);
+            auto* final_state = ggml_view_4d(context.get(), output, width, width, value_heads, 1,
+                width * sizeof(float), width * width * sizeof(float), state_count * sizeof(float),
+                tokens * value_heads * width * sizeof(float));
+            auto* copied = ggml_cpy(context.get(), final_state, state);
+            ggml_set_output(output);
+            ggml_set_output(copied);
+            auto* graph = ggml_new_graph(context.get());
+            ggml_build_forward_expand(graph, copied);
+            std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+                ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+            if (!allocator || !ggml_backend_supports_op(backend.get(), output) ||
+                    !ggml_backend_supports_op(backend.get(), copied) || !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+                return 2;
+            }
+            std::vector<float> queries(tokens * key_heads * width), keys(queries.size());
+            std::vector<float> values(tokens * value_heads * width), alphas(tokens * value_heads), betas(alphas.size());
+            std::vector<float> biases(value_heads), multipliers(value_heads);
+            for (int token = 0; token < tokens; ++token) {
+                const int absolute = first + token;
+                for (int head = 0; head < key_heads; ++head) {
+                    for (int column = 0; column < width; ++column) {
+                        const int index = (token * key_heads + head) * width + column;
+                        queries[index] = ((column * 7 + absolute * 3 + head * 11) % 29 - 14) / 64.0f;
+                        keys[index] = ((column * 3 + absolute * 7 + head * 5) % 31 - 15) / 64.0f;
+                    }
+                }
+                for (int head = 0; head < value_heads; ++head) {
+                    alphas[token * value_heads + head] = raw_alpha[(absolute + 2 * head) % 5];
+                    betas[token * value_heads + head] = ((absolute + head) % 7 - 3) / 4.0f;
+                    for (int column = 0; column < width; ++column) {
+                        values[(token * value_heads + head) * width + column] =
+                            ((column * 5 + absolute * 2 + head * 13) % 23 - 11) / 32.0f;
+                    }
+                }
+            }
+            for (int head = 0; head < value_heads; ++head) {
+                biases[head] = (head - 2) / 8.0f;
+                multipliers[head] = -(head + 1) / 4.0f;
+            }
+            const auto sources = { std::make_pair(query, &queries), std::make_pair(key, &keys),
+                std::make_pair(value, &values), std::make_pair(alpha, &alphas), std::make_pair(beta, &betas),
+                std::make_pair(bias, &biases), std::make_pair(multiplier, &multipliers) };
+            for (const auto& entry : sources) {
+                ggml_backend_tensor_set(entry.first, entry.second->data(), 0, entry.second->size() * sizeof(float));
+            }
+            if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+                return 3;
+            }
+            for (const auto& entry : sources) {
+                std::vector<float> unchanged(entry.second->size());
+                ggml_backend_tensor_get(entry.first, unchanged.data(), 0, unchanged.size() * sizeof(float));
+                if (std::memcmp(unchanged.data(), entry.second->data(), unchanged.size() * sizeof(float)) != 0) {
+                    return 4;
+                }
+            }
+            const auto output_bytes = values.size() * sizeof(float);
+            if (ggml_nbytes(output) != output_bytes + state_count * sizeof(float)) {
+                return 4;
+            }
+            ggml_backend_tensor_get(output, all_outputs.data() + first * value_heads * width, 0, output_bytes);
+            ggml_backend_tensor_get(output, expected.data(), output_bytes, expected.size() * sizeof(float));
+            return 0;
+        };
+        const int status = step();
+        if (status) {
+            return status;
+        }
+        ggml_backend_tensor_get(state, actual.data(), 0, actual.size() * sizeof(float));
+        if (state->data != state_address || state->buffer != cache_buffer.get() ||
+                std::memcmp(actual.data(), expected.data(), actual.size() * sizeof(float)) != 0 ||
+                !std::all_of(actual.begin(), actual.end(), [](float value) { return std::isfinite(value); })) {
+            return 4;
+        }
+        first += tokens;
+    }
+    if (first != total_tokens || !std::all_of(all_outputs.begin(), all_outputs.end(),
+            [](float value) { return std::isfinite(value); })) {
+        return 4;
+    }
+    std::printf("{\"width\":%d,\"key_heads\":%d,\"value_heads\":%d,\"tokens\":%d,\"chunks\":%zu,"
+                "\"raw_gates\":true,\"initialized\":true,\"reset\":%s,\"initial_state_uploads\":1,"
+                "\"host_state_restores\":%zu,\"native_state_copies\":%zu,"
+                "\"state_owner_and_bytes_stable_after_graph_teardown\":true,\"sources_unchanged\":true,\"outputs\":[",
+                width, key_heads, value_heads, total_tokens, partition.size(), reset ? "true" : "false",
+                reset ? partition.size() - 1 : 0, partition.size());
+    for (std::size_t index = 0; index < all_outputs.size(); ++index) {
+        std::printf("%s%.9g", index ? "," : "", all_outputs[index]);
+    }
+    std::printf("],\"state\":[");
+    for (std::size_t index = 0; index < actual.size(); ++index) {
+        std::printf("%s%.9g", index ? "," : "", actual[index]);
+    }
+    std::puts("]}");
+    return 0;
+}
+
 int main(int argc, char** argv) {
-    if ((argc == 3 || argc == 4) && std::strcmp(argv[1], "--cached-attention-control") == 0) {
+    if ((argc == 3 || argc == 4) && (std::strcmp(argv[1], "--cached-attention-control") == 0 ||
+            std::strcmp(argv[1], "--cached-gdn-control") == 0)) {
         std::vector<int> partition;
         if (std::strcmp(argv[2], "80") == 0) {
             partition = {80};
@@ -725,7 +875,9 @@ int main(int argc, char** argv) {
         if (argc == 4 && std::strcmp(argv[3], "carry") != 0 && std::strcmp(argv[3], "reset") != 0) {
             return 5;
         }
-        return cached_attention_control(partition, argc == 4 && std::strcmp(argv[3], "reset") == 0);
+        const bool reset = argc == 4 && std::strcmp(argv[3], "reset") == 0;
+        return std::strcmp(argv[1], "--cached-gdn-control") == 0 ?
+            cached_gdn_control(partition, reset) : cached_attention_control(partition, reset);
     }
     if ((argc == 3 || argc == 4 || argc == 5) && std::strcmp(argv[1], "--kv-write-control") == 0) {
         const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
