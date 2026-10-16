@@ -2686,6 +2686,15 @@ records the measured rounding discontinuity and allocator-lifetime repair.
 This is prepopulated synthetic KV reading, not rotary, cache-write or learned
 full-attention compatibility evidence. The focused command below runs it too.
 
+For learned same-input comparisons, retain the synthetic oracle but do not
+assume its fixed per-element tolerance holds for every cancelling dot. Diagnose
+the error against the actual accumulator/operand precision without replacing a
+failed acceptance check. Likewise, a rounded-probability delta times V explains
+only part of an output difference unless both final contraction residuals are
+accounted for. The separate [learned attention checkpoint](handover.md#learned-attention-checkpoint-2026-10-16)
+records failed fixed checks, numerical attribution and fixed-KV read partitions;
+it does not verify native rotary, learned KV writes or full-loader compatibility.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash

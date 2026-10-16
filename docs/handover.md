@@ -1,12 +1,19 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-15. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-16. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**Paused by user, 2026-10-15:** Stop after the completed `f723065` checkpoint,
+**Resumed by user, 2026-10-16:** Continue autonomously with periodic local
+checkpoint commits. Starting `6848279` matched `origin/main`; only untouched
+user settings were untracked. The bounded attention helper and learned-operand
+precision/read-partition diagnostics below completed under the existing
+cached-MiMo approval. Original failed numerical checks remain failed, not
+replaced by looser acceptance. No full conversion was retried.
+
+**Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
 interrupted; no bounded ctypes attention helper or learned layer-3 capture was
 created or run. No experiment process, raw replay packet, GGUF or owned spill
@@ -79,17 +86,18 @@ read produced no result and made no edits. Resume only after an explicit user
 instruction. No tracked source changes or background jobs remain; the untracked
 user `.vscode/` directory is untouched. Real-model authorization is unchanged.
 
-**Quick orientation (2026-10-15):**
+**Quick orientation (2026-10-16):**
 
-1. The user paused again on 2026-10-15 after pushing `f723065`; implementation
-  now requires an explicit resume instruction. The bounded
+1. The user explicitly resumed on 2026-10-16 after pushing `6848279`;
+  autonomous bounded cached-MiMo diagnostics are active. The bounded
   synthetic profile/manifest-to-prefill and seven-role checkpoints below are verified.
   The user separately approved the code-only v2 metadata-budget correction below.
   After pushing `af62d7e`, the user approved code-only caller/provenance preparation;
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [nonflash attention checkpoint](#nonflash-attention-checkpoint-2026-10-15),
+2. Read the [learned attention checkpoint](#learned-attention-checkpoint-2026-10-16),
+   then the [nonflash attention checkpoint](#nonflash-attention-checkpoint-2026-10-15),
    then the [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
    then the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
    then the [batch dispatch control checkpoint](#batch-dispatch-control-checkpoint-2026-10-15),
@@ -186,6 +194,98 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Learned Attention Checkpoint (2026-10-16)
+
+After user-pushed `6848279`, verified a scratch ctypes attention helper against
+the unchanged pinned public GGML CPU/base APIs. It preserves input storage
+through byte checks and bounds heads to 16 query/4 KV, width 256, queries/window
+to 80 and cache slots to 128. F32 Q, F16 K/V, grouped heads, causal scaled
+softmax and token-major F32 output match the preceding non-flash control.
+Five synthetic cases are bit-exact with a newly compiled scratch copy of the
+committed C++ control; a sixth 16/4-head case matches independent FP64/F16
+operation references. Nine invalid inputs refuse. The supervised helper stage
+finished in **6.63 s**, peak child RSS **252,428 KiB**, zero swap growth.
+
+Captured learned MiMo layer-3 Q/K/V **after installed HF Q/K norm and rotary**
+on the same 80-token `inspect-before-answer` prompt. Selected embedding rows
+and three serially materialized recurrent-prefix layers use the existing trusted
+Torch F32/BF16-RHS/clamped recurrent-QK diagnostic convention. Exactly
+14/14/14/7 parameters are materialized for layers 0/1/2/3; layer 3 loads only
+input norm and attention. There is no output head, generation or option scoring.
+The native core receives identical captured operands, with explicit F16 KV
+storage and 48 causally masked zero cache slots. It does not compute learned
+projections, normalization, rotary, cache writes or the prefix natively.
+
+The original fixed `rtol=2e-5, atol=2e-6` **score check fails at five elements**;
+its max FP64-dot gap is **5.430827e-5**. The worst tolerance ratio is a cancelling
+dot near -0.00125: absolute-product sum **216.8815**, error **5.846610e-6**,
+fixed bound **2.024951e-6**. Every score fits the separately derived F32
+accumulation bound `gamma_256 * sum(abs(products))`, with unit roundoff `2^-24`
+and `gamma_n=n*u/(1-n*u)`. This is a diagnostic bound, **not a replacement
+tolerance or a passing original score check**. The pinned vector path performs
+F32 accumulation; wrong tiled KV heads differ by **363.7505**. Independent
+softmax/value operation checks pass, with maxima **9.899434e-8 / 4.768372e-7**.
+
+Native output versus the original F32 HF core differs by **0.003058434**;
+versus a Torch core with matching rounded Q/K/P/V operands by **0.0003657341**.
+There are **113** changed F16-rounded probabilities in the latter comparison.
+A separate diagnostic initially stopped after **8.52 s**: attributing the
+whole output delta only to rounded-probability changes fails at one element,
+residual **2.609566e-6**. Its script, stderr and failed stage record are retained.
+The next diagnostic independently contracts both probability arrays in FP64
+and accounts for **both** final value-contraction residuals. Native/Torch
+value residual maxima are **4.768372e-7 / 2.390938e-6**; both meet their own
+original elementwise checks and derived F32 bounds. The original probability-
+only delta check remains false; no tolerance, guard or production path changed.
+
+Five partitions read the same prepopulated learned F16 KV arrays at absolute
+query positions; every future probability is zero and every input byte survives:
+
+| Queries | Scores Exact | Probabilities/Outputs Exact | Output Max Gap | Changed F16 Probabilities |
+| --- | --- | --- | --- | --- |
+| `31+49` | yes | yes | 0 | 0 |
+| `40+40` | yes | yes | 0 | 0 |
+| `1+63+16` | no | yes | 0 | 0 |
+| 80 singletons | no | no | 0.0003134012 | 33 |
+| `64` then 16 singletons | no | no | 0.0003134012 | 9 |
+
+Singleton-read score/probability maxima versus the full batch are
+**6.103516e-5 / 9.536743e-7**. Rounded-probability contraction explains each
+partition's output delta within the unchanged fixed tolerance; its max residual
+is **4.768372e-7**. This is fixed-KV reading, not a learned KV-write/cache
+continuation acceptance or an explanation of the historical full-model logit gap.
+
+The initial learned capture took **22.91 s**, peak RSS **1,480,896 KiB**;
+the complete precision/read-partition stage took **8.17 s**, **1,460,564 KiB**.
+Both stayed within the unchanged 300-second, 32-GiB address-space, memory/swap
+and disk guards, with zero swap growth. Source identities, metadata/profile,
+installed model implementation, frozen manifest/codes/independent scales and
+six runtime-module hashes match entry/exit pins. Torch reports the expected
+installed fallback for unavailable optional fast kernels; nothing was installed.
+
+Retained reports, reread and SHA-256 verified:
+
+- `attention-kernel-selftest-result.json`:
+  `df82e8dd8824d714b31cc9efcad92441250a639c7b978ae5e9b54c2fe0220d48`.
+- `learned-attention-comparison.json`:
+  `9e323d282011e6789d55174658fd22f657a656599cd4e6c14ab8f209e3ba446c`.
+- `learned-attention-precision-comparison.json`:
+  `385928a74935a32032f6ce13e6789cb5108c76785bfd364d9f00f4150b3c5866`.
+
+Helpers, failures and small reports stay outside Git in the existing diagnostic
+scratch root; raw arrays were memory-only, and no replay packet or GGUF was
+created. Python syntax/Ruff and the synthetic compiled comparison ran; repository
+source tests, CTest, sanitizers and cached-library rebuilds did not. The previous
+553-pass/88-skip source gate is unchanged, not rerun for documentation. Scoped
+documentation checks cover this checkpoint. No push, branch, subagent, refit,
+new candidate, download, held-out quality run or other-profile execution occurred.
+
+Next bounded boundary: independently verify native partial rotary on supplied
+synthetic operands before combining it with learned projection/norm operands.
+Keep fixed-KV reads, actual cache writes, native loader parity and real-model
+v2 P4/BitNet/quality acceptance separate. The full-model selected-logit gap
+**0.0971508** remains unresolved; no conversion retry or padding promotion.
 
 ## Nonflash Attention Checkpoint (2026-10-15)
 
