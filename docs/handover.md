@@ -301,6 +301,31 @@ full-loader parity, whole-model BitNet, representative quality or device support
 The selected synthetic continuation/reset/isolation slice is complete; next
 learned full-runtime work requires its separate artifact/resource approval.
 
+Read-only next-step preparation after this check: host readings were
+**17,032,589,312 bytes available RAM**, **988,655,616 bytes swap used** and
+**544,872,685,568 bytes free scratch disk**. These are time-sensitive host
+observations, not target guarantees or evidence that the earlier swap refusal
+would now pass. The pinned converter's entry point already defaults to lazy
+evaluation, and the refused command already supplied `--use-temp-file`;
+`--no-lazy` explicitly increases RAM. No simple untried memory-saving CLI flag
+was identified. Its `conversion/base.py` preparation promotes BF16 to F32
+before tensor transforms and GGUF quantization. A 248,320 by 4,096 embedding or
+head has a **4,068,474,880-byte F32 representation** before packing overhead;
+this is source-backed allocation-size reasoning, not measured failure attribution.
+
+Next proposed prerequisite is a synthetic-first, chunk-bounded conversion path
+that demonstrates byte-identical BF16 output and unchanged model-specific
+transforms without mutating pinned upstream sources. It is not implemented or
+approved for a real artifact here. Another full conversion must have separate
+approval and a materially changed memory plan or verified host conditions;
+do not repeat the old command merely because initial preflight passes. Any
+future approved comparison should reuse authenticated caches/references, run
+serially with the existing 1,200-second conversion/900-second native limits,
+32 GiB address-space/48 GiB scratch caps, 2 GiB host reserve and 512 MiB
+swap-growth stop, and retain only small verified reports before deleting
+temporary model/spill/raw traces. Native prefix comparison and whole-model
+parity/BitNet/quality acceptance remain distinct gates.
+
 ## Native Loader Reset Checkpoint (2026-10-16)
 
 Resumed after user-pushed `fb2852c`, with only untouched user editor settings
