@@ -60,6 +60,8 @@ After `967e2cc`, that source owner composes with chunked raw payload production
 without caller source arrays and passes the pinned 16-matrix GGUF control.
 After `9f597bb`, a bounded two-size allocation control also verifies that the
 new paths avoid the older verifier's source-sized Python allocation growth.
+After `0211d3c`, a shared shard owner retains one descriptor/header across
+serial matrix contexts, with two whole-shard hashes and fail-closed lifecycle checks.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -144,7 +146,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 allocation scaling checkpoint](#bf16-allocation-scaling-checkpoint-2026-10-16),
+2. Read the [BF16 shared shard checkpoint](#bf16-shared-shard-checkpoint-2026-10-16),
+   then the [BF16 allocation scaling checkpoint](#bf16-allocation-scaling-checkpoint-2026-10-16),
    then the [BF16 mapped payload checkpoint](#bf16-mapped-payload-checkpoint-2026-10-16),
    then the [BF16 mapped source checkpoint](#bf16-mapped-source-checkpoint-2026-10-16),
    then the [BF16 source-bound writer checkpoint](#bf16-source-bound-writer-checkpoint-2026-10-16),
@@ -280,6 +283,44 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Shared Shard Checkpoint (2026-10-16)
+
+After `0211d3c`, added `mapped_profile_safetensors_bf16_shard`, retaining one
+verified source descriptor and parsed pinned header across serial matrix
+contexts. It yields a matrix context factory and immutable provisional shard
+receipt. Each child checks the snapshotted profile plan/routing, selected raw
+range SHA-256, geometry and source identity, and owns one read-only mapping.
+At most one child is live. Whole-shard hashing occurs **once at entry and once
+at successful exit**, not for every selected matrix; all positional reads stay
+at most **64 KiB**. File/operand caps remain **16 MiB**, and one cooperative
+**30 s default/600 s max** deadline includes all consumers and exit checks.
+
+The earlier per-matrix API now wraps this owner while preserving its preflight
+guards and receipt. The mapped payload API and native/v1 paths remain unchanged.
+Caller inventory routing changes cannot redirect the retained snapshot.
+Cross-shard/undeclared-shard operands refuse. Child exceptions invalidate normal
+shard closure even when swallowed by the caller; unfinished children refuse
+publication and are forcibly unmapped. Closed-owner calls refuse. Finish all
+child contexts/aliases and payload users before parent exit; publish only after
+successful parent closure, not individual child closure. Existing concurrent
+mutation/truncation and borrowed-alias limitations remain.
+
+Focused controls prove two serial matrices share one descriptor with exactly
+two whole-file hashes, forbid overlap, and check routing mutation isolation,
+swallowed errors, unfinished mappings and between-child writes. The existing
+entry/lifetime/retained-allocation/peak-scaling cases also run directly through
+the shared API. A two-shard fixture proves that valid geometry/zero-byte hashes
+cannot substitute an operand from another shard. **115 focused passes in
+8.17 s**; required gate **677 passed, 89 optional skips in 19.42 s**, Ruff,
+whitespace and editor diagnostics clean. Both existing optional pinned
+**BF16/F32 converter controls pass in 5.41 s** after the wrapper refactor.
+No failures, learned inputs, complete-model conversion, runtime build/execution,
+downloads, refits, candidates or quality run occurred in this increment.
+
+Next: use one shared shard across all 16 pinned synthetic GGUF matrix consumers,
+buffer publication until shard closure and verify the two-hash count there.
+Larger files, resource budgets and real conversion remain separately approved.
 
 ## BF16 Allocation Scaling Checkpoint (2026-10-16)
 

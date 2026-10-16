@@ -1534,6 +1534,23 @@ chunk consumer checks those. The retained-allocation fixture is not a peak-RAM,
 mapped-RSS, OS page-cache or full-model memory claim. See the
 [mapped source checkpoint](handover.md#bf16-mapped-source-checkpoint-2026-10-16).
 
+`mapped_profile_safetensors_bf16_shard(..., source_path=..., source_shard=...,
+expected_file_bytes=..., expected_file_sha256=...)` retains one verified
+descriptor/header and yields `(matrix_factory, immutable_shard_receipt)`.
+Use `with matrix_factory(source_name, expected_source_sha256,
+maximum_bytes=...) as (mapping, receipt)` for serial child matrices. Only one
+child may be live; caller routing is snapshotted, and cross-shard requests
+refuse. Whole-shard hashing occurs once at entry and once at successful exit,
+with bounded selected-range hashing and identity checks per child. Per-file
+and per-child caps remain 16 MiB under one cooperative 30 s default/600 s max
+deadline. The per-matrix mapping API now wraps this same owner.
+
+Publish only after parent closure. A swallowed child failure or unfinished
+mapping still refuses parent success; private mappings/descriptors close on
+failure and closed-owner calls refuse. Finish all child contexts and aliases
+first. Concurrency/truncation/issuer limitations are unchanged. See the
+[shared shard checkpoint](handover.md#bf16-shared-shard-checkpoint-2026-10-16).
+
 `temporary_profile_mapped_bf16_payload(..., source_path=..., source_name=...,
 expected_source_sha256=..., expected_file_bytes=..., expected_file_sha256=...,
 directory=...)` composes this source mapping with the chunked raw payload owner,
@@ -1553,8 +1570,9 @@ an isolated `tracemalloc` session. The 2 MiB copy-based control must expose two
 source-sized buffers; mapped source and mapped payload checks require tracked
 peaks below 3 MiB and growth at most 256 KiB across the two sizes. Setup/caller
 inputs are excluded; mappings, native allocations and OS caches are not a
-process-RAM measurement. Only these two cases skip when an external tracer
-already owns the process. See the [allocation scaling checkpoint](handover.md#bf16-allocation-scaling-checkpoint-2026-10-16).
+process-RAM measurement. The shared-shard API also runs this control. Only the
+three peak-scaling cases skip when an external tracer already owns the process.
+See the [allocation scaling checkpoint](handover.md#bf16-allocation-scaling-checkpoint-2026-10-16).
 
 `temporary_profile_safetensors_bf16_payload(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,

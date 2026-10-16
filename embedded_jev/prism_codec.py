@@ -946,6 +946,149 @@ def _profile_gguf_table_layout(plan, pq2_blocks, source_values, pins, expected_f
 
 
 @contextmanager
+def mapped_profile_safetensors_bf16_shard(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_shard: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30,
+):
+    """Own one verified shard and serial borrowed matrix contexts under a shared deadline."""
+    from embedded_jev.inventory import _json_object, parse_safetensors_header
+    from embedded_jev.model_profile import SHA256
+    from embedded_jev.streamed_text import bounded_native_descriptor_record
+
+    if (
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+    ):
+        raise ValueError("invalid mapped source identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    if source_shard not in profile.packaging["shards"]:
+        raise ValueError("mapped source shard is not declared")
+    source_shards = {item["name"]: item["shard"] for item in inventory["tensors"]}
+    pin = profile.files[source_shard]
+    if (
+        pin.bytes != expected_file_bytes or pin.sha256 != expected_file_sha256
+        or pin.header_bytes is None or not 8 < pin.header_bytes <= (1 << 20) + 8 or pin.header_bytes >= expected_file_bytes
+        or pin.header_sha256 is None
+    ):
+        raise ValueError("mapped source file pin or operand budget mismatch")
+    path = Path(source_path).absolute()
+
+    def identity(value):
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as source:
+        descriptor = source.fileno()
+        before = identity(os.fstat(descriptor))
+        active, live, failed = [], True, False
+
+        def check_identity():
+            if not live:
+                raise ValueError("mapped source shard owner is closed")
+            if time.monotonic() > deadline:
+                raise ValueError("mapped source deadline exceeded")
+            if identity(os.fstat(descriptor)) != before or identity(path.lstat()) != before:
+                raise ValueError("mapped source file identity changed")
+
+        def verify_file():
+            record = bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline)
+            if record["bytes"] != expected_file_bytes or record["sha256"] != expected_file_sha256:
+                raise ValueError("mapped source file identity changed")
+            check_identity()
+
+        verify_file()
+        prefix = bytearray()
+        while len(prefix) < pin.header_bytes:
+            if time.monotonic() > deadline:
+                raise ValueError("mapped source deadline exceeded")
+            chunk = os.pread(descriptor, min(65536, pin.header_bytes - len(prefix)), len(prefix))
+            if not chunk:
+                raise ValueError("mapped source header truncated")
+            prefix.extend(chunk)
+        if hashlib.sha256(prefix).hexdigest() != pin.header_sha256:
+            raise ValueError("mapped source header identity mismatch")
+        headers = {item.name: item for item in parse_safetensors_header(prefix, expected_file_bytes)}
+        offsets = _json_object(prefix[8:], source_shard)
+        check_identity()
+
+        @contextmanager
+        def matrix(source_name: str, expected_source_sha256: str, *, maximum_bytes: int = 16 * 1024**2):
+            nonlocal failed
+            check_identity()
+            if active:
+                raise ValueError("mapped source shard already has a live matrix")
+            if (
+                type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
+                or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
+            ):
+                raise ValueError("invalid mapped source identity or budget")
+            entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+            if entry is None or entry["type"] != "BF16" or entry["source_dtype"] != "BF16" or len(entry["source_shape"]) != 2:
+                raise ValueError("mapped source requires an unfrozen BF16 matrix")
+            if source_shards.get(source_name) != source_shard:
+                raise ValueError("mapped source matrix belongs to another shard")
+            shape = tuple(entry["source_shape"])
+            storage_bytes = shape[0] * shape[1] * 2
+            if storage_bytes > maximum_bytes:
+                raise ValueError("mapped source file pin or operand budget mismatch")
+            selected = headers.get(source_name)
+            if selected is None or selected.dtype != "BF16" or selected.shape != shape or selected.storage_bytes != storage_bytes:
+                raise ValueError("mapped source header geometry or dtype mismatch")
+            offset = len(prefix) + offsets[source_name]["data_offsets"][0]
+            mapped = None
+            try:
+                digest = hashlib.sha256()
+                position = 0
+                while position < storage_bytes:
+                    check_identity()
+                    chunk = os.pread(descriptor, min(65536, storage_bytes - position), offset + position)
+                    if not chunk:
+                        raise ValueError("mapped source tensor range truncated")
+                    digest.update(chunk)
+                    position += len(chunk)
+                if digest.hexdigest() != expected_source_sha256:
+                    raise ValueError("mapped source tensor identity mismatch")
+                mapped = np.memmap(source, mode="r", dtype="<u2", offset=offset, shape=shape)
+                active.append(mapped)
+                check_identity()
+                yield mapped, MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                                               "source_name": source_name, "source_sha256": expected_source_sha256,
+                                               "source_file_sha256": expected_file_sha256, "source_file_bytes": expected_file_bytes,
+                                               "source_file_identity": before, "source_header_sha256": pin.header_sha256,
+                                               "source_range_offset": offset, "source_range_bytes": storage_bytes,
+                                               "source_file_verification": "profile_pinned_mapped_range_entry_and_exit_checks_required",
+                                               "pin_issuer_verification": "not_checked", "runtime_approval": "not_granted_by_source_mapping"})
+                check_identity()
+                if mapped._mmap.closed:
+                    raise ValueError("mapped source matrix was closed by its consumer")
+            except BaseException:
+                failed = True
+                raise
+            finally:
+                if mapped is not None:
+                    mapped._mmap.close()
+                active.clear()
+
+        try:
+            yield matrix, MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                                           "source_shard": source_shard, "source_file_sha256": expected_file_sha256,
+                                           "source_file_bytes": expected_file_bytes, "source_file_identity": before,
+                                           "source_file_verification": "profile_pinned_shard_entry_and_exit_checks_required",
+                                           "runtime_approval": "not_granted_by_source_shard"})
+            if failed or active:
+                raise ValueError("mapped source shard has failed or unfinished matrix consumers")
+            verify_file()
+        finally:
+            live = False
+            for mapped in active:
+                mapped._mmap.close()
+            active.clear()
+
+
+@contextmanager
 def mapped_profile_safetensors_bf16_matrix(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_name: str,
     expected_source_sha256: str, expected_file_bytes: int, expected_file_sha256: str,
@@ -953,9 +1096,7 @@ def mapped_profile_safetensors_bf16_matrix(
     maximum_seconds: float = 30,
 ):
     """Own a verified read-only source mapping; finish all borrowed views before context exit."""
-    from embedded_jev.inventory import _json_object, parse_safetensors_header
     from embedded_jev.model_profile import SHA256
-    from embedded_jev.streamed_text import bounded_native_descriptor_record
 
     if (
         type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
@@ -980,64 +1121,15 @@ def mapped_profile_safetensors_bf16_matrix(
         or pin.header_sha256 is None
     ):
         raise ValueError("mapped source file pin or operand budget mismatch")
-    path = Path(source_path).absolute()
-
-    def identity(value):
-        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
-
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb", buffering=0) as source:
-        descriptor = source.fileno()
-        before = identity(os.fstat(descriptor))
-
-        def verify_file():
-            record = bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline)
-            if (
-                record["bytes"] != expected_file_bytes or record["sha256"] != expected_file_sha256
-                or identity(os.fstat(descriptor)) != before or identity(path.lstat()) != before
-            ):
-                raise ValueError("mapped source file identity changed")
-
-        verify_file()
-        prefix = bytearray()
-        while len(prefix) < pin.header_bytes:
-            if time.monotonic() > deadline:
-                raise ValueError("mapped source deadline exceeded")
-            chunk = os.pread(descriptor, min(65536, pin.header_bytes - len(prefix)), len(prefix))
-            if not chunk:
-                raise ValueError("mapped source header truncated")
-            prefix.extend(chunk)
-        if hashlib.sha256(prefix).hexdigest() != pin.header_sha256:
-            raise ValueError("mapped source header identity mismatch")
-        headers = parse_safetensors_header(prefix, expected_file_bytes)
-        selected = next((item for item in headers if item.name == source_name), None)
-        if selected is None or selected.dtype != "BF16" or selected.shape != shape or selected.storage_bytes != storage_bytes:
-            raise ValueError("mapped source header geometry or dtype mismatch")
-        offset = len(prefix) + _json_object(prefix[8:], tensor["shard"])[source_name]["data_offsets"][0]
-        digest = hashlib.sha256()
-        position = 0
-        while position < storage_bytes:
-            if time.monotonic() > deadline:
-                raise ValueError("mapped source deadline exceeded")
-            chunk = os.pread(descriptor, min(65536, storage_bytes - position), offset + position)
-            if not chunk:
-                raise ValueError("mapped source tensor range truncated")
-            digest.update(chunk)
-            position += len(chunk)
-        if digest.hexdigest() != expected_source_sha256:
-            raise ValueError("mapped source tensor identity mismatch")
-        mapped = np.memmap(source, mode="r", dtype="<u2", offset=offset, shape=shape)
-        try:
-            verify_file()
-            yield mapped, MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
-                                           "source_name": source_name, "source_sha256": expected_source_sha256,
-                                           "source_file_sha256": expected_file_sha256, "source_file_bytes": expected_file_bytes,
-                                           "source_file_identity": before, "source_header_sha256": pin.header_sha256,
-                                           "source_range_offset": offset, "source_range_bytes": storage_bytes,
-                                           "source_file_verification": "profile_pinned_mapped_range_entry_and_exit_checks_required",
-                                           "pin_issuer_verification": "not_checked", "runtime_approval": "not_granted_by_source_mapping"})
-            verify_file()
-        finally:
-            mapped._mmap.close()
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ValueError("mapped source deadline exceeded")
+    with mapped_profile_safetensors_bf16_shard(profile, inventory, manifest, pq2_blocks,
+             source_path=source_path, source_shard=tensor["shard"], expected_file_bytes=expected_file_bytes,
+             expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes,
+             maximum_seconds=remaining) as (matrix, _):
+        with matrix(source_name, expected_source_sha256, maximum_bytes=maximum_bytes) as result:
+            yield result
 
 
 def verify_profile_safetensors_operand(

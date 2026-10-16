@@ -1246,6 +1246,39 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
         with pytest.raises(TypeError):
             receipt["source_range_offset"] = 0
         if kind == "matrix":
+            from embedded_jev import streamed_text
+
+            records = []
+            original_record = streamed_text.bounded_native_descriptor_record
+
+            def record(descriptor, **keywords):
+                records.append(descriptor)
+                return original_record(descriptor, **keywords)
+
+            with monkeypatch.context() as shard_patch:
+                shard_patch.setattr(streamed_text, "bounded_native_descriptor_record", record)
+                with prism_codec.mapped_profile_safetensors_bf16_shard(profile, report, manifest, blocks,
+                         source_path=path, source_shard=path.name, expected_file_bytes=size,
+                         expected_file_sha256=arguments["expected_file_sha256"]) as (matrix, shard_receipt):
+                    assert shard_receipt["source_file_identity"] == receipt["source_file_identity"]
+                    for source_name in (item["source_name"], "model.layers.0.mlp.up_proj.weight"):
+                        matrix_bytes = int(np.prod(entries[source_name]["shape"])) * 2
+                        route = next(tensor for tensor in report["tensors"] if tensor["name"] == source_name)
+                        original_shard = route["shard"]
+                        route["shard"] = "caller-mutated-routing"
+                        try:
+                            with matrix(source_name, hashlib.sha256(bytes(matrix_bytes)).hexdigest()) as (mapped_source, _):
+                                assert mapped_source.nbytes == matrix_bytes and not np.any(mapped_source)
+                                with pytest.raises(ValueError, match="already has a live matrix"):
+                                    with matrix(source_name, hashlib.sha256(bytes(matrix_bytes)).hexdigest()):
+                                        pytest.fail("overlapping shard consumers were accepted")
+                        finally:
+                            route["shard"] = original_shard
+                        assert mapped_source._mmap.closed
+                assert len(records) == 2 and records[0] == records[1]
+                with pytest.raises(ValueError, match="owner is closed"):
+                    with matrix(item["source_name"], arguments["expected_source_sha256"]):
+                        pytest.fail("closed shard owner yielded a mapping")
             mapped_arguments = {key: value for key, value in arguments.items() if key != "source_values"}
             with prism_codec.mapped_profile_safetensors_bf16_matrix(profile, report, manifest, blocks,
                      **mapped_arguments) as (mapped_source, mapped_receipt):
@@ -1302,13 +1335,43 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
                          **arguments, directory=tmp_path) as (payload, _):
                     raise RuntimeError("source-bound consumer failed")
             assert not payload.exists() and not payload.parent.exists()
+            shard_arguments = {"source_path": path, "source_shard": path.name, "expected_file_bytes": size,
+                               "expected_file_sha256": arguments["expected_file_sha256"]}
+            with pytest.raises(ValueError, match="failed or unfinished matrix consumers"):
+                with prism_codec.mapped_profile_safetensors_bf16_shard(profile, report, manifest, blocks,
+                         **shard_arguments) as (matrix, _):
+                    with pytest.raises(RuntimeError, match="shared consumer failed"):
+                        with matrix(item["source_name"], arguments["expected_source_sha256"]) as (mapped_source, _):
+                            raise RuntimeError("shared consumer failed")
+                    assert mapped_source._mmap.closed
+            with pytest.raises(ValueError, match="failed or unfinished matrix consumers"):
+                with prism_codec.mapped_profile_safetensors_bf16_shard(profile, report, manifest, blocks,
+                         **shard_arguments) as (matrix, _):
+                    unfinished = matrix(item["source_name"], arguments["expected_source_sha256"])
+                    mapped_source, _ = unfinished.__enter__()
+            assert mapped_source._mmap.closed
+            with pytest.raises(ValueError, match="owner is closed"):
+                unfinished.__exit__(None, None, None)
+            try:
+                with pytest.raises(ValueError, match="file identity changed"):
+                    with prism_codec.mapped_profile_safetensors_bf16_shard(profile, report, manifest, blocks,
+                             **shard_arguments) as (matrix, _):
+                        with matrix(item["source_name"], arguments["expected_source_sha256"]):
+                            pass
+                        with path.open("r+b") as output:
+                            output.seek(size - 1)
+                            output.write(bytes([1]))
+                        with matrix(item["source_name"], arguments["expected_source_sha256"]):
+                            pytest.fail("between-matrix source mutation yielded a mapping")
+            finally:
+                path.write_bytes(header + bytes(payload_bytes))
     finally:
         path.unlink()
         if actual_path != path:
             actual_path.unlink()
 
 
-@pytest.mark.parametrize("consumer", ["mapping", "payload"])
+@pytest.mark.parametrize("consumer", ["mapping", "payload", "shared"])
 @pytest.mark.parametrize("defect", [
     None, "allocation", "peak-scaling", "source-pin", "file-pin", "file-size", "operand-budget", "boolean-budget", "file-budget",
     "deadline-budget", "frozen", "vector", "missing", "symlink", "fifo", "before-yield", "changed", "restored",
@@ -1318,6 +1381,7 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
     import errno
     import gc
     import tracemalloc
+    from contextlib import contextmanager
 
     from embedded_jev import prism_codec
 
@@ -1381,9 +1445,20 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
     expected_failure = defect not in (None, "allocation", "peak-scaling", "cwd")
     was_tracing = tracemalloc.is_tracing()
 
+    @contextmanager
+    def shared_matrix():
+        file_arguments = {key: value for key, value in arguments.items() if key not in ("source_name", "expected_source_sha256", "maximum_bytes")}
+        with prism_codec.mapped_profile_safetensors_bf16_shard(profile, inventory, manifest, blocks,
+                 source_shard=path.name, **file_arguments) as (matrix, _):
+            with matrix(arguments["source_name"], arguments["expected_source_sha256"],
+                     maximum_bytes=arguments.get("maximum_bytes", 16 * 1024**2)) as result:
+                yield result
+
     def ownership():
         if consumer == "payload":
             return prism_codec.temporary_profile_mapped_bf16_payload(profile, inventory, manifest, blocks, **arguments, directory=tmp_path)
+        if consumer == "shared":
+            return shared_matrix()
         return prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments)
 
     try:
@@ -1435,7 +1510,7 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
                 if defect == "allocation":
                     retained = tracemalloc.get_traced_memory()[0] - baseline
                     assert operand_bytes == 2 * 1024**2 and retained < operand_bytes // 2
-                if consumer == "mapping":
+                if consumer != "payload":
                     assert values.shape == shape and values.dtype == np.dtype("<u2")
                     assert not values.flags.owndata and not values.flags.writeable
                     assert receipt["source_range_bytes"] == operand_bytes
@@ -1468,7 +1543,7 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
                         elsewhere = tmp_path / "elsewhere"
                         elsewhere.mkdir()
                         monkeypatch.chdir(elsewhere)
-                    if consumer == "mapping":
+                    if consumer != "payload":
                         for _, chunk in prism_codec.iter_profile_bf16_matrix_chunks(profile, inventory, manifest, blocks,
                                source_name=source_name, source_values=values):
                            assert chunk.nbytes <= 65536 and chunk.flags.owndata and not np.any(chunk)
@@ -1501,6 +1576,45 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
         path.unlink(missing_ok=True)
         if defect in ("symlink", "fifo"):
             alternate.unlink()
+
+
+def test_profile_mapped_bf16_shard_refuses_cross_shard_matrix(tmp_path):
+    from embedded_jev.prism_codec import mapped_profile_safetensors_bf16_shard, profile_model_conversion_plan
+
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True, source_shards=2)
+    shard = profile.packaging["shards"][0]
+    entries, payload_bytes = {}, 0
+    for item in sorted(inventory["tensors"], key=lambda item: item["name"]):
+        if item["shard"] != shard:
+            continue
+        size = int(np.prod(item["shape"])) * 2
+        entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + size]}
+        payload_bytes += size
+    header, file_bytes = _header(entries, payload_bytes)
+    path = tmp_path / shard
+    path.write_bytes(header + bytes(payload_bytes))
+    plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
+    wrong = next(item for item in plan["tensors"] if item["type"] == "BF16" and item["source_name"] not in entries)
+    right = next(item for item in plan["tensors"] if item["type"] == "BF16" and item["source_name"] in entries)
+    arguments = {"source_path": path, "source_shard": shard, "expected_file_bytes": file_bytes,
+                 "expected_file_sha256": profile.files[shard].sha256}
+    try:
+        with mapped_profile_safetensors_bf16_shard(profile, inventory, manifest, blocks, **arguments) as (matrix, _):
+            wrong_bytes = int(np.prod(wrong["source_shape"])) * 2
+            with pytest.raises(ValueError, match="belongs to another shard"):
+                with matrix(wrong["source_name"], hashlib.sha256(bytes(wrong_bytes)).hexdigest()):
+                    pytest.fail("a matrix from another declared shard was accepted")
+            right_bytes = int(np.prod(right["source_shape"])) * 2
+            with matrix(right["source_name"], hashlib.sha256(bytes(right_bytes)).hexdigest()) as (values, receipt):
+                assert values.nbytes == right_bytes and not np.any(values)
+                assert receipt["source_file_sha256"] == arguments["expected_file_sha256"]
+            assert values._mmap.closed
+        with pytest.raises(ValueError, match="shard is not declared"):
+            with mapped_profile_safetensors_bf16_shard(profile, inventory, manifest, blocks,
+                     **{**arguments, "source_shard": "undeclared.safetensors"}):
+                pytest.fail("an undeclared shard was accepted")
+    finally:
+        path.unlink()
 
 
 @pytest.mark.parametrize("defect", [None, "manifest-digest", "manifest-schema", "manifest-type", "array", "file", "dtype", "budget"])
