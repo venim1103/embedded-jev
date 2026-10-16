@@ -1476,6 +1476,25 @@ remain separate gates. Its transforms use NumPy, not an implicit Torch/model
 dependency. Reviewed upstream Torch methods are exercised only by optional
 synthetic controls in the already cached environment.
 
+`iter_profile_bf16_matrix_chunks(..., source_name=..., source_values=...,
+maximum_chunk_bytes=...)` uses the same profile plan to convert borrowed
+little-endian uint16 BF16 matrices without whole-matrix F32 expansion.
+It yields `(first_row, chunk)` with owned, contiguous, read-only rows in
+destination order, including declared V row/head/column permutations.
+The output cap defaults to 64 KiB and is at most 1 MiB; at least one row must
+fit. Frozen PQ2 replacements and F32 vector/convolution paths are excluded.
+No Torch/GGUF import occurs. Exhaustive finite BF16 storage equivalence and
+the actual pinned converter transforms are checked by optional synthetic tests.
+
+The source array or read-only mmap is caller-owned and not authenticated or
+globally snapshotted. Only yielded rows are copied; later source changes may
+affect subsequent chunks. Nonfinite values are refused per chunk, so consumers
+must discard partial output if iteration fails. Retaining chunks grows memory;
+the cap excludes source storage, index/mask temporaries and profile/projection
+validation. This is not a peak-RAM guarantee, file verifier, GGUF writer or
+runtime approval. See the [BF16 chunk checkpoint](handover.md#bf16-chunk-primitive-checkpoint-2026-10-16)
+for the mmap ownership repair and scoped evidence.
+
 `verify_profile_converted_convolution(..., source_name=..., source_values=...,
 converted_values=..., expected_source_sha256=...)` checks declared convolution
 weights from BF16/F32 3D source arrays to F32 2D outputs. It decodes BF16,

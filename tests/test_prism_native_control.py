@@ -13,6 +13,31 @@ PRISM_REVISION = "842b1880415d6f508f03b789e5ce70194def7bfd"
 BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
 
 
+def test_pinned_prism_finite_bf16_conversion_bytes():
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    converter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source_dir or not converter:
+        pytest.skip("requires pinned source and GGUF environment")
+    assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    code = """
+import gguf
+import numpy as np
+import torch
+
+bits = np.arange(65536, dtype=np.uint16)
+bits = bits[(bits & 0x7F80) != 0x7F80]
+values = torch.from_numpy(bits.copy()).view(torch.bfloat16).float().numpy()
+converted = gguf.quants.quantize(values, gguf.GGMLQuantizationType.BF16).view(np.uint16).reshape(-1)
+mismatches = np.flatnonzero(converted != bits)
+assert len(bits) == 65280
+assert not len(mismatches), [(hex(int(bits[index])), hex(int(converted[index]))) for index in mismatches[:16]]
+"""
+    result = subprocess.run([converter, "-c", code], capture_output=True, text=True, timeout=30,
+                            env={**os.environ, "PYTHONPATH": str(Path(source_dir) / "gguf-py"),
+                                 "PYTHONDONTWRITEBYTECODE": "1"})
+    assert result.returncode == 0, result.stderr
+
+
 def _profile_parity_fixture(profile, inventory, manifest, blocks):
     from dataclasses import asdict
 
@@ -4476,6 +4501,10 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         matrix_operands[item["name"]] = (item["source_name"], raw_source, raw_converted)
         assert receipt["converted_sha256"] == hashlib.sha256(memoryview(raw_converted)).hexdigest()
         assert receipt["source_file_verification"] == receipt["converted_file_verification"] == "not_checked"
+        chunks = prism_codec.iter_profile_bf16_matrix_chunks(profile, fixture["inventory"], fixture["manifest"], payload,
+                 source_name=item["source_name"], source_values=raw_source,
+                 maximum_chunk_bytes=7 * raw_source.shape[1] * 2)
+        assert np.array_equal(np.concatenate([chunk for _, chunk in chunks]), raw_converted)
         changed = raw_converted.copy()
         changed.flat[0] ^= 0x8000
         keywords["converted_values"] = changed

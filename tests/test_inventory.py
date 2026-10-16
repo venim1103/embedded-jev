@@ -776,7 +776,7 @@ def test_profile_gguf_vector_refuses_invalid_file_budget_before_reader_import(mo
 
 @pytest.mark.parametrize("defect", [None, "digest", "budget", "boolean-budget", "frozen", "vector", "convolution", "dtype", "shape", "nonfinite", "bits"])
 def test_profile_converted_matrix_identity_and_refusals(defect):
-    from embedded_jev.prism_codec import verify_profile_converted_matrix
+    from embedded_jev.prism_codec import iter_profile_bf16_matrix_chunks, verify_profile_converted_matrix
 
     profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
     source = (np.arange(64 * 1024).reshape(64, 1024) % 17).astype("<u2")
@@ -807,6 +807,12 @@ def test_profile_converted_matrix_identity_and_refusals(defect):
         receipt = verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
         assert receipt["converted_sha256"] == hashlib.sha256(memoryview(converted)).hexdigest()
         assert receipt["source_file_verification"] == receipt["converted_file_verification"] == "not_checked"
+        chunks = list(iter_profile_bf16_matrix_chunks(profile, report, manifest, blocks,
+                      source_name=arguments["source_name"], source_values=source, maximum_chunk_bytes=3 * source.shape[1] * 2))
+        assert [first for first, _ in chunks] == list(range(0, source.shape[0], 3))
+        assert np.array_equal(np.concatenate([chunk for _, chunk in chunks]), converted)
+        assert all(chunk.flags.owndata and chunk.flags.c_contiguous and not chunk.flags.writeable and
+                   not np.shares_memory(chunk, source) and chunk.nbytes <= 3 * source.shape[1] * 2 for _, chunk in chunks)
         with pytest.raises(TypeError):
             receipt["converted_sha256"] = "0" * 64
     else:
@@ -816,8 +822,8 @@ def test_profile_converted_matrix_identity_and_refusals(defect):
 
 @pytest.mark.parametrize("value_heads", [2, 4])
 @pytest.mark.parametrize("suffix", ["in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b", "out_proj"])
-def test_profile_converted_matrix_reorders_exact_head_indices(value_heads, suffix):
-    from embedded_jev.prism_codec import verify_profile_converted_matrix
+def test_profile_converted_matrix_reorders_exact_head_indices(value_heads, suffix, tmp_path):
+    from embedded_jev.prism_codec import iter_profile_bf16_matrix_chunks, verify_profile_converted_matrix
 
     profile, report, manifest, blocks = _prefill_model_policy_fixture("down", value_heads=value_heads)
     name = "model.layers.0.linear_attn." + suffix + ".weight"
@@ -837,11 +843,99 @@ def test_profile_converted_matrix_reorders_exact_head_indices(value_heads, suffi
                  "expected_source_sha256": hashlib.sha256(memoryview(source)).hexdigest(), "maximum_bytes": 16 * 1024**2}
     receipt = verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
     assert receipt["converted_sha256"] == hashlib.sha256(memoryview(converted)).hexdigest()
+    row_count = min(7, max(1, source.shape[0] // 2))
+    chunks = list(iter_profile_bf16_matrix_chunks(profile, report, manifest, blocks,
+                  source_name=name, source_values=source, maximum_chunk_bytes=row_count * source.shape[1] * 2))
+    assert [first for first, _ in chunks] == list(range(0, source.shape[0], row_count))
+    assert np.array_equal(np.concatenate([chunk for _, chunk in chunks]), converted)
+    assert all(chunk.flags.owndata and chunk.flags.c_contiguous and not chunk.flags.writeable and
+               not np.shares_memory(chunk, source) and chunk.nbytes <= row_count * source.shape[1] * 2 for _, chunk in chunks)
+    path = tmp_path / "source.bf16"
+    source.tofile(path)
+    mapped = np.memmap(path, mode="r", dtype="<u2", shape=source.shape)
+    mapped_chunks = list(iter_profile_bf16_matrix_chunks(profile, report, manifest, blocks,
+                         source_name=name, source_values=mapped, maximum_chunk_bytes=row_count * source.shape[1] * 2))
+    assert np.array_equal(np.concatenate([chunk for _, chunk in mapped_chunks]), converted)
+    assert all(chunk.flags.owndata and chunk.flags.c_contiguous and not chunk.flags.writeable and
+               not np.shares_memory(chunk, mapped) for _, chunk in mapped_chunks)
+    del mapped
     if value_heads == 4:
         assert not np.array_equal(source, converted)
         arguments["converted_values"] = source
         with pytest.raises(ValueError, match="byte parity"):
             verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
+
+
+@pytest.mark.parametrize("defect", ["zero-budget", "boolean-budget", "large-budget", "row-budget", "frozen", "vector",
+                                    "convolution", "dtype", "endian", "shape", "layout", "array", "infinity", "nan", "late-nonfinite"])
+def test_profile_bf16_matrix_chunks_refuse_unsupported_or_nonfinite_values(monkeypatch, defect):
+    import sys
+
+    from embedded_jev.prism_codec import iter_profile_bf16_matrix_chunks
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
+    source = np.zeros((64, 1024), dtype="<u2")
+    arguments = {"source_name": "model.layers.1.self_attn.k_proj.weight", "source_values": source,
+                 "maximum_chunk_bytes": 2 * source.shape[1] * 2}
+    if defect == "zero-budget":
+        arguments["maximum_chunk_bytes"] = 0
+    elif defect == "boolean-budget":
+        arguments["maximum_chunk_bytes"] = True
+    elif defect == "large-budget":
+        arguments["maximum_chunk_bytes"] = 1024**2 + 1
+    elif defect == "row-budget":
+        arguments["maximum_chunk_bytes"] = source.shape[1] * 2 - 1
+    elif defect == "frozen":
+        arguments["source_name"] = manifest["tensor"]
+    elif defect == "vector":
+        arguments["source_name"] = "model.norm.weight"
+    elif defect == "convolution":
+        arguments["source_name"] = "model.layers.0.linear_attn.conv1d.weight"
+    elif defect == "dtype":
+        arguments["source_values"] = source.astype(np.float32)
+    elif defect == "endian":
+        arguments["source_values"] = source.astype(">u2")
+    elif defect == "shape":
+        arguments["source_values"] = source[:-1]
+    elif defect == "layout":
+        arguments["source_values"] = np.asfortranarray(source)
+    elif defect == "array":
+        arguments["source_values"] = source.tolist()
+    elif defect == "infinity":
+        source[0, 0] = 0xFF80
+    elif defect == "nan":
+        source[0, 0] = 0x7FC1
+    elif defect == "late-nonfinite":
+        source[2, 0] = 0x7F80
+    monkeypatch.setitem(sys.modules, "torch", None)
+    monkeypatch.setitem(sys.modules, "gguf", None)
+    chunks = iter_profile_bf16_matrix_chunks(profile, report, manifest, blocks, **arguments)
+    if defect == "late-nonfinite":
+        first, chunk = next(chunks)
+        assert first == 0 and chunk.shape == (2, 1024) and not chunk.flags.writeable
+    with pytest.raises(ValueError):
+        next(chunks)
+
+
+def test_profile_bf16_matrix_chunks_borrow_source_but_own_each_result(monkeypatch):
+    import sys
+
+    from embedded_jev.prism_codec import iter_profile_bf16_matrix_chunks
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
+    source = np.zeros((64, 1024), dtype="<u2")
+    monkeypatch.setitem(sys.modules, "torch", None)
+    monkeypatch.setitem(sys.modules, "gguf", None)
+    chunks = iter_profile_bf16_matrix_chunks(profile, report, manifest, blocks,
+                source_name="model.layers.1.self_attn.k_proj.weight", source_values=source,
+                maximum_chunk_bytes=2 * source.shape[1] * 2)
+    first, chunk = next(chunks)
+    source[:] = 0x8000
+    assert first == 0 and np.all(chunk == 0)
+    second, later = next(chunks)
+    assert second == 2 and np.all(later == 0x8000)
+    assert not np.shares_memory(chunk, later) and not np.shares_memory(later, source)
+    chunks.close()
 
 
 @pytest.mark.parametrize("source_dtype", ["BF16", "F32"])

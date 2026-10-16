@@ -45,6 +45,9 @@ After user-pushed `fb2852c`, long singleton warmup/reset/replay also passes
 through the same three backends, without rebuilding runtime libraries.
 After `443e1f1`, deterministic singleton alternation between two contexts
 sharing one loaded model also passes independent history-sensitive references.
+After user-pushed `1b9c2f6`, a profile-gated BF16 matrix chunk primitive passes
+exhaustive finite-storage and pinned-transform controls. It is not a complete
+converter or approval to retry the refused real-model conversion.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -129,7 +132,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [native loader isolation checkpoint](#native-loader-isolation-checkpoint-2026-10-16),
+2. Read the [BF16 chunk primitive checkpoint](#bf16-chunk-primitive-checkpoint-2026-10-16),
+   then the [native loader isolation checkpoint](#native-loader-isolation-checkpoint-2026-10-16),
    then the [native loader reset checkpoint](#native-loader-reset-checkpoint-2026-10-16),
    then the [native loader continuation checkpoint](#native-loader-continuation-checkpoint-2026-10-16),
    then the [detached singleton checkpoint](#detached-singleton-checkpoint-2026-10-16),
@@ -258,6 +262,57 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Chunk Primitive Checkpoint (2026-10-16)
+
+Resumed after user-pushed `1b9c2f6`; only untouched editor settings were
+untracked. The first bounded lower-memory conversion prerequisite now exists:
+`iter_profile_bf16_matrix_chunks` uses the existing profile conversion plan
+to emit owned, contiguous, read-only little-endian uint16 BF16 row chunks.
+It implements identity and the declared grouped-to-tiled V row/head/column
+permutations through bounded index maps, without whole-matrix F32 expansion
+or optional Torch/GGUF imports. Frozen PQ2 replacements, vectors/convolutions,
+wrong shapes/dtypes/endian/layout, invalid budgets and nonfinite chunks refuse.
+The output cap defaults to **64 KiB**, at most **1 MiB**; a row must fit.
+
+An optional pinned Torch-to-GGUF probe tests all **65,280 finite BF16 encodings**
+(including signed zeros and subnormals) and passes exact bytes in **1.37 s**.
+This establishes finite raw-BF16 roundtrip equivalence, not nonfinite support.
+Existing literal-index identity/permutation controls validate chunk boundaries
+and ownership; focused **21 cases pass in 0.55 s**, then **37 cases in 0.79 s**
+with added refusal/borrowed-source checks. The existing pinned converter control
+now checks all **16 BF16 matrices** through the iterator against upstream Torch
+transforms, initially passing in **2.98 s**.
+
+A subsequent read-only mmap boundary check exposed **four ownership failures**
+in unequal-head QKV/Z/alpha/beta row gathers (**six cases passed, 0.64 s**);
+all numerical bytes matched. Normalizing the borrowed source with zero-copy
+`np.asarray` before gathering removes subclass propagation. The same unchanged
+ten ownership/oracle cases then pass in **0.47 s**. No ownership assertion,
+numerical criterion or bound was relaxed. The original failure log is retained.
+Final-source pinned matrix control passes in **2.88 s**; the required gate
+passes **569 tests, 89 optional skips in 16.83 s**, Ruff/whitespace clean.
+The earlier pre-mmap gate (**569/89, 14.00 s**) is historical, not substituted
+for this final-source gate. Editor diagnostics and scoped docs checks pass.
+
+Source arrays/mappings remain borrowed: chunks snapshot only their own rows,
+later writes can affect later chunks, and a late nonfinite chunk fails after
+earlier chunks were yielded. Consumers must discard partial output on failure
+and perform separate source/file/whole-artifact verification before publication.
+The chunk cap does not bound caller source storage, retained output chunks,
+index/mask temporaries, profile/projection validation or process peak RAM.
+No whole-converter RSS improvement is measured or claimed.
+
+External `bf16-matrix-chunk-final-evidence.json` has reread SHA-256
+`be749a48c6001b728ed28b72d90b4ede17f9bf95a77c7268ad3755e822f2f7f3`;
+it preserves the earlier report hash, final source identities and copied,
+hash-verified mmap failure log outside Git. The pinned converter checkout is
+unchanged/clean. Synthetic mmap/GGUF fixtures use normal bounded temporary
+cleanup; no learned weights, frozen artifact, full conversion, download,
+native runtime build, refit, candidate, quality or other-model execution ran.
+Next: a bounded disposable payload consumer and verified source-range lifetime
+before integration into a full writer. Another real artifact/experiment still
+requires separate approval and a materially changed memory plan.
 
 ## Native Loader Isolation Checkpoint (2026-10-16)
 

@@ -329,6 +329,62 @@ def verify_profile_converted_vector(
                             "runtime_approval": "not_granted_by_operand_verification"})
 
 
+def iter_profile_bf16_matrix_chunks(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
+    source_values: np.ndarray, maximum_chunk_bytes: int = 64 * 1024,
+):
+    """Yield (first_row, owned read-only BF16 rows) from borrowed, unauthenticated source values."""
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if (
+        entry is None or entry["type"] != "BF16" or entry["source_dtype"] != "BF16" or len(entry["source_shape"]) != 2
+        or type(maximum_chunk_bytes) is not int or not 0 < maximum_chunk_bytes <= 1024**2
+        or not isinstance(source_values, np.ndarray) or source_values.dtype != np.dtype("<u2")
+        or source_values.shape != tuple(entry["source_shape"]) or not source_values.flags.c_contiguous
+    ):
+        raise ValueError("unsupported chunked BF16 matrix or output budget")
+    source_values = np.asarray(source_values)
+    transforms = entry["transforms"]
+    if transforms not in (
+        ["encode_bf16"], ["v_rows_grouped_to_tiled", "encode_bf16"],
+        ["v_columns_grouped_to_tiled", "encode_bf16"], ["v_heads_grouped_to_tiled", "encode_bf16"],
+    ):
+        raise ValueError("unsupported chunked BF16 matrix transform")
+    rows, columns = source_values.shape
+    rows_per_chunk = maximum_chunk_bytes // (columns * 2)
+    if rows_per_chunk == 0:
+        raise ValueError("chunked BF16 matrix row exceeds output budget")
+    heads = plan["linear_head_layout"]
+    groups = heads["linear_num_key_heads"]
+    per_group = heads["linear_num_value_heads"] // groups
+
+    def source_indices(indices, head_dim, prefix=0):
+        selected = indices >= prefix
+        relative = indices[selected] - prefix
+        head = relative // head_dim
+        indices[selected] = prefix + ((head % groups) * per_group + head // groups) * head_dim + relative % head_dim
+        return indices
+
+    column_indices = None
+    if transforms[0] == "v_columns_grouped_to_tiled":
+        column_indices = source_indices(np.arange(columns), heads["linear_value_head_dim"])
+    for first in range(0, rows, rows_per_chunk):
+        last = min(first + rows_per_chunk, rows)
+        if transforms[0] in ("v_rows_grouped_to_tiled", "v_heads_grouped_to_tiled"):
+            prefix = 2 * groups * heads["linear_key_head_dim"] if transforms[0] == "v_rows_grouped_to_tiled" else 0
+            width = heads["linear_value_head_dim"] if transforms[0] == "v_rows_grouped_to_tiled" or source_name.endswith("in_proj_z.weight") else 1
+            indices = source_indices(np.arange(first, last), width, prefix)
+            chunk = source_values[indices]
+        elif column_indices is not None:
+            chunk = np.ascontiguousarray(source_values[first:last, column_indices])
+        else:
+            chunk = source_values[first:last].copy()
+        if np.any((chunk & 0x7F80) == 0x7F80):
+            raise ValueError("chunked BF16 matrix operands must be finite")
+        chunk.flags.writeable = False
+        yield first, chunk
+
+
 def verify_profile_converted_matrix(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
     source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,
