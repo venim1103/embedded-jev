@@ -2737,7 +2737,21 @@ raw/history bits, reset-aware arithmetic, all six native schedule bits and
 strict refusals are covered by the existing focused compiled test, with
 unchanged SiLU tolerance. See the
 [native convolution ownership checkpoint](handover.md#native-convolution-ownership-checkpoint-2026-10-16).
-This does not yet integrate native history into the learned driver.
+That control alone does not establish learned history integration.
+
+The [learned convolution owner checkpoint](handover.md#learned-convolution-owner-checkpoint-2026-10-16)
+separately validates a typed history owner (F32, channels 1-8192, four taps,
+three retained inputs, total tokens <=80) and synthetic/learned coarse
+four-layer resident composition with three native GDN/history pairs plus native attention
+cache. Host snapshots are oracle-only; residual/down sums stay host F32. The
+scratch module-hook adapter is synchronous and **not thread-safe**, not a
+production loader. Keep all original stage/cache checks and source-only upload
+guards. A post-update error must close all owners. The combined 64+16 learned
+continuation stopped on the unchanged host-swap guard; combined all-singleton
+execution remains untested. Do not retry an unchanged failed resource gate,
+substitute another schedule seeking green, infer a completed numerical verdict,
+or use wrapper RSS/swaps when the timing file is empty. Retain explicit null
+experiment measurements, check termination/cleanup and recheck pins read-only.
 
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with

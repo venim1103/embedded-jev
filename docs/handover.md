@@ -16,11 +16,13 @@ source control also passes. Latest continuation starts at user-pushed `d88871b`
 with only untouched editor settings untracked. A separately bounded native
 recurrent-state ownership control, typed helper and learned four-layer coarse
 resident integration now pass. Three native recurrent buffers carry state;
-host readbacks are oracles and convolution history remains host-carried.
+host readbacks are oracles. Those GDN-only controls keep host convolution history.
 Learned 64-prefill/16-singleton and all-80-singleton continuation also pass
-against unchanged same-schedule references. A subsequent bounded synthetic
-native convolution-history ownership control passes; its learned integration
-is not yet established. No full conversion was retried.
+against unchanged same-schedule references. A subsequent native convolution
+control/typed helper and combined learned coarse adapter also pass. Combined
+64+16 continuation stopped on the unchanged swap guard; its numerical verdict
+is unavailable and combined all-singleton execution was not started. No retry
+or full conversion was attempted after that guard stop.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -105,7 +107,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [native convolution ownership checkpoint](#native-convolution-ownership-checkpoint-2026-10-16),
+2. Read the [learned convolution owner checkpoint](#learned-convolution-owner-checkpoint-2026-10-16),
+   then the [native convolution ownership checkpoint](#native-convolution-ownership-checkpoint-2026-10-16),
    then the [native state singleton checkpoint](#native-state-singleton-checkpoint-2026-10-16),
    then the [learned native state checkpoint](#learned-native-state-checkpoint-2026-10-16),
    then the [typed recurrent owner checkpoint](#typed-recurrent-owner-checkpoint-2026-10-16),
@@ -224,6 +227,99 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Learned Convolution Owner Checkpoint (2026-10-16)
+
+After `b52e20b`, scratch `PersistentConvolution` validates finite F32
+`[channels,3]` initial history and `[channels,4]` filters, channels 1-8192,
+append-only total tokens <=80. It uses the pinned native concat/SSM-conv/SiLU/
+strided-tail CPY graph and explicit cache buffer/context/backend lifetime.
+Only current input/filter tensors are uploaded after initialization; the
+resident adapter hooks refuse history restores. Snapshots are independent host
+oracles, never runtime history inputs. Output dimensions are checked before
+graph allocation, all source bytes are preserved, history bytes/address/buffer
+base are checked after graph teardown. Invalid input refuses before mutation;
+post-update failure closes the owner. There is no reset API.
+
+Typed helper self-test: **18 cases**, channels **8, 32, 8192** times six
+schedules, raw/SiLU/full-history bits exact to the unchanged host-history
+helper; all six eight-channel cases also match the compiled control exactly.
+Eight invalid steps, noncontiguous equivalence, exhausted/closed refusal,
+idempotent close and injected post-native-update failure cleanup pass. A
+separate scratch control binary was compiled without replacing cached modules.
+
+`native_history_resident.py` adds three such history owners to the already
+verified three native GDN owners and persistent attention owner. Projections,
+head order, norms, blocked MLP and host F32 residual/down sums are unchanged.
+The adapter only substitutes convolution/GDN carry. It routes the synchronous
+scratch calls with restored-on-exit module hooks; it is **not thread-safe** or
+a production loader. Readback histories/states are oracle arrays. Native
+history/GDN positions match the resident position after each successful step;
+partial advancement closes every owner instead of pretending rollback.
+
+| Check | Seconds | Peak Child RSS KiB | Min Host Available Bytes | Max Host Swap Growth Bytes | Process Swaps |
+| --- | --- | --- | --- | --- | --- |
+| Typed history helper, 18 synthetic cases | 1.47 | 270,084 | 14,520,766,464 | 0 | 0 |
+| Combined seven-token monolithic/singleton synthetic stack | 43.19 | 1,062,516 | 12,320,645,120 | 0 | 0 |
+| Combined cached-MiMo four coarse schedules | 39.53 | 3,580,176 | 10,441,805,824 | 284,766,208 | 0 |
+
+Combined synthetic results match **every** recurrent/attention stage and final
+history/state/KV cache of the unchanged layer-major reference. Four invalid
+resident inputs, injected mid-layer failure, closed refusal/idempotent close
+pass; nine history and nine GDN owners all close. The learned fixed 80-token
+**80, 31+49, 40+40, 1+63+16** schedules also pass unchanged prior checks.
+Direct comparison with the current native-state report verifies its **entire
+same-schema** four-layer stage/hash/cache/metric dictionary exactly, plus
+identical runtime/model/helper pins. Twelve history and twelve GDN owners all
+close with zero host restores. This is the first bounded learned **coarse**
+combined native-history/GDN ownership evidence, not a full-model result.
+
+**Resource-blocked continuation:** the combined native-history 64-prefill /
+16-singleton child was stopped at **27.02 s**, status **-15**, after host swap
+growth **596,918,272 bytes** exceeded the unchanged **512 MiB** guard. Minimum
+observed available RAM was **12,590,112,768 bytes**; observed filesystem growth
+was **270,336 bytes**. This is a host-global guard observation, not proof of
+which process caused the swap growth. The timing file is empty: the retained
+**10,440 KiB** supervisor fallback and zero child-swap counter are **not** usable
+experiment measurements. Separate guard diagnosis explicitly records experiment
+RSS/swaps as **null**. Stderr contains only the existing Transformers fallback
+warning, no completed numerical verdict. No decode numerical report exists;
+the combined all-singleton job was **not started**. Neither the stopped job nor
+another schedule was retried to seek green, and no bound/tolerance was relaxed.
+
+Post-stop read-only diagnosis observed **14,719,406,080 bytes** available RAM,
+**1,328,173,056 bytes** used swap and **544,906,784,768 bytes** free scratch.
+That later RAM availability does not erase or explain the guard event. No
+unrelated process was killed, host setting changed or missing fast-path library
+installed as a workaround. Verified no owned experiment children survived and
+no raw arrays/replay packets/GGUF/spill files or partial decode report remained.
+Then rechecked all six runtime/frozen hashes, profile/metadata, initial
+authenticated shard **identities** (not new full-weight hashes), installed
+Transformers model code, nine helper hashes and compiled-control source pin.
+All match. The old GDN-only learned singleton proofs remain valid, but they
+do not prove combined native-history singleton execution.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `persistent-conv-selftest-result.json` | `9b95734aeb6758115a63d493f8de66e508a589490784699b714bb287e0de1b05` |
+| `native-history-resident-selftest-result.json` | `f1316e386af2c2128d439513b66d93717baf2d51e1312a20cc5c2a1f17c449d8` |
+| `native-history-resident-comparison.json` | `4db102ba2fa7807e1505f62f50493bc782703f5392c11843d86eb5d81de782d9` |
+| `native-history-resident-decode-guard-diagnosis.json` | `3941e90f7af7120b7bdc6d1eb17225ef720cd76cf14bda05e55062c9edaefb14` |
+
+Separate compiled control SHA-256:
+`d02c8bc78712e6b29fb8a61dee4f1c5369cfed115299977a9516f7d3d031a62a`.
+Scratch totals **2,879,176 bytes** outside Git, only small scripts/reports/tools;
+original reports and failed logs are preserved. Scoped Ruff, focused synthetic,
+coarse learned and docs/link/editor/whitespace checks accompany this docs-only
+checkpoint; successful source gate `b52e20b` (**553 passed, 88 optional skips,
+12.93 s**) is unchanged and was not rerun. No full conversion/download/refit/
+new candidate/compensation/quality/other-model action started. Original score
+failure, full-model logit gap and conversion blocker remain open. Next learned
+continuation is blocked on lower host memory pressure under the same guards;
+do not retry unchanged or reinterpret the incomplete run as numerical evidence.
+No full-loader/whole-model BitNet/v2 P4/quality/device acceptance is established.
 
 ## Native Convolution Ownership Checkpoint (2026-10-16)
 
