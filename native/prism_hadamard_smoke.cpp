@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <utility>
 #include <vector>
 
 static int qk_norm_control() {
@@ -57,6 +58,116 @@ static int qk_norm_control() {
         std::printf("%s%.9g", index ? "," : "", actual[index]);
     }
     std::puts("]}");
+    return 0;
+}
+
+static int kv_write_control(int tokens, int first_token, bool permuted) {
+    constexpr int width = 256;
+    constexpr int heads = 2;
+    constexpr int cache_tokens = 128;
+    constexpr int channels = width * heads;
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+    if (!context) {
+        return 1;
+    }
+    auto* key = ggml_new_tensor_2d(context.get(), GGML_TYPE_F16, channels, cache_tokens);
+    auto* value = ggml_new_tensor_2d(context.get(), GGML_TYPE_F16, 1, channels * cache_tokens);
+    auto* key_source = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, channels, tokens);
+    auto* value_source = ggml_new_tensor_2d(context.get(), GGML_TYPE_F32, 1, channels * tokens);
+    auto* key_indices = ggml_new_tensor_1d(context.get(), GGML_TYPE_I64, tokens);
+    auto* value_indices = ggml_new_tensor_1d(context.get(), GGML_TYPE_I64, channels * tokens);
+    for (auto* tensor : { key, value, key_source, value_source, key_indices, value_indices }) {
+        ggml_set_input(tensor);
+        ggml_set_output(tensor);
+    }
+    auto* key_output = ggml_set_rows(context.get(), key, key_source, key_indices);
+    auto* value_output = ggml_set_rows(context.get(), value, value_source, value_indices);
+    auto* graph = ggml_new_graph(context.get());
+    for (auto* tensor : { key_output, value_output }) {
+        ggml_set_output(tensor);
+        ggml_build_forward_expand(graph, tensor);
+    }
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
+    std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+        ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+    if (!backend || !allocator || !ggml_backend_supports_op(backend.get(), key_output) ||
+            !ggml_backend_supports_op(backend.get(), value_output) ||
+            !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    std::vector<ggml_fp16_t> keys(cache_tokens * channels);
+    std::vector<ggml_fp16_t> values(keys.size());
+    for (int slot = 0; slot < cache_tokens; ++slot) {
+        for (int channel = 0; channel < channels; ++channel) {
+            keys[slot * channels + channel] = ggml_fp32_to_fp16(((channel * 3 + slot * 7) % 31 - 15) / 32.0f);
+            values[channel * cache_tokens + slot] = ggml_fp32_to_fp16(((channel * 5 + slot * 2) % 23 - 11) / 32.0f);
+        }
+    }
+    std::vector<float> updates_key(tokens * channels);
+    std::vector<float> updates_value(updates_key.size());
+    std::vector<std::int64_t> indices_key(tokens);
+    std::vector<std::int64_t> indices_value(tokens * channels);
+    for (int token = 0; token < tokens; ++token) {
+        const int absolute = first_token + token;
+        const int slot = permuted ? (absolute * 37) % cache_tokens : absolute;
+        indices_key[token] = slot;
+        for (int head = 0; head < heads; ++head) {
+            for (int column = 0; column < width; ++column) {
+                const int channel = head * width + column;
+                const int index = token * channels + channel;
+                updates_key[index] = ((column * 7 + absolute * 3 + head * 11) % 29 - 14) / 103.0f;
+                updates_value[index] = ((column * 5 + absolute * 2 + head * 13) % 23 - 11) / 97.0f;
+                indices_value[index] = channel * cache_tokens + slot;
+            }
+        }
+    }
+    ggml_backend_tensor_set(key, keys.data(), 0, keys.size() * sizeof(ggml_fp16_t));
+    ggml_backend_tensor_set(value, values.data(), 0, values.size() * sizeof(ggml_fp16_t));
+    for (const auto& entry : { std::make_pair(key_source, &updates_key), std::make_pair(value_source, &updates_value) }) {
+        ggml_backend_tensor_set(entry.first, entry.second->data(), 0, entry.second->size() * sizeof(float));
+    }
+    for (const auto& entry : { std::make_pair(key_indices, &indices_key), std::make_pair(value_indices, &indices_value) }) {
+        ggml_backend_tensor_set(entry.first, entry.second->data(), 0, entry.second->size() * sizeof(std::int64_t));
+    }
+    if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+        return 3;
+    }
+    ggml_backend_tensor_get(key_output, keys.data(), 0, keys.size() * sizeof(ggml_fp16_t));
+    ggml_backend_tensor_get(value_output, values.data(), 0, values.size() * sizeof(ggml_fp16_t));
+    for (const auto& entry : { std::make_pair(key_source, &updates_key), std::make_pair(value_source, &updates_value) }) {
+        std::vector<float> unchanged(entry.second->size());
+        ggml_backend_tensor_get(entry.first, unchanged.data(), 0, unchanged.size() * sizeof(float));
+        if (std::memcmp(unchanged.data(), entry.second->data(), unchanged.size() * sizeof(float)) != 0) {
+            return 4;
+        }
+    }
+    for (const auto& entry : { std::make_pair(key_indices, &indices_key), std::make_pair(value_indices, &indices_value) }) {
+        std::vector<std::int64_t> unchanged(entry.second->size());
+        ggml_backend_tensor_get(entry.first, unchanged.data(), 0, unchanged.size() * sizeof(std::int64_t));
+        if (std::memcmp(unchanged.data(), entry.second->data(), unchanged.size() * sizeof(std::int64_t)) != 0) {
+            return 4;
+        }
+    }
+    for (const auto* data : { &keys, &values }) {
+        if (!std::all_of(data->begin(), data->end(), [](ggml_fp16_t entry) { return std::isfinite(ggml_fp16_to_fp32(entry)); })) {
+            return 4;
+        }
+    }
+    std::printf("{\"width\":%d,\"cache_heads\":%d,\"cache_tokens\":%d,\"tokens\":%d,\"first_token\":%d,"
+                "\"row_mode\":\"%s\",\"cache_type\":\"f16\",\"operation\":\"set_rows\",\"source_and_indices_unchanged\":true",
+                width, heads, cache_tokens, tokens, first_token, permuted ? "permuted" : "contiguous");
+    const auto emit = [](const char* name, const std::vector<ggml_fp16_t>& data) {
+        std::printf(",\"%s\":[", name);
+        for (std::size_t index = 0; index < data.size(); ++index) {
+            std::printf("%s%.9g", index ? "," : "", ggml_fp16_to_fp32(data[index]));
+        }
+        std::printf("]");
+    };
+    emit("key", keys);
+    emit("value_transposed", values);
+    std::puts("}");
     return 0;
 }
 
@@ -402,6 +513,23 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates,
 }
 
 int main(int argc, char** argv) {
+    if ((argc == 3 || argc == 4 || argc == 5) && std::strcmp(argv[1], "--kv-write-control") == 0) {
+        const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
+                           std::strcmp(argv[2], "80") == 0 ? 80 : 0;
+        int first_token = 0;
+        if (argc >= 4) {
+            const char* end = argv[3] + std::strlen(argv[3]);
+            const auto parsed = std::from_chars(argv[3], end, first_token);
+            if (parsed.ec != std::errc() || parsed.ptr != end) {
+                return 5;
+            }
+        }
+        if (argc == 5 && std::strcmp(argv[4], "contiguous") != 0 && std::strcmp(argv[4], "permuted") != 0) {
+            return 5;
+        }
+        return tokens && first_token >= 0 && first_token < 80 && first_token + tokens <= 80 ?
+            kv_write_control(tokens, first_token, argc == 5 && std::strcmp(argv[4], "permuted") == 0) : 5;
+    }
     if ((argc == 3 || argc == 4 || argc == 5) && std::strcmp(argv[1], "--rope-control") == 0) {
         const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
                            std::strcmp(argv[2], "80") == 0 ? 80 : 0;

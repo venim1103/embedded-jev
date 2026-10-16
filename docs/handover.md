@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [connected attention checkpoint](#connected-attention-checkpoint-2026-10-16),
+2. Read the [KV write checkpoint](#kv-write-checkpoint-2026-10-16),
+   then the [connected attention checkpoint](#connected-attention-checkpoint-2026-10-16),
    then the [learned rotary checkpoint](#learned-rotary-checkpoint-2026-10-16),
    then the [partial rotary checkpoint](#partial-rotary-checkpoint-2026-10-16),
    then the [learned attention checkpoint](#learned-attention-checkpoint-2026-10-16),
@@ -198,6 +199,59 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## KV Write Checkpoint (2026-10-16)
+
+After `9b224ac`, inspected the pinned `llama_kv_cache::cpy_k/cpy_v` ownership
+path rather than treating prepopulated attention reads as cache updates. Added
+`--kv-write-control TOKENS [FIRST_TOKEN] [contiguous|permuted]` beside unchanged
+existing commands. It accepts 1/7/80 updates with strict integer logical windows
+within 80, fixed width 256, two KV heads and 128 F16 slots, CPU1. All malformed,
+negative, overflow/trailing, unsupported-mode and extra arguments refuse with
+code 5 and no stdout. Destination slots are unique by construction: contiguous
+absolute slots or multiplication by 37 modulo 128. This is a single-stream,
+unpadded, noncentered, dense synthetic cache, not a model/profile policy.
+
+The actual pinned `ggml_set_rows` operations write contiguous 512-element GQA
+K rows and scalar-indexed **transposed V**. A V source element at token/channel
+is written at physical index `channel * 128 + slot`, matching the non-flash
+writer's flattened view. F32 update values are converted into initialized F16
+destination buffers. Both graphs run and both complete buffers are read back.
+Updates and I64 indices stay live through byte checks; the new report deliberately
+says `source_and_indices_unchanged`, not that mutated destinations are unchanged.
+
+The existing compiled regression exercises ten cases: 1/7/80 at zero, seven at
+64 and one at 79, each with contiguous/permuted slots. Independent NumPy
+oracles require **F16 bit-pattern-exact** readback for every destination element,
+not just selected rows. Every unwritten slot must match its initialized sentinel
+bytes; the permuted path reaches scattered cache addresses without overlap.
+Treating V as untransposed fails an explicit fault control. Two default-argument
+forms and ten malformed invocations are also checked. No numerical tolerance
+is added or relaxed for the store: rounding and untouched-slot preservation are
+exact. Earlier FWHT/QK/GDN/attention/IMRoPE cases still run in the same test.
+
+The focused compiled test passed in **6.65 s**, then **6.94 s** after clarifying
+the report's source-only immutability wording and including the directly used
+standard utility header. There was no failed arithmetic check. The required
+source gate reports **553 passes / 88 optional skips in 21.57 s**,
+Ruff/whitespace clean. Scoped editor/documentation checks accompany the commit.
+Only a disposable executable was compiled against existing pinned CPU/base
+libraries; no cached source/library rebuild, CTest or sanitizer is claimed.
+
+This control loads no weights, writes no model artifact/raw replay packet and
+uses no output head, generated token, option score, conversion, download, refit,
+candidate or quality data. It verifies bounded synthetic writes/readback,
+**not** their connection to the attention graph, persistent native cache
+continuation, mean-centered/padded/quantized/multistream caches, eviction,
+concurrent access, full-loader parity or v2 real-model P4/BitNet acceptance.
+The prior learned score failure and complete-model max logit gap remain open.
+
+Next: reuse these verified layouts in a strictly bounded helper that refuses
+overlapping/out-of-range indices before calling GGML; validate it synthetically
+before any learned write/read composition. Preserve destination precision,
+unwritten bytes and explicit source/head/slot layouts. Do not infer cache-write
+behavior from the preceding prepopulated-read evidence or retry the stopped
+full conversion under unchanged resources.
 
 ## Connected Attention Checkpoint (2026-10-16)
 

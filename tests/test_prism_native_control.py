@@ -2454,6 +2454,51 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     assert np.max(np.abs(actual[1] - additive_expected[1])) > 0.02
     assert np.max(np.abs(actual[2] - additive_expected[2])) > 0.005
 
+    for mode in ("contiguous", "permuted"):
+        for tokens, first_token in ((1, 0), (7, 0), (80, 0), (7, 64), (1, 79)):
+            result = subprocess.run([str(binary), "--kv-write-control", str(tokens), str(first_token), mode],
+                                    check=True, capture_output=True, text=True, timeout=15)
+            report = json.loads(result.stdout)
+            assert report["width"] == 256 and report["cache_heads"] == 2 and report["cache_tokens"] == 128
+            assert report["tokens"] == tokens and report["first_token"] == first_token and report["row_mode"] == mode
+            assert report["cache_type"] == "f16" and report["operation"] == "set_rows" and report["source_and_indices_unchanged"] is True
+            channel = np.arange(512).reshape(2, 256)
+            slots = np.arange(128)
+            original_key = ((channel[None] * 3 + slots[:, None, None] * 7) % 31 - 15).astype(np.float16) / 32
+            original_value = ((channel[:, :, None] * 5 + slots[None, None, :] * 2) % 23 - 11).astype(np.float16) / 32
+            expected_key, expected_value = original_key.copy(), original_value.copy()
+            absolute = np.arange(first_token, first_token + tokens)
+            selected_slots = (absolute * 37) % 128 if mode == "permuted" else absolute
+            assert len(np.unique(selected_slots)) == tokens
+            column, head = np.arange(256)[None, None, :], np.arange(2)[None, :, None]
+            update_key = ((column * 7 + absolute[:, None, None] * 3 + head * 11) % 29 - 14).astype(np.float32) / 103
+            update_value = ((column * 5 + absolute[:, None, None] * 2 + head * 13) % 23 - 11).astype(np.float32) / 97
+            expected_key[selected_slots] = update_key.astype(np.float16)
+            expected_value[:, :, selected_slots] = update_value.astype(np.float16).transpose(1, 2, 0)
+            key = np.asarray(report["key"], dtype=np.float16).reshape(128, 2, 256)
+            value = np.asarray(report["value_transposed"], dtype=np.float16).reshape(2, 256, 128)
+            assert np.isfinite(key).all() and np.isfinite(value).all()
+            np.testing.assert_array_equal(key.view(np.uint16), expected_key.view(np.uint16))
+            np.testing.assert_array_equal(value.view(np.uint16), expected_value.view(np.uint16))
+            untouched = np.ones(128, dtype=bool)
+            untouched[selected_slots] = False
+            np.testing.assert_array_equal(key[untouched].view(np.uint16), original_key[untouched].view(np.uint16))
+            np.testing.assert_array_equal(value[:, :, untouched].view(np.uint16), original_value[:, :, untouched].view(np.uint16))
+            wrong_value = original_value.copy().reshape(-1)
+            wrong_value[(selected_slots[:, None] * 512 + np.arange(512)[None]).reshape(-1)] = update_value.astype(np.float16).reshape(-1)
+            assert not np.array_equal(value.view(np.uint16).reshape(-1), wrong_value.view(np.uint16))
+    for arguments in (["--kv-write-control", "7"], ["--kv-write-control", "7", "0"]):
+        result = subprocess.run([str(binary), *arguments], check=True, capture_output=True, text=True, timeout=15)
+        report = json.loads(result.stdout)
+        assert report["row_mode"] == "contiguous" and report["first_token"] == 0
+    for arguments in (["--kv-write-control"], ["--kv-write-control", "0"], ["--kv-write-control", "81"],
+                      ["--kv-write-control", "80", "1"], ["--kv-write-control", "1", "80"],
+                      ["--kv-write-control", "1", "-1"], ["--kv-write-control", "1", "1junk"],
+                      ["--kv-write-control", "1", "999999999999999999999999999"],
+                      ["--kv-write-control", "1", "0", "duplicate"], ["--kv-write-control", "1", "0", "contiguous", "extra"]):
+        refused = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
+        assert refused.returncode == 5 and not refused.stdout
+
     for mode in ("text", "axes"):
         rope_baseline = None
         for tokens, first_token in ((1, 0), (7, 0), (80, 0), (7, 64), (1, 79)):

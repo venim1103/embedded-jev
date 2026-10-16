@@ -2721,6 +2721,18 @@ boundaries distinct. For output-projection controls, capture gated inputs before
 the BF16-RHS hook. This remains a diagnostic composition without native prefix,
 residual/MLP, KV writes, full-loader or whole-model BitNet acceptance.
 
+`--kv-write-control TOKENS [FIRST_TOKEN] [contiguous|permuted]` separately tests
+actual pinned `ggml_set_rows`: 1/7/80 updates, strict logical window <=80,
+width 256, two KV heads and 128 F16 slots. K writes contiguous GQA rows; the
+non-flash transposed V path writes scalar indices `channel * 128 + slot`.
+Synthetic slots are unique. Independent complete-buffer F16 bit-pattern checks
+cover conversion, selected writes, every untouched sentinel and wrong V layout;
+source F32 values and I64 indices remain byte-exact. See the [KV write checkpoint](handover.md#kv-write-checkpoint-2026-10-16).
+This is not a persistent cache, attention-graph integration, eviction, concurrency,
+mean-centered/padded/quantized/multistream or learned-loader acceptance. Any
+future file/index API must refuse overlaps and out-of-range rows before GGML,
+whose overlapping destination-row behavior is undefined.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
