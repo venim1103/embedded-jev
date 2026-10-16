@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [partial rotary checkpoint](#partial-rotary-checkpoint-2026-10-16),
+2. Read the [learned rotary checkpoint](#learned-rotary-checkpoint-2026-10-16),
+   then the [partial rotary checkpoint](#partial-rotary-checkpoint-2026-10-16),
    then the [learned attention checkpoint](#learned-attention-checkpoint-2026-10-16),
    then the [nonflash attention checkpoint](#nonflash-attention-checkpoint-2026-10-15),
    then the [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
@@ -196,6 +197,79 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Learned Rotary Checkpoint (2026-10-16)
+
+After user-pushed `054190f`, the bounded scratch `RotaryKernel` passed 12
+synthetic cases, including 16 heads, ten bit-pattern-exact comparisons with a
+new scratch copy of the committed C++ control and ten invalid-input refusals.
+It binds the pinned public API with explicit F32/I32 types, CPU1 and deterministic
+allocator/backend/context cleanup. Features, four position axes and unrotated
+tails remain byte-exact; token/head/width bounds are 80/16/256, with positions
+0-79 and the same fixed 64-dimensional IMRoPE parameters. The supervised helper
+stage took **2.17 s**, peak RSS **245,868 KiB**, zero swap growth.
+
+A separate learned diagnostic captured **pre-rotary** Q/K after the trusted HF
+Q/K norms, reusing the same three-layer streamed prefix, 80 known prompt tokens
+and 14/14/14/7 materialized parameters. It preserves the original HF outputs
+and verifies that post-HF-rotary operand hashes reproduce the preceding
+attention capture. The native wrapper rotates the same pre-rotary values;
+original source/profile/frozen/six-module pins are checked again on entry/exit.
+No projection, norm, prefix or loader was changed or claimed native by this run.
+
+Both query/key native rotations pass the unchanged operation-oracle tolerance,
+using the explicit F32 phase recurrence and independent rotation. Max gaps to
+that oracle are **1.090135e-6 / 1.107157e-6**; with independently rounded F32
+trigonometric coefficients they are **8.978659e-7 / 8.868561e-7**. The unrotated
+tails are bit-pattern exact and rotated norms are preserved. Native versus
+installed HF rotation is **not exact**: query/key maxima
+**1.454353e-5 / 9.119511e-6**, with **36 / 12** changed F16 values. The distinct
+HF/native phase-generation conventions are retained, not silently corrected.
+
+Holding the native F16 attention core and V fixed isolates propagation:
+
+| Rotary Operands | Score Max Gap | Probability Max Gap | Output Max Gap | Changed F16 Probabilities |
+| --- | --- | --- | --- | --- |
+| native Q, HF K | 0.002784729 | 0.00002735853 | 0.0002212524 | 24 |
+| HF Q, native K | 0.002281189 | 0.00002360344 | 0.00005495548 | 11 |
+| native Q and K | 0.002784729 | 0.00002741814 | 0.0002212524 | 35 |
+
+All three outputs differ from the same-HF-rotary/native-core baseline.
+Independent rounded-probability delta contractions explain those output changes
+within the unchanged fixed tolerance, max residual **1.953449e-7**. This
+isolates a same-input numerical propagation effect, not its contribution to
+the unresolved complete-model selected-logit gap.
+
+The learned stage took **38.66 s**, peak RSS **1,459,368 KiB**, zero swap growth;
+minimum observed host-available RAM **14,563,262,464 bytes**. Existing 300-second,
+32-GiB address-space and host-memory/swap/disk guards were unchanged. Only the
+expected installed Torch fallback warning appeared. No output head, generated
+token, option score, complete conversion, download, refit, new candidate,
+held-out data or other-profile execution was used. No raw arrays/packets/GGUF
+were written; only scripts, small scalar/hash reports and scratch executables
+remain. Empty owned compiler-spill directories were removed after inspection.
+
+Retained/reread report SHA-256 values:
+
+- `rotary-kernel-selftest-result.json`:
+  `4dc2d7d2f9ad19461e4318dc7eef2bfea7b367854b236c372dc0ccfa07e548ef`.
+- `learned-rotary-comparison.json`:
+  `17a3c867c75eb6184c86bb481724644352d3f7bfd6ddb9f7edd968b44bebbe90`.
+
+The new report's `same_input_native_rotary_verified=true` means only the bounded
+operation just checked; its inherited negative rotary/cache flag remains a
+conservative full-runtime boundary, not a claim that KV writes were checked.
+The original learned fixed score failure and probability-only Torch/native
+delta failure remain recorded. No tolerance, payload, scale axis, phase policy
+or cached library was modified. Syntax/Ruff, supervised synthetic/learned
+checks and scoped documentation/whitespace/editor checks ran; the successful
+`054190f` source gate was not rerun for this documentation-only increment.
+
+Next bounded boundary: connect learned attention projections, Q/K norm, native
+rotary and the verified core using the same trusted input, keeping gate/output
+projection and full-loader/cache-write evidence explicit. This remains a
+diagnostic composition, not v2 real-model P4, quality or whole-model BitNet
+acceptance. Do not retry the refused complete conversion or promote padding.
 
 ## Partial Rotary Checkpoint (2026-10-16)
 

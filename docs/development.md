@@ -2706,6 +2706,13 @@ tail/offset checks. See the [partial rotary checkpoint](handover.md#partial-rota
 for the failed ideal-phase check and evidence limits. The same focused test below
 covers it without loading weights or validating learned/native-loader rotary.
 
+The [learned rotary checkpoint](handover.md#learned-rotary-checkpoint-2026-10-16)
+separately replays captured pre-rotary Q/K through that fixed primitive. Matching
+the primitive's own phase-aware oracle does not imply bit-exact agreement with
+HF phase generation; small differences can cross F16 query/key thresholds and
+propagate through the unchanged attention core. Do not substitute one phase
+policy or interpret this isolated comparison as native KV-write/loader parity.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
