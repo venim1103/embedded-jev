@@ -2765,6 +2765,16 @@ usable state; compute/readback failure must close the owner. Test idempotent
 close, closed/exhausted refusal and normal/exceptional context cleanup. This
 still excludes chunkwise learned projections/rotary and loader integration.
 
+The [cached attention sublayer checkpoint](handover.md#cached-attention-sublayer-checkpoint-2026-10-16)
+then composes chunkwise native QKV/norm/absolute rotary, persistent F16 cache
+writes/core, sigmoid gate and BF16 output projection from trusted normalized
+input. Keep absolute rotary offsets, per-head query/gate splitting and input
+rounding boundaries explicit. Require per-step complete-cache equality and a
+matching-core reference on the **chunk-produced** cache, not a monolithic
+projection cache that may differ. Report stage differences and F16/BF16
+crossings separately; do not assert projection-batch invariance or infer a
+native prefix, complete decoder layer, loader or BitNet acceptance.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash

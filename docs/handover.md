@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [learned persistent cache checkpoint](#learned-persistent-cache-checkpoint-2026-10-16),
+2. Read the [cached attention sublayer checkpoint](#cached-attention-sublayer-checkpoint-2026-10-16),
+   then the [learned persistent cache checkpoint](#learned-persistent-cache-checkpoint-2026-10-16),
    then the [persistent cache checkpoint](#persistent-cache-checkpoint-2026-10-16),
    then the [KV composition checkpoint](#kv-composition-checkpoint-2026-10-16),
    then the [KV write checkpoint](#kv-write-checkpoint-2026-10-16),
@@ -202,6 +203,72 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Cached Attention Sublayer Checkpoint (2026-10-16)
+
+After `1a4e653`, composed the existing verified native attention primitives
+with the persistent cache owner, without duplicating projection/norm/rotary
+logic. Narrow adapters add each chunk's absolute rotary positions and route
+only current K/V updates into the append-only owner. Each chunk now runs four
+BF16 projections, two Q/K RMS operations with learned `weight+1`, two native
+partial rotary operations, one actual-cache-write/causal-core graph and the
+sigmoid gate: ten native graph calls. The normalized input and three-layer
+prefix remain trusted Torch, not a native prefix or complete decoder layer.
+
+The 80-token synthetic control independently checks per-chunk projections,
+norm, phase-aware rotary, sigmoid/gated values and BF16 output projection with
+unchanged oracles. Resetting rotary offsets is a discriminating fault. Every
+cache buffer must match independently accumulated F16 bytes after each graph
+teardown; every core score/probability/output bit matches a standalone native
+read on those exact chunk-produced cache operands. Cache host restores are
+forbidden, source features stay unchanged and all owners close. Monolithic,
+31+49, 40+40 and 1+63+16 synthetic composition passed in **7.42 s**,
+**366,800 KiB** peak child RSS, zero swap growth. The learned capture wrapper
+preserves the original attention forward return value.
+
+The learned run verifies the same normalized-input hash and reproduces the
+earlier monolithic core SHA-256
+`3abedc6de1f9014e43bd8c1f542459a98c30a9b812ffd598b3e03cb9a08164a2`.
+The full monolithic output-versus-HF metric dictionary is also identical:
+max **0.002011299**, RMS **2.913632e-5**. All cache-byte, matching-core-bit,
+absolute-position, no-restore and cleanup checks pass in every partition.
+
+| Partition | Final Output Max Gap vs Monolithic | Changed F16 Q / K / V | Changed BF16 Output-Projection Inputs |
+| --- | --- | --- | --- |
+| 31+49 | 0 | 0 / 0 / 0 | 0 |
+| 40+40 | 0 | 0 / 0 / 0 | 0 |
+| 1+63+16 | 0.00003385544 | 8 / 3 / 6 | 34 |
+
+For 1+63+16, Q/K/V projection maxima are **3.337860e-6 / 3.814697e-6 /
+9.536743e-7**, core max **0.0001220703**, gated max **8.866191e-6**.
+These are unmodified chunkwise arithmetic differences and quantization
+crossings, not cache-write errors, accepted model accuracy or replacement
+tolerances. Singleton projection/core/gate/output continuation is not yet
+measured by this connected diagnostic.
+
+The learned stage took **10.42 s**, **1,484,208 KiB** peak child RSS, minimum
+observed host-available RAM **15,275,798,528 bytes**, zero swap growth. All
+runtime/frozen/profile/metadata/source and installed implementation entry-exit
+pins pass under unchanged 60/300-second deadlines and resource guards. The
+original fixed learned score check stays false; the prior complete-model
+max logit gap **0.0971508** remains open. There was no new failed check.
+
+Retained/reread small reports:
+
+- `cached-attention-sublayer-selftest-result.json`, SHA-256
+  `8b8a2153043b68cae44a191364498cc1fac6307218bba4835c571f0abdea3a97`.
+- `cached-attention-sublayer-comparison.json`, SHA-256
+  `a247e4bfb9e5acc8c8d57291cedf1c12cbe55298b0b9e7e2d30f405baad8dfc7`.
+
+Scratch totals **1,771,750 bytes** outside Git; no raw arrays/replay packet,
+GGUF or owned compiler spill remains after empty-directory cleanup. Scoped
+syntax/Ruff and documentation/link/whitespace/editor checks accompany the
+commit; the unchanged source gate at `c79b06e` was not rerun. No output head,
+generation, scoring, download, conversion, refit or candidate change occurred.
+This remains dense attention-only evidence, excluding input norm, residual/MLP,
+native prefix, loader, cache eviction/concurrency/multistream, whole-model
+parity, v2 P4/BitNet or quality acceptance. Next: bounded singleton and
+prefill-plus-singleton continuation of this same connected attention sublayer.
 
 ## Learned Persistent Cache Checkpoint (2026-10-16)
 
