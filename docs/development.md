@@ -1515,6 +1515,25 @@ retain no tensor array, closes mappings before owner exit, and closes its
 temporary stream on failure. This is not a full converter or real-run approval.
 See the [payload owner checkpoint](handover.md#bf16-payload-owner-checkpoint-2026-10-16).
 
+`mapped_profile_safetensors_bf16_matrix(..., source_path=..., source_name=...,
+expected_source_sha256=..., expected_file_bytes=..., expected_file_sha256=...)`
+owns a read-only BF16 matrix mapping made from a retained no-follow/nonblocking
+regular-file descriptor. Profile shard/header pins and selected geometry/range
+are checked, with at-most-64-KiB positional hashing reads and file identities
+checked before yield and after normal completion. It yields `(mapping,
+immutable_receipt)`; derived results are publishable only after successful
+closure. Unlike the older verifier, it does not copy the full operand or make
+comparison bytes. Source and operand caps each default to and are at most
+16 MiB. The cooperative 30 s default/600 s maximum includes caller lifetime.
+
+Finish all borrowed mapping views/iterators before exit, and never use aliases
+after closure. A read-only map does not prevent external writes or truncation;
+the checks are not an atomic/continuous snapshot or protection from invalidated
+mapped pages. Raw mapping verification does not imply finite values; the BF16
+chunk consumer checks those. The retained-allocation fixture is not a peak-RAM,
+mapped-RSS, OS page-cache or full-model memory claim. See the
+[mapped source checkpoint](handover.md#bf16-mapped-source-checkpoint-2026-10-16).
+
 `temporary_profile_safetensors_bf16_payload(..., source_path=..., source_name=...,
 source_values=..., expected_source_sha256=..., expected_file_bytes=...,
 expected_file_sha256=..., directory=...)` composes that owner with

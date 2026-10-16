@@ -54,6 +54,8 @@ After `fc54e54`, a separate source-bound payload owner composes the existing
 profile-pinned safetensors range verifier with matching entry/exit receipts.
 After `75a9205`, all 16 pinned-converter matrix writes also pass through physical
 synthetic safetensors mappings, with first/last post-spool source refusals.
+After user-pushed `c03ef1e`, a descriptor-owned verified source mapping removes
+whole-operand copies from the new bounded matrix reader, not the older verifier.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -138,7 +140,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 source-bound writer checkpoint](#bf16-source-bound-writer-checkpoint-2026-10-16),
+2. Read the [BF16 mapped source checkpoint](#bf16-mapped-source-checkpoint-2026-10-16),
+   then the [BF16 source-bound writer checkpoint](#bf16-source-bound-writer-checkpoint-2026-10-16),
    then the [BF16 source-bound payload checkpoint](#bf16-source-bound-payload-checkpoint-2026-10-16),
    then the [BF16 payload owner checkpoint](#bf16-payload-owner-checkpoint-2026-10-16),
    then the [BF16 chunk primitive checkpoint](#bf16-chunk-primitive-checkpoint-2026-10-16),
@@ -271,6 +274,52 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Mapped Source Checkpoint (2026-10-16)
+
+Resumed autonomously after user-pushed `c03ef1e`, with only untouched user
+editor settings untracked. Added `mapped_profile_safetensors_bf16_matrix`
+beside the unchanged copy-based source verifier and payload owners. It opens
+one no-follow/nonblocking regular descriptor, checks the profile's whole-shard
+and header pins, parses the selected BF16 matrix geometry/range, and hashes
+the raw selected bytes through at-most **64 KiB** positional reads. Its
+read-only NumPy mapping is constructed from that retained descriptor, not a
+reopened pathname. Whole-file hash and device/inode/size/mtime/ctime checks
+run before yield and after successful caller completion. The mapping and
+descriptor close on success, body exception or failed verification.
+
+Source file and selected operand caps remain **16 MiB** each; unlike the older
+verifier, the selected extent is not multiplied by three because no full
+operand copy/comparison string is made. One cooperative **30 s default/600 s
+max** deadline covers hashing, caller lifetime and exit checks. The provisional
+immutable receipt requires successful exit before publication. Finish every
+borrowed view/chunk iterator before exit; closed mapping aliases must not be
+used. This is not immutable storage or protection from concurrent truncation,
+which can invalidate live mappings. Finiteness remains a chunk-consumer check,
+not a claim made by the raw mapping owner.
+
+Twenty-two focused mapped-source cases cover normal/chunked reads, pins/budgets,
+unsupported operands, symlink/FIFO refusal, pre-yield and lifetime writes,
+restored bytes/mtime, identical replacement, deletion, deadline/body errors,
+cwd changes and descriptor/mapping cleanup. Every positional read is bounded
+to 64 KiB. A warmed **2 MiB** selected matrix retains **less than 1 MiB** of
+additional traced Python allocations while owned; no source-sized owned array
+exists. This is not a peak-allocation, mapped RSS, OS cache or whole-converter
+RAM measurement, and excludes caller-owned inputs/profile validation costs.
+
+The first control failed before opening the mapping on an unbound `math`
+reference (**44 passed, one failed in 2.17 s**); direct two-dimensional extent
+calculation fixed the same **45 cases in 2.44 s**. Tightened failure oracles
+later exposed an incorrect deletion expectation (**66 passed, one failed in
+3.71 s**): unlink changes descriptor ctime, so the existing earlier identity
+guard refuses before missing-path lookup. Correcting only that oracle gives
+**67 passes in 3.75 s**. Required gate: **629 passed, 89 optional skips in
+13.87 s**, Ruff/whitespace/editor clean. No native/converter/model run or
+download was used; previous failed real-model guards remain unchanged.
+
+Next: compose this source owner with the existing chunked raw payload and
+exercise it in the bounded pinned GGUF writer before any larger file budget
+or separately approved complete-model conversion.
 
 ## BF16 Source-Bound Writer Checkpoint (2026-10-16)
 

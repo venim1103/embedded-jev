@@ -1246,6 +1246,19 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
         with pytest.raises(TypeError):
             receipt["source_range_offset"] = 0
         if kind == "matrix":
+            mapped_arguments = {key: value for key, value in arguments.items() if key != "source_values"}
+            with prism_codec.mapped_profile_safetensors_bf16_matrix(profile, report, manifest, blocks,
+                     **mapped_arguments) as (mapped_source, mapped_receipt):
+                assert isinstance(mapped_source, np.memmap)
+                assert mapped_source.dtype == np.dtype("<u2") and mapped_source.shape == values.shape
+                assert not mapped_source.flags.owndata and not mapped_source.flags.writeable
+                assert np.array_equal(mapped_source, values)
+                assert mapped_receipt["source_range_offset"] == receipt["source_range_offset"]
+                with pytest.raises(ValueError):
+                    mapped_source.flags.writeable = True
+                with pytest.raises(TypeError):
+                    mapped_receipt["source_range_offset"] = 0
+            assert mapped_source._mmap.closed
             with prism_codec.temporary_profile_safetensors_bf16_payload(profile, report, manifest, blocks,
                      **arguments, directory=tmp_path) as (payload, payload_receipt):
                 assert payload.read_bytes() == values.tobytes()
@@ -1293,6 +1306,148 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
         path.unlink()
         if actual_path != path:
             actual_path.unlink()
+
+
+@pytest.mark.parametrize("defect", [
+    None, "allocation", "source-pin", "file-pin", "file-size", "operand-budget", "boolean-budget", "file-budget",
+    "deadline-budget", "frozen", "vector", "missing", "symlink", "fifo", "before-yield", "changed", "restored",
+    "replacement", "deleted", "deadline", "body-error", "cwd",
+])
+def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, monkeypatch, defect):
+    import errno
+    import tracemalloc
+
+    from embedded_jev import prism_codec
+
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True)
+    entries, payload_bytes = {}, 0
+    for item in sorted(inventory["tensors"], key=lambda item: item["name"]):
+        size = int(np.prod(item["shape"])) * 2
+        entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + size]}
+        payload_bytes += size
+    header, file_bytes = _header(entries, payload_bytes)
+    path = tmp_path / profile.packaging["shards"][0]
+    path.write_bytes(header + bytes(payload_bytes))
+    source_name = "model.layers.0.mlp.up_proj.weight"
+    shape = tuple(entries[source_name]["shape"])
+    operand_bytes = int(np.prod(shape)) * 2
+    arguments = {"source_path": path, "source_name": source_name,
+                 "expected_source_sha256": hashlib.sha256(bytes(operand_bytes)).hexdigest(),
+                 "expected_file_bytes": file_bytes, "expected_file_sha256": profile.files[path.name].sha256}
+    opened, mappings = [], []
+    original_map, original_pread = prism_codec.np.memmap, prism_codec.os.pread
+
+    def mapping(source, **keywords):
+        opened.append(source.fileno())
+        result = original_map(source, **keywords)
+        mappings.append(result)
+        if defect == "before-yield":
+            with path.open("r+b") as output:
+                output.seek(file_bytes - 1)
+                output.write(bytes([1]))
+        return result
+
+    def bounded_read(descriptor, count, offset):
+        assert 0 < count <= 65536
+        return original_pread(descriptor, count, offset)
+
+    monkeypatch.setattr(prism_codec.np, "memmap", mapping)
+    monkeypatch.setattr(prism_codec.os, "pread", bounded_read)
+    if defect == "source-pin":
+        arguments["expected_source_sha256"] = "0" * 64
+    elif defect == "file-pin":
+        arguments["expected_file_sha256"] = "0" * 64
+    elif defect == "file-size":
+        arguments["expected_file_bytes"] -= 1
+    elif defect == "operand-budget":
+        arguments["maximum_bytes"] = operand_bytes - 1
+    elif defect == "boolean-budget":
+        arguments["maximum_bytes"] = True
+    elif defect == "file-budget":
+        arguments["maximum_file_bytes"] = 16 * 1024**2 + 1
+    elif defect == "deadline-budget":
+        arguments["maximum_seconds"] = float("nan")
+    elif defect in ("frozen", "vector", "missing"):
+        arguments["source_name"] = manifest["tensor"] if defect == "frozen" else "model.norm.weight" if defect == "vector" else "absent"
+    elif defect in ("symlink", "fifo"):
+        alternate = tmp_path / "alternate-source"
+        if defect == "symlink":
+            alternate.symlink_to(path)
+        else:
+            prism_codec.os.mkfifo(alternate)
+        arguments["source_path"] = alternate
+    expected_failure = defect not in (None, "allocation", "cwd")
+    was_tracing = tracemalloc.is_tracing()
+    try:
+        if defect == "allocation":
+            with prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments):
+                pass
+            if not was_tracing:
+                tracemalloc.start()
+            baseline = tracemalloc.get_traced_memory()[0]
+        try:
+            with prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments) as (values, receipt):
+                if defect == "allocation":
+                    retained = tracemalloc.get_traced_memory()[0] - baseline
+                    assert operand_bytes == 2 * 1024**2 and retained < operand_bytes // 2
+                assert values.shape == shape and values.dtype == np.dtype("<u2")
+                assert not values.flags.owndata and not values.flags.writeable
+                assert receipt["source_range_bytes"] == operand_bytes
+                if defect in ("changed", "restored"):
+                    before = path.stat()
+                    with path.open("r+b") as output:
+                        output.seek(file_bytes - 1)
+                        output.write(bytes([1]))
+                        if defect == "restored":
+                            output.seek(file_bytes - 1)
+                            output.write(bytes(1))
+                    if defect == "restored":
+                        prism_codec.os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+                elif defect == "replacement":
+                    path.unlink()
+                    path.write_bytes(header + bytes(payload_bytes))
+                elif defect == "deleted":
+                    path.unlink()
+                elif defect == "deadline":
+                    later = prism_codec.time.monotonic() + 31
+                    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: later)
+                elif defect == "body-error":
+                    raise RuntimeError("mapped consumer failed")
+                else:
+                    if defect == "cwd":
+                        elsewhere = tmp_path / "elsewhere"
+                        elsewhere.mkdir()
+                        monkeypatch.chdir(elsewhere)
+                    for _, chunk in prism_codec.iter_profile_bf16_matrix_chunks(profile, inventory, manifest, blocks,
+                             source_name=source_name, source_values=values):
+                        assert chunk.nbytes <= 65536 and chunk.flags.owndata and not np.any(chunk)
+            assert not expected_failure
+        except (ValueError, OSError, RuntimeError) as error:
+            assert expected_failure, str(error)
+            if defect == "body-error":
+                assert isinstance(error, RuntimeError) and str(error) == "mapped consumer failed"
+            elif defect == "symlink":
+                assert isinstance(error, OSError) and error.errno == errno.ELOOP
+            else:
+                expected_message = (
+                    "tensor identity mismatch" if defect == "source-pin" else
+                    "file pin or operand budget mismatch" if defect in ("file-pin", "file-size", "operand-budget") else
+                    "invalid mapped source identity or budget" if defect in ("boolean-budget", "file-budget", "deadline-budget") else
+                    "requires an unfrozen BF16 matrix" if defect in ("frozen", "vector", "missing") else
+                    "not regular" if defect == "fifo" else
+                    "deadline exceeded" if defect == "deadline" else "file identity changed"
+                )
+                assert isinstance(error, ValueError) and expected_message in str(error)
+        assert all(mapped._mmap.closed for mapped in mappings)
+        for descriptor in opened:
+            with pytest.raises(OSError):
+                prism_codec.os.fstat(descriptor)
+    finally:
+        if defect == "allocation" and not was_tracing and tracemalloc.is_tracing():
+            tracemalloc.stop()
+        path.unlink(missing_ok=True)
+        if defect in ("symlink", "fifo"):
+            alternate.unlink()
 
 
 @pytest.mark.parametrize("defect", [None, "manifest-digest", "manifest-schema", "manifest-type", "array", "file", "dtype", "budget"])
