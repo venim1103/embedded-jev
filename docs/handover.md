@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [native prefix composition checkpoint](#native-prefix-composition-checkpoint-2026-10-16),
+2. Read the [four layer continuation checkpoint](#four-layer-continuation-checkpoint-2026-10-16),
+   then the [native prefix composition checkpoint](#native-prefix-composition-checkpoint-2026-10-16),
    then the [attention layer continuation checkpoint](#attention-layer-continuation-checkpoint-2026-10-16),
    then the [attention decoder layer checkpoint](#attention-decoder-layer-checkpoint-2026-10-16),
    then the [attention continuation checkpoint](#attention-continuation-checkpoint-2026-10-16),
@@ -207,6 +208,69 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Four Layer Continuation Checkpoint (2026-10-16)
+
+After `5fb6222`, added an unpadded recurrent partition driver around unchanged
+`CachedLayer`, carrying separate convolution history and GDN state for each
+layer. A seven-token full-geometry synthetic three-layer stack uses nonzero
+sparse BF16 projections: `3+4` matches every monolithic stage and final cache
+bit-for-bit. Resetting history/state preserves the first three outputs but
+changes final outputs by maxima **0.1520386 / 0.2920475 / 0.7619047** across
+layers 0/1/2. The synthetic control passes in **18.18 s**, **961,604 KiB** peak
+child RSS, zero swap growth. It is not a representative quality fixture.
+
+The learned run carries independent per-layer caches through `31+49`, `40+40`
+and `1+63+16`, without padding. It exactly reproduces the prior monolithic
+recurrent packet/metric dictionaries and four-layer output/reference evidence.
+`31+49` and `40+40` are bit-exact at every recurrent stage, final history/state
+and complete attention-layer output. For each prefix schedule, all four
+attention schedules are measured separately; direct output hashes bind the
+collected full-stack outputs to each attention replay. Every full-cache and
+matching-operand core check passes, with zero native attention cache restores.
+
+| Recurrent Layer, `1+63+16` | Layer Output Max vs Monolithic | Final History Max | Final State Max |
+| --- | --- | --- | --- |
+| 0 | 0.0003347397 | 0 | 0.000001907349 |
+| 1 | 0.001392365 | 0 | 0.00008445233 |
+| 2 | 0.005715370 | 0.003884912 | 0.0007173680 |
+
+Matching `1+63+16` through all four layers has final max **0.05065632**, RMS
+**0.0002436861**, versus native monolithic, and max **0.05208683**, RMS
+**0.0002698306**, versus trusted HF. Do not substitute the preceding fixed-prefix
+attention-only gap **0.0002279878** for this propagated result. The two other
+matching schedules retain monolithic HF max/RMS **0.01222134 / 0.0002470044**.
+These are measured unmodified differences, not relaxed acceptance thresholds.
+Monolithic four-layer SHA-256:
+`3ecd5277dfed96c30180bcae87163b67bbea2d8def49f61a5f7ce1209c1504b2`.
+Matching `1+63+16` SHA-256:
+`333ee8f5f9e6e64111fdc983ab8de873fc1fb5bd6a0d2202a946f2c398464e80`.
+
+The learned stage passes in **99.07 s**, **2,033,604 KiB** peak child RSS,
+minimum observed host-available RAM **13,294,895,104 bytes**, zero swap growth.
+Original 60/300-second/resource guards and final runtime/frozen/source/profile/
+metadata/installed-code/GDN binary checks hold. No failed check or refusal
+occurred. Original fixed score criterion remains false; full-model logit gap
+**0.0971508** is unresolved. No conversion, download, refit, compensation,
+padding promotion, output head/scoring or generation.
+
+Retained/reread small-report SHA-256 values:
+
+- `native-prefix-partition-selftest-result.json`:
+  `074e0ef4c451beb82b67186661f7cf0127a78d35f95479897015a29591c24f56`.
+- `native-prefix-partition-comparison.json`:
+  `2313e08020ea9e0e42b95e3871543962d253f65fa6a7c1114e8a597c2f00ff36`.
+
+Scratch totals **2,200,689 bytes** outside Git; no raw arrays/replay packets,
+GGUF or owned compiler spill remains. Scoped Ruff, synthetic/learned and
+documentation/link/whitespace/editor checks accompany this documentation-only
+checkpoint; the unchanged source gate at `c79b06e` was not rerun. Execution is
+layer-major with serially streamed weights and copied host recurrent caches,
+not a resident token-major decoder or single loader graph. Native persistent
+attention ownership is separately checked. No full-model BitNet/v2 P4,
+device-performance or quality acceptance follows. Next: a bounded token-major
+resident four-layer routing control against these exact schedule hashes, with
+independent per-layer state and unchanged resource guards.
 
 ## Native Prefix Composition Checkpoint (2026-10-16)
 

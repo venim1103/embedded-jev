@@ -2812,6 +2812,15 @@ fixed final native prefix is not end-to-end four-layer cached continuation.
 Keep copied recurrent state, persistent native attention ownership and host F32
 residual/down sums explicit; no loader, BitNet or quality claim follows.
 
+The [four layer continuation checkpoint](handover.md#four-layer-continuation-checkpoint-2026-10-16)
+carries separate recurrent histories/states through each coarse schedule before
+matching and crossing attention schedules. Require a nonzero synthetic stack
+with exact all-stage/cache carry controls and discriminating reset faults;
+repeat the prior learned monolithic packet, metric and full-stack hashes.
+Bind collected attention outputs to the replay hashes and compare the actual
+four-layer result, not a fixed-prefix attention-only drift. This remains
+layer-major streaming, not resident token-major routing or loader acceptance.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
