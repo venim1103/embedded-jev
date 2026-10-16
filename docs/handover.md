@@ -6,6 +6,17 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Paused by user, 2026-10-16:** Stop at the completed shared-source writer and
+larger-policy proposal checkpoints, user-pushed through `30e3f15`. The last
+source checkpoint is `622e307`: 677 default passes/89 optional skips and both
+pinned BF16/F32 converter controls pass. The user subsequently approved the
+synthetic-only larger-source policy/budgets below, but its implementation has
+not started. The interrupted call contained only read-only lookup and a memory
+update; actual worktree/memory checks confirm no source edits and no applied
+memory update. No jobs or owned scratch remain. User editor settings are
+untouched. Resume implementation only after an explicit user instruction;
+neither the recorded approval nor tool notifications override this pause.
+
 **Resumed by user, 2026-10-16:** Continue autonomously with periodic local
 checkpoint commits. Starting `6848279` matched `origin/main`; only untouched
 user settings were untracked. The bounded attention helper and learned-operand
@@ -64,8 +75,9 @@ After `0211d3c`, a shared shard owner retains one descriptor/header across
 serial matrix contexts, with two whole-shard hashes and fail-closed lifecycle checks.
 After `e5c94ba`, the pinned synthetic writer uses that shared owner across all
 16 matrices and withholds publication through final shard-identity checks.
-After `622e307`, the next larger-source API/resource proposal below is prepared
-but not authorized or implemented; current limits and real-model approvals stand.
+After `622e307`, the larger-source API/resource proposal below was prepared
+and explicitly approved for synthetic-only implementation; no implementation
+started before the user's pause. Current API limits and real-model approvals stand.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -294,8 +306,10 @@ the next chat must receive the user's explicit resume instruction.
 
 After `622e307`, the bounded shared-shard BF16 source-to-writer prerequisites
 are verified. Further work toward real source geometry crosses the existing
-**16 MiB** source-file/operand/payload caps. This proposal is **not authorization,
-implementation or a complete-model conversion plan**.
+**16 MiB** source-file/operand/payload caps. The user explicitly approved the
+synthetic-only API/test expansion below after `30e3f15`, then paused before
+implementation started. This is **not implemented or approval for a real-model
+conversion**. Resume requires a fresh user instruction, not repeated scope approval.
 
 A structured read of the repository's pinned MiMo profile, with no cached
 weight reads, gives largest shard **5,276,436,216 bytes** and BF16 embedding/head
@@ -319,14 +333,16 @@ extent **2,034,237,440 bytes**. Proposed separate versioned source policy:
   failure cleanup. Boundary tests for proposed 6 GiB/2 GiB caps must reject
   before opening/allocating; no actual multi-GiB synthetic artifact is needed.
 
-Approval for this bounded API/test expansion would **not** authorize reading
+The user's approval for this bounded API/test expansion does **not** authorize reading
 cached learned weights, another complete-model conversion/artifact, runtime
 execution, refit, candidate, compensation promotion, held-out quality or another
 model. A future real-model job still needs its own complete artifact/resource
 plan and explicit approval; historical guard/numerical failures remain open.
 Existing source gate is unchanged from `622e307` and is not rerun for this
-documentation-only proposal. Next action: ask for this precise synthetic-only
-policy/budget expansion before modifying the larger-file implementation.
+documentation-only proposal. Next after explicit resume: add a separately
+named v2 descriptor hasher backed by the existing bounded loop, preserving the
+old 64 MiB hasher and all 16 MiB APIs. The first targeted descriptor-test lookup
+was interrupted without usable output; no new hasher, test or larger file exists.
 
 ## BF16 Shared Writer Checkpoint (2026-10-16)
 
