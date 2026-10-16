@@ -2783,6 +2783,15 @@ output-input BF16 crossings plus final max/RMS differences. Singleton replay
 does not generate tokens or establish final-output batching invariance, and
 its measured differences do not authorize padding/compensation promotion.
 
+The [attention decoder layer checkpoint](handover.md#attention-decoder-layer-checkpoint-2026-10-16)
+adds input/post-attention RMS, both residuals and the full MLP to this attention
+composition on trusted prefix output. Preserve `weight+1` norms and the
+existing bounded `LayerKernel` gate/up row blocks and three-column-block down
+sum. Residuals and block-result summation remain host F32, not a single native
+loader graph. Match captured input/prefix identities, compare the complete
+same-input HF reference, isolate same-product split/full down differences and
+repeat source/runtime pin checks after all additional tensor/reference work.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash

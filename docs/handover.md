@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [attention continuation checkpoint](#attention-continuation-checkpoint-2026-10-16),
+2. Read the [attention decoder layer checkpoint](#attention-decoder-layer-checkpoint-2026-10-16),
+   then the [attention continuation checkpoint](#attention-continuation-checkpoint-2026-10-16),
    then the [cached attention sublayer checkpoint](#cached-attention-sublayer-checkpoint-2026-10-16),
    then the [learned persistent cache checkpoint](#learned-persistent-cache-checkpoint-2026-10-16),
    then the [persistent cache checkpoint](#persistent-cache-checkpoint-2026-10-16),
@@ -204,6 +205,77 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Attention Decoder Layer Checkpoint (2026-10-16)
+
+After `bd2aa9a`, extended the bounded composition to the **complete dense
+layer-3 attention decoder layer** on the same authenticated trusted layer-2
+output: input RMS with `weight+1`, native attention/cache, first residual,
+post-attention RMS with `weight+1`, gated MLP and second residual. Reused the
+unchanged `LayerKernel`: gate/up each use two bounded row blocks; down uses
+three 4,096-column blocks. Residual additions and the blocked down-result sum
+remain **host F32**, as in the earlier layer-0 control; this is not one native
+loader graph or a new reduction policy.
+
+The synthetic control uses hidden width 256, four query/two KV heads and the
+full 12,288-wide MLP. Independent norm, BF16 projection, SiLU-product, blocked
+down-sum and Torch-vs-NumPy residual oracles pass unchanged tolerances. Complete
+cache bytes remain exact after every full-layer chunk, including subsequent
+MLP graph destruction; matching-cache native core scores/probabilities/outputs
+are bit-exact. Monolithic, 31+49, 40+40 and 1+63+16 pass in **8.34 s**,
+**469,236 KiB** peak child RSS, zero swap growth.
+
+The learned capture verifies the original layer-2 output hash, normalized
+layer-3 input hash and post-rotary QKV hashes before adding cached operands.
+It reuses six materialized attention parameters and separately loads five
+norm/MLP tensors, including the previously observed input norm, yielding 11
+target-layer parameters. A complete installed-HF reference uses the same
+F32/BF16-RHS convention and must reproduce the captured input norm bit-exactly.
+No complete model, output head, model-repository code or artifact is loaded.
+
+| Comparison | Max Absolute Gap | RMS |
+| --- | --- | --- |
+| Monolithic composed layer vs same-input HF | 0.002464294 | 0.00009452965 |
+| 31+49 vs monolithic composed layer | 0 | 0 |
+| 40+40 vs monolithic composed layer | 0 | 0 |
+| 1+63+16 vs monolithic composed layer | 0.0002372116 | 0.00001105487 |
+
+The native input norm differs from HF by max **1.525879e-5**. Propagated
+monolithic post-norm/gate/up/product/down maxima versus HF are **0.001324274 /
+0.003574371 / 0.003620356 / 0.001648366 / 0.001816869**. A separate same-HF-
+product down control has native-split vs Torch-split max **9.536743e-7**;
+Torch-split vs Torch-full max **1.192093e-7**. These distinguish source operand
+propagation from that same-input reduction boundary without assigning the
+unresolved full-model discrepancy to either. For 1+63+16, attention/post-norm/
+MLP-down maxima versus monolithic are **3.385544e-5 / 3.635883e-5 /
+0.0002369359**, with only **3 / 6** F16 K/V crossings. Every per-step cache
+and matching-core check still passes, with no cache restores.
+
+The learned stage took **20.63 s**, **1,925,632 KiB** peak child RSS, minimum
+observed host-available RAM **14,244,102,144 bytes**, zero swap growth. Explicit
+exit verification is repeated after the extra layer tensors/reference/native
+work, preserving all six runtime hashes, frozen codes/scales/manifest, profile/
+metadata/source and installed implementation identities. Resource limits and
+60/300-second deadlines are unchanged. No failed check occurred in this slice.
+The original fixed learned score failure and full-model max logit gap
+**0.0971508** remain unresolved; no tolerance, padding or compensation changed.
+
+Retained/reread small-report SHA-256 values:
+
+- `attention-decoder-layer-selftest-result.json`:
+  `01fe000869748ba04a2779c84535e795f8c007e8ab992773c9bd1a0782ceb986`.
+- `attention-decoder-layer-comparison.json`:
+  `ec0c13bf2c57c8f79f4bcd310e390adc825b2c529c8d6f04cc76b5958f1fae19`.
+
+Scratch totals **1,871,632 bytes** outside Git, no raw arrays/replay packet,
+GGUF or owned compiler spill after empty-directory cleanup. Scoped syntax/
+Ruff, synthetic/learned and documentation/link/whitespace/editor checks
+accompany the commit; the unchanged source gate at `c79b06e` was not rerun.
+No conversion, download, refit, candidate change, generation, scoring or other-
+profile execution occurred. This is a dense full-layer composition from a
+trusted prefix, not native-prefix propagation, full-loader/whole-model parity,
+real-model v2 P4, BitNet execution, target-device performance or quality.
+Next: bounded singleton/prefill-singleton continuation of this complete layer.
 
 ## Attention Continuation Checkpoint (2026-10-16)
 
