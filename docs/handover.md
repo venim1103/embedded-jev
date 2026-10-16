@@ -17,7 +17,8 @@ with only untouched editor settings untracked. A separately bounded native
 recurrent-state ownership control, typed helper and learned four-layer coarse
 resident integration now pass. Three native recurrent buffers carry state;
 host readbacks are oracles and convolution history remains host-carried.
-Learned singleton continuation is next. No full conversion was retried.
+Learned 64-prefill/16-singleton and all-80-singleton continuation also pass
+against unchanged same-schedule references. No full conversion was retried.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -102,7 +103,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [learned native state checkpoint](#learned-native-state-checkpoint-2026-10-16),
+2. Read the [native state singleton checkpoint](#native-state-singleton-checkpoint-2026-10-16),
+   then the [learned native state checkpoint](#learned-native-state-checkpoint-2026-10-16),
    then the [typed recurrent owner checkpoint](#typed-recurrent-owner-checkpoint-2026-10-16),
    then the [native recurrent ownership checkpoint](#native-recurrent-ownership-checkpoint-2026-10-16),
    then the [resident all singleton checkpoint](#resident-all-singleton-checkpoint-2026-10-16),
@@ -219,6 +221,76 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Native State Singleton Checkpoint (2026-10-16)
+
+After `e60e4a1`, the **unchanged** native-state resident adapter also passes
+cached-MiMo 64-prefill/16-singleton and all-80-singleton learned continuation.
+Both jobs include the monolithic 80-token control; three independent native
+GDN state buffers and the persistent attention cache survive each step graph.
+Convolution history still uses host arrays; recurrent state readbacks are
+oracle-only and post-initialization host state uploads remain forbidden.
+Six recurrent owners per job were created and closed. Four-layer arithmetic,
+head routing, F32/BF16-RHS policy and all tolerances/guards are unchanged.
+
+| Native-state learned job | Seconds | Peak Child RSS KiB | Min Host Available Bytes | Max Host Swap Growth Bytes | Process Swaps |
+| --- | --- | --- | --- | --- | --- |
+| 64-prefill / 16-singletons | 84.70 | 3,481,992 | 11,757,305,856 | 14,827,520 | 0 |
+| 80-singletons | 165.09 | 3,465,440 | 12,071,075,840 | 0 | 0 |
+
+The first job compares **every** recurrent stage/history/state and attention
+stage/cache directly with a fresh unchanged layer-major reference. The second
+matches every retained independent all-singleton stage/cache hash; that
+successful old reference was **not** recomputed. Every resident step still
+checks all attention cache bytes and same-operands core bits. Actual native
+recurrent copies occur without host restores; all input bytes remain exact.
+These are process/observed-host measurements, not target-device performance.
+
+The extra whole-dictionary comparison against the historical 64+16 report
+failed because it predates added stage-hash fields. A following over-strict
+lookup also failed with `KeyError: stage_sha256`; those old hashes do not
+exist. Read-only schema-aware comparison then verifies **435 shared leaves**,
+all available output/history/state/cache hashes and pins exactly (eight
+new-only fields). Missing historical per-stage hashes remain unavailable;
+the separate fresh in-child all-stage comparison supplies that evidence.
+No model rerun or acceptance relaxation followed either reporting failure.
+For all singletons, both reports have the same schema: **640 shared leaves**,
+all recurrent/attention stage hashes and final cache/output hashes match
+exactly, with zero added/missing fields.
+
+Observed schedule differences remain the prior values:
+
+| Schedule | Max Output vs Monolithic | RMS vs Monolithic | Max Output vs HF Four Layers | Changed F16 K / V Elements |
+| --- | --- | --- | --- | --- |
+| 64-prefill / 16-singletons | 0.004378318786621094 | 0.00008131785828618599 | 0.012221336364746094 | 14,455 / 14,692 |
+| 80-singletons | 0.012897491455078125 | 0.0002458041778928901 | 0.014368057250976562 | 73,233 / 74,340 |
+
+These are measured batch/singleton numerical differences, not relaxed parity
+tolerances. Monolithic output/HF metrics and the original failed score test
+remain unchanged. Frozen codes/independent scales, six runtime libraries,
+source/profile/metadata identities, installed Transformers and helper pins
+recheck after both jobs. The all-singleton report's independent reference
+digest also matches the existing reference pin.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `native-state-resident-decode-comparison.json` | `97d07ac053304da170c02309a7d676bc2761d29936e0c2f8a23b5465862b223b` |
+| `native-state-resident-singletons-comparison.json` | `154fb7481ed1b27bc9e61b2dfce6a9b9ea8feced4eff93ee71ea7143ff59a7aa` |
+
+Output SHA-256 remains `f6a2224433cfd8eddf20a245b207e75c0e66321e2cbf16f2b9b1f5fd91533bdc`
+for 64+16 and `2335d3e629a28ee6a67f5b7d656ec61c5eef309997234d67ba1b324caef6fcef`
+for all singletons. Scratch totals **2,678,107 bytes** outside Git, no raw
+arrays/replay packets/GGUF/owned spill. Parent-finally cleanup covers all own
+packet paths. Docs/link/editor/whitespace validation accompanies this docs-only
+checkpoint; unchanged source gate `6eb8959` was not rerun. Native recurrent
+state ownership is now verified in these selected learned four-layer schedules,
+not a full-model loader/BitNet/v2 P4/quality/device acceptance. The historical
+full-model logit gap and swap-blocked conversion remain open. Next bounded
+candidate: native convolution-history ownership, beginning with a synthetic
+operation/layout control; no new conversion/download/refit/candidate/quality
+run or other-profile execution is authorized by these results.
 
 ## Learned Native State Checkpoint (2026-10-16)
 

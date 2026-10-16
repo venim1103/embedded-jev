@@ -2713,6 +2713,15 @@ partial advancement. Historical reports may have different schemas: compare
 shared values and explicit output/history/state/cache hashes, never infer
 unrecorded stage hashes or rerun a successful model job to replace evidence.
 
+The [native state singleton checkpoint](handover.md#native-state-singleton-checkpoint-2026-10-16)
+adds learned 64-prefill/16-singleton and all-80-singleton native recurrent
+continuation. Preserve same-schedule reference stage/cache checks, the
+original batch/singleton differences and all exit pins. The older 64+16 report
+has no per-stage hashes; use the fresh in-memory reference for that comparison
+and compare only actually recorded historical fields. The retained independent
+all-singleton reference has full hashes and must not be recomputed merely to
+obtain a newer receipt schema.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.
