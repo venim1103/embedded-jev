@@ -32,7 +32,9 @@ remain stopped pending source/proof stability. A later event-observed attempt
 captures writes to the newly edited observer scripts and correctly withholds
 publication. A separate disposable execution snapshot now passes bounded
 fixture/native controls without editor-attached execution files; learned
-validation of this materially different path is next. The writer is unknown.
+64+16 validation of this materially different path also passes, with all
+execution identities/events and same-schedule numerical evidence verified.
+All-80-singleton validation is next. The historical writer remains unknown.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -117,7 +119,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [detached execution checkpoint](#detached-execution-checkpoint-2026-10-16),
+2. Read the [detached decode checkpoint](#detached-decode-checkpoint-2026-10-16),
+   then the [detached execution checkpoint](#detached-execution-checkpoint-2026-10-16),
    then the [file event checkpoint](#file-event-checkpoint-2026-10-16),
    then the [lifetime pin audit checkpoint](#lifetime-pin-audit-checkpoint-2026-10-16),
    then the [reference lifetime checkpoint](#reference-lifetime-checkpoint-2026-10-16),
@@ -241,6 +244,50 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Detached Decode Checkpoint (2026-10-16)
+
+After `17e3514`, one cached-MiMo **64-prefill / 16-singleton** diagnostic
+through the tested detached execution handoff passes in **85.85 s**,
+**3,152,896 KiB** peak child RSS, minimum host-available RAM
+**13,928,288,256 bytes**, host swap growth **87,728,128 bytes**, zero process
+swaps and observed filesystem growth **2,412,544 bytes**. The unchanged
+300-second/resource guards permit completion; host-global swap growth is not
+attributed to this process or treated as a device-performance measurement.
+
+The snapshot contains **511 files, 3,358,711 bytes**, no model weights/libraries.
+All copied input identities remain exact after execution. All ten watched
+source/proof identities remain exact, zero mutation events occur, and the
+buffered report publishes only after those guards pass. Copied-back reports
+are reread/hash-verified; their observation hash matches the numerical report.
+The temporary execution tree is confirmed absent.
+
+The **entire same-schema four-layer numerical dictionary** exactly matches
+the retained native-state 64+16 result. Fresh in-child same-schedule reference
+and native-owner checks also pass. All **six history and six GDN state owners**
+close, with zero host history/state restores. Three native history/state pairs
+and native attention cache persist per stack; host readbacks remain oracles,
+and residual/down sums remain host F32. The lifetime guard verifies/releases
+all 11 original F32 parameter objects (**838,895,616 bytes**) and restores only
+the **201,326,592-byte** down weight after replay. Observed reference-release
+RSS **2,977,492,992 -> 2,172,170,240 bytes** is not a device-memory guarantee.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `execution-snapshot-decode-event-audited-lifetime-history-resident-decode-comparison.json` | `7f2e1c3892b634b15584d54ec7e63e7edeabb2720109434704a73cd825d19a3d` |
+| `execution-snapshot-decode-verification.json` | `49ecc7194a5477005230f2202ec28affee84dc3fd62439d74abe0415980086f2` |
+
+This is accepted **bounded dense four-layer native-history/GDN/attention
+64+16 ownership evidence**, not full-model/BitNet/v2 P4/quality/device acceptance.
+Neither old direct-run refusal is reinterpreted; the original fixed-score
+failure/full-model discrepancy remains. Next: detached all-80-singleton
+continuation against the retained independent same-schedule reference, without
+recomputing that reference or changing guards, tolerances or frozen artifacts.
+No conversion/download/refit/new candidate/quality/other-model action. Default
+source gate remains unchanged `b52e20b` (**553 passed, 88 optional skips**),
+not rerun for docs-only updates; scoped docs validation applies.
 
 ## Detached Execution Checkpoint (2026-10-16)
 
