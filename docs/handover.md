@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [four layer continuation checkpoint](#four-layer-continuation-checkpoint-2026-10-16),
+2. Read the [resident stack checkpoint](#resident-stack-checkpoint-2026-10-16),
+   then the [four layer continuation checkpoint](#four-layer-continuation-checkpoint-2026-10-16),
    then the [native prefix composition checkpoint](#native-prefix-composition-checkpoint-2026-10-16),
    then the [attention layer continuation checkpoint](#attention-layer-continuation-checkpoint-2026-10-16),
    then the [attention decoder layer checkpoint](#attention-decoder-layer-checkpoint-2026-10-16),
@@ -208,6 +209,67 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Resident Stack Checkpoint (2026-10-16)
+
+After `2dd5f65`, added a bounded scratch token-major resident owner: every
+chunk traverses recurrent layers 0-2 and the complete attention layer before
+the next chunk. Four layers' BF16 projection parameters remain in memory;
+the three recurrent histories/states remain separate copied host arrays and
+attention owns one persistent native F16 cache. Original native helpers,
+unpadded arithmetic, host F32 residuals/down sums and absolute rotary offsets
+are unchanged. No model loader or new public runtime API was integrated.
+
+The nonzero full-geometry synthetic control compares each resident recurrent
+stage/final cache with the independent layer-major driver for `7` and `3+4`;
+all attention stages also match monolithic bits. Four malformed inputs refuse
+before mutation while the owner remains usable. A later injected layer-1
+failure closes the partially advanced owner and releases all histories/states;
+closed input refuses and close is idempotent. Complete attention cache/core
+checks run after each full chunk, with cache restores forbidden. Initial lint
+caught an unused import before execution; removing it permitted the first
+synthetic run, which passes in **31.69 s**, **1,034,964 KiB** peak child RSS,
+zero swap growth. No arithmetic or resource failure occurred.
+
+The learned resident run tests `80`, `31+49`, `40+40` and `1+63+16`. All four
+output hashes exactly equal the preceding layer-major matching-schedule
+hashes. Monolithic recurrent output/history/state hashes reproduce exactly;
+other schedules reproduce all prior recurrent stage/history/state difference
+dictionaries. `31+49`/`40+40` additionally retain bit-exact every-stage and
+complete recurrent/attention-cache agreement with monolithic. The `1+63+16`
+output remains max **0.05065632**, RMS **0.0002436861**, from monolithic:
+token-major ordering does not repair that measured drift. Its final F16 K/V
+cache differs from full-stack monolithic in **72,614 / 73,840** elements,
+because its incoming native prefix also differs; do not compare these counts
+with fixed-prefix attention-only crossings. Every per-step full-cache and
+matching-core check passes with no cache restores, and all owners close.
+
+Learned runtime is **103.27 s**, **3,568,904 KiB** peak child RSS, minimum
+host-available RAM **9,595,006,976 bytes**, host swap growth **1,241,088 bytes**,
+zero child process swaps. This remains below the unchanged 512 MiB swap-growth
+guard and above the 2 GiB reserve; host observations are not device guarantees.
+Original deadlines and final runtime/frozen/source/profile/metadata/installed-
+code/GDN/helper pins hold. The monolithic complete HF metric dictionary also
+reproduces exactly. Original score criterion remains false; full-model logit
+gap **0.0971508** remains open. No conversion, download, refit, compensation,
+padding promotion, output head/scoring or generated tokens.
+
+Retained/reread small-report SHA-256 values:
+
+- `resident-stack-selftest-result.json`:
+  `8c7cc21b8a29ef3e36f89f5f2317d2022ec969d0beaf750738a0c5ea25042505`.
+- `resident-stack-comparison.json`:
+  `b0cf390ece1642949a34ebf0dcbf759dae0890d69a03727cb4aff5182788919d`.
+
+Scratch totals **2,260,937 bytes** outside Git; no raw arrays/replay packets,
+GGUF or owned compiler spill remains. Scoped Ruff, synthetic/learned and
+documentation/link/whitespace/editor checks accompany this documentation-only
+checkpoint; unchanged source gates were not rerun. This establishes bounded
+dense resident four-layer coarse continuation, not full-model/native-loader
+parity, all-singleton continuation, whole-model BitNet/v2 P4, target-device
+performance or quality acceptance. Next: budget a bounded resident prefill/
+singleton schedule with an independent same-schedule layer-major reference;
+do not expand the 300-second learned guard to fit a longer experiment.
 
 ## Four Layer Continuation Checkpoint (2026-10-16)
 

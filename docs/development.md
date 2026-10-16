@@ -2821,6 +2821,16 @@ Bind collected attention outputs to the replay hashes and compare the actual
 four-layer result, not a fixed-prefix attention-only drift. This remains
 layer-major streaming, not resident token-major routing or loader acceptance.
 
+The [resident stack checkpoint](handover.md#resident-stack-checkpoint-2026-10-16)
+adds token-major chunk routing through all four dense layers with their BF16
+parameters retained in RAM. Compare against independent layer-major stage/cache
+controls and prior matching-schedule learned output hashes; preserve absolute
+rotary positions and prohibit attention cache restores. Validate input refusal
+before mutation, per-layer state isolation and fail-closed cleanup after a
+partially advanced step. Separate host swap growth from process swaps and keep
+the unchanged deadlines/reserve. Resident routing does not repair batch drift
+or establish full-loader, whole-model BitNet, device or quality acceptance.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
