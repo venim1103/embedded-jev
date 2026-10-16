@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [KV write checkpoint](#kv-write-checkpoint-2026-10-16),
+2. Read the [KV composition checkpoint](#kv-composition-checkpoint-2026-10-16),
+   then the [KV write checkpoint](#kv-write-checkpoint-2026-10-16),
    then the [connected attention checkpoint](#connected-attention-checkpoint-2026-10-16),
    then the [learned rotary checkpoint](#learned-rotary-checkpoint-2026-10-16),
    then the [partial rotary checkpoint](#partial-rotary-checkpoint-2026-10-16),
@@ -199,6 +200,72 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## KV Composition Checkpoint (2026-10-16)
+
+After `bee4723`, a separate bounded ctypes helper reuses the actual native
+F16 K/transposed-V `ggml_set_rows` layouts. It accepts 1-80 F32 updates,
+1-4 KV heads, width 256, 128 F16 cache slots and unique I64 indices in 0-127.
+Wrong shapes/types, duplicate/out-of-range slots, nonfinite data and updates
+that overflow F16 refuse before any GGML call. Sources/indices, caller arrays
+and every unwritten native destination byte are preserved. Twelve synthetic
+cases pass independent exact-bit oracles, ten also match the compiled control;
+four-head/last-slot-127 boundaries and twelve unsafe-input refusals pass.
+This stage took **2.72 s**, peak child RSS **248,644 KiB**, zero swap growth.
+
+A separate composition then writes actual cache updates per chunk, copies the
+returned F16 cache arrays through the host, and reads them through the existing
+native non-flash attention helper. It checks the complete expected cache after
+every write and the final cache against one monolithic write. Causal scores,
+all probabilities and outputs must be bit-exact against a **matching-batch**
+read from the fully populated cache. Future probabilities must be zero even
+when future cache bytes retain nonzero sentinels. The five partitions are
+31+49, 40+40, 1+63+16, 80 singletons and 64+16 singletons. The synthetic
+composition passes in **6.57 s**, **343,100 KiB** RSS, zero swap growth.
+
+The learned diagnostic replays the identical authenticated layer-3 post-HF-
+rotary Q/K and V hashes. All five partitions pass every cache-byte and
+matching-batch causal-read check. Against the monolithic read, 31+49 and 40+40
+are exact throughout; 1+63+16 has a causal score max gap **3.051758e-5** but
+exact probabilities/outputs. Both singleton partitions retain the known output
+max gap **0.0003134012**, not a write error or a new acceptance tolerance.
+Resetting the first 31 cached tokens causes output max gap **3.054394**;
+reading V in the wrong untransposed layout causes **9.992188**. Both faults
+discriminate. The original fixed score-oracle check remains **false**;
+probability/output checks remain true, without changing any tolerance.
+
+This learned stage took **27.24 s**, peak child RSS **1,459,452 KiB**, minimum
+observed host-available RAM **12,984,352,768 bytes**, zero swap growth. The
+60/300-second deadlines, address-space and host RAM/swap/disk guards are
+unchanged. The six runtime hashes, frozen codes/scales/manifest, profile/
+metadata and source identities pass entry/exit checks. Only the installed
+trusted implementation is used; there is no model-repository code execution,
+new download, conversion, output head, generated token or quality experiment.
+
+Retained/reread small-report SHA-256 values:
+
+- `kv-write-kernel-selftest-result.json`:
+  `594e2eeb1096b6eab0dcfc0f8aa2a3d95459c0d157dd591aa4727d2a831cff2a`.
+- `cached-attention-core-selftest-result.json`:
+  `c6f0e5f6dc66bb93f22701c408d0d559e6487750b1da6798831eda1edecb9ace`.
+- `cached-attention-core-comparison.json`:
+  `40f864ce4fbb52433752d478970885a41311b84f305bd87568a01809d8681053`.
+
+All scripts, small reports and diagnostic executables remain outside Git.
+Scratch totals **1,608,495 bytes**; arrays are memory-only, with no raw replay
+packet, GGUF or owned compiler spill after empty-directory cleanup. Syntax/
+Ruff, focused synthetic/learned checks and scoped documentation/link/whitespace
+validation accompany this documentation checkpoint. The successful source gate
+at `bee4723` is unchanged and was not rerun for these documentation-only edits.
+
+This proves bounded native writes feeding matching causal reads with **copied
+host cache carry between separate native graphs**, not persistent native cache
+ownership, projection-batch invariance, connected learned projections/rotary,
+eviction, concurrency, loader parity, real-model v2 P4, BitNet or quality.
+The complete-model max logit gap **0.0971508** remains unresolved. Next: a
+bounded synthetic same-allocation native cache lifetime/write/read control;
+do not promote host-array carry into persistent-state evidence or retry the
+stopped full conversion under unchanged resources.
 
 ## KV Write Checkpoint (2026-10-16)
 

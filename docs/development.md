@@ -2733,6 +2733,15 @@ mean-centered/padded/quantized/multistream or learned-loader acceptance. Any
 future file/index API must refuse overlaps and out-of-range rows before GGML,
 whose overlapping destination-row behavior is undefined.
 
+The separate [KV composition checkpoint](handover.md#kv-composition-checkpoint-2026-10-16)
+connects actual native writes to causal attention using copied F16 host cache
+arrays between separate graphs. Require complete-buffer bit equality after
+every write, matching-batch causal score/probability/output equality, zero
+future probabilities and reset/layout faults. Compare monolithic batching
+separately: existing singleton reduction/F16 probability-rounding differences
+are not cache-write defects. This does not establish persistent native cache
+ownership or integrate learned chunkwise projections, rotary or the loader.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
