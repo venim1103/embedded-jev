@@ -245,6 +245,7 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                   "peer_logits": reference_logits([4, 9, 19, 3, 5, 7]),
                   "text_logits": reference_logits([4, 2]),
                   "continuation_logits": reference_logits([3, 5, 7] * 26 + [3, 5]),
+                  "uncleared_reset_logits": reference_logits([4, 9, 19] * 26 + [4, 9, 3, 5, 7]),
                   "maximum_logits": reference_logits([2] * 128)}))
 """
     try:
@@ -257,7 +258,7 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
         command = ("--prefill-profile-bitnet-control" if profile_policy else
                "--prefill-bitnet-control" if bitnet else "--prefill-control")
         model_arguments = [str(model_file), str(reference_file)] if profile_policy else [str(model_file)]
-        modes = ("full", "chunked", "singletons", "singletons-80", "prefill64-singletons", "reset", "reordered", "parallel", "maximum")
+        modes = ("full", "chunked", "singletons", "singletons-80", "prefill64-singletons", "reset", "reset-singletons", "reordered", "parallel", "maximum")
         if bitnet:
             modes += ("kernel-recovery",)
         for mode in modes:
@@ -273,14 +274,14 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
             assert report["input_tokens"] == token_ids
             assert report["backend"] == ("bitnet" if bitnet else "dense") and report["mode"] == mode
             assert report.get("model_policy_abi") == (2 if profile_policy else None)
-            calls = (17 if mode == "prefill64-singletons" else len(token_ids) if mode in ("singletons", "singletons-80") else
-                     3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1)
+            calls = {"prefill64-singletons": 17, "singletons": 3, "singletons-80": 80,
+                     "reset-singletons": 83, "parallel": 3, "chunked": 2, "reset": 2}.get(mode, 1)
             assert report["prefill_calls"] == calls
             assert report["rejected_prefill_calls"] == (mode == "kernel-recovery")
             assert report["kernel_error_status"] == (1 if mode == "kernel-recovery" else 0)
             assert report["bitnet_dispatch_calls"] == (calls if bitnet else 0)
             assert report["weight_repacks"] == bitnet
-            input_count = 1 if mode in ("singletons", "singletons-80", "prefill64-singletons") else 2 if mode == "chunked" else len(token_ids)
+            input_count = 1 if mode in ("singletons", "singletons-80", "prefill64-singletons", "reset-singletons") else 2 if mode == "chunked" else len(token_ids)
             assert report["bitnet_last_input_tokens"] == (input_count if bitnet else 0)
             assert report["memory_position_min"] == report["memory_position_max"] == len(token_ids) - 1
             order = [2, 0, 1] if mode == "reordered" else [0, 1, 2]
@@ -292,6 +293,8 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
             scores = np.exp(logits - logits.max())
             scores /= scores.sum()
             np.testing.assert_allclose(report["conditional_scores"], scores, rtol=2e-5, atol=2e-5)
+            if mode == "reset-singletons" and (recurrent or attention):
+                assert not np.allclose(expected["uncleared_reset_logits"], expected["logits"], rtol=2e-5, atol=2e-5)
             if mode == "parallel":
                 np.testing.assert_allclose(report["peer_logits"], expected["peer_logits"], rtol=2e-5, atol=2e-5)
                 if recurrent or attention:

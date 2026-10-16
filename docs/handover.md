@@ -41,6 +41,8 @@ After user-pushed `6294380`, bounded synthetic complete-loader controls also
 cover singleton and 64+16 continuation through dense, BitNet v1 and profile
 policy backends, plus deliberate state-loss refusal. No learned model ran in
 this new source checkpoint.
+After user-pushed `fb2852c`, long singleton warmup/reset/replay also passes
+through the same three backends, without rebuilding runtime libraries.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -125,7 +127,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [native loader continuation checkpoint](#native-loader-continuation-checkpoint-2026-10-16),
+2. Read the [native loader reset checkpoint](#native-loader-reset-checkpoint-2026-10-16),
+   then the [native loader continuation checkpoint](#native-loader-continuation-checkpoint-2026-10-16),
    then the [detached singleton checkpoint](#detached-singleton-checkpoint-2026-10-16),
    then the [detached decode checkpoint](#detached-decode-checkpoint-2026-10-16),
    then the [detached execution checkpoint](#detached-execution-checkpoint-2026-10-16),
@@ -252,6 +255,49 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Native Loader Reset Checkpoint (2026-10-16)
+
+Resumed after user-pushed `fb2852c`, with only untouched user editor settings
+untracked. Extended the existing bounded tiny-loader control and its NumPy
+reference test with `reset-singletons`: 80 singleton warmup calls on repeating
+4, 9, 19 (ending 4, 9), a checked native hybrid position intersection of
+**[79,79]**, `llama_memory_clear(memory, true)` with both positions **-1**,
+then three singleton calls on 3, 5, 7 through the **same context and model**.
+Final native position is **[2,2]**, and selected logits/conditional scores
+must reproduce the independent fresh three-token reference at unchanged
+**rtol/atol 2e-5**. Typed options and zero generated answer tokens remain checked.
+
+BitNet paths require **83 actual counted dispatches**, one weight repack and
+one final input row. The independent oracle also evaluates the uncleared
+83-token stream; every nonzero recurrent and/or attention case must differ
+from the fresh reference at the same tolerance. Thus cache contamination is
+numerically distinguishable, not merely assumed absent from position reset.
+All-zero cache fixtures remain supported but do not claim this discriminator.
+The old short-batch reset now also checks its pre-clear position **[2,2]**.
+
+Immediate focused recurrent-plus-attention profile-policy check passes in
+**1.56 s**. All **12** existing backend/cache combinations pass in **12.36 s**,
+adding 12 positive long-reset workflows and nine active-cache fault-oracle
+discriminators. Existing continuation, state-loss refusal, parallel, trace,
+kernel-error/recovery and malformed-input checks remain included. The required
+source gate passes **553 tests, 88 optional skips in 15.65 s**, Ruff and
+whitespace clean; optional compiled checks ran separately. Editor diagnostics
+and scoped documentation validation pass. No failed check or tolerance change.
+
+Only the loader-control executable was rebuilt. Six cached runtime library
+hashes and both pinned source revisions/tracked-file cleanness are reverified.
+Small external `tiny-native-singleton-reset-evidence.json` records the source,
+executable, runtime pins and results, reread SHA-256
+`4e7c4dd5fb1d7fea4378a6cd811fbf3c7ad0437ff34249560a917cb061ac429f`.
+Synthetic models use the existing bounded temporary fixture/finally cleanup;
+the 30-second subprocess deadlines and native geometry bounds are unchanged.
+No learned weights, frozen artifact, conversion, download, refit, candidate,
+held-out scores or other-model execution were used. This is tiny native
+context reset/reuse, not production concurrency, learned full-loader parity,
+whole-model BitNet, P4 acceptance, representative quality or device evidence.
+Next bounded source work may test singleton context isolation; a learned
+full-runtime comparison still needs separate artifact/resource approval.
 
 ## Native Loader Continuation Checkpoint (2026-10-16)
 

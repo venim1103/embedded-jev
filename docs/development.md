@@ -2249,6 +2249,14 @@ stdout scores. This is a synthetic state-loss negative control, not a normal
 reset API or authorization for learned-model execution. See the
 [native loader continuation checkpoint](handover.md#native-loader-continuation-checkpoint-2026-10-16).
 
+`reset-singletons` warms the same context with 80 singleton tokens (repeating
+4, 9, 19 and ending 4, 9), checks position 79, clears native memory and checks
+position -1, then replays 3, 5, 7 as singletons. The fresh-reference logits
+and scores must match, final position is 2, and BitNet requires 83 dispatches,
+one repack and one final input row. A separate NumPy uncleared-history oracle
+must differ for nonzero recurrent/attention fixtures. See the
+[native loader reset checkpoint](handover.md#native-loader-reset-checkpoint-2026-10-16).
+
 BitNet-only `kernel-error` temporarily selects unsupported upward rounding after
 loading. The test requires `llama_decode` success but tensor status 1, NaN logits,
 zero counted kernel calls, one repack, and no stdout score report. In

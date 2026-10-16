@@ -853,10 +853,11 @@ static int test_prefill_control(
     }
     const bool chunked = std::strcmp(mode, "chunked") == 0;
     const bool singleton_reset = std::strcmp(mode, "singletons-reset") == 0;
-    const bool singletons = std::strcmp(mode, "singletons") == 0 || singleton_reset;
+    const bool reset_singletons = std::strcmp(mode, "reset-singletons") == 0;
+    const bool singletons = std::strcmp(mode, "singletons") == 0 || singleton_reset || reset_singletons;
     const bool extended_singletons = std::strcmp(mode, "singletons-80") == 0;
     const bool prefill_singletons = std::strcmp(mode, "prefill64-singletons") == 0;
-    const bool reset = std::strcmp(mode, "reset") == 0;
+    const bool reset = std::strcmp(mode, "reset") == 0 || reset_singletons;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
     const bool parallel = std::strcmp(mode, "parallel") == 0;
     const bool maximum_batch = std::strcmp(mode, "maximum") == 0;
@@ -1083,10 +1084,19 @@ static int test_prefill_control(
     }
     if (reset) {
         std::vector<llama_token> warmup = { 4, 9, 19 };
-        if (llama_decode(context.get(), llama_batch_get_one(warmup.data(), warmup.size())) != 0) {
-            return 29;
+        for (std::size_t index = 0; index < (reset_singletons ? 80 : 1); ++index) {
+            auto* current = warmup.data() + (reset_singletons ? index % warmup.size() : 0);
+            const auto count = reset_singletons ? 1 : warmup.size();
+            if (llama_decode(context.get(), llama_batch_get_one(current, count)) != 0) {
+                return 29;
+            }
+            ++prefill_calls;
         }
-        ++prefill_calls;
+        const llama_pos warmup_position = reset_singletons ? 79 : 2;
+        if (llama_memory_seq_pos_min(memory, 0) != warmup_position ||
+                llama_memory_seq_pos_max(memory, 0) != warmup_position) {
+            return 31;
+        }
         llama_memory_clear(memory, true);
         if (llama_memory_seq_pos_min(memory, 0) != -1 || llama_memory_seq_pos_max(memory, 0) != -1) {
             return 31;
