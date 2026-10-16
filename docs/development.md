@@ -2792,6 +2792,14 @@ loader graph. Match captured input/prefix identities, compare the complete
 same-input HF reference, isolate same-product split/full down differences and
 repeat source/runtime pin checks after all additional tensor/reference work.
 
+The [attention layer continuation checkpoint](handover.md#attention-layer-continuation-checkpoint-2026-10-16)
+extends that complete layer through fixed-prompt singleton and prefill/singleton
+schedules. Require the identical monolithic full-layer hash/reference metrics,
+exact cache state after MLP graph teardown and matching-operand core bits.
+Separate native-input-norm layer results from earlier fixed-HF-normalized
+sublayer results; their operands differ. Observed post-norm/MLP propagation
+does not establish batching invariance or authorize numerical-policy changes.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
