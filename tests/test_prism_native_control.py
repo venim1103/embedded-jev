@@ -244,6 +244,7 @@ def reference_logits(token_ids):
 print(json.dumps({"logits": reference_logits([3, 5, 7]),
                   "peer_logits": reference_logits([4, 9, 19, 3, 5, 7]),
                   "text_logits": reference_logits([4, 2]),
+                  "continuation_logits": reference_logits([3, 5, 7] * 26 + [3, 5]),
                   "maximum_logits": reference_logits([2] * 128)}))
 """
     try:
@@ -256,7 +257,7 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
         command = ("--prefill-profile-bitnet-control" if profile_policy else
                "--prefill-bitnet-control" if bitnet else "--prefill-control")
         model_arguments = [str(model_file), str(reference_file)] if profile_policy else [str(model_file)]
-        modes = ("full", "chunked", "reset", "reordered", "parallel", "maximum")
+        modes = ("full", "chunked", "singletons", "singletons-80", "prefill64-singletons", "reset", "reordered", "parallel", "maximum")
         if bitnet:
             modes += ("kernel-recovery",)
         for mode in modes:
@@ -266,25 +267,27 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
             report = json.loads(control.stdout)
             if mode == "full":
                 untraced_report = report
-            token_ids = [2] * 128 if mode == "maximum" else [3, 5, 7]
+            continuation = mode in ("singletons-80", "prefill64-singletons")
+            token_ids = [2] * 128 if mode == "maximum" else [3, 5, 7] * 26 + [3, 5] if continuation else [3, 5, 7]
             assert report["prefilled_tokens"] == len(token_ids) and report["generated_answer_tokens"] == 0
             assert report["input_tokens"] == token_ids
             assert report["backend"] == ("bitnet" if bitnet else "dense") and report["mode"] == mode
             assert report.get("model_policy_abi") == (2 if profile_policy else None)
-            calls = 3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1
+            calls = (17 if mode == "prefill64-singletons" else len(token_ids) if mode in ("singletons", "singletons-80") else
+                     3 if mode == "parallel" else 2 if mode in ("chunked", "reset") else 1)
             assert report["prefill_calls"] == calls
             assert report["rejected_prefill_calls"] == (mode == "kernel-recovery")
             assert report["kernel_error_status"] == (1 if mode == "kernel-recovery" else 0)
             assert report["bitnet_dispatch_calls"] == (calls if bitnet else 0)
             assert report["weight_repacks"] == bitnet
-            input_count = 2 if mode == "chunked" else len(token_ids)
+            input_count = 1 if mode in ("singletons", "singletons-80", "prefill64-singletons") else 2 if mode == "chunked" else len(token_ids)
             assert report["bitnet_last_input_tokens"] == (input_count if bitnet else 0)
             assert report["memory_position_min"] == report["memory_position_max"] == len(token_ids) - 1
             order = [2, 0, 1] if mode == "reordered" else [0, 1, 2]
             assert report["option_ids"] == [(["inspect", "edit", "ask"][index]) for index in order]
             assert report["option_token_ids"] == [([11, 17, 23][index]) for index in order]
             assert report["option_labels"] == [(["A", "B", "C"][index]) for index in order]
-            logits = np.asarray(expected["maximum_logits" if mode == "maximum" else "logits"], dtype=np.float64)[order]
+            logits = np.asarray(expected["maximum_logits" if mode == "maximum" else "continuation_logits" if continuation else "logits"], dtype=np.float64)[order]
             np.testing.assert_allclose(report["logits"], logits, rtol=2e-5, atol=2e-5)
             scores = np.exp(logits - logits.max())
             scores /= scores.sum()
@@ -389,6 +392,9 @@ print(json.dumps({"logits": reference_logits([3, 5, 7]),
                                            "--prefill-text-control", str(model_file), prompt],
                                           capture_output=True, text=True, timeout=30)
                 assert rejected.returncode == 34 and rejected.stdout == "", rejected.stderr
+        rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
+                                   command, *model_arguments, "singletons-reset"], capture_output=True, text=True, timeout=30)
+        assert rejected.returncode == 31 and rejected.stdout == "", rejected.stderr
         if bitnet:
             rejected = subprocess.run([str(Path(runtime_build) / "bin" / "prism_bitnet_loader_control"),
                                        command, *model_arguments, "kernel-error"], capture_output=True, text=True, timeout=30)

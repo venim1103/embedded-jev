@@ -2234,6 +2234,21 @@ The per-weight mutex serializes its scratch/compute use; this is initialized
 steady-state context isolation, not simultaneous registry/loading/free/unload
 safety or a parallel-speedup claim.
 
+The synthetic control also accepts `singletons` (the original three tokens,
+three calls), `singletons-80` (80 one-token calls), and `prefill64-singletons`
+(64-token prefill plus 16 one-token calls). The latter two use the same fixed
+80-token stream, repeating token IDs 3, 5, 7 and ending 3, 5. Each call reuses
+one actual `llama_context` and its native memory; no host cache handoff is used.
+The independent NumPy reference checks final selected logits and conditional
+scores with unchanged tolerances. Hybrid retained-position intersection is
+`[79,79]` for both long schedules. BitNet requires 80/17 dispatches respectively,
+one repack and one final input row; answer generation stays zero.
+The deliberately faulty `singletons-reset` clears native memory before the
+last token. The existing position guard must refuse with status 31 and no
+stdout scores. This is a synthetic state-loss negative control, not a normal
+reset API or authorization for learned-model execution. See the
+[native loader continuation checkpoint](handover.md#native-loader-continuation-checkpoint-2026-10-16).
+
 BitNet-only `kernel-error` temporarily selects unsupported upward rounding after
 loading. The test requires `llama_decode` success but tensor status 1, NaN logits,
 zero counted kernel calls, one repack, and no stdout score report. In
@@ -2249,14 +2264,15 @@ After the versioned build above, reproduce just this bounded control with:
 
 ```bash
 PRISM_SOURCE_DIR="$cache/native/prism-source" \
-PRISM_CONVERTER_PYTHON="$cache/native/converter-venv/bin/python" \
+PRISM_CONVERTER_PYTHON="$cache/dense-venv/bin/python" \
 MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
    tests/test_prism_native_control.py -k tiny_qwen35_native_prefill
 ```
 
-All eight parameterized cases pass, including 60 successful native invocations
-and 76 refusal checks. These are controlled fixed-gate/head/rotary fixtures, not
+The original eight-case checkpoint recorded 60 successful native invocations
+and 76 refusal checks; current evidence is in the linked handover. These are
+controlled fixed-gate/head/rotary fixtures, not
 general recurrent/attention correctness, native MiMo weight loading, a full-model
 file policy, quality, or a target benchmark.
 

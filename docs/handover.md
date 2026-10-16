@@ -37,6 +37,10 @@ execution identities/events and same-schedule numerical evidence verified.
 All-80-singleton validation now also passes. The selected bounded combined
 native-history/GDN/attention continuation slice is complete; full-model/runtime
 acceptance remains separate. The historical writer remains unknown.
+After user-pushed `6294380`, bounded synthetic complete-loader controls also
+cover singleton and 64+16 continuation through dense, BitNet v1 and profile
+policy backends, plus deliberate state-loss refusal. No learned model ran in
+this new source checkpoint.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -121,7 +125,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [detached singleton checkpoint](#detached-singleton-checkpoint-2026-10-16),
+2. Read the [native loader continuation checkpoint](#native-loader-continuation-checkpoint-2026-10-16),
+   then the [detached singleton checkpoint](#detached-singleton-checkpoint-2026-10-16),
    then the [detached decode checkpoint](#detached-decode-checkpoint-2026-10-16),
    then the [detached execution checkpoint](#detached-execution-checkpoint-2026-10-16),
    then the [file event checkpoint](#file-event-checkpoint-2026-10-16),
@@ -247,6 +252,87 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Native Loader Continuation Checkpoint (2026-10-16)
+
+Resumed after user-pushed `6294380`; only untouched user editor settings were
+untracked. The learned detached continuation slice was complete, but its
+synchronous diagnostic stack did not itself test repeated calls through the
+actual complete-model loader. Extended the existing small C++ loader control
+and its existing NumPy-backed test, without changing runtime libraries,
+production v1/v2 policy factories or model approval boundaries.
+
+The existing synthetic four-layer fixture has hidden width 32, FFN width 256
+and vocabulary 64, with independently zero/nonzero layer-0 recurrent and
+layer-1 attention paths. Its selected layer-3 FFN-down uses synthetic ternary
+codes and independent per-output-row/input-group FP16 scales. Three new
+control modes reuse **one actual native model/context/memory** per invocation:
+
+- `singletons`: three one-token calls for the original 3, 5, 7 token fixture.
+- `singletons-80`: 80 one-token calls on 26 repetitions of 3, 5, 7 plus 3, 5.
+- `prefill64-singletons`: the same 80 tokens, split into one 64-token call
+  followed by 16 one-token calls.
+
+The unchanged independent NumPy recurrence/attention/FFN/output reference checks
+selected logits and conditional option scores at **rtol/atol 2e-5**. Tokens,
+typed option IDs/labels, final hybrid native-memory position and zero generated
+answer tokens remain checked. BitNet paths require **3/80/17 genuine counted
+dispatches**, one weight repack per model load, and one input token on the last
+call. Native hybrid position intersection is **[79,79]** for both long schedules.
+This does not assume bitwise batch invariance or calibrated confidence.
+
+Deliberate `singletons-reset` fault clears native memory immediately before
+the last token. The existing final-position guard returns **31** before JSON
+publication; all backends must have empty stdout. It is not a supported
+continuation/reset workflow. Existing full/chunked/reset/reordered/parallel/
+maximum/kernel-recovery/trace, corruption and CLI-refusal checks still run.
+
+Immediate focused compiled checks pass after each local addition: three-token
+singleton **1.37 s**, long schedules **1.40 s**, reset fault **1.32 s**.
+Final full existing matrix passes **12 cases in 11.90 s**: dense, BitNet v1
+and profile-policy backends times independently zero/nonzero recurrent and
+attention paths. This adds **36 positive schedule/backend/path checks and 12
+state-loss refusals** to that matrix. No numerical tolerance, assertion or
+30-second per-control deadline was relaxed. No failed arithmetic or native
+check was retried for green.
+
+Final diff review corrected only one over-indented C++ guard line. Reversing
+that whitespace change reproduces the exact source hash used by the full
+compiled matrix. The final control rebuild and focused recurrent-plus-attention
+profile-policy case pass in **1.35 s**; the unchanged full matrix was not rerun.
+
+The loader-control target alone was compiled/linked in the existing owned
+runtime build. Six cached runtime library hashes are reverified unchanged;
+both pinned upstream source revisions and tracked files are unchanged/clean.
+The original frozen artifact was not read/refit/replaced. Fixtures are bounded
+temporary synthetic GGUFs, removed by the existing finally block; trace fixtures
+remain under pytest's normal temporary-directory lifecycle. No learned weights,
+model conversion, source download, retained candidate, compensation, held-out
+scoring, broader quality or other-model action was started.
+
+The initial source gate passed **553 tests, 88 optional skips in 10.84 s**.
+The required final-source checkpoint gate passes **553 tests, 88 optional skips
+in 12.02 s**, Ruff and whitespace clean. The 12 compiled controls above ran
+separately; default skips are not counted as compiled success. Source/test
+editor diagnostics are clean. Original external evidence
+`tiny-native-singleton-continuation-evidence.json` remains unchanged, SHA-256
+`76c9ee0350428504e8f73f57e19504337f80907a502c1e0a573d58f71f7064b4`.
+Separate `tiny-native-singleton-continuation-final-evidence.json` records the
+final source/executable hashes, whitespace-only reconstruction, focused result
+and final gate, reread SHA-256
+`8094a0d1f3919027067a0ee30e44799f5db23978e01abf3dcafd43fc2cedb4d0`.
+The first final-evidence command was rejected by shell history expansion before
+Python ran; a quoted heredoc corrected the command without changing the check.
+Docs/link/editor/whitespace validation accompanies this source checkpoint.
+
+This adds bounded **actual tiny-loader** continuation and genuine synthetic
+BitNet dispatch coverage. It is not learned full-loader parity, complete-model
+BitNet execution on MiMo, representative quality, another-profile compatibility
+or target-device certification. Historical direct-source/conversion failures,
+fixed attention-score failure and full-model selected-logit gap remain open.
+Next full-runtime comparison still requires its artifact/resource plan and
+separate conversion/broader-experiment approval; do not repeat the old guarded
+conversion or infer its result from these synthetic controls.
 
 ## Detached Singleton Checkpoint (2026-10-16)
 

@@ -852,13 +852,18 @@ static int test_prefill_control(
         }
     }
     const bool chunked = std::strcmp(mode, "chunked") == 0;
+    const bool singleton_reset = std::strcmp(mode, "singletons-reset") == 0;
+    const bool singletons = std::strcmp(mode, "singletons") == 0 || singleton_reset;
+    const bool extended_singletons = std::strcmp(mode, "singletons-80") == 0;
+    const bool prefill_singletons = std::strcmp(mode, "prefill64-singletons") == 0;
     const bool reset = std::strcmp(mode, "reset") == 0;
     const bool reordered = std::strcmp(mode, "reordered") == 0;
     const bool parallel = std::strcmp(mode, "parallel") == 0;
     const bool maximum_batch = std::strcmp(mode, "maximum") == 0;
     const bool kernel_error = use_bitnet && std::strcmp(mode, "kernel-error") == 0;
     const bool kernel_recovery = use_bitnet && std::strcmp(mode, "kernel-recovery") == 0;
-    if (!chunked && !reset && !reordered && !parallel && !maximum_batch && !kernel_error && !kernel_recovery &&
+    if (!chunked && !singletons && !extended_singletons && !prefill_singletons && !reset &&
+            !reordered && !parallel && !maximum_batch && !kernel_error && !kernel_recovery &&
             std::strcmp(mode, "full") != 0) {
         return 32;
     }
@@ -970,6 +975,12 @@ static int test_prefill_control(
         return 27;
     }
     std::vector<llama_token> tokens = { 3, 5, 7 };
+    if (extended_singletons || prefill_singletons) {
+        tokens.resize(80);
+        for (std::size_t index = 0; index < tokens.size(); ++index) {
+            tokens[index] = 3 + 2 * (index % 3);
+        }
+    }
     if (maximum_batch) {
         tokens.assign(128, 2);
     }
@@ -1094,7 +1105,24 @@ static int test_prefill_control(
         }
         ++prefill_calls;
     }
-    const std::size_t offset = chunked ? 1 : 0;
+    if (prefill_singletons) {
+        if (llama_decode(context.get(), llama_batch_get_one(tokens.data(), 64)) != 0) {
+            return 29;
+        }
+        ++prefill_calls;
+    }
+    if (singletons || extended_singletons || prefill_singletons) {
+        for (std::size_t index = prefill_singletons ? 64 : 0; index + 1 < tokens.size(); ++index) {
+            if (llama_decode(context.get(), llama_batch_get_one(tokens.data() + index, 1)) != 0) {
+                return 29;
+            }
+            ++prefill_calls;
+        }
+    }
+    const std::size_t offset = (singletons || extended_singletons || prefill_singletons) ? tokens.size() - 1 : chunked ? 1 : 0;
+    if (singleton_reset) {
+        llama_memory_clear(memory, true);
+    }
     if (llama_decode(context.get(), llama_batch_get_one(tokens.data() + offset, tokens.size() - offset)) != 0) {
         return 29;
     }
