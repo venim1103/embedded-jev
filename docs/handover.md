@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [resident singleton continuation checkpoint](#resident-singleton-continuation-checkpoint-2026-10-16),
+2. Read the [resident all singleton checkpoint](#resident-all-singleton-checkpoint-2026-10-16),
+   then the [resident singleton continuation checkpoint](#resident-singleton-continuation-checkpoint-2026-10-16),
    then the [resident stack checkpoint](#resident-stack-checkpoint-2026-10-16),
    then the [four layer continuation checkpoint](#four-layer-continuation-checkpoint-2026-10-16),
    then the [native prefix composition checkpoint](#native-prefix-composition-checkpoint-2026-10-16),
@@ -210,6 +211,76 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Resident All Singleton Checkpoint (2026-10-16)
+
+After `b9686cc`, completed bounded **80-singleton** dense four-layer continuation
+on the fixed prompt. A seven-token all-singleton nonzero synthetic stack first
+matches every resident recurrent/attention stage and final cache with its
+independent same-schedule layer-major reference; refusal/failure cleanup also
+passes in **39.49 s**, **1,047,732 KiB** peak child RSS, zero swap growth.
+
+The learned reference and resident comparison run as separate serial jobs,
+each retaining the original 300-second guard. Only small per-stage/final-cache
+hashes and scalar metrics cross the job boundary; no raw activation is retained.
+The reference child completes successfully in **198.78 s**, **3,323,236 KiB**
+peak RSS, zero process swaps, with final source/runtime/helper checks. However,
+its supervisor's final metadata write raises `FileExistsError`: the stage name
+collided with the exclusive numerical report name. The numerical report,
+stdout/stderr and `/usr/bin/time` evidence are intact. **Host minimum RAM,
+swap-growth and disk-growth aggregates were not saved and remain unavailable.**
+The monitor/guards were active; do not invent those aggregates or rerun a
+successful reference for reassurance. A separate recovery report records this
+failure and only independently retained child status/timing facts.
+
+The resident comparison uses a distinct supervisor name and passes in
+**208.44 s**, **3,337,568 KiB** peak child RSS, minimum host-available RAM
+**10,500,919,296 bytes**, zero host swap growth/process swaps. Every recurrent
+stage/history/state hash, attention-stage hash, final native K/V hash and scalar
+metric dictionary exactly matches the reference. Both jobs use the same script,
+helper/GDN/runtime/source pins; monolithic output/cache hashes and HF metrics
+also reproduce. Every resident step passes full-cache/matching-core bit checks
+after MLP work, with zero host attention cache restores; all owners close.
+Reference-only records explicitly do not claim these resident per-step checks.
+
+| Recurrent Layer | Output Max vs Monolithic | Final History Max | Final State Max |
+| --- | --- | --- | --- |
+| 0 | 0.0003347397 | 0.000007629395 | 0.000007629395 |
+| 1 | 0.001392365 | 0.001676083 | 0.0001898408 |
+| 2 | 0.006101608 | 0.004032135 | 0.0006805509 |
+
+Four-layer all-singleton output has max **0.01289749**, RMS **0.0002458042**,
+versus native monolithic, and max **0.01436806**, RMS **0.0002501368**, versus
+trusted HF. Final F16 K/V differs from full-stack monolithic in **73,233 /
+74,340** elements; changed prefix operands are included. These are observed
+differences, not acceptance thresholds. Output SHA-256:
+`2335d3e629a28ee6a67f5b7d656ec61c5eef309997234d67ba1b324caef6fcef`.
+Original fixed score criterion remains false; full-model logit gap **0.0971508**
+is unresolved. No conversion, download, candidate/refit, compensation, padding
+promotion, output head/scoring or generated answer tokens.
+
+Retained/reread small-report SHA-256 values:
+
+- `resident-stack-singletons-selftest-result.json`:
+  `78a198d898367cb0e64f6f58ae85b88ac8f8fef452e95db2a89c752db78fca60`.
+- `resident-stack-singletons-reference.json`:
+  `0a263efd63091405f571f6f20af5dbfece80c82b8e178edb589de0499435576c`.
+- `resident-stack-singletons-reference-supervision-recovery.json`:
+  `a7e8c37b446c4545c12b8343f7b98181f84807d1a540360f10f746916c6b5aa8`.
+- `resident-stack-singletons-comparison.json`:
+  `fbcbeb915a1a82c0a627927e85d031b7f4918339f5cad73eb3d101f3810bf32e`.
+
+Scratch totals **2,398,709 bytes** outside Git; no raw arrays/replay packets,
+GGUF or owned compiler spill remains. Scoped Ruff, synthetic/learned and
+documentation/link/whitespace/editor checks accompany this documentation-only
+checkpoint; unchanged source gates were not rerun. This completes the selected
+dense four-layer coarse/prefill-singleton/all-singleton controls, not native
+recurrent-state residency, full-loader/model parity, whole-model BitNet/v2 P4,
+target-device performance or quality acceptance. Next substantive integration
+gate remains matching native-loader/reference traces on an approved model
+artifact. The stopped full conversion remains blocked under unchanged resources;
+prepare a revised bounded artifact/resource proposal before any new conversion,
+and preserve the original failed numerical criteria and frozen candidate.
 
 ## Resident Singleton Continuation Checkpoint (2026-10-16)
 

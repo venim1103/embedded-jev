@@ -2840,6 +2840,18 @@ cache crossings separately from fixed-prefix attention replay. This schedule
 still consumes the fixed prompt and is not token generation or an all-singleton
 result. Keep long reference/comparison stages serial and individually bounded.
 
+The [resident all singleton checkpoint](handover.md#resident-all-singleton-checkpoint-2026-10-16)
+completes all 80 fixed-prompt singleton steps through the four dense layers.
+Run the long independent reference and resident comparison serially under
+separate unchanged deadlines; retain only per-stage/cache hashes and scalar
+metrics. Require identical runtime/source/helper provenance and exact hashes
+and metric dictionaries, preserving monolithic evidence and measured drift.
+Supervisor stage names must differ from child numerical-report names: both
+write exclusive JSON files. If final supervisor metadata fails after a child
+succeeds, preserve its report/logs/time evidence, identify missing host-sampling
+aggregates explicitly and do not rerun the successful child for reassurance.
+This remains a four-layer dense control, not full-loader/model parity.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
