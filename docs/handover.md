@@ -25,7 +25,10 @@ is unavailable and combined all-singleton execution was not started. No retry
 or full conversion was attempted after that guard stop.
 Latest resume starts at user-pushed `ab484a8`. A separate reference-lifetime
 variant now passes synthetic/coarse learned checks with lower native-phase
-retention and unchanged arithmetic/guards; its longer continuation is next.
+retention and unchanged arithmetic/guards. Its longer continuation reaches
+final publication but fails the source/proof identity guard; no accepted
+numerical report exists. The new synthetic pin audit passes. Learned jobs
+remain stopped pending source/proof stability; read the latest checkpoint.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -110,7 +113,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [reference lifetime checkpoint](#reference-lifetime-checkpoint-2026-10-16),
+2. Read the [lifetime pin audit checkpoint](#lifetime-pin-audit-checkpoint-2026-10-16),
+   then the [reference lifetime checkpoint](#reference-lifetime-checkpoint-2026-10-16),
    then the [learned convolution owner checkpoint](#learned-convolution-owner-checkpoint-2026-10-16),
    then the [native convolution ownership checkpoint](#native-convolution-ownership-checkpoint-2026-10-16),
    then the [native state singleton checkpoint](#native-state-singleton-checkpoint-2026-10-16),
@@ -231,6 +235,75 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Lifetime Pin Audit Checkpoint (2026-10-16)
+
+After `9495903`, the materially changed reference-lifetime **64-prefill /
+16-singleton** job ran under the unchanged 300-second/resource guards. It
+returned **1** after **102.32 s**, with **no resource refusal**, peak child RSS
+**3,153,836 KiB**, minimum host-available RAM **13,513,908,224 bytes**, host
+swap growth **7,770,112 bytes**, observed filesystem growth **4,096 bytes**
+and zero process swaps. This is not a retry of the old resource-stopped helper.
+
+The traceback reaches final report publication after the existing numerical,
+same-schedule reference and native-owner checks. It fails the lifetime
+wrapper's **full source/proof identity equality assertion**, not an earlier
+arithmetic assertion. The report is correctly withheld: no accepted decode
+numerical verdict exists. The native-entry marker confirms all reference
+parameters were meta, **838,895,616 parameter bytes** were removed and entry
+RSS was **2,173,444,096 bytes**; none of those observations overrides the
+failed provenance check. The original fixed attention-score check remains
+false, as recorded in stdout.
+
+Read-only diagnosis finds all four current source/proof SHA-256 values still
+match the retained coarse result. The wrapper's current timestamps are
+consistent with a touch during replay. **Entry identities were not retained**,
+so the exact mismatched pin and its before/after identities cannot be recovered.
+Matching current hashes do not prove there were no transient content changes,
+or establish who changed metadata. No source touch was normalized, no identity
+check weakened and no learned job rerun after this failure. Combined native
+history all-80-singleton execution remains **not started**.
+
+Added separate scratch `lifetime_pin_audit.py`; original helpers/proofs stay
+unchanged. It records all four initial hashes and full device/inode/size/
+mtime/ctime identities before replay, retains exact expected/actual values on
+the first mismatch and still refuses publication. Future phase and numerical
+reports have distinct names, avoiding existing evidence and supervisor files.
+This is diagnostic preparation, not a repair or accepted learned result.
+
+The initial tiny stable-file/metadata-touch/changed-byte test passes in
+**3.52 s**, **326,604 KiB**, zero swap growth/process swaps. The extension
+through the actual lifetime publication hooks initially failed because its
+synthetic fixture used the old proof filename; that log remains. After the
+single fixture-name repair, the same focused check passes in **3.37 s**,
+**327,116 KiB**, minimum available RAM **16,876,089,344 bytes**, zero swap
+growth/process swaps. All three synthetic cases verify publication/withholding,
+retained identities and hook restoration, without loading weights or replaying
+a learned model. Scoped Ruff passes. Scratch files are outside the editor
+workspace; no Pylance diagnostic-clean claim is made.
+
+Retained/reread report SHA-256:
+
+| Report | SHA-256 |
+| --- | --- |
+| `lifetime-history-decode-pin-diagnosis.json` | `ad5798752cac83be61b144a79764126becc87aa08f4ec795246df83155aea3e3` |
+| `lifetime-pin-audit-plumbing-selftest-result.json` | `facd83000163839525849ce1114ec96bb5ee129c801075b87289643db98be597` |
+
+Post-failure verification confirms all six runtime and three frozen hashes,
+original nine helper hashes, profile/metadata, original authenticated shard
+identities (not another complete shard rehash), installed model-code hash and
+pinned Prism/BitNet revisions. Prism tracked files remain clean. Scratch totals
+**3,001,008 bytes**; owned children, raw replay packets and spill files are
+absent, and failed logs remain. No cached library/source rebuild or model
+conversion/download/refit/candidate/compensation/quality/other-model action.
+
+Next: identify/prevent writes to watched scratch sources/proofs before another
+learned attempt; retain initial identities with the tested audit and preserve
+the original guards/reference. Do not rerun the failed job unchanged or treat
+this as evidence that the guard was spurious. Docs/link/editor/whitespace
+validation accompanies this docs-only source-tree checkpoint; successful
+`b52e20b` source gate (**553 passed, 88 optional skips**) is unchanged and not
+rerun. Full-model/BitNet/v2 P4/device acceptance remains open.
 
 ## Reference Lifetime Checkpoint (2026-10-16)
 

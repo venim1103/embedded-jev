@@ -2765,6 +2765,18 @@ record native-entry RSS and parameter counts without treating object bytes as
 guaranteed OS/device savings. This new coarse-tested lifetime variant does not
 retroactively pass the old resource-stopped continuation.
 
+The [lifetime pin audit checkpoint](handover.md#lifetime-pin-audit-checkpoint-2026-10-16)
+records a later final-publication identity refusal in that variant. Capture
+initial full device/inode/size/mtime/ctime identities as well as hashes for
+every watched source/proof before replay, and retain expected/actual values
+on refusal without publishing a numerical report. A byte-identical touch
+must still fail. Matching hashes after failure do not establish unchanged
+content throughout execution or identify a writer. Preserve failed logs;
+do not reconstruct missing entry identities, reset metadata or weaken guards
+to accept a completed calculation. Test stable/touched/changed-byte cases and
+publication-hook restoration synthetically before any learned use. Keep
+supervisor, phase-marker, failure and numerical report filenames distinct.
+
 The same executable's `--attention-control TOKENS [FIRST_TOKEN]` is a separate
 synthetic non-flash attention check: tokens 1/7/80, strict absolute position with
 window <=80, width 256, four query/two grouped KV heads and 128 F16 cache slots.
