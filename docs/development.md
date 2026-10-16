@@ -1515,6 +1515,26 @@ retain no tensor array, closes mappings before owner exit, and closes its
 temporary stream on failure. This is not a full converter or real-run approval.
 See the [payload owner checkpoint](handover.md#bf16-payload-owner-checkpoint-2026-10-16).
 
+`temporary_profile_safetensors_bf16_payload(..., source_path=..., source_name=...,
+source_values=..., expected_source_sha256=..., expected_file_bytes=...,
+expected_file_sha256=..., directory=...)` composes that owner with
+`verify_profile_safetensors_operand` before payload creation and after successful
+caller completion/payload cleanup. The entire shard, profile-pinned header and
+selected range must match; the final source receipt must equal the entry receipt,
+including device/inode/size/mtime/ctime. Source access failures become `ValueError`
+at this new boundary; existing no-follow/nonblocking regular-file checks remain.
+
+One cooperative 30 s default/600 s maximum deadline covers the whole lifetime.
+Source/payload caps remain 16 MiB; `maximum_bytes` retains the source verifier's
+three-times-operand charge, copies and comparison-byte materialization, not a
+process-RAM guarantee. The yielded immutable receipt nests the entry source
+receipt but requires successful exit before derived results are published.
+Finish payload readers/mappings first. Body errors skip success verification
+but still remove private payloads; callers never publish failed-body results.
+These are caller/profile pin checks, not issuer authentication, an atomic or
+continuous snapshot, a full-shard low-memory reader, complete conversion or
+runtime approval. See the [source-bound payload checkpoint](handover.md#bf16-source-bound-payload-checkpoint-2026-10-16).
+
 `verify_profile_converted_convolution(..., source_name=..., source_values=...,
 converted_values=..., expected_source_sha256=...)` checks declared convolution
 weights from BF16/F32 3D source arrays to F32 2D outputs. It decodes BF16,

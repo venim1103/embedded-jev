@@ -50,6 +50,8 @@ exhaustive finite-storage and pinned-transform controls. It is not a complete
 converter or approval to retry the refused real-model conversion.
 After `1ca8ac2`, a disposable raw payload owner also passes bounded lifetime
 refusals and actual pinned GGUF temporary-writer integration for 16 matrices.
+After `fc54e54`, a separate source-bound payload owner composes the existing
+profile-pinned safetensors range verifier with matching entry/exit receipts.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -134,7 +136,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [BF16 payload owner checkpoint](#bf16-payload-owner-checkpoint-2026-10-16),
+2. Read the [BF16 source-bound payload checkpoint](#bf16-source-bound-payload-checkpoint-2026-10-16),
+   then the [BF16 payload owner checkpoint](#bf16-payload-owner-checkpoint-2026-10-16),
    then the [BF16 chunk primitive checkpoint](#bf16-chunk-primitive-checkpoint-2026-10-16),
    then the [native loader isolation checkpoint](#native-loader-isolation-checkpoint-2026-10-16),
    then the [native loader reset checkpoint](#native-loader-reset-checkpoint-2026-10-16),
@@ -265,6 +268,51 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BF16 Source-Bound Payload Checkpoint (2026-10-16)
+
+After `fc54e54`, added `temporary_profile_safetensors_bf16_payload`, composing
+the existing selected safetensors operand verifier with the disposable raw
+BF16 matrix payload owner. Before creating a payload and after normal caller
+completion/cleanup, the whole source shard, pinned header and selected range
+must match the profile and caller operand. Both source receipts must also
+match exactly, including device/inode/size/mtime/ctime, so restored bytes/mtime
+or an identical replacement are not accepted as unchanged storage.
+
+The source path is made absolute without resolving symlinks; existing no-follow,
+nonblocking regular-file checks remain intact. Source-access `OSError`s become
+`ValueError` at the new owner boundary only. One cooperative **30-second
+default/600-second max** deadline covers both source checks, payload production,
+caller lifetime and cleanup checks. Source/payload byte caps remain **16 MiB**;
+the reused source verifier still charges **three times the operand bytes**.
+It copies the operand and materializes comparison bytes; this composition is
+not the lower-memory full-shard reader needed by a complete-model converter.
+
+The immutable receipt nests the entry source receipt and explicitly marks
+entry/exit verification as required, not already complete. Publish derived
+results only after successful owner closure, with payload readers/mappings
+finished before exit. Consumer exceptions and all checked failures clean the
+private payload/directory without deleting the caller's source file. No atomic
+or continuous storage snapshot, pin-issuer identity, runtime approval, converter
+RSS reduction or complete-model acceptance follows.
+
+The existing bounded zero-shard fixture now checks matrix entry refusals through
+the new owner, successful bytes/immutable receipts, changed/restored/replaced/
+deleted source lifetime refusals, cooperative exit deadline and consumer-error
+cleanup. The first run had **24 passes and one failure in 1.71 s**: deletion
+correctly refused and cleaned but leaked `FileNotFoundError`. Normalizing source
+access errors at the new boundary fixed the same **25 cases in 1.47 s**, with
+unchanged refusal assertions. Expanded entry/lifetime coverage gives **45 passes
+in 2.41 s**. Required source gate: **607 passed, 89 optional skips in 15.12 s**;
+Ruff, whitespace and source/test editor diagnostics pass. No new native build,
+optional pinned converter run, learned weights, download, conversion, frozen
+candidate change or quality run was used in this increment. The prior pinned
+16-matrix GGUF writer evidence belongs to the earlier array-pinned owner, not
+this new source-bound composition.
+
+Next: integrate the source-bound owner into the existing bounded pinned GGUF
+fixture before considering a whole-model writer. Full-shard low-memory source
+access and real conversion/artifact/resource approval remain separate work.
 
 ## BF16 Payload Owner Checkpoint (2026-10-16)
 

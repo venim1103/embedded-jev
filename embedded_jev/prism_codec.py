@@ -485,6 +485,49 @@ def temporary_profile_bf16_matrix_payload(
         check_payload()
 
 
+@contextmanager
+def temporary_profile_safetensors_bf16_payload(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
+    expected_file_sha256: str, directory, maximum_bytes: int = 16 * 1024**2,
+    maximum_file_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Bind a disposable BF16 payload to unchanged profile-pinned source ranges at entry and exit."""
+    if type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600:
+        raise ValueError("invalid source-bound BF16 payload deadline")
+    deadline = time.monotonic() + maximum_seconds
+    source_path = Path(source_path).absolute()
+
+    def remaining():
+        seconds = deadline - time.monotonic()
+        if seconds <= 0:
+            raise ValueError("source-bound BF16 payload deadline exceeded")
+        return seconds
+
+    def verify_source():
+        try:
+            return verify_profile_safetensors_operand(profile, inventory, manifest, pq2_blocks,
+                       source_path=source_path, source_name=source_name, source_values=source_values,
+                       expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_file_bytes,
+                       expected_file_sha256=expected_file_sha256, maximum_bytes=maximum_bytes,
+                       maximum_file_bytes=maximum_file_bytes, maximum_seconds=remaining())
+        except OSError as exc:
+            raise ValueError("source-bound BF16 payload source file unavailable") from exc
+
+    source_receipt = verify_source()
+    with temporary_profile_bf16_matrix_payload(profile, inventory, manifest, pq2_blocks,
+             source_name=source_name, source_values=source_values, expected_source_sha256=expected_source_sha256,
+             directory=directory, maximum_bytes=maximum_bytes, maximum_chunk_bytes=maximum_chunk_bytes,
+             maximum_seconds=remaining()) as (path, receipt):
+        yield path, MappingProxyType({**receipt,
+                                     "source_file_verification": "profile_pinned_shard_header_range_entry_and_exit_checks_required",
+                                     "source_file": source_receipt,
+                                     "runtime_approval": "not_granted_by_source_bound_payload"})
+    if verify_source() != source_receipt:
+        raise ValueError("source-bound BF16 payload source file changed")
+
+
 def verify_profile_converted_matrix(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
     source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,

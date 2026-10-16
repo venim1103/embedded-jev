@@ -1121,7 +1121,7 @@ def test_profile_gguf_tensor_table_refuses_invalid_inputs_before_import(monkeypa
 
 @pytest.mark.parametrize("kind,defect", [
     (kind, None) for kind in ("vector", "matrix", "convolution", "f32-vector", "f32-convolution")
-] + [("vector", defect) for defect in (
+] + [(kind, defect) for kind in ("vector", "matrix") for defect in (
     "frozen", "missing", "dtype", "shape", "layout", "array-pin", "file-pin", "file-size", "budget", "boolean", "file-budget", "nan",
     "array-change", "file-change", "header-change", "mid-read", "restored-write", "deadline", "symlink", "fifo",
 )])
@@ -1223,8 +1223,19 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
         monkeypatch.setattr(prism_codec.os, "open", never_open)
     try:
         if defect:
-            with pytest.raises(OSError if defect == "symlink" else ValueError, match=None if defect == "symlink" else expected_error):
-                verify_profile_safetensors_operand(profile, report, manifest, blocks, **arguments)
+            if kind == "matrix":
+                if defect == "nan":
+                    expected_error = "invalid source-bound BF16 payload deadline"
+                elif defect == "symlink":
+                    expected_error = "source file unavailable"
+                with pytest.raises(ValueError, match=expected_error):
+                    with prism_codec.temporary_profile_safetensors_bf16_payload(profile, report, manifest, blocks,
+                             **arguments, directory=tmp_path):
+                        pytest.fail("invalid source-bound operand yielded a payload")
+                assert set(tmp_path.iterdir()) == {path, actual_path}
+            else:
+                with pytest.raises(OSError if defect == "symlink" else ValueError, match=None if defect == "symlink" else expected_error):
+                    verify_profile_safetensors_operand(profile, report, manifest, blocks, **arguments)
             return
         receipt = verify_profile_safetensors_operand(profile, report, manifest, blocks, **arguments)
         assert receipt["source_file_verification"] == "profile_pinned_shard_and_header_range_match_caller_operand"
@@ -1234,6 +1245,50 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
         assert receipt["runtime_approval"] == "not_granted_by_source_operand_verification"
         with pytest.raises(TypeError):
             receipt["source_range_offset"] = 0
+        if kind == "matrix":
+            with prism_codec.temporary_profile_safetensors_bf16_payload(profile, report, manifest, blocks,
+                     **arguments, directory=tmp_path) as (payload, payload_receipt):
+                assert payload.read_bytes() == values.tobytes()
+                assert payload_receipt["source_file"] == receipt
+                assert payload_receipt["source_file_verification"] == "profile_pinned_shard_header_range_entry_and_exit_checks_required"
+                with pytest.raises(TypeError):
+                    payload_receipt["source_file"]["source_range_offset"] = 0
+            assert not payload.exists() and not payload.parent.exists() and path.exists()
+            for change in ("content", "restored", "replacement", "deleted"):
+                try:
+                    with pytest.raises(ValueError):
+                        with prism_codec.temporary_profile_safetensors_bf16_payload(profile, report, manifest, blocks,
+                                 **arguments, directory=tmp_path) as (payload, _):
+                            before = path.stat()
+                            if change in ("content", "restored"):
+                                with path.open("r+b") as output:
+                                    output.seek(size - 1)
+                                    output.write(bytes([1]))
+                                    if change == "restored":
+                                        output.seek(size - 1)
+                                        output.write(bytes(1))
+                                if change == "restored":
+                                    prism_codec.os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+                            elif change == "replacement":
+                                path.unlink()
+                                path.write_bytes(header + bytes(payload_bytes))
+                            else:
+                                path.unlink()
+                finally:
+                    path.write_bytes(header + bytes(payload_bytes))
+                assert not payload.exists() and not payload.parent.exists()
+            with monkeypatch.context() as clock_patch:
+                with pytest.raises(ValueError, match="deadline exceeded"):
+                    with prism_codec.temporary_profile_safetensors_bf16_payload(profile, report, manifest, blocks,
+                             **arguments, directory=tmp_path) as (payload, _):
+                        later = prism_codec.time.monotonic() + 31
+                        clock_patch.setattr(prism_codec.time, "monotonic", lambda: later)
+                assert not payload.exists() and not payload.parent.exists()
+            with pytest.raises(RuntimeError, match="source-bound consumer failed"):
+                with prism_codec.temporary_profile_safetensors_bf16_payload(profile, report, manifest, blocks,
+                         **arguments, directory=tmp_path) as (payload, _):
+                    raise RuntimeError("source-bound consumer failed")
+            assert not payload.exists() and not payload.parent.exists()
     finally:
         path.unlink()
         if actual_path != path:
