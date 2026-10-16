@@ -60,6 +60,77 @@ static int qk_norm_control() {
     return 0;
 }
 
+static int rope_control(int tokens, int first_token, bool distinct_axes) {
+    constexpr int width = 256;
+    constexpr int heads = 4;
+    constexpr int rotary_dimensions = 64;
+    int sections[GGML_MROPE_SECTIONS] = { 11, 11, 10, 0 };
+    ggml_init_params params = { 1024 * 1024, nullptr, true };
+    std::unique_ptr<ggml_context, decltype(&ggml_free)> context(ggml_init(params), ggml_free);
+    if (!context) {
+        return 1;
+    }
+    auto* input = ggml_new_tensor_3d(context.get(), GGML_TYPE_F32, width, heads, tokens);
+    auto* positions = ggml_new_tensor_1d(context.get(), GGML_TYPE_I32, tokens * 4);
+    for (auto* tensor : { input, positions }) {
+        ggml_set_input(tensor);
+        ggml_set_output(tensor);
+    }
+    auto* output = ggml_rope_multi(context.get(), input, positions, nullptr, rotary_dimensions, sections,
+                                   GGML_ROPE_TYPE_IMROPE, 32768, 10000000.0f, 1.0f, 0.0f, 1.0f, 32.0f, 1.0f);
+    ggml_set_output(output);
+    auto* graph = ggml_new_graph(context.get());
+    ggml_build_forward_expand(graph, output);
+    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> backend(ggml_backend_cpu_init(), ggml_backend_free);
+    std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> allocator(
+        ggml_gallocr_new(ggml_backend_cpu_buffer_type()), ggml_gallocr_free);
+    if (!backend || !allocator || !ggml_backend_supports_op(backend.get(), output) ||
+            !ggml_gallocr_alloc_graph(allocator.get(), graph)) {
+        return 2;
+    }
+    ggml_backend_cpu_set_n_threads(backend.get(), 1);
+    std::vector<float> values(width * heads * tokens);
+    std::vector<std::int32_t> position_ids(tokens * 4);
+    for (int token = 0; token < tokens; ++token) {
+        const int absolute = first_token + token;
+        position_ids[token] = absolute;
+        position_ids[tokens + token] = distinct_axes ? (absolute * 2 + 3) % 80 : absolute;
+        position_ids[tokens * 2 + token] = distinct_axes ? (absolute * 5 + 7) % 80 : absolute;
+        position_ids[tokens * 3 + token] = distinct_axes ? (absolute * 11 + 5) % 80 : absolute;
+        for (int head = 0; head < heads; ++head) {
+            for (int column = 0; column < width; ++column) {
+                values[(token * heads + head) * width + column] =
+                    ((column * 7 + absolute * 3 + head * 11) % 29 - 14) / 8.0f;
+            }
+        }
+    }
+    ggml_backend_tensor_set(input, values.data(), 0, values.size() * sizeof(float));
+    ggml_backend_tensor_set(positions, position_ids.data(), 0, position_ids.size() * sizeof(std::int32_t));
+    if (ggml_backend_graph_compute(backend.get(), graph) != GGML_STATUS_SUCCESS) {
+        return 3;
+    }
+    std::vector<float> actual(values.size());
+    std::vector<float> unchanged(values.size());
+    std::vector<std::int32_t> unchanged_positions(position_ids.size());
+    ggml_backend_tensor_get(output, actual.data(), 0, actual.size() * sizeof(float));
+    ggml_backend_tensor_get(input, unchanged.data(), 0, unchanged.size() * sizeof(float));
+    ggml_backend_tensor_get(positions, unchanged_positions.data(), 0, unchanged_positions.size() * sizeof(std::int32_t));
+    if (!std::all_of(actual.begin(), actual.end(), [](float value) { return std::isfinite(value); }) ||
+            std::memcmp(values.data(), unchanged.data(), values.size() * sizeof(float)) != 0 ||
+            std::memcmp(position_ids.data(), unchanged_positions.data(), position_ids.size() * sizeof(std::int32_t)) != 0) {
+        return 4;
+    }
+    std::printf("{\"width\":%d,\"heads\":%d,\"tokens\":%d,\"first_token\":%d,\"rotary_dimensions\":%d,"
+                "\"mode\":\"imrope\",\"position_mode\":\"%s\",\"sections\":[11,11,10,0],\"frequency_base\":10000000,"
+                "\"inputs_unchanged\":true,\"outputs\":[",
+                width, heads, tokens, first_token, rotary_dimensions, distinct_axes ? "axes" : "text");
+    for (std::size_t index = 0; index < actual.size(); ++index) {
+        std::printf("%s%.9g", index ? "," : "", actual[index]);
+    }
+    std::puts("]}");
+    return 0;
+}
+
 static int attention_control(int tokens, int first_token) {
     constexpr int width = 256;
     constexpr int query_heads = 4;
@@ -331,6 +402,23 @@ static int gdn_control(int tokens, bool initialized, bool raw_gates,
 }
 
 int main(int argc, char** argv) {
+    if ((argc == 3 || argc == 4 || argc == 5) && std::strcmp(argv[1], "--rope-control") == 0) {
+        const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
+                           std::strcmp(argv[2], "80") == 0 ? 80 : 0;
+        int first_token = 0;
+        if (argc >= 4) {
+            const char* end = argv[3] + std::strlen(argv[3]);
+            const auto parsed = std::from_chars(argv[3], end, first_token);
+            if (parsed.ec != std::errc() || parsed.ptr != end) {
+                return 5;
+            }
+        }
+        if (argc == 5 && std::strcmp(argv[4], "text") != 0 && std::strcmp(argv[4], "axes") != 0) {
+            return 5;
+        }
+        return tokens && first_token >= 0 && first_token < 80 && first_token + tokens <= 80 ?
+            rope_control(tokens, first_token, argc == 5 && std::strcmp(argv[4], "axes") == 0) : 5;
+    }
     if ((argc == 3 || argc == 4) && std::strcmp(argv[1], "--attention-control") == 0) {
         const int tokens = std::strcmp(argv[2], "1") == 0 ? 1 : std::strcmp(argv[2], "7") == 0 ? 7 :
                            std::strcmp(argv[2], "80") == 0 ? 80 : 0;

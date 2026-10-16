@@ -2454,6 +2454,70 @@ def test_pinned_prism_cpu_fwht_matches_dense_signed_reference(tmp_path):
     assert np.max(np.abs(actual[1] - additive_expected[1])) > 0.02
     assert np.max(np.abs(actual[2] - additive_expected[2])) > 0.005
 
+    for mode in ("text", "axes"):
+        rope_baseline = None
+        for tokens, first_token in ((1, 0), (7, 0), (80, 0), (7, 64), (1, 79)):
+            result = subprocess.run([str(binary), "--rope-control", str(tokens), str(first_token), mode],
+                                    check=True, capture_output=True, text=True, timeout=15)
+            report = json.loads(result.stdout)
+            assert report["width"] == 256 and report["heads"] == 4 and report["tokens"] == tokens
+            assert report["first_token"] == first_token and report["rotary_dimensions"] == 64
+            assert report["mode"] == "imrope" and report["position_mode"] == mode
+            assert report["sections"] == [11, 11, 10, 0] and report["frequency_base"] == 10000000
+            assert report["inputs_unchanged"] is True
+            absolute = np.arange(first_token, first_token + tokens)[:, None, None]
+            head = np.arange(4)[None, :, None]
+            column = np.arange(256)[None, None, :]
+            inputs = ((column * 7 + absolute * 3 + head * 11) % 29 - 14).astype(np.float32) / 8
+            positions = np.broadcast_to(absolute[:, 0, 0], (3, tokens)).copy()
+            if mode == "axes":
+                positions[1] = (positions[1] * 2 + 3) % 80
+                positions[2] = (positions[2] * 5 + 7) % 80
+            frequency = np.power(10000000.0, -np.arange(32, dtype=np.float64) / 32)
+            selected_positions = positions[np.arange(32) % 3].T
+            ideal_angles = selected_positions[:, None, :] * frequency
+            phases = positions.astype(np.float32)
+            theta_scale = np.float32(10000000.0 ** (-1 / 32))
+            angles = np.empty((tokens, 1, 32), dtype=np.float64)
+            for pair in range(32):
+                angles[:, 0, pair] = phases[pair % 3]
+                phases *= theta_scale
+            first_half, second_half = inputs[..., :32], inputs[..., 32:64]
+            expected = inputs.astype(np.float64)
+            expected[..., :32] = first_half * np.cos(angles) - second_half * np.sin(angles)
+            expected[..., 32:64] = second_half * np.cos(angles) + first_half * np.sin(angles)
+            actual = np.asarray(report["outputs"], dtype=np.float32).reshape(tokens, 4, 256)
+            assert np.isfinite(actual).all()
+            np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-6)
+            np.testing.assert_array_equal(actual[..., 64:].view(np.uint32), inputs[..., 64:].view(np.uint32))
+            np.testing.assert_allclose((actual[..., :64].astype(np.float64)**2).sum(axis=-1),
+                                       (inputs[..., :64].astype(np.float64)**2).sum(axis=-1), rtol=2e-5, atol=2e-6)
+            if tokens == 80:
+                rope_baseline = actual
+                ideal_first = first_half * np.cos(ideal_angles) - second_half * np.sin(ideal_angles)
+                assert np.max(np.abs(expected[..., :32] - ideal_first)) > 1e-6
+            elif first_token:
+                np.testing.assert_array_equal(actual.view(np.uint32), rope_baseline[first_token:first_token + tokens].view(np.uint32))
+            if mode == "axes":
+                wrong_positions = positions[np.repeat(np.arange(3), [11, 11, 10])].T
+                wrong_angles = wrong_positions[:, None, :] * frequency
+                wrong_first = first_half * np.cos(wrong_angles) - second_half * np.sin(wrong_angles)
+                assert np.max(np.abs(actual[..., :32] - wrong_first)) > 0.01
+        result = subprocess.run([str(binary), "--rope-control", "7", "0"] if mode == "text" else
+                                [str(binary), "--rope-control", "7", "0", mode],
+                                check=True, capture_output=True, text=True, timeout=15)
+        np.testing.assert_array_equal(np.asarray(json.loads(result.stdout)["outputs"], dtype=np.float32).reshape(7, 4, 256),
+                                      rope_baseline[:7])
+    result = subprocess.run([str(binary), "--rope-control", "7"], check=True, capture_output=True, text=True, timeout=15)
+    assert json.loads(result.stdout)["position_mode"] == "text" and json.loads(result.stdout)["first_token"] == 0
+    for arguments in (["--rope-control"], ["--rope-control", "0"], ["--rope-control", "81"],
+                      ["--rope-control", "80", "1"], ["--rope-control", "1", "80"],
+                      ["--rope-control", "1", "-1"], ["--rope-control", "1", "1junk"],
+                      ["--rope-control", "1", "999999999999999999999999999"],
+                      ["--rope-control", "1", "0", "unknown"], ["--rope-control", "1", "0", "text", "extra"]):
+        refused = subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=15)
+        assert refused.returncode == 5 and not refused.stdout
+
     attention_baselines = {}
     attention_cases = [(tokens, 0) for tokens in (1, 7, 80)] + [(7, 64)] + [(1, first) for first in range(1, 80)]
     for tokens, first_token in attention_cases:

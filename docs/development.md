@@ -2695,6 +2695,17 @@ accounted for. The separate [learned attention checkpoint](handover.md#learned-a
 records failed fixed checks, numerical attribution and fixed-KV read partitions;
 it does not verify native rotary, learned KV writes or full-loader compatibility.
 
+`--rope-control TOKENS [FIRST_TOKEN] [text|axes]` independently exercises pinned
+partial IMRoPE: counts 1/7/80, absolute window <=80, four F32 heads of width 256,
+64 rotary dimensions, sections `[11,11,10,0]`, base 10,000,000 and no YaRN
+extension. Inputs are token/head/column; four position axes are shared or
+distinct synthetic values in 0-79. It verifies original input/position bytes.
+The compiled reference models the kernel's repeated F32 phase multiplication,
+not ideal FP64 frequency powers, with independent rotation and bit-pattern-exact
+tail/offset checks. See the [partial rotary checkpoint](handover.md#partial-rotary-checkpoint-2026-10-16)
+for the failed ideal-phase check and evidence limits. The same focused test below
+covers it without loading weights or validating learned/native-loader rotary.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash

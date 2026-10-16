@@ -11,7 +11,8 @@ checkpoint commits. Starting `6848279` matched `origin/main`; only untouched
 user settings were untracked. The bounded attention helper and learned-operand
 precision/read-partition diagnostics below completed under the existing
 cached-MiMo approval. Original failed numerical checks remain failed, not
-replaced by looser acceptance. No full conversion was retried.
+replaced by looser acceptance. A subsequent bounded synthetic partial-rotary
+source control also passes. No full conversion was retried.
 
 **Historical pause, 2026-10-15:** Stop after the completed `f723065` checkpoint,
 which the user pushed before this pause. Only a final read-only API lookup was
@@ -96,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [learned attention checkpoint](#learned-attention-checkpoint-2026-10-16),
+2. Read the [partial rotary checkpoint](#partial-rotary-checkpoint-2026-10-16),
+   then the [learned attention checkpoint](#learned-attention-checkpoint-2026-10-16),
    then the [nonflash attention checkpoint](#nonflash-attention-checkpoint-2026-10-15),
    then the [cached layer continuation checkpoint](#cached-layer-continuation-checkpoint-2026-10-15),
    then the [combined recurrent cache checkpoint](#combined-recurrent-cache-checkpoint-2026-10-15),
@@ -194,6 +196,52 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Partial Rotary Checkpoint (2026-10-16)
+
+After `aca1646`, added `--rope-control TOKENS [FIRST_TOKEN] [text|axes]` to the
+existing native smoke executable. Counts remain 1/7/80 and absolute query
+windows stay within 80; malformed, negative, trailing, overflowing and extra
+arguments refuse with code 5 and no stdout. Earlier commands and refusals are
+unchanged. Geometry is fixed at four F32 heads, width 256 and 64 rotary
+dimensions. The actual pinned `ggml_rope_multi` IMRoPE kernel uses sections
+`[11,11,10,0]`, base 10,000,000, unit frequency/attention scales and no YaRN
+extension. Four I32 position axes are bounded to 0-79; the first three are
+either shared text positions or distinct deterministic axes. This tests a
+synthetic configuration, not a profile-independent rotary policy.
+
+The existing compiled regression now compares ten rotary cases to an independent
+NumPy reference: 1/7/80 at zero, seven queries at 64 and one at 79, each in both
+position modes. It also checks default arguments, ten malformed invocations,
+rotated norms, wrong noninterleaved-axis discrimination, unchanged input/position
+bytes and **bit-pattern-exact** unrotated 192-dimensional tails/offset slices.
+The native input layout is token/head/column, not the attention control's
+head/token/column layout. All graphs run CPU1 and retain input lifetimes.
+
+Failed-check history: the first new 80-token oracle used ideal FP64 frequency
+powers and failed at two elements, max violating error **3.094109e-6**. The
+pinned CPU cache instead initializes each position phase in F32 and repeatedly
+multiplies by an F32 `powf` frequency step. The corrected operation oracle
+models that explicit phase schedule and independently computes rotation; it
+also requires a measurable distinction from the ideal-phase reference.
+The original `rtol=2e-5, atol=2e-6` stays unchanged. The same focused compiled
+regression then passed in **6.94 s**, and in **6.72 s** after strengthening
+tail/offset equality to compare F32 bit patterns, including signed zero.
+
+Required source gate: **553 passes / 88 optional skips in 34.00 s**;
+Ruff/whitespace clean. The focused opt-in test compiled only a disposable
+executable against pinned cached CPU/base libraries; no cached library/source
+rebuild, CTest, sanitizer, model weight load, conversion, download, generated
+token, refit or quality evaluation was performed. Repository editor and scoped
+documentation checks accompany the checkpoint. No model/profile execution
+approval, original numerical tolerance, frozen payload or scale axis changed.
+
+Next: validate a bounded ctypes rotary helper against this synthetic control
+before using captured **pre-rotary** learned Q/K. Compare native and installed
+HF phase conventions explicitly; synthetic kernel arithmetic does not prove
+learned projection/norm/rotary agreement, KV writes, full-loader parity or
+real-model v2 P4/BitNet acceptance. The failed learned score check and historical
+full-model logit gap remain open.
 
 ## Learned Attention Checkpoint (2026-10-16)
 
