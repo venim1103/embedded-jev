@@ -2775,6 +2775,14 @@ projection cache that may differ. Report stage differences and F16/BF16
 crossings separately; do not assert projection-batch invariance or infer a
 native prefix, complete decoder layer, loader or BitNet acceptance.
 
+The [attention continuation checkpoint](handover.md#attention-continuation-checkpoint-2026-10-16)
+adds fixed-prompt 80-singleton and 64+16-singleton schedules through the same
+connected sublayer. Require the identical monolithic baseline, exact per-step
+cache readback and matching-core bits; report projection, Q/K/V F16 and
+output-input BF16 crossings plus final max/RMS differences. Singleton replay
+does not generate tokens or establish final-output batching invariance, and
+its measured differences do not authorize padding/compensation promotion.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash

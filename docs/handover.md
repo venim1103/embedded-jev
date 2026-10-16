@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [cached attention sublayer checkpoint](#cached-attention-sublayer-checkpoint-2026-10-16),
+2. Read the [attention continuation checkpoint](#attention-continuation-checkpoint-2026-10-16),
+   then the [cached attention sublayer checkpoint](#cached-attention-sublayer-checkpoint-2026-10-16),
    then the [learned persistent cache checkpoint](#learned-persistent-cache-checkpoint-2026-10-16),
    then the [persistent cache checkpoint](#persistent-cache-checkpoint-2026-10-16),
    then the [KV composition checkpoint](#kv-composition-checkpoint-2026-10-16),
@@ -203,6 +204,70 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Attention Continuation Checkpoint (2026-10-16)
+
+After `5d1be75`, extended only the existing diagnostic's schedule selection
+with separate exclusive synthetic/learned reports: 80 singleton calls and a
+64-token prefill plus 16 singleton calls, alongside a monolithic baseline.
+These replay the original **80 fixed prompt tokens**, with no output head,
+option scores or generated answer tokens. The same trusted normalized input,
+native QKV/norm/absolute rotary, persistent F16 write/core, sigmoid gate and
+BF16 output projection are used. No arithmetic, padding or scale change.
+
+The synthetic singleton schedules pass unchanged independent projection,
+norm/rotary/gate/output references and the wrong-offset fault in **6.57 s**,
+**365,568 KiB** peak child RSS, zero swap growth. Every learned chunk then
+passes exact full-cache readback after graph teardown and bit-exact standalone
+core reads on its own produced operands. Host cache restores are forbidden;
+owners close after each schedule. The monolithic core hash and full HF-gap
+dictionary reproduce the earlier baseline; the monolithic final output also
+matches the coarse-partition report's SHA-256:
+`13228fa679ca8bfd68421cdb619a4fe971e51100854b52abcb34db68dfe2da2f`.
+
+| Schedule | Core Max Gap vs Monolithic | Final Output Max Gap | Final Output RMS |
+| --- | --- | --- | --- |
+| 80 singletons | 0.0006724000 | 0.0003695488 | 0.000003163927 |
+| 64 + 16 singletons | 0.0003272891 | 0.0003170967 | 0.000001094056 |
+
+The first schedule changes **491 / 130 / 106** F16 Q/K/V values and **1,348**
+BF16 output-projection inputs; the second changes **97 / 26 / 21** and **112**.
+Q/K/V projection maxima are **1.144409e-5 / 4.291534e-6 / 2.503395e-6** for
+80 singletons and **6.675720e-6 / 2.503395e-6 / 2.026558e-6** for 64+16.
+Gated maxima are **0.0001022816 / 0.00002644211**. These measurements retain
+unmodified batching/rounding propagation; fixed-operand persistence alone did
+not establish chunkwise projection or final-output invariance. No new
+tolerance, compensation or padding policy is promoted from this diagnostic.
+
+The learned stage took **30.24 s**, **1,484,240 KiB** peak child RSS, minimum
+observed host-available RAM **15,527,874,560 bytes**, zero swap growth. The
+unchanged 60/300-second, address-space, RAM/swap/disk guards hold. Six runtime
+hashes, frozen codes/scales/manifest, profile/metadata/source and installed
+implementation identities pass entry/exit checks. The original learned fixed
+score check remains false; the full-model max logit gap **0.0971508** remains
+unresolved. No failed gate or resource refusal occurred in these two stages.
+
+Retained/reread small-report SHA-256 values:
+
+- `cached-attention-decode-selftest-result.json`:
+  `88c60e7705ea8aef8e417c8bda7768ca599c834aaca928c44c9276831e72b389`.
+- `cached-attention-decode-comparison.json`:
+  `8a5659deeebbe2f07fcb10fc63a346550be18b2ff3d23c356dd37496804354a7`.
+
+Scratch totals **1,802,924 bytes** outside Git, with no raw arrays/replay
+packet, GGUF or owned compiler spill after empty-directory cleanup. Scoped
+syntax/Ruff, synthetic/learned and documentation/link/whitespace/editor checks
+accompany the commit. The unchanged successful source gate at `c79b06e`
+was not rerun for documentation-only edits. No conversion, download, refit,
+new candidate, compensation promotion or other-profile execution occurred.
+
+This completes the bounded **attention-sublayer** coarse/singleton cache
+continuation diagnostic, not a complete attention decoder layer, input norm,
+residual/MLP, native prefix, loader, whole-model BitNet/v2 P4, target-device
+performance or quality acceptance. Next: synthetic-first input-normalization,
+residual and MLP composition for a complete attention decoder layer, keeping
+fixed-input sublayer evidence separate from native-prefix propagation. The
+stopped full conversion is not authorized to retry under unchanged resources.
 
 ## Cached Attention Sublayer Checkpoint (2026-10-16)
 
