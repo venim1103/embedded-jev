@@ -97,7 +97,8 @@ user `.vscode/` directory is untouched. Real-model authorization is unchanged.
   the verified-file owner below is the first tested increment in that scope.
   The latest approval now permits the bounded cached-MiMo diagnostic below;
   synthetic execution itself still grants no other-profile runtime approval.
-2. Read the [persistent cache checkpoint](#persistent-cache-checkpoint-2026-10-16),
+2. Read the [learned persistent cache checkpoint](#learned-persistent-cache-checkpoint-2026-10-16),
+   then the [persistent cache checkpoint](#persistent-cache-checkpoint-2026-10-16),
    then the [KV composition checkpoint](#kv-composition-checkpoint-2026-10-16),
    then the [KV write checkpoint](#kv-write-checkpoint-2026-10-16),
    then the [connected attention checkpoint](#connected-attention-checkpoint-2026-10-16),
@@ -201,6 +202,73 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Learned Persistent Cache Checkpoint (2026-10-16)
+
+After `c79b06e`, a separate bounded ctypes owner implements the same explicit
+native-buffer lifetime. It accepts finite F16 initial K/transposed-V arrays,
+1-4 KV heads and 1-16 grouped query heads, width 256 and 128 slots. Steps append
+1-80 finite F32 Q/K/V tokens within a fixed total window of 80; no arbitrary
+indices, reset, file or restore API is exposed. Each graph writes actual
+`ggml_set_rows` and consumes the write-output views in causal attention. After
+temporary graph/allocator teardown, cache addresses and complete cache bytes
+must remain exact. Returned arrays are readback oracles, **not runtime carry**.
+
+Invalid input is refused before native calls and leaves the owner usable.
+Compute/readback failure instead closes the owner, preventing partially
+updated-state reuse. Context exit, including exceptional exit, frees the cache
+buffer, backend and owning context; close is idempotent. Twelve synthetic
+partition/geometry cases cover 4Q/2KV and maximum 16Q/4KV, all bit-exact against
+copied matching-batch native references; six also match compiled output/cache
+bits. Eleven invalid-step cases, exhausted/closed-owner refusals, injected
+compute failure and exceptional context cleanup pass. This stage took
+**4.27 s**, **277,896 KiB** peak child RSS, zero swap growth.
+
+An additional composition independently carries only **expected oracle bytes**
+on the host. Actual runtime cache remains in one native allocation per
+partition. A setter hook refuses any cache-buffer upload after construction;
+only six source/query/mask/index payload uploads occur per step. All six
+partitions pass exact per-step full-cache checks and matching-batch causal
+score/probability/output bits, with zero future probability. Synthetic
+composition took **6.62 s**, **341,892 KiB** RSS, zero swap growth.
+
+The learned run reproduces the prior authenticated post-HF-rotary layer-3 Q/K
+and V hashes and the same final F16 cache hashes. All six partitions pass
+every persistent-cache and matching-batch check with **zero host cache restore
+attempts**. The five earlier copied-cache metric dictionaries reproduce
+exactly, including singleton max output gap **0.0003134012** versus monolithic
+batching; persistence introduces no additional difference. The original fixed
+score check remains false, with probability/output checks true. No tolerance,
+code, scale, candidate or failed historical result was changed.
+
+The learned stage took **9.01 s**, **1,486,160 KiB** peak child RSS, minimum
+observed host-available RAM **16,422,150,144 bytes**, zero swap growth. Runtime/
+frozen/profile/metadata/source entry-exit pins and installed trusted model-code
+identity remain verified, under unchanged 60/300-second deadlines and resource
+guards. The inherited original capture's broad native-rotary/cache-runtime
+flag remains conservative; the narrower persistent-cache result is explicit
+inside this diagnostic and is not full-runtime acceptance.
+
+Retained/reread small-report SHA-256 values:
+
+- `persistent-attention-selftest-result.json`:
+  `616d10ce490ff9e297e9f4ee88fec76be1d61a2ea219b71f2a0aeaa6f7674adc`.
+- `persistent-attention-composition-selftest-result.json`:
+  `13224d19daa71b06411ef5544b24c975822434d14dbeda89f393bb7efcfb5365`.
+- `persistent-attention-comparison.json`:
+  `1c9bd9d4fc504810c0c20778477c0630c876eb6c794971a8660e7e88719baf08`.
+
+Scripts, small reports and diagnostic executables remain outside Git; scratch
+totals **1,727,201 bytes**, with no raw arrays/replay packet, GGUF or owned
+compiler spill after empty-directory cleanup. No new failure occurred in these
+three stages. Scoped syntax/Ruff, documentation/link/whitespace/editor checks
+accompany the commit; the unchanged source gate at `c79b06e` was not rerun.
+This is fixed learned-operand native-cache evidence, not chunkwise learned
+projections/native rotary, gate/output projection, native prefix, loader cache,
+eviction/concurrency/multistream, full-model parity, v2 P4/BitNet or quality.
+Next: compose chunkwise native projections/norm/rotary with the verified
+persistent core, retaining separate batching-propagation evidence and unchanged
+full-conversion/resource/other-model boundaries.
 
 ## Persistent Cache Checkpoint (2026-10-16)
 

@@ -2755,6 +2755,16 @@ a lost-state fault. See the [persistent cache checkpoint](handover.md#persistent
 This is synthetic state ownership, not a learned persistent cache or loader
 integration, eviction, concurrency, multistream or model acceptance.
 
+The separate [learned persistent cache checkpoint](handover.md#learned-persistent-cache-checkpoint-2026-10-16)
+extends that ownership pattern through a bounded append-only helper on fixed
+captured post-rotary learned QKV. Host snapshots are readback oracles only;
+forbid cache uploads after construction, compare independent complete-cache
+bytes after every graph teardown and keep matching-batch causal read equality
+separate from monolithic batching differences. Invalid-input refusal preserves
+usable state; compute/readback failure must close the owner. Test idempotent
+close, closed/exhausted refusal and normal/exceptional context cleanup. This
+still excludes chunkwise learned projections/rotary and loader integration.
+
 Run the focused checks without any complete model or source-weight load:
 
 ```bash
