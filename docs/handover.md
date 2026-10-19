@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [GGUF metadata checkpoint](#gguf-metadata-checkpoint-2026-10-19), followed by
+the [source-bound GGUF checkpoint](#source-bound-gguf-checkpoint-2026-10-19), followed by
+the [GGUF metadata checkpoint](#gguf-metadata-checkpoint-2026-10-19),
 the [larger GGUF checkpoint](#larger-gguf-checkpoint-2026-10-19),
 the [GGUF BF16 checkpoint](#gguf-bf16-checkpoint-2026-10-19),
 the [GGUF descriptor checkpoint](#gguf-descriptor-checkpoint-2026-10-19),
@@ -335,6 +336,39 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source-Bound GGUF Checkpoint (2026-10-19)
+
+After `adc8ab3`, `verify_profile_gguf_source_matrix_v2` composes the existing
+verified read-only v2 safetensors shard/child owner with the chunked selected
+GGUF matrix gate. Unlike the legacy copied-source wrapper, it has no caller
+array argument and passes the same verified borrowed mapping without a
+whole-operand copy. Independent source/output/operand defaults stay 16 MiB;
+explicit ceilings stay 6 GiB/24 GiB/2 GiB, with existing 64 KiB defaults and
+1 MiB chunk/header limits. It accepts only unfrozen declared BF16 matrices
+and an explicit profile shard. Invalid budgets/pins/kinds are refused before
+owner entry. One decreasing deadline spans the source owner, converted
+checks, both source exits and receipt publication.
+
+Sixteen focused controls pass in **0.47 s**, covering mapping object identity,
+immutable receipts, exact declared ceilings, budget/shard/kind/pin/native-owner
+refusals, converted failure, source-exit failure and deadline expiry. The
+existing actual pinned frozen writer adds a source-bound selected matrix
+check with source file/range hashes and completed-owner flags, passing in
+**6.87 s** under the unchanged 15 s child deadline. This composition proof
+uses source/output below 16 MiB; the separate larger raw-array GGUF control
+is not yet a larger safetensors-to-GGUF composition measurement.
+
+Required gate: **981 passed, 97 skipped in 24.80 s**, Ruff/whitespace and
+three Python editor checks clean. No failed checks. The returned receipt
+records the completed source recheck/mapping closure and explicitly leaves
+cross-file atomicity, complete tensor tables, model metadata, pin issuer and
+runtime approval unchecked. No learned inputs, downloads, builds, native
+execution or real artifacts ran; scratch was cleaned and editor settings
+untouched. Next: bind the existing larger synthetic control to an actual
+profile-pinned safetensors source, keeping source at most 80 MiB, spool at
+most 32 MiB, output/fault copy at most 33 MiB, conservative summed extents
+below 256 MiB and the existing stage/child deadlines unchanged.
 
 ## GGUF Metadata Checkpoint (2026-10-19)
 

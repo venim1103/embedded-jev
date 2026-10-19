@@ -4867,6 +4867,16 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
                 assert chunked["source_file_verification"] == chunked["gguf_tensor_table_verification"] == "not_checked"
                 assert chunked["runtime_approval"] == "not_granted_by_matrix_file_verification"
                 if tensor.name == next(iter(matrix_operands)):
+                    bound = prism_codec.verify_profile_gguf_source_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                        **{name: value for name, value in keywords.items() if name != "source_values"},
+                        source_path=source_path, source_shard=source_path.name,
+                        expected_source_file_bytes=len(source_bytes), expected_source_file_sha256=source_sha256)
+                    assert bound["converted"]["converted_sha256"] == chunked["converted_sha256"]
+                    assert bound["source"]["source_file_sha256"] == source_sha256
+                    assert bound["source"]["source_sha256"] == keywords["expected_source_sha256"]
+                    assert bound["source"]["source_policy_version"] == bound["source_shard"]["source_policy_version"] == 2
+                    assert bound["source_file_rechecked_after_conversion"] is bound["source_mapping_closed_after_conversion"] is True
+                    assert bound["cross_file_atomic_snapshot"] == "not_guaranteed"
                     ceiling_receipt = prism_codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
                         **{**keywords, "maximum_file_bytes": 24 * 1024**3, "maximum_bytes": 2 * 1024**3})
                     assert ceiling_receipt["converted_sha256"] == chunked["converted_sha256"]

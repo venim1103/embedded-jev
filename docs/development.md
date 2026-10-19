@@ -1769,6 +1769,18 @@ selected-record parser. The larger optional command above exercises v2
 matrix and metadata allocation/read/hash/identity controls separately. See
 the [GGUF metadata checkpoint](handover.md#gguf-metadata-checkpoint-2026-10-19).
 
+`verify_profile_gguf_source_matrix_v2(...)` composes the verified v2
+safetensors shard/matrix owner with `verify_profile_gguf_matrix_v2`, passing
+the same borrowed read-only mapping instead of copying a caller array.
+Source, output and operand budgets default independently to 16 MiB; explicit
+ceilings remain 6 GiB/24 GiB/2 GiB, with the existing chunk/header bounds.
+Supply an explicit profile shard name and source/file digests. One shared
+deadline covers both owners and conversion checks. A receipt is returned
+only after successful source child/parent closure and whole-source recheck.
+It grants neither native owner/runtime approval nor complete-table or model
+metadata verification, and explicitly does not claim a two-file atomic
+snapshot. See the [source-bound GGUF checkpoint](handover.md#source-bound-gguf-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

@@ -2105,6 +2105,70 @@ def verify_profile_gguf_source_operand(
                             "runtime_approval": "not_granted_by_source_conversion_verification"})
 
 
+def verify_profile_gguf_source_matrix_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_path, source_shard: str, source_name: str,
+    expected_source_sha256: str, expected_source_file_bytes: int, expected_source_file_sha256: str,
+    expected_file_bytes: int, expected_file_sha256: str,
+    maximum_source_file_bytes: int = 16 * 1024**2, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Bind one verified borrowed source matrix to one selected GGUF range without a whole-operand copy."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_source_file_bytes) is not int or not 0 < maximum_source_file_bytes <= 6 * 1024**3
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 24 * 1024**3
+        or type(expected_source_file_bytes) is not int or not 0 < expected_source_file_bytes <= maximum_source_file_bytes
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= 2 * 1024**3
+        or type(maximum_chunk_bytes) is not int or not 0 < maximum_chunk_bytes <= 1024**2
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or any(not isinstance(value, str) or SHA256.fullmatch(value) is None
+               for value in (expected_source_sha256, expected_source_file_sha256, expected_file_sha256))
+        or not isinstance(source_shard, str) or source_shard not in profile.packaging["shards"]
+    ):
+        raise ValueError("invalid v2 combined matrix identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if entry is None or entry["type"] != "BF16" or entry["source_dtype"] != "BF16" or len(entry["source_shape"]) != 2:
+        raise ValueError("v2 combined source requires an unfrozen declared BF16 matrix")
+    rows, columns = entry["source_shape"]
+    if rows * columns * 2 > min(maximum_bytes, expected_source_file_bytes, expected_file_bytes) or columns * 2 > maximum_chunk_bytes:
+        raise ValueError("v2 combined source matrix exceeds operand or row budget")
+
+    def remaining():
+        duration = deadline - time.monotonic()
+        if duration <= 0:
+            raise ValueError("v2 combined matrix deadline exceeded")
+        return duration
+
+    with mapped_profile_safetensors_bf16_shard_v2(
+        profile, inventory, manifest, pq2_blocks, source_path=source_path, source_shard=source_shard,
+        expected_file_bytes=expected_source_file_bytes, expected_file_sha256=expected_source_file_sha256,
+        maximum_file_bytes=maximum_source_file_bytes, maximum_seconds=remaining(),
+    ) as (matrix, shard_receipt):
+        with matrix(source_name, expected_source_sha256, maximum_bytes=maximum_bytes) as (source_values, source_receipt):
+            converted = verify_profile_gguf_matrix_v2(
+                profile, inventory, manifest, pq2_blocks, reader=reader, source_name=source_name,
+                source_values=source_values, expected_source_sha256=expected_source_sha256,
+                expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+                maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+                maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=remaining(),
+            )
+    remaining()
+    return MappingProxyType({
+        "profile_id": profile.profile_id, "profile_sha256": profile.sha256, "source_sha256": expected_source_sha256,
+        "source": source_receipt, "source_shard": shard_receipt, "converted": converted,
+        "source_conversion_verification": "profile_pinned_mapped_source_and_selected_gguf_range_match_same_operand",
+        "source_file_rechecked_after_conversion": True, "source_mapping_closed_after_conversion": True,
+        "cross_file_atomic_snapshot": "not_guaranteed", "pin_issuer_verification": "not_checked",
+        "model_metadata_verification": "not_checked", "gguf_tensor_table_verification": "not_checked",
+        "runtime_approval": "not_granted_by_source_conversion_verification",
+    })
+
+
 def verify_profile_gguf_policy_metadata(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,

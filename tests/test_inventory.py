@@ -2893,6 +2893,109 @@ def test_profile_gguf_source_operand_shares_snapshot_digest_and_deadline(monkeyp
         receipt["source_sha256"] = "0" * 64
 
 
+@pytest.mark.parametrize("defect", [None, "ceilings", "converted-failure", "source-exit", "deadline", "source-cap", "gguf-cap",
+                                    "operand-cap", "chunk-cap", "source-budget", "digest", "frozen", "vector", "shard", "row-budget", "owner"])
+def test_profile_gguf_source_matrix_v2_shares_mapping_deadline_and_owner_exit(monkeypatch, defect):
+    from contextlib import contextmanager
+    from types import MappingProxyType
+
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture()
+    source_name = "model.layers.1.self_attn.k_proj.weight"
+    values = np.zeros((64, 1024), dtype="<u2")
+    values.flags.writeable = False
+    source_pin = hashlib.sha256(memoryview(values)).hexdigest()
+    source_shard = profile.packaging["shards"][0]
+    source_receipt = MappingProxyType({"source_sha256": source_pin})
+    converted_receipt = MappingProxyType({"source_sha256": source_pin})
+    clock = [0]
+    events = []
+    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: clock[0])
+
+    @contextmanager
+    def matrix(name, pin, *, maximum_bytes):
+        assert name == source_name and pin == source_pin
+        assert maximum_bytes == arguments.get("maximum_bytes", 16 * 1024**2)
+        events.append("matrix-enter")
+        clock[0] += 2
+        try:
+            yield values, source_receipt
+        finally:
+            events.append("matrix-exit")
+            clock[0] += 2
+
+    @contextmanager
+    def owner(*unused, **keywords):
+        assert keywords["source_shard"] == source_shard and keywords["maximum_seconds"] == 30
+        assert keywords["maximum_file_bytes"] == arguments.get("maximum_source_file_bytes", 16 * 1024**2)
+        events.append("source-enter")
+        clock[0] += 2
+        try:
+            yield matrix, source_receipt
+            if defect == "source-exit":
+                raise ValueError("source exit refused")
+        finally:
+            events.append("source-exit")
+            clock[0] += 2
+
+    def converted(*unused, **keywords):
+        assert keywords["source_values"] is values and not values.flags.writeable
+        assert keywords["expected_source_sha256"] == source_pin and keywords["maximum_seconds"] == 26
+        assert keywords["maximum_file_bytes"] == arguments.get("maximum_file_bytes", 16 * 1024**2)
+        assert keywords["maximum_bytes"] == arguments.get("maximum_bytes", 16 * 1024**2)
+        assert keywords["maximum_chunk_bytes"] == arguments.get("maximum_chunk_bytes", 65536)
+        events.append("converted")
+        if defect == "converted-failure":
+            raise ValueError("converted range refused")
+        clock[0] = 31 if defect == "deadline" else 6
+        return converted_receipt
+
+    monkeypatch.setattr(prism_codec, "mapped_profile_safetensors_bf16_shard_v2", owner)
+    monkeypatch.setattr(prism_codec, "verify_profile_gguf_matrix_v2", converted)
+    arguments = {"reader": object(), "source_path": "unused", "source_shard": source_shard, "source_name": source_name,
+                 "expected_source_sha256": source_pin, "expected_source_file_bytes": profile.files[source_shard].bytes,
+                 "expected_source_file_sha256": profile.files[source_shard].sha256,
+                 "expected_file_bytes": 16 * 1024**2, "expected_file_sha256": "a" * 64}
+    if defect == "ceilings":
+        arguments.update(maximum_source_file_bytes=6 * 1024**3, maximum_file_bytes=24 * 1024**3,
+                         maximum_bytes=2 * 1024**3, maximum_chunk_bytes=1024**2)
+    elif defect == "source-cap":
+        arguments["maximum_source_file_bytes"] = 6 * 1024**3 + 1
+    elif defect == "gguf-cap":
+        arguments["maximum_file_bytes"] = 24 * 1024**3 + 1
+    elif defect == "operand-cap":
+        arguments["maximum_bytes"] = 2 * 1024**3 + 1
+    elif defect == "chunk-cap":
+        arguments["maximum_chunk_bytes"] = 1024**2 + 1
+    elif defect == "source-budget":
+        arguments["expected_source_file_bytes"] = 16 * 1024**2 + 1
+    elif defect == "digest":
+        arguments["expected_source_sha256"] = "invalid"
+    elif defect in ("frozen", "vector"):
+        arguments["source_name"] = manifest["tensor"] if defect == "frozen" else "model.norm.weight"
+    elif defect == "shard":
+        arguments["source_shard"] = "undeclared.safetensors"
+    elif defect == "row-budget":
+        arguments["maximum_chunk_bytes"] = 2047
+    elif defect == "owner":
+        arguments["model_owner"] = object()
+    if defect not in (None, "ceilings"):
+        with pytest.raises(TypeError if defect == "owner" else ValueError):
+            prism_codec.verify_profile_gguf_source_matrix_v2(profile, report, manifest, blocks, **arguments)
+        assert events == (["source-enter", "matrix-enter", "converted", "matrix-exit", "source-exit"]
+                          if defect in ("converted-failure", "source-exit", "deadline") else [])
+        return
+    receipt = prism_codec.verify_profile_gguf_source_matrix_v2(profile, report, manifest, blocks, **arguments)
+    assert events == ["source-enter", "matrix-enter", "converted", "matrix-exit", "source-exit"]
+    assert receipt["source"] is source_receipt and receipt["source_shard"] is source_receipt
+    assert receipt["converted"] is converted_receipt
+    assert receipt["source_file_rechecked_after_conversion"] is receipt["source_mapping_closed_after_conversion"] is True
+    assert receipt["cross_file_atomic_snapshot"] == "not_guaranteed"
+    with pytest.raises(TypeError):
+        receipt["source_sha256"] = "0" * 64
+
+
 @pytest.mark.parametrize("defect", ["digest", "bytes", "boolean", "file-budget", "seconds", "nan", "owner"])
 def test_profile_gguf_policy_metadata_refuses_invalid_inputs_before_import(monkeypatch, defect):
     import sys
