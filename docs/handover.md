@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [larger GGUF proposal](#larger-gguf-proposal-2026-10-19), followed by the
+the [GGUF descriptor checkpoint](#gguf-descriptor-checkpoint-2026-10-19), followed by
+the [larger GGUF proposal](#larger-gguf-proposal-2026-10-19) and the
 [source metadata composer checkpoint](#source-metadata-composer-checkpoint-2026-10-19),
 [streamed metadata checkpoint](#streamed-metadata-checkpoint-2026-10-19),
 [public streamed table checkpoint](#public-streamed-table-checkpoint-2026-10-19),
@@ -332,14 +333,48 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## GGUF Descriptor Checkpoint (2026-10-19)
+
+The explicit user approval recorded in the proposal below authorizes the
+separate synthetic-only v2 GGUF increment. Starting `aae4528` matched the
+user-pushed `origin/main`; untracked editor settings remain untouched.
+`bounded_gguf_descriptor_record_v2` now wraps the unchanged positional hashing
+loop with an explicit **24 GiB (25,769,803,776 byte)** ceiling. It preserves
+64 KiB reads, borrowed file position, regular-file and entry/exit identity
+checks, cooperative deadlines and retained-descriptor cleanup. Existing
+native 64 MiB and source-v2 6 GiB ceilings and every GGUF verifier are unchanged.
+
+The shared small lifecycle family covers all three wrappers, including exact
+declared ceilings, over-budget/boolean/non-finite/deadline refusals, grow,
+truncate and pipe cases. Three additional GGUF cases prove invalid budgets
+fail before `os.dup`. Focused checks: **39 passed in 0.18 s**, then **42 passed
+in 0.22 s** after adding the pre-allocation controls. Required source gate:
+**936 passed, 96 skipped in 23.03 s**; Ruff, whitespace and both Python editor
+error checks clean. No optional native/converter control was selected or
+rerun for this hashing-only change. An initial combined patch was rejected
+for mismatched documentation context; checking confirmed no partial edits
+before the corrected source/test patch. No test gate failed.
+
+This is byte authentication, not GGUF structural or selected-operand support.
+The new wrapper tests use a **65,553-byte synthetic file**, not a multi-GiB
+artifact; read-size assertions are not process/host/device RAM evidence.
+No learned inputs, downloads, builds or model/runtime jobs ran, and no owned
+scratch remains. Next: implement a separately budgeted chunked BF16 selected
+GGUF verifier; do not widen the legacy verifier's full-copy/full-`pread` path.
+Keep actual output fixtures at most 33 MiB, aggregate logical scratch below
+256 MiB and all other proposal limits unchanged.
+
 ## Larger GGUF Proposal (2026-10-19)
 
 After `9d981dd`, the selected policy/context/template subset and 28 selected
 synthetic source/converted tensors are integrated through public verification
 APIs. The earlier larger-source approval covers source files and raw payloads;
 it does not implicitly expand legacy **16 MiB GGUF-file** verification limits.
-The following is a **pending, unimplemented scope proposal**, not approval or
-a new capability. No output limit was changed and no new artifact/job ran.
+The user subsequently approved **"Approve synthetic-only v2 GGUF verification"**
+through the explicit scope question after `aae4528`. The proposal below now
+authorizes only its bounded API/test increment, not real-model work. Limits
+were still unimplemented at approval; implementation and evidence must be
+recorded separately rather than inferred from this decision.
 
 A pure calculation from the repository's pinned MiMo geometry and declared
 BF16-matrix/F32-auxiliary policy, without cached input reads or array allocation,
@@ -385,10 +420,10 @@ loader acceptance or permission to run MiMo. Proposed bounded next scope:
 The geometry arithmetic was checked with explicit `/opt/venv/bin/python`.
 The successful source gate remains the composer checkpoint's **918 passed,
 96 skipped in 24.95 s**, unchanged and not rerun for this documentation-only
-proposal. Next requires a separate explicit user decision on this API/test
-expansion; the existing source-only approval is not sufficient. Work within
-legacy output limits and incomplete-tokenizer boundaries is still distinct
-from this proposal.
+proposal. The separate user decision above now authorizes this API/test
+expansion; the earlier source-only approval alone was not sufficient. Legacy
+and native output limits and incomplete-tokenizer boundaries remain unchanged
+unless separately documented within the approved versioned scope.
 
 ## Source Metadata Composer Checkpoint (2026-10-19)
 

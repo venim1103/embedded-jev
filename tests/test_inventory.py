@@ -3393,8 +3393,8 @@ def test_bounded_native_file_record_limits_reads_and_refuses_changes(tmp_path, m
         assert reads == []
 
 
-@pytest.mark.parametrize("hasher", ["bounded_native_descriptor_record", "bounded_source_descriptor_record_v2"])
-@pytest.mark.parametrize("defect", [None, "budget", "boolean", "ceiling", "descriptor-boolean", "deadline", "nan", "infinite", "deadline-boolean", "grow", "truncate", "pipe"])
+@pytest.mark.parametrize("hasher", ["bounded_native_descriptor_record", "bounded_source_descriptor_record_v2", "bounded_gguf_descriptor_record_v2"])
+@pytest.mark.parametrize("defect", [None, "exact-ceiling", "budget", "boolean", "ceiling", "descriptor-boolean", "deadline", "nan", "infinite", "deadline-boolean", "grow", "truncate", "pipe"])
 def test_bounded_native_descriptor_preserves_position_and_refuses_changes(tmp_path, monkeypatch, defect, hasher):
     from embedded_jev import streamed_text
 
@@ -3424,14 +3424,17 @@ def test_bounded_native_descriptor_preserves_position_and_refuses_changes(tmp_pa
             pipe = streamed_text.os.pipe()
             descriptor = pipe[0]
         arguments = {"maximum_bytes": True if defect == "boolean" else len(payload) - (defect == "budget"), "deadline": 30}
-        if defect == "ceiling":
-            arguments["maximum_bytes"] = (64 * 1024**2 if hasher == "bounded_native_descriptor_record" else 6 * 1024**3) + 1
+        ceiling = {"bounded_native_descriptor_record": 64 * 1024**2,
+                   "bounded_source_descriptor_record_v2": 6 * 1024**3,
+                   "bounded_gguf_descriptor_record_v2": 24 * 1024**3}[hasher]
+        if defect in ("ceiling", "exact-ceiling"):
+            arguments["maximum_bytes"] = ceiling + (defect == "ceiling")
         elif defect == "descriptor-boolean":
             descriptor = True
         if defect in ("nan", "infinite", "deadline-boolean"):
             arguments["deadline"] = {"nan": float("nan"), "infinite": float("inf"), "deadline-boolean": True}[defect]
         try:
-            if defect is None:
+            if defect in (None, "exact-ceiling"):
                 assert getattr(streamed_text, hasher)(descriptor, **arguments) == {
                     "path": f"/proc/self/fd/{descriptor}", "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
                 }
@@ -3447,6 +3450,18 @@ def test_bounded_native_descriptor_preserves_position_and_refuses_changes(tmp_pa
     assert sum(size for size, _ in calls) <= len(payload)
     if defect in ("budget", "boolean", "ceiling", "descriptor-boolean", "deadline", "nan", "infinite", "deadline-boolean", "pipe"):
         assert calls == []
+
+
+@pytest.mark.parametrize("maximum_bytes", [0, True, 24 * 1024**3 + 1])
+def test_bounded_gguf_descriptor_v2_invalid_budget_refuses_before_descriptor_allocation(monkeypatch, maximum_bytes):
+    from embedded_jev import streamed_text
+
+    def never_duplicate(descriptor):
+        pytest.fail("invalid GGUF budget reached descriptor allocation")
+
+    monkeypatch.setattr(streamed_text.os, "dup", never_duplicate)
+    with pytest.raises(ValueError, match="invalid native descriptor or file budget"):
+        streamed_text.bounded_gguf_descriptor_record_v2(0, maximum_bytes=maximum_bytes, deadline=30)
 
 
 def test_bounded_source_descriptor_v2_crosses_legacy_ceiling_without_large_buffers(tmp_path, monkeypatch):

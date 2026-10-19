@@ -1709,6 +1709,15 @@ environment; existing 16 MiB mapping/payload APIs are unchanged. The sparse
 64 MiB + 17 byte control is synthetic only, not model execution or process-RAM
 evidence. See the [v2 descriptor checkpoint](handover.md#v2-descriptor-checkpoint-2026-10-19).
 
+`bounded_gguf_descriptor_record_v2(descriptor, maximum_bytes=..., deadline=...)`
+separately opts into a 24 GiB output-descriptor ceiling. It shares the same
+64 KiB positional reads, regular-file, identity, lifetime and deadline checks;
+invalid budgets fail before descriptor duplication. The budget is always
+explicit, including at the ceiling; no file size or environment selects it.
+It authenticates bytes only, not GGUF structure, selected tensors or metadata.
+Legacy native/source ceilings and GGUF verification limits remain unchanged.
+See the [GGUF descriptor checkpoint](handover.md#gguf-descriptor-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and
