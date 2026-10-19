@@ -1307,6 +1307,65 @@ def test_profile_source_metadata_emission_preflights_all_groups_before_mutation(
     assert all(tuple(writer.kv_data[0][record["name"]][1]) == record["values"] for record in receipt["records"])
 
 
+@pytest.mark.parametrize("defect", [None, "full", "leading", "collision", "policy", "policy-type", "capacity", "metadata-pin",
+                                    "tokenizer-pin", "duplicate", "boolean", "negative", "out-of-range", "parser"])
+def test_profile_unused_token_rows_require_explicit_bounded_noncolliding_declarations(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import prepare_profile_model_unused_token_rows
+
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    capacity = profile.geometry["vocab_size"]
+    vocabulary = {"a": 0, "b": 3}
+    if defect == "full":
+        vocabulary = {f"token{token_id}": token_id for token_id in range(capacity)}
+    elif defect == "leading":
+        vocabulary["a"] = 1
+    elif defect == "collision":
+        vocabulary = {"[PAD1]": 0, "b": 3}
+    elif defect in ("duplicate", "boolean", "negative", "out-of-range"):
+        vocabulary["b"] = {"duplicate": 0, "boolean": True, "negative": -1, "out-of-range": capacity}[defect]
+    calls = []
+
+    def from_str(text):
+        calls.append(text)
+        if defect == "parser":
+            raise ValueError("synthetic parser refusal")
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary))
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    policy = "pinned_prism_pad_unused_v1"
+    if defect == "policy":
+        policy = "guess"
+    elif defect == "policy-type":
+        policy = True
+    elif defect == "capacity":
+        profile = SimpleNamespace(geometry={"vocab_size": 4097})
+    elif defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256, "unused_policy": policy}
+    if defect not in (None, "full", "leading"):
+        with pytest.raises(ValueError):
+            prepare_profile_model_unused_token_rows(profile, **arguments)
+        assert len(calls) == (0 if defect in ("policy", "policy-type", "capacity", "metadata-pin", "tokenizer-pin") else 1)
+        return
+    receipt = prepare_profile_model_unused_token_rows(profile, **arguments)
+    assert calls == [tokenizer_bytes.decode()]
+    missing = sorted(set(range(capacity)) - set(vocabulary.values()))
+    assert tuple(dict(row) for row in receipt["unused_token_rows"]) == tuple(
+        {"token_id": token_id, "token": f"[PAD{token_id}]", "token_type": "UNUSED"} for token_id in missing)
+    assert len(receipt["unused_token_rows"]) == receipt["unassigned_profile_token_rows"]
+    assert receipt["metadata_emission"] == "not_performed"
+    assert receipt["source_token_type_verification"] == receipt["gguf_token_type_verification"] == receipt["gguf_tokenizer_verification"] == "not_checked"
+    if missing:
+        with pytest.raises(TypeError):
+            receipt["unused_token_rows"][0]["token"] = "other"
+
+
 @pytest.mark.parametrize("defect", [None, "contiguous", "full", "leading", "empty", "duplicate", "boolean", "negative", "out-of-range",
                                     "non-string", "metadata-pin", "tokenizer-pin", "model-kind", "parser", "range-budget", "range-tail-budget"])
 def test_profile_tokenizer_inventory_reports_missing_ranges_without_padding_or_relaxing_emission(monkeypatch, defect):

@@ -12,7 +12,9 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [missing-ID checkpoint](#missing-id-checkpoint-2026-10-19), followed by
+the [unused-row checkpoint](#unused-row-checkpoint-2026-10-19), followed by
+the [larger tokenizer proposal](#larger-tokenizer-proposal-2026-10-19),
+the [missing-ID checkpoint](#missing-id-checkpoint-2026-10-19),
 the [sparse inventory checkpoint](#sparse-inventory-checkpoint-2026-10-19),
 the [missing-ID proposal](#missing-id-proposal-2026-10-19),
 the [tokenizer-only checkpoint](#tokenizer-only-checkpoint-2026-10-19),
@@ -349,6 +351,69 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Unused-Row Checkpoint (2026-10-19)
+
+After `109d7c8`, the existing synthetic two-hole inventory mode extracts
+`TextModel.get_vocab_base` from the exact committed pinned Prism blob and
+checks its missing-row branch: `[PAD1]`/`[PAD5]` with `UNUSED`, existing rows
+`NORMAL`. It uses explicit tokenizer-factory and pre-tokenizer-tag doubles;
+no Transformers wrapper, complete tag/type policy or runtime path is proved.
+The initial source-branch control **1 passed in 0.38 s**.
+
+`prepare_profile_model_unused_token_rows` now requires explicit
+`unused_policy="pinned_prism_pad_unused_v1"`, profile capacity at most 4096
+before parsing and the shared unique-ID inventory. It returns immutable
+missing-row declarations only, with no writer/emission/source-token typing.
+Literal `[PAD{id}]` collisions with source token names refuse, even though
+the pinned reference can produce duplicate labels with distinct normal/
+unused roles. A fresh-pinned synthetic collision checks this refusal rather
+than silently treating upstream behavior as safe. Normalization and actual
+GGUF types/file bytes remain unchecked; real MiMo capacity cannot use this
+bounded planner. Existing strict preparation/emission behavior is unchanged.
+
+**14 default cases passed in 0.21 s**, including explicit-policy/capacity/
+pin/ID/collision refusals, leading/internal/tail declarations, full inventory
+and immutable/no-emission receipts. Expanded actual synthetic reference/
+planner/collision mode **1 passed in 0.39 s**; affected BPE source-extraction
+branch **1 passed in 0.41 s**. Existing 15 s child, tensor-free output below
+64 KiB and writer/spool/map/scratch cleanup remain. No failed check occurred.
+
+Required gate: **1131 passed, 104 skipped in 29.33 s**, Ruff/whitespace and
+three Python editor checks clean. Neither consumed real diagnostic was
+repeated and no learned tokenizer contents were reopened. No weights,
+downloads, builds, conversion, BitNet/model jobs, candidate changes, refits
+or quality experiments ran. Next larger-array prerequisite needs the
+separate synthetic-only policy approval below; do not raise existing limits.
+
+## Larger Tokenizer Proposal (2026-10-19)
+
+**Not approved or implemented.** Current typed array proof intentionally
+caps selected records to 8 KiB and emission to 4096 rows. One proposed
+separately opted-in policy would allow at most **128 KiB selected records**
+and **16,384 vocabulary rows**, keeping all existing defaults/contracts and
+legacy checks unchanged. It must compare records with positional reads at
+most 64 KiB instead of issuing a full-record read. The existing 1 MiB header,
+file identity, retained descriptor, two hashes, map/stat/path/deadline checks
+and no-runtime approval remain; the tiny unused-row planner is not expanded.
+
+Use only source-pinned synthetic tokenizer/config data and cached trusted
+parser/writer code. Compare 32 versus 8193 source-backed contiguous rows,
+nonempty bounded merges and a two-byte anchor, exact typed file proof,
+default-budget refusal and fresh-hash/copy/type/final-file faults. No learned
+inputs, new model downloads, real artifacts, full-model conversion or
+tokenizer compatibility claim are included. No token types/pre-tag need be
+invented. Existing allocation controls stay unchanged; proposed additional
+large-array verifier-only guards are peak below 8 MiB and small/large growth
+at most 2 MiB, excluding reader/writer/setup/mapped pages as before.
+
+Proposed actual bounds: each main output and one serial reusable fault copy
+below 1 MiB, writer spool at most 1 MiB, aggregate logical scratch below
+8 MiB, child 15 s and serial stage 60 s. Keep the earlier larger matrix/source
+80/32/33 MiB and 256 MiB controls independent and unchanged. Scratch, copies,
+maps and writer/spool are cleaned after retaining only a small summary.
+Any new learned-input or model/runtime experiment still requires separate
+approval. Do not implement or exercise the expanded limits until approval.
 
 ## Missing-ID Checkpoint (2026-10-19)
 

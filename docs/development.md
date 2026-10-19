@@ -1911,6 +1911,17 @@ Reporting a library's installed version does not mean it was imported:
 pin/copy/recheck, resource, output and cleanup guards apply. No fields or
 padding policy are emitted. See the [missing-ID checkpoint](handover.md#missing-id-checkpoint-2026-10-19).
 
+`prepare_profile_model_unused_token_rows(...)` requires the explicit
+`unused_policy="pinned_prism_pad_unused_v1"` and caps profile capacity to
+4096 rows before parsing. It declares only missing-row `[PAD{id}]` labels
+with the semantic `UNUSED` role, refusing literal collisions with source
+token names. It never emits fields or classifies existing source tokens;
+the real MiMo capacity is intentionally unsupported. The pinned upstream
+branch is checked on the synthetic sparse fixture with explicit tokenizer-
+factory and pre-tag doubles, not a full tokenizer conversion. Normalization,
+actual GGUF types/bytes, complete semantics and runtime remain unchecked.
+Existing strict emitters are unchanged. See the [unused-row checkpoint](handover.md#unused-row-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

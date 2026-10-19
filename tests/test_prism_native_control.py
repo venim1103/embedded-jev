@@ -5797,12 +5797,17 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     source = Path(source_dir)
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     fingerprint_source = None
-    if tokenizer_mode == "bpe":
+    unused_source = None
+    if tokenizer_mode in ("bpe", "inventory"):
         pinned = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:conversion/base.py"])
         assert 0 < len(pinned) <= 1024**2 and (source / "conversion/base.py").read_bytes() == pinned
         text_model = next(node for node in ast.parse(pinned).body if isinstance(node, ast.ClassDef) and node.name == "TextModel")
-        fingerprint = next(node for node in text_model.body if isinstance(node, ast.FunctionDef) and node.name == "get_vocab_base_pre")
-        fingerprint_source = ast.unparse(fingerprint)
+        method_name = "get_vocab_base_pre" if tokenizer_mode == "bpe" else "get_vocab_base"
+        method = next(node for node in text_model.body if isinstance(node, ast.FunctionDef) and node.name == method_name)
+        if tokenizer_mode == "bpe":
+            fingerprint_source = ast.unparse(method)
+        else:
+            unused_source = ast.unparse(method)
     metadata, _, record = _packaging_fixture(text_only=True)
     config = json.loads(metadata["config.json"])
     config["max_position_embeddings"] = 512
@@ -5845,7 +5850,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
     fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()},
                "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens,
-               "fingerprint_source": fingerprint_source,
+               "fingerprint_source": fingerprint_source, "unused_source": unused_source,
                "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
@@ -5855,7 +5860,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_inventory, prepare_profile_model_tokenizer_vocabulary, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_arrays, write_profile_model_tokenizer_vocabulary
+from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_inventory, prepare_profile_model_tokenizer_vocabulary, prepare_profile_model_unused_token_rows, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_arrays, write_profile_model_tokenizer_vocabulary
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -5893,6 +5898,62 @@ if fixture["tokenizer_mode"] == "inventory":
         raise AssertionError("sparse inventory silently relaxed contiguous vocabulary preparation")
     except ValueError as error:
         assert "vocabulary IDs" in str(error)
+    import ast
+    from types import SimpleNamespace
+    from tokenizers import Tokenizer
+
+    source_vocabulary = Tokenizer.from_str(tokenizer_bytes.decode()).get_vocab(with_added_tokens=True)
+    tokenizer_double = SimpleNamespace(vocab=source_vocabulary, get_added_vocab=lambda: {}, added_tokens_decoder={})
+
+    def from_pretrained(directory):
+        assert directory == "synthetic-unused-no-model"
+        return tokenizer_double
+
+    previous_transformers = sys.modules.get("transformers")
+    namespace = {"gguf": gguf}
+    owner = SimpleNamespace(hparams={"vocab_size": profile.geometry["vocab_size"]}, dir_model="synthetic-unused-no-model",
+                            get_vocab_base_pre=lambda tokenizer: "synthetic-unverified-tag")
+    try:
+        sys.modules["transformers"] = SimpleNamespace(AutoTokenizer=SimpleNamespace(from_pretrained=from_pretrained))
+        exec(compile(ast.parse(fixture["unused_source"]), "<pinned-unused-row-reference>", "exec"), namespace)
+        rows, types, tag = namespace["get_vocab_base"](owner)
+    finally:
+        if previous_transformers is None:
+            sys.modules.pop("transformers", None)
+        else:
+            sys.modules["transformers"] = previous_transformers
+    assert tag == "synthetic-unverified-tag"
+    assert rows == [f"[PAD{token_id}]" if token_id in (1, 5) else token for token_id, token in enumerate(fixture["tokens"])]
+    assert types == [gguf.TokenType.UNUSED if token_id in (1, 5) else gguf.TokenType.NORMAL for token_id in range(len(rows))]
+    planned = prepare_profile_model_unused_token_rows(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
+        context_length=256, unused_policy="pinned_prism_pad_unused_v1")
+    assert tuple(dict(row) for row in planned["unused_token_rows"]) == tuple(
+        {"token_id": token_id, "token": rows[token_id], "token_type": "UNUSED"} for token_id in (1, 5))
+    assert planned["metadata_emission"] == "not_performed" and planned["source_token_type_verification"] == "not_checked"
+    collision = json.loads(tokenizer_bytes)
+    del collision["model"]["vocab"][fixture["tokens"][0]]
+    collision["model"]["vocab"]["[PAD1]"] = 0
+    collision_bytes = json.dumps(collision).encode()
+    collision_record = json.loads(json.dumps(fixture["profile"]))
+    collision_record["files"]["tokenizer.json"] = {"bytes": len(collision_bytes), "sha256": hashlib.sha256(collision_bytes).hexdigest()}
+    collision_profile = parse_model_profile(json.dumps(collision_record).encode())
+    tokenizer_double.vocab = Tokenizer.from_str(collision_bytes.decode()).get_vocab(with_added_tokens=True)
+    try:
+        sys.modules["transformers"] = SimpleNamespace(AutoTokenizer=SimpleNamespace(from_pretrained=from_pretrained))
+        collision_rows, collision_types, _ = namespace["get_vocab_base"](owner)
+    finally:
+        if previous_transformers is None:
+            sys.modules.pop("transformers", None)
+        else:
+            sys.modules["transformers"] = previous_transformers
+    assert collision_rows[0] == collision_rows[1] == "[PAD1]"
+    assert collision_types[0] == gguf.TokenType.NORMAL and collision_types[1] == gguf.TokenType.UNUSED
+    try:
+        prepare_profile_model_unused_token_rows(collision_profile, metadata_files=metadata, tokenizer_bytes=collision_bytes,
+            context_length=256, unused_policy="pinned_prism_pad_unused_v1")
+        raise AssertionError("unused-row name collision was silently promoted from upstream")
+    except ValueError as error:
+        assert "collides with source vocabulary" in str(error)
 if fixture["tokenizer_mode"] == "bpe":
     import ast
     from types import SimpleNamespace

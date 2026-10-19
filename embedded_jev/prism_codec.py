@@ -546,6 +546,30 @@ def prepare_profile_model_tokenizer_inventory(
                             "runtime_approval": "not_granted_by_tokenizer_inventory"})
 
 
+def prepare_profile_model_unused_token_rows(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, unused_policy: str,
+):
+    """Declare bounded explicitly selected unused rows, without emission or complete token-type mapping."""
+    if unused_policy != "pinned_prism_pad_unused_v1" or not 0 < profile.geometry["vocab_size"] <= 4096:
+        raise ValueError("unsupported bounded unused-token row policy")
+    prepared, _, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    inventory = _profile_tokenizer_id_inventory(profile, vocabulary)
+    rows = []
+    for first, end in inventory["missing_token_id_ranges"]:
+        for token_id in range(first, end):
+            token = f"[PAD{token_id}]"
+            if token in vocabulary:
+                raise ValueError("unused-token label collides with source vocabulary")
+            rows.append(MappingProxyType({"token_id": token_id, "token": token, "token_type": "UNUSED"}))
+    return MappingProxyType({**prepared, **inventory, "unused_row_policy": unused_policy,
+                            "converter_revision": PRISM_SOURCE_REVISION, "unused_token_rows": tuple(rows),
+                            "unused_row_verification": "selected_pinned_prism_convention_declared_not_file_verified",
+                            "tokenizer_semantic_verification": "not_checked", "source_token_type_verification": "not_checked",
+                            "gguf_token_type_verification": "not_checked", "gguf_tokenizer_verification": "not_checked",
+                            "metadata_emission": "not_performed", "runtime_approval": "not_granted_by_unused_row_preparation"})
+
+
 def _profile_tokenizer_id_inventory(profile, vocabulary):
     capacity = profile.geometry["vocab_size"]
     if (
