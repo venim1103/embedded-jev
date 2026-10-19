@@ -858,6 +858,7 @@ def test_profile_model_streaming_resource_plan_v2_refuses_invalid_budgets_before
         prism_codec.profile_model_streaming_resource_plan_v2(None, {}, {}, None, **budgets)
 
 
+@pytest.mark.parametrize("emit", [False, True])
 @pytest.mark.parametrize("template_source,defect", [
     ("source", None), ("gguf_embedded", None),
     ("source", "unicode"), ("gguf_embedded", "unicode"),
@@ -865,7 +866,7 @@ def test_profile_model_streaming_resource_plan_v2_refuses_invalid_budgets_before
     ("gguf_embedded", "missing"), ("gguf_embedded", "unbound"), ("gguf_embedded", "mutable"),
     ("source", "unexpected-external"), ("source", "selection"),
 ])
-def test_profile_template_preparation_is_explicit_pinned_and_never_rendered(monkeypatch, template_source, defect):
+def test_profile_template_preparation_is_explicit_pinned_and_never_rendered(monkeypatch, template_source, defect, emit):
     from embedded_jev import prism_codec
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -904,11 +905,16 @@ def test_profile_template_preparation_is_explicit_pinned_and_never_rendered(monk
         monkeypatch.setattr(prism_codec, "MODEL_METADATA_BYTES_V2", total - (defect == "aggregate"))
     arguments = {"metadata_files": metadata, "tokenizer_bytes": b"{}", "context_length": 256,
                  "template_source": template_source, "gguf_template_bytes": extra}
+    operation = prism_codec.write_profile_model_template_metadata if emit else prism_codec.prepare_profile_model_template_metadata
+    writer = _profile_metadata_writer_fixture()
+    if emit:
+        arguments["writer"] = writer
     if defect and defect != "unicode":
         with pytest.raises(ValueError, match="metadata identity" if defect == "pin" and template_source == "source" else "template"):
-            prism_codec.prepare_profile_model_template_metadata(profile, **arguments)
+            operation(profile, **arguments)
+        assert writer.kv_data == [{}]
         return
-    receipt = prism_codec.prepare_profile_model_template_metadata(profile, **arguments)
+    receipt = operation(profile, **arguments)
     expected = metadata[source_name] if template_source == "source" else external
     assert receipt["template"].encode() == expected
     assert receipt["selected_template_sha256"] == hashlib.sha256(expected).hexdigest()
@@ -920,6 +926,33 @@ def test_profile_template_preparation_is_explicit_pinned_and_never_rendered(monk
     assert receipt["gguf_template_origin_verification"] == ("profile_declared_not_source_gguf_verified" if template_source == "gguf_embedded" else "not_applicable")
     with pytest.raises(TypeError):
         receipt["template"] = "other"
+    if emit:
+        assert writer.kv_data == [{"tokenizer.chat_template": ("str", [expected.decode()])}]
+        assert receipt["records"][0]["values"] == (expected.decode(),)
+        with pytest.raises(ValueError, match="conflicting"):
+            operation(profile, **arguments)
+        assert writer.kv_data == [{"tokenizer.chat_template": ("str", [expected.decode()])}]
+
+
+@pytest.mark.parametrize("defect", ["architecture", "missing-string", "duplicate", "split-writer"])
+def test_profile_template_emission_preflights_string_protocol_without_mutation(defect):
+    from embedded_jev.prism_codec import write_profile_model_template_metadata
+
+    profile, metadata = _profile_tokenizer_preparation_fixture(b"{}")
+    writer = _profile_metadata_writer_fixture()
+    if defect == "architecture":
+        writer.arch = "qwen3"
+    elif defect == "missing-string":
+        writer.add_string = None
+    elif defect == "duplicate":
+        writer.kv_data[0]["tokenizer.chat_template"] = ("str", ["keep"])
+    else:
+        writer.kv_data.append({})
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    with pytest.raises(ValueError, match="conflicting architecture metadata writer"):
+        write_profile_model_template_metadata(profile, metadata_files=metadata, tokenizer_bytes=b"{}",
+            context_length=256, template_source="source", writer=writer)
+    assert json.dumps(writer.kv_data, sort_keys=True) == before
 
 
 def _profile_tokenizer_preparation_fixture(tokenizer_bytes):
@@ -1057,6 +1090,9 @@ def _profile_metadata_writer_fixture():
         def add_array(self, name, values):
             self.kv_data[0][name] = ("i32_array", list(values))
 
+        def add_string(self, name, value):
+            self.kv_data[0][name] = ("str", [value])
+
     return Writer()
 
 
@@ -1072,6 +1108,7 @@ def test_profile_context_metadata_emission_verifies_source_before_writer_mutatio
     profile = parse_model_profile(json.dumps(record).encode())
     tokenizer = b"{}"
     writer = _profile_metadata_writer_fixture()
+    writer.add_string = None
     if defect == "metadata-pin":
         metadata["config.json"] += b" "
     elif defect == "tokenizer-pin":
@@ -1110,6 +1147,7 @@ def test_profile_architecture_metadata_emission_is_declared_and_preflighted(targ
     profile, report, manifest, blocks = _prefill_model_policy_fixture(target, hybrid=hybrid)
     specification = prism_codec.profile_model_specification(profile, report, manifest, blocks)
     writer = _profile_metadata_writer_fixture()
+    writer.add_string = None
     if defect == "architecture":
         writer.arch = "qwen3"
     elif defect == "duplicate":

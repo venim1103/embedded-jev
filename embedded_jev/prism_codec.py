@@ -498,11 +498,28 @@ def write_profile_model_context_metadata(
                             "runtime_approval": "not_granted_by_context_emission"})
 
 
+def write_profile_model_template_metadata(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+    template_source: str, writer, gguf_template_bytes: bytes | None = None,
+):
+    """Emit only explicitly selected pinned template text, without rendering it."""
+    prepared = prepare_profile_model_template_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length,
+        template_source=template_source, gguf_template_bytes=gguf_template_bytes)
+    records = _write_profile_model_metadata_records(writer, [
+        {"name": prepared["template_metadata_name"], "kind": "str", "values": [prepared["template"]]},
+    ])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "runtime_approval": "not_granted_by_template_emission"})
+
+
 def _write_profile_model_metadata_records(writer, records):
     mappings = getattr(writer, "kv_data", None)
+    methods = ("add_uint32", "add_float32", "add_array") + (("add_string",) if any(record["kind"] == "str" for record in records) else ())
     if (getattr(writer, "arch", None) != "qwen35" or not isinstance(mappings, list) or len(mappings) != 1
             or any(not isinstance(mapping, dict) for mapping in mappings)
-            or any(not callable(getattr(writer, method, None)) for method in ("add_uint32", "add_float32", "add_array"))
+            or any(not callable(getattr(writer, method, None)) for method in methods)
             or any(record["name"] in mapping for record in records for mapping in mappings)):
         raise ValueError("invalid or conflicting architecture metadata writer")
     frozen_records = tuple(MappingProxyType({"name": record["name"], "kind": record["kind"],
@@ -513,6 +530,8 @@ def _write_profile_model_metadata_records(writer, records):
             writer.add_uint32(name, values[0])
         elif kind == "f32":
             writer.add_float32(name, values[0])
+        elif kind == "str":
+            writer.add_string(name, values[0])
         else:
             writer.add_array(name, list(values))
     return frozen_records

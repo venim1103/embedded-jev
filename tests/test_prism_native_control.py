@@ -4855,6 +4855,15 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     config["max_position_embeddings"] = 512
     metadata["config.json"] = json.dumps(config).encode()
     record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
+    source_template = record["tokenization"]["template_file"]
+    metadata[source_template] = b"source \xc3\xa9 {{ preserved }}"
+    record["files"][source_template] = {"bytes": len(metadata[source_template]), "sha256": hashlib.sha256(metadata[source_template]).hexdigest()}
+    external_template = b"gguf \xc3\xb8 {{ other }}" if tokenizer_mode == "vocabulary" else None
+    if external_template is not None:
+        record["files"]["gguf_template.jinja"] = {"bytes": len(external_template), "sha256": hashlib.sha256(external_template).hexdigest()}
+        record["tokenization"].update(gguf_template_file="gguf_template.jinja", gguf_template_origin={
+            "model": "example/Synthetic-GGUF", "revision": "3" * 40, "file": "toy.gguf", "file_sha256": "4" * 64,
+        })
     tokenizer_bytes = b"{}"
     tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
     added_tokens = []
@@ -4872,7 +4881,8 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         }}).encode()
         record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
     fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()},
-               "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens}
+               "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens,
+               "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
 import json
@@ -4881,12 +4891,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_context_metadata
+from embedded_jev.prism_codec import prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_context_metadata, write_profile_model_template_metadata
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
 metadata = {name: bytes.fromhex(data) for name, data in fixture["metadata"].items()}
 tokenizer_bytes = bytes.fromhex(fixture["tokenizer"])
+external_template = bytes.fromhex(fixture["external_template"]) if fixture["external_template"] is not None else None
+template_source = "gguf_embedded" if external_template is not None else "source"
+expected_template = external_template if external_template is not None else metadata[profile.tokenization["template_file"]]
 if fixture["tokenizer_mode"] != "identity":
     vocabulary = prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
         tokenizer_bytes=tokenizer_bytes, context_length=256)
@@ -4938,6 +4951,18 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
             tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
         assert receipt["source_metadata_verification"] == "profile_pinned_caller_bytes"
         assert receipt["tokenizer_semantic_verification"] == receipt["gguf_template_verification"] == "not_checked"
+        template_receipt = write_profile_model_template_metadata(profile, metadata_files=metadata,
+            tokenizer_bytes=tokenizer_bytes, context_length=256, template_source=template_source,
+            gguf_template_bytes=external_template, writer=writer)
+        assert template_receipt["template"].encode() == expected_template
+        assert template_receipt["template_render_verification"] == "not_checked"
+        try:
+            write_profile_model_template_metadata(profile, metadata_files=metadata,
+                tokenizer_bytes=tokenizer_bytes, context_length=256, template_source=template_source,
+                gguf_template_bytes=external_template, writer=writer)
+            raise AssertionError("duplicate template metadata was emitted")
+        except ValueError as error:
+            assert "conflicting" in str(error)
         try:
             write_profile_model_context_metadata(profile, metadata_files=metadata,
                 tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
@@ -4957,6 +4982,9 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
         field = reader.fields["qwen35.context_length"]
         assert field.types == [gguf.GGUFValueType.UINT32]
         assert b"".join(field.parts[index].tobytes() for index in field.data) == (256).to_bytes(4, "little")
+        template_field = reader.fields["tokenizer.chat_template"]
+        assert template_field.types == [gguf.GGUFValueType.STRING]
+        assert b"".join(template_field.parts[index].tobytes() for index in template_field.data) == expected_template
         assert not reader.tensors
     finally:
         reader.data._mmap.close()

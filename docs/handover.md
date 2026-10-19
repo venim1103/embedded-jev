@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [template preparation checkpoint](#template-preparation-checkpoint-2026-10-19), followed by the
+the [template emission checkpoint](#template-emission-checkpoint-2026-10-19), followed by the
+[template preparation checkpoint](#template-preparation-checkpoint-2026-10-19),
 [standalone token checkpoint](#standalone-token-checkpoint-2026-10-19),
 [vocabulary preparation checkpoint](#vocabulary-preparation-checkpoint-2026-10-19),
 [context emission checkpoint](#context-emission-checkpoint-2026-10-19),
@@ -325,6 +326,48 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Template Emission Checkpoint (2026-10-19)
+
+After `dcd8770`, added `write_profile_model_template_metadata`. It repeats
+source-bound explicit template preparation and emits only the selected
+`tokenizer.chat_template` string. Shared metadata preflight now requires
+callable `add_string` only when records include strings; existing architecture
+and context callers retain their prior protocol. The immutable emission receipt
+keeps exact byte-selection/provenance and unverified-rendering/prompt/weight
+limits. It records emission, not independent output-file verification or runtime
+approval. Source/protocol preflight failures do not mutate metadata; arbitrary
+later writer failures do not imply rollback.
+
+Evidence:
+
+- Immediate focused template preparation/emission and architecture/context
+  checks: **68 passed, 678 deselected in 0.64 s**. All 19 selected-template
+  boundary cases now run through preparation and emission. Four additional
+  preflight cases check wrong architecture, missing string method, duplicate
+  key and split writer without mutation. Architecture/context controls
+  explicitly remove the string method and still pass their unchanged checks.
+- Pinned metadata-only `identity`, `vocabulary` and `contract` modes now emit
+  exact non-ASCII UTF-8 source/separate-GGUF template text as GGUF STRING data,
+  check duplicate refusal and retain context-byte/standalone-token evidence.
+  Their reader mappings, optional spool and writer close before scratch cleanup.
+  Together with the affected frozen/17-field architecture regression:
+  **4 passed, 5 deselected in 15.68 s**. That is aggregate test duration, not
+  a single child stage; all existing **15 s** child deadlines remain unchanged.
+  Metadata outputs remain tensor-free and smaller than 64 KiB; the distinct
+  frozen tensor fixture remains within its existing small-file budgets.
+- Required source gate: **898 passed, 96 skipped in 39.21 s**, Ruff and
+  whitespace clean. Editor error checks for all three changed Python files
+  are clean. Default skips are not execution evidence for optional controls.
+
+No failed checks, new learned inputs, downloads, native builds, model jobs,
+refits, candidates or quality experiments occurred. A literal template string
+is not template rendering, a verified origin GGUF, prompt-boundary validity,
+BPE/pre-tokenizer mapping or full-model compatibility. Next: compose the checked
+metadata pieces with the existing bounded synthetic writer and public
+verification surfaces; keep missing tokenizer conversion and runtime acceptance
+explicit rather than treating these field checks as a complete converter.
+See the [API contract](development.md#profile-gated-complete-model-policy).
 
 ## Template Preparation Checkpoint (2026-10-19)
 

@@ -1522,6 +1522,19 @@ metadata-only GGUF smaller than 64 KiB, with the existing 15 s child deadline.
 It uses no source weights or functional tokenizer. See the
 [context emission checkpoint](handover.md#context-emission-checkpoint-2026-10-19).
 
+`write_profile_model_template_metadata(..., template_source=..., writer=...,
+gguf_template_bytes=None)` repeats selected-template preparation directly on
+source bytes and emits its exact text as a `tokenizer.chat_template` string.
+It shares architecture/context preflight and additionally requires callable
+`add_string` only for string records. Architecture/context-only writers still
+need no string method. Wrong source pins, selection or writer preflight leave
+metadata untouched; arbitrary later method failures do not promise rollback.
+The immutable receipt retains all rendering/provenance limits and marks records
+emitted, not file-verified or runtime-approved. Pinned metadata controls check
+exact UTF-8 GGUF STRING payloads for source and separate-GGUF selections,
+duplicates and unchanged context bytes; no template is rendered or model run.
+See the [template emission checkpoint](handover.md#template-emission-checkpoint-2026-10-19).
+
 `write_profile_model_architecture_metadata(..., writer=...)` emits the checked
 architecture subset from the validated model specification: three base
 geometry fields and its 14 typed records. The trusted writer must target
