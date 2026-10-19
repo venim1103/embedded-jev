@@ -1463,6 +1463,21 @@ value; it does not write that field or create a model. An inert `{}` tokenizer
 fixture proves only byte identity, deliberately not tokenizer compatibility.
 See the [metadata preparation checkpoint](handover.md#metadata-preparation-checkpoint-2026-10-19).
 
+`write_profile_model_context_metadata(profile, metadata_files=...,
+tokenizer_bytes=..., context_length=..., writer=...)` runs that preparation
+directly on source bytes rather than accepting a caller-made receipt, then
+emits only the checked `qwen35.context_length` uint32 value. It shares the
+architecture emitter's single-output writer protocol and duplicate-key
+preflight. Source-pin or writer-preflight failures do not mutate metadata;
+later arbitrary writer failures are not rolled back. The immutable receipt
+retains the preparation evidence and unchecked tokenizer/template/weight
+markers, and records emission rather than file verification or runtime
+approval. The separate opt-in `test_pinned_profile_context_metadata_on_toy_source`
+control checks exact UINT32 bytes and duplicate refusal in a disposable
+metadata-only GGUF smaller than 64 KiB, with the existing 15 s child deadline.
+It uses no source weights or functional tokenizer. See the
+[context emission checkpoint](handover.md#context-emission-checkpoint-2026-10-19).
+
 `write_profile_model_architecture_metadata(..., writer=...)` emits the checked
 architecture subset from the validated model specification: three base
 geometry fields and its 14 typed records. The trusted writer must target

@@ -4838,6 +4838,74 @@ print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 
         "frozen_operands": 1 if include_frozen_source else 0}
 
 
+def test_pinned_profile_context_metadata_on_toy_source():
+    import hashlib
+
+    from test_inventory import _packaging_fixture
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source_dir or not interpreter:
+        pytest.skip("requires pinned Prism GGUF writer and isolated converter environment")
+    source = Path(source_dir)
+    assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    metadata, _, record = _packaging_fixture(text_only=True)
+    config = json.loads(metadata["config.json"])
+    config["max_position_embeddings"] = 512
+    metadata["config.json"] = json.dumps(config).encode()
+    record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
+    fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()}}
+    code = """
+import json
+import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import gguf
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.prism_codec import write_profile_model_context_metadata
+
+fixture = json.loads(sys.stdin.read())
+profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+metadata = {name: bytes.fromhex(data) for name, data in fixture["metadata"].items()}
+with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
+    path = Path(directory) / "metadata.gguf"
+    writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
+    try:
+        receipt = write_profile_model_context_metadata(profile, metadata_files=metadata,
+            tokenizer_bytes=b"{}", context_length=256, writer=writer)
+        assert receipt["source_metadata_verification"] == "profile_pinned_caller_bytes"
+        assert receipt["tokenizer_semantic_verification"] == receipt["gguf_template_verification"] == "not_checked"
+        try:
+            write_profile_model_context_metadata(profile, metadata_files=metadata,
+                tokenizer_bytes=b"{}", context_length=256, writer=writer)
+            raise AssertionError("duplicate context metadata was emitted")
+        except ValueError as error:
+            assert "conflicting" in str(error)
+        writer.write_header_to_file()
+        writer.write_kv_data_to_file()
+        writer.write_tensors_to_file()
+    finally:
+        writer.close()
+        if writer.temp_file is not None:
+            writer.temp_file.close()
+    assert path.stat().st_size < 65536
+    reader = gguf.GGUFReader(path)
+    try:
+        field = reader.fields["qwen35.context_length"]
+        assert field.types == [gguf.GGUFValueType.UINT32]
+        assert b"".join(field.parts[index].tobytes() for index in field.data) == (256).to_bytes(4, "little")
+        assert not reader.tensors
+    finally:
+        reader.data._mmap.close()
+print(json.dumps({"context_length": receipt["context_length"], "source_context_length": receipt["source_context_length"]}))
+"""
+    result = subprocess.run([interpreter, "-c", code], check=False, capture_output=True, text=True,
+        input=json.dumps(fixture), timeout=15,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"context_length": 256, "source_context_length": 512}
+
+
 def test_pinned_prism_grouped_v_metadata_writer_for_folded_out_projection():
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")

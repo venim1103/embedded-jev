@@ -858,12 +858,7 @@ def test_profile_model_streaming_resource_plan_v2_refuses_invalid_budgets_before
         prism_codec.profile_model_streaming_resource_plan_v2(None, {}, {}, None, **budgets)
 
 
-@pytest.mark.parametrize("target", ["down", "o"])
-@pytest.mark.parametrize("hybrid", [False, True])
-@pytest.mark.parametrize("defect", [None, "architecture", "duplicate", "missing-method", "split-writer"])
-def test_profile_architecture_metadata_emission_is_declared_and_preflighted(target, hybrid, defect):
-    from embedded_jev import prism_codec
-
+def _profile_metadata_writer_fixture():
     class Writer:
         arch = "qwen35"
 
@@ -879,9 +874,59 @@ def test_profile_architecture_metadata_emission_is_declared_and_preflighted(targ
         def add_array(self, name, values):
             self.kv_data[0][name] = ("i32_array", list(values))
 
+    return Writer()
+
+
+@pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "architecture", "duplicate", "split-writer"])
+def test_profile_context_metadata_emission_verifies_source_before_writer_mutation(defect):
+    from embedded_jev.prism_codec import write_profile_model_context_metadata
+
+    metadata, _, record = _packaging_fixture(text_only=True)
+    config = json.loads(metadata["config.json"])
+    config["max_position_embeddings"] = 512
+    metadata["config.json"] = json.dumps(config).encode()
+    record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
+    profile = parse_model_profile(json.dumps(record).encode())
+    tokenizer = b"{}"
+    writer = _profile_metadata_writer_fixture()
+    if defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer = b"[]"
+    elif defect == "architecture":
+        writer.arch = "qwen3"
+    elif defect == "duplicate":
+        writer.kv_data[0]["qwen35.context_length"] = ("u32", [1])
+    elif defect == "split-writer":
+        writer.kv_data.append({})
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer, "context_length": 256, "writer": writer}
+    if defect:
+        message = "metadata identity" if defect == "metadata-pin" else "tokenizer input identity" if defect == "tokenizer-pin" else "conflicting architecture metadata writer"
+        with pytest.raises(ValueError, match=message):
+            write_profile_model_context_metadata(profile, **arguments)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        return
+    receipt = write_profile_model_context_metadata(profile, **arguments)
+    assert writer.kv_data == [{"qwen35.context_length": ("u32", [256])}]
+    assert receipt["records"][0]["values"] == (256,) and receipt["metadata_count"] == 1
+    assert receipt["source_metadata_verification"] == "profile_pinned_caller_bytes"
+    assert receipt["tokenizer_semantic_verification"] == receipt["gguf_template_verification"] == "not_checked"
+    assert receipt["runtime_approval"] == "not_granted_by_context_emission"
+    with pytest.raises(ValueError, match="conflicting"):
+        write_profile_model_context_metadata(profile, **arguments)
+    assert writer.kv_data == [{"qwen35.context_length": ("u32", [256])}]
+
+
+@pytest.mark.parametrize("target", ["down", "o"])
+@pytest.mark.parametrize("hybrid", [False, True])
+@pytest.mark.parametrize("defect", [None, "architecture", "duplicate", "missing-method", "split-writer"])
+def test_profile_architecture_metadata_emission_is_declared_and_preflighted(target, hybrid, defect):
+    from embedded_jev import prism_codec
+
     profile, report, manifest, blocks = _prefill_model_policy_fixture(target, hybrid=hybrid)
     specification = prism_codec.profile_model_specification(profile, report, manifest, blocks)
-    writer = Writer()
+    writer = _profile_metadata_writer_fixture()
     if defect == "architecture":
         writer.arch = "qwen3"
     elif defect == "duplicate":

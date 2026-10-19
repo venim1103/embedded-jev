@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [metadata preparation checkpoint](#metadata-preparation-checkpoint-2026-10-19), followed by the
+the [context emission checkpoint](#context-emission-checkpoint-2026-10-19), followed by the
+[metadata preparation checkpoint](#metadata-preparation-checkpoint-2026-10-19),
 [architecture metadata checkpoint](#architecture-metadata-checkpoint-2026-10-19),
 [frozen writer checkpoint](#frozen-writer-checkpoint-2026-10-19),
 [frozen source owner checkpoint](#frozen-source-owner-checkpoint-2026-10-19),
@@ -321,6 +322,51 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Context Emission Checkpoint (2026-10-19)
+
+After `4c3bf2b`, added `write_profile_model_context_metadata`. It repeats bounded
+source-byte preparation instead of trusting an externally supplied receipt,
+then emits just `qwen35.context_length`. Architecture and context emitters now
+share the existing single-output/protocol/duplicate preflight and typed-record
+writer. Architecture records and evidence markers are unchanged. The context
+receipt freezes emitted records while retaining pinned-source evidence and
+unchecked tokenizer semantics, separate GGUF template and source weights.
+No runtime approval follows. Preflight failures leave metadata untouched;
+arbitrary later writer-method failures do not promise rollback.
+
+Evidence:
+
+- Focused default metadata/preparation/emission family: **52 passed,
+  636 deselected in 0.44 s**, including exact values, source-pin refusal,
+  duplicate refusal, wrong architecture and split-writer refusal.
+- New pinned metadata-only control initially failed before child execution
+  because its fixture builder omitted a local `hashlib` import. In that run
+  the existing frozen/architecture writer control passed: **1 failed,
+  1 passed, 5 deselected in 4.28 s**. The missing import was repaired; the
+  failed context test alone then passed: **1 passed in 0.31 s**. The successful
+  architecture control was not repeated without a behavior change.
+- The pinned context control independently reads exact UINT32 bytes from a
+  disposable GGUF smaller than 64 KiB, with no tensors and an inert `{}`
+  tokenizer identity fixture. It checks duplicate refusal and closes the
+  writer, optional spool and reader mapping before temporary cleanup. The
+  child timeout remains **15 seconds**; no model is converted or executed.
+- Required source gate: **840 passed, 94 skipped in 25.80 s**, Ruff and
+  whitespace clean. Editor diagnostics for all three changed Python files
+  are clean. The default run skips the optional controls above; their actual
+  execution is reported separately.
+
+Scoped documentation validation caught a newly mistyped development heading;
+the link was corrected to the existing complete-model policy section and
+rechecked without rerunning unchanged source gates.
+
+No new learned inputs, downloads, native builds, model jobs, refits, retained
+candidates or quality experiments ran. Context emission is not tokenizer/BPE
+or template emission, full metadata acceptance or loader compatibility.
+Next: prepare bounded tokenizer metadata through a trusted existing parser
+using synthetic pinned bytes before attempting a complete streaming converter.
+Keep full-model artifacts and real-model/runtime/quality work separately
+approved. See the [API contract](development.md#profile-gated-complete-model-policy).
 
 ## Metadata Preparation Checkpoint (2026-10-19)
 

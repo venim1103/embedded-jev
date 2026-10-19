@@ -371,6 +371,30 @@ def write_profile_model_architecture_metadata(profile, inventory: dict, manifest
         "block_count": specification["layers"], "embedding_length": specification["hidden"],
         "feed_forward_length": specification["intermediate"],
     }.items()] + specification["metadata"]
+    frozen_records = _write_profile_model_metadata_records(writer, records)
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_revision": profile.revision, "converter_revision": PRISM_SOURCE_REVISION,
+                            "metadata_count": len(frozen_records), "records": frozen_records,
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "tokenizer_verification": "not_checked", "source_file_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_metadata_emission"})
+
+
+def write_profile_model_context_metadata(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
+):
+    """Emit context only after source byte preparation; tokenizer semantics remain unchecked."""
+    prepared = prepare_profile_model_context_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    records = _write_profile_model_metadata_records(writer, [
+        {"name": prepared["context_metadata_name"], "kind": "u32", "values": [prepared["context_length"]]},
+    ])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "runtime_approval": "not_granted_by_context_emission"})
+
+
+def _write_profile_model_metadata_records(writer, records):
     mappings = getattr(writer, "kv_data", None)
     if (getattr(writer, "arch", None) != "qwen35" or not isinstance(mappings, list) or len(mappings) != 1
             or any(not isinstance(mapping, dict) for mapping in mappings)
@@ -387,12 +411,7 @@ def write_profile_model_architecture_metadata(profile, inventory: dict, manifest
             writer.add_float32(name, values[0])
         else:
             writer.add_array(name, list(values))
-    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
-                            "source_revision": profile.revision, "converter_revision": PRISM_SOURCE_REVISION,
-                            "metadata_count": len(frozen_records), "records": frozen_records,
-                            "metadata_verification": "declared_records_emitted_not_file_verified",
-                            "tokenizer_verification": "not_checked", "source_file_verification": "not_checked",
-                            "runtime_approval": "not_granted_by_metadata_emission"})
+    return frozen_records
 
 
 def verify_profile_converted_vector(
