@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [v2 payload checkpoint](#v2-payload-checkpoint-2026-10-19), followed by the
+the [v2 writer checkpoint](#v2-writer-checkpoint-2026-10-19), followed by the
+[v2 payload checkpoint](#v2-payload-checkpoint-2026-10-19),
 [v2 shard checkpoint](#v2-shard-checkpoint-2026-10-19) and
 [v2 descriptor checkpoint](#v2-descriptor-checkpoint-2026-10-19).
 The earlier pause below is historical. Existing real-model/resource boundaries
@@ -313,6 +314,44 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## V2 Writer Checkpoint (2026-10-19)
+
+After `e96a830`, extended the existing optional pinned converter/GGUF control
+with an explicit BF16/v2 case alongside unchanged BF16/v1 and F32 cases.
+The v2 case selects only the v2 shard owner, descriptor hasher and raw payload
+owner, and checks their version/cap receipt fields. All **16 matrices** retain
+exact pinned Torch/transform/GGUF-byte checks, temporary writer spooling
+without retained tensor arrays, and exactly **two whole-file hashes on one
+descriptor**. GGUF publication remains after successful shared-parent exit.
+All **five publication refusals** also run for v2: selected first/last matrix
+bytes changed before payload exit, plus changed/restored/replaced source
+after child contexts close. Exact original error assertions, cleanup and
+no-published-bytes checks remain. Legacy composed-owner controls are preserved.
+
+The initial focused attempt failed all three cases in **0.37 s**, before
+launching child work: `_profile_parity_fixture` returns JSON text, not a dict.
+The local test now parses and reserializes that JSON to add the explicit
+policy field; no helper contract or guard changed. Same focused check after
+repair: **3 passed in 8.22 s**. Required gate: **734 passed, 90 optional skips
+in 20.29 s**, Ruff/whitespace/editor clean. The extra default skip is the new
+opt-in v2 case; the separate three-case run actually executed it.
+
+This pinned fixture remains **below 16 MiB** and each child retains its
+original **30 s** timeout. The larger **32 MiB** mapping/payload and
+below-3-MiB traced-Python allocation evidence is the separate default-test
+fixture in the preceding checkpoints, not a larger pinned GGUF measurement.
+No source/cache download, runtime/native build, learned-weight read,
+conversion/refit/candidate/held-out scoring or retained artifact. All scratch
+is disposable and cleaned by its owners. README and user editor settings
+remain untouched.
+
+The approved synthetic-only v2 policy increment now has explicit descriptor,
+shared source, raw payload and pinned writer coverage. This does not yet make
+a full streaming converter: metadata/tokenizer/vector/frozen-provenance
+integration and a complete memory/resource plan remain distinct work. Any
+real artifact or complete-model job still requires separate bounded approval;
+the earlier guarded conversion must not be retried unchanged.
 
 ## V2 Payload Checkpoint (2026-10-19)
 

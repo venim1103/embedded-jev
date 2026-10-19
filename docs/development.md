@@ -1555,6 +1555,15 @@ hashes, partial-write cleanup and the existing below-3-MiB traced Python
 allocation bound. That is not a host/device RAM guarantee or a multi-GiB
 artifact measurement. See the [v2 payload checkpoint](handover.md#v2-payload-checkpoint-2026-10-19).
 
+The existing pinned optional
+`test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors` runs BF16/v1,
+F32 and BF16/v2 cases. V2 uses both explicit owners through the same
+16-matrix byte-parity, two-hash and fail-closed publication controls; it does
+not select policy from file size or an environment variable. Its actual
+source/GGUF fixture stays below 16 MiB and the per-child deadline remains
+30 seconds. This is separate from the 32 MiB default allocation/cleanup
+fixture. See the [v2 writer checkpoint](handover.md#v2-writer-checkpoint-2026-10-19).
+
 `mapped_profile_safetensors_bf16_shard_v2(...)` explicitly selects the separate
 6 GiB file/2 GiB selected-matrix policy and v2 descriptor hasher. Its file and
 child budget defaults remain 16 MiB; larger extents require explicit caller

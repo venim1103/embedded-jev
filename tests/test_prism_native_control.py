@@ -4129,8 +4129,8 @@ print(json.dumps(results))
     assert all(result[2].endswith(".ssm_dt.bias") for result in renamed_biases)
 
 
-@pytest.mark.parametrize("vector_dtype", ["BF16", "F32"])
-def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype):
+@pytest.mark.parametrize("vector_dtype,source_policy_version", [("BF16", 1), ("F32", 1), ("BF16", 2)])
+def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype, source_policy_version):
     from embedded_jev.prism_codec import profile_model_conversion_plan
     from test_inventory import _prefill_model_policy_fixture
 
@@ -4145,9 +4145,11 @@ def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype):
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture("down", vector_dtype=vector_dtype, conv_dtype=vector_dtype)
     plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
     fixture = _profile_parity_fixture(profile, inventory, manifest, blocks)
+    fixture = json.dumps({**json.loads(fixture), "source_policy_version": source_policy_version})
     code = """
 from __future__ import annotations
 import ast
+from contextlib import ExitStack
 import hashlib
 import json
 import sys
@@ -4486,6 +4488,9 @@ with TemporaryDirectory(prefix="jev-vector-gguf-") as directory:
 matrix_count = 0
 matrix_operands = {}
 if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "output_norm.weight") == "BF16":
+    source_policy_version = fixture["source_policy_version"]
+    source_owner = prism_codec.mapped_profile_safetensors_bf16_shard_v2 if source_policy_version == 2 else prism_codec.mapped_profile_safetensors_bf16_shard
+    payload_owner = prism_codec.temporary_profile_bf16_matrix_payload_v2 if source_policy_version == 2 else prism_codec.temporary_profile_bf16_matrix_payload
     model.hparams.update(plan["linear_head_layout"])
     model.hparams["hidden_size"] = profile.geometry["hidden_size"]
     for item in plan["tensors"]:
@@ -4553,21 +4558,22 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         import embedded_jev.streamed_text as streamed_text
 
         source_hash_descriptors = []
-        original_record = streamed_text.bounded_native_descriptor_record
+        record_name = "bounded_source_descriptor_record_v2" if source_policy_version == 2 else "bounded_native_descriptor_record"
+        original_record = getattr(streamed_text, record_name)
         def source_record(descriptor, **keywords):
             source_hash_descriptors.append(descriptor)
             return original_record(descriptor, **keywords)
 
-        streamed_text.bounded_native_descriptor_record = source_record
+        setattr(streamed_text, record_name, source_record)
         try:
-            with prism_codec.mapped_profile_safetensors_bf16_shard(profile, fixture["inventory"], fixture["manifest"], payload,
+            with source_owner(profile, fixture["inventory"], fixture["manifest"], payload,
                      source_path=source_path, source_shard=source_path.name,
                      expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256) as (source_matrix, shard_receipt):
                 for tensor_name, (source_name, raw_source, values) in matrix_operands.items():
                     source_range_offset = len(source_prefix) + source_header[source_name]["data_offsets"][0]
                     source_pin = hashlib.sha256(memoryview(raw_source)).hexdigest()
                     with source_matrix(source_name, source_pin) as (source_mapping, source_receipt):
-                        with prism_codec.temporary_profile_bf16_matrix_payload(profile, fixture["inventory"], fixture["manifest"], payload,
+                        with payload_owner(profile, fixture["inventory"], fixture["manifest"], payload,
                                  source_name=source_name, source_values=source_mapping,
                                  expected_source_sha256=source_pin, directory=directory) as (payload_path, payload_receipt):
                             mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
@@ -4578,6 +4584,10 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
                                 assert source_receipt["source_range_offset"] == source_range_offset
                                 assert source_receipt["source_file_sha256"] == source_sha256
                                 assert shard_receipt["profile_sha256"] == payload_receipt["profile_sha256"] == profile.sha256
+                                if source_policy_version == 2:
+                                    assert shard_receipt["source_policy_version"] == source_receipt["source_policy_version"] == payload_receipt["payload_policy_version"] == 2
+                                    assert shard_receipt["source_file_cap_bytes"] == 6 * 1024**3
+                                    assert source_receipt["source_operand_cap_bytes"] == payload_receipt["payload_cap_bytes"] == 2 * 1024**3
                             finally:
                                 mapped._mmap.close()
                         assert not payload_path.exists() and not payload_path.parent.exists()
@@ -4588,7 +4598,7 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
             writer.write_kv_data_to_file()
             writer.write_tensors_to_file()
         finally:
-            streamed_text.bounded_native_descriptor_record = original_record
+            setattr(streamed_text, record_name, original_record)
             writer.close()
             if writer.temp_file is not None:
                 writer.temp_file.close()
@@ -4598,11 +4608,21 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
             fault_writer = gguf.GGUFWriter(fault_path, "qwen35", use_temp_file=True)
             try:
                 try:
-                    with prism_codec.temporary_profile_mapped_bf16_payload(profile, fixture["inventory"], fixture["manifest"], payload,
-                             source_path=source_path, source_name=source_name,
-                             expected_source_sha256=hashlib.sha256(memoryview(raw_source)).hexdigest(),
-                             expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256,
-                             directory=directory) as (payload_path, _):
+                    with ExitStack() as owners:
+                        source_pin = hashlib.sha256(memoryview(raw_source)).hexdigest()
+                        if source_policy_version == 1:
+                            payload_path, _ = owners.enter_context(prism_codec.temporary_profile_mapped_bf16_payload(
+                                profile, fixture["inventory"], fixture["manifest"], payload,
+                                source_path=source_path, source_name=source_name, expected_source_sha256=source_pin,
+                                expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256, directory=directory))
+                        else:
+                            source_matrix, _ = owners.enter_context(source_owner(profile, fixture["inventory"], fixture["manifest"], payload,
+                                source_path=source_path, source_shard=source_path.name,
+                                expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256))
+                            source_mapping, _ = owners.enter_context(source_matrix(source_name, source_pin))
+                            payload_path, _ = owners.enter_context(payload_owner(profile, fixture["inventory"], fixture["manifest"], payload,
+                                source_name=source_name, source_values=source_mapping,
+                                expected_source_sha256=source_pin, directory=directory))
                         mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
                         try:
                             fault_writer.add_tensor(tensor_name, mapped.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
@@ -4631,14 +4651,14 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
             fault_writer = gguf.GGUFWriter(fault_path, "qwen35", use_temp_file=True)
             try:
                 try:
-                    with prism_codec.mapped_profile_safetensors_bf16_shard(profile, fixture["inventory"], fixture["manifest"], payload,
+                    with source_owner(profile, fixture["inventory"], fixture["manifest"], payload,
                              source_path=source_path, source_shard=source_path.name,
                              expected_file_bytes=len(source_bytes), expected_file_sha256=source_sha256) as (source_matrix, _):
                         for tensor_name in (next(iter(matrix_operands)), next(reversed(matrix_operands))):
                             source_name, raw_source, values = matrix_operands[tensor_name]
                             source_pin = hashlib.sha256(memoryview(raw_source)).hexdigest()
                             with source_matrix(source_name, source_pin) as (source_mapping, _):
-                                with prism_codec.temporary_profile_bf16_matrix_payload(profile, fixture["inventory"], fixture["manifest"], payload,
+                                with payload_owner(profile, fixture["inventory"], fixture["manifest"], payload,
                                          source_name=source_name, source_values=source_mapping,
                                          expected_source_sha256=source_pin, directory=directory) as (payload_path, _):
                                     mapped = np.memmap(payload_path, mode="r", dtype="<u2", shape=values.shape)
