@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [sparse inventory checkpoint](#sparse-inventory-checkpoint-2026-10-19), followed by
+the [missing-ID checkpoint](#missing-id-checkpoint-2026-10-19), followed by
+the [sparse inventory checkpoint](#sparse-inventory-checkpoint-2026-10-19),
 the [missing-ID proposal](#missing-id-proposal-2026-10-19),
 the [tokenizer-only checkpoint](#tokenizer-only-checkpoint-2026-10-19),
 the [tokenizer subset composer checkpoint](#tokenizer-subset-composer-checkpoint-2026-10-19),
@@ -349,6 +350,46 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Missing-ID Checkpoint (2026-10-19)
+
+After `f654c31`, the user explicitly selected **Approve One Missing-ID
+Inventory**. This second, separate one-shot was consumed exactly once;
+neither it nor the earlier fingerprint approval permits another learned-
+input run. The existing guarded copy path now has distinct inventory modes
+and opt-in, with two default controls proving each approval cannot enable
+the other mode before source access. The public pinned inventory preparer
+shares a pure ID-count/range core without changing its source verification
+or strict contiguous-emission boundaries.
+
+Core extraction: **16 default cases passed in 0.24 s**. Synthetic inventory
+plus cross-approval controls: **3 passed in 0.32 s**, five files 1762 bytes,
+30 IDs/32 rows, exact `(1,2),(5,6)` gaps and no Transformers import or probe
+fields; process high water 53,657,600 bytes, observed swap 0, scratch cleaned.
+The affected old fingerprint mode was checked on synthetic data only,
+**1 passed in 3.88 s**; Pylance syntax validation clean. No failed check
+occurred in this increment.
+
+The approved missing-ID diagnostic **1 passed in 1.28 s** for the same MiMo
+revision/profile and five pinned files as the earlier checkpoint. It found
+**248,077 unique in-range IDs**, contiguous **0..248076**, and exactly one
+missing half-open interval **[248077,248320)**: **243 tail rows**, no leading
+or internal holes. Source and disposable copied bytes each **30,069,292**,
+small summary below 8 KiB, logical input/copy/report below 64 MiB. Observed
+RSS and process high water both **256,454,656 bytes**; process/host swap **0**.
+The child remained within 15 s/stage 60 s, and parent-owned scratch was
+removed. Tokenizers 0.22.2 executed; Transformers 5.12.1 was only identified
+from installed metadata and **was not loaded**. No fingerprint/label probe,
+normalization inspection, padding, token-type or GGUF emission occurred.
+
+Required gate with both real opt-ins unset: **1117 passed, 104 skipped in
+25.82 s**, Ruff/whitespace and editor checks clean. No weights, downloads,
+builds, conversion, BitNet/model execution, candidate changes, refits or
+quality scoring ran. Count/coverage evidence is not a padding/type policy
+or complete tokenizer/runtime approval. Next autonomous work may inspect
+the pinned upstream unused-row convention and test it on synthetic data;
+do not apply it to learned inputs, emit a full vocabulary or repeat either
+completed diagnostic without separately scoped authorization.
+
 ## Sparse Inventory Checkpoint (2026-10-19)
 
 After `fe63002`, `prepare_profile_model_tokenizer_inventory` shares the
@@ -379,7 +420,10 @@ the proposal below needs a new separate one-shot approval.
 
 ## Missing-ID Proposal (2026-10-19)
 
-**Not approved or run.** One proposed offline MiMo tokenizer-ID inventory
+**Historical proposal, subsequently approved and consumed once.** See the
+[missing-ID checkpoint](#missing-id-checkpoint-2026-10-19) for its actual result
+and limits. At proposal time it was **not approved or run**.
+One proposed offline MiMo tokenizer-ID inventory
 would reuse the verified five-file copy/guard path, trusted native parser
 and synthetic-tested unique-ID/missing-range logic. Read only the same
 profile-pinned five tokenizer/config files, compare actual ID coverage to

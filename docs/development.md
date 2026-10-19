@@ -1900,6 +1900,17 @@ metadata-only optional `inventory` mode tests two actual synthetic holes
 while confirming strict vocabulary preparation still refuses. No learned
 inventory was run by that control. See the [sparse inventory checkpoint](handover.md#sparse-inventory-checkpoint-2026-10-19).
 
+The guarded diagnostic also has `[synthetic-inventory]` and
+`[approved-inventory]` modes. The learned inventory mode requires its own
+`MIMO_TOKENIZER_INVENTORY_APPROVED=1` and separate one-shot approval; the
+fingerprint opt-in cannot authorize it, or vice versa. It uses only the
+native parser and shared bounded ID-inventory core, exits before importing
+Transformers, and does not rerun fingerprints/labels or inspect normalization.
+Reporting a library's installed version does not mean it was imported:
+`transformers_loaded` is explicitly false in inventory mode. The same
+pin/copy/recheck, resource, output and cleanup guards apply. No fields or
+padding policy are emitted. See the [missing-ID checkpoint](handover.md#missing-id-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

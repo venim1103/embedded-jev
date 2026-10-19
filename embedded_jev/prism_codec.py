@@ -537,6 +537,16 @@ def prepare_profile_model_tokenizer_inventory(
     """Inventory bounded unique source IDs and missing ranges without inventing rows or token types."""
     prepared, _, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    inventory = _profile_tokenizer_id_inventory(profile, vocabulary)
+    return MappingProxyType({**prepared, **inventory,
+                            "tokenizer_vocabulary_verification": "trusted_tokenizers_parser_unique_bounded_ids",
+                            "tokenizer_semantic_verification": "not_checked", "special_token_verification": "not_checked",
+                            "label_token_verification": "not_checked", "gguf_tokenizer_verification": "not_checked",
+                            "padding_policy_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_tokenizer_inventory"})
+
+
+def _profile_tokenizer_id_inventory(profile, vocabulary):
     capacity = profile.geometry["vocab_size"]
     if (
         not isinstance(vocabulary, dict) or not vocabulary or len(vocabulary) > capacity
@@ -558,14 +568,9 @@ def prepare_profile_model_tokenizer_inventory(
         missing.append((next_id, capacity))
     if len(missing) > 4096:
         raise ValueError("source tokenizer missing ID ranges exceed inventory budget")
-    return MappingProxyType({**prepared, "tokenizer_vocabulary_size": len(ids), "profile_vocabulary_size": capacity,
+    return MappingProxyType({"tokenizer_vocabulary_size": len(ids), "profile_vocabulary_size": capacity,
                             "unassigned_profile_token_rows": capacity - len(ids), "missing_token_id_ranges": tuple(missing),
-                            "contiguous_source_ids": ids[0] == 0 and ids[-1] + 1 == len(ids),
-                            "tokenizer_vocabulary_verification": "trusted_tokenizers_parser_unique_bounded_ids",
-                            "tokenizer_semantic_verification": "not_checked", "special_token_verification": "not_checked",
-                            "label_token_verification": "not_checked", "gguf_tokenizer_verification": "not_checked",
-                            "padding_policy_verification": "not_checked", "gguf_token_type_verification": "not_checked",
-                            "runtime_approval": "not_granted_by_tokenizer_inventory"})
+                            "contiguous_source_ids": ids[0] == 0 and ids[-1] + 1 == len(ids)})
 
 
 def _parse_profile_model_tokenizer_vocabulary(

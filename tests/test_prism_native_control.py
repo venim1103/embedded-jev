@@ -5614,15 +5614,44 @@ for name in names:
         os.close(descriptor)
 assert sum(path.stat().st_size for path in scratch.iterdir()) == total
 
+def finish_report(report):
+    for name in names:
+        descriptor = os.open(scratch / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=profile.files[name].bytes, deadline=deadline)
+            assert record["bytes"] == profile.files[name].bytes and record["sha256"] == profile.files[name].sha256
+        finally:
+            os.close(descriptor)
+    assert set(path.name for path in scratch.iterdir()) == set(names) and time.monotonic() < deadline
+    report.update({"profile_id": profile.profile_id, "profile_sha256": profile.sha256, "source_revision": profile.revision,
+        "input_files": len(names), "input_bytes": total, "scratch_bytes": total,
+        "transformers": version("transformers"), "tokenizers": version("tokenizers"),
+        "transformers_loaded": "transformers" in sys.modules,
+        "process_high_water_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
+        "runtime_approval": "not_granted_by_tokenizer_only_diagnostic"})
+    encoded = json.dumps(report, sort_keys=True)
+    assert len(encoded.encode()) <= 8192 and report["process_high_water_bytes"] <= 1024**3
+    print(encoded)
+
 def deny_network(event, args):
     if event in ("socket.connect", "socket.connect_ex", "socket.getaddrinfo", "socket.sendto", "socket.bind"):
         raise RuntimeError("network prohibited in tokenizer-only diagnostic")
 
 sys.addaudithook(deny_network)
 from tokenizers import Tokenizer
-from transformers import AutoTokenizer
 
 native = Tokenizer.from_file(str(scratch / "tokenizer.json"))
+if fixture["operation"] == "inventory":
+    from embedded_jev.prism_codec import _profile_tokenizer_id_inventory
+
+    report = dict(_profile_tokenizer_id_inventory(profile, native.get_vocab(with_added_tokens=True)))
+    report["diagnostic"] = "tokenizer_id_inventory"
+    assert "transformers" not in sys.modules
+    finish_report(report)
+    sys.exit(0)
+assert fixture["operation"] == "fingerprint"
+from transformers import AutoTokenizer
+
 wrapper = AutoTokenizer.from_pretrained(str(scratch), local_files_only=True, trust_remote_code=False, use_fast=True)
 assert wrapper.is_fast
 namespace = {"sha256": hashlib.sha256, "logger": SimpleNamespace(debug=lambda message: None, warning=lambda message: None)}
@@ -5661,30 +5690,15 @@ for label in "ABCDEFGHIJKLMNOP":
     native_matches += native_label == expected
     wrapper_matches += wrapper_label == expected
     label_parity += native_label == wrapper_label
-for name in names:
-    descriptor = os.open(scratch / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    try:
-        record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=profile.files[name].bytes, deadline=deadline)
-        assert record["bytes"] == profile.files[name].bytes and record["sha256"] == profile.files[name].sha256
-    finally:
-        os.close(descriptor)
-assert set(path.name for path in scratch.iterdir()) == set(names) and time.monotonic() < deadline
-report = {"profile_id": profile.profile_id, "profile_sha256": profile.sha256, "source_revision": profile.revision,
-    "input_files": len(names), "input_bytes": total, "scratch_bytes": total,
-    "transformers": version("transformers"), "tokenizers": version("tokenizers"),
+finish_report({"diagnostic": "tokenizer_fingerprint",
     "native_vocabulary_size": native.get_vocab_size(with_added_tokens=True), "wrapper_vocabulary_size": len(wrapper),
     "profile_vocabulary_size": profile.geometry["vocab_size"], "native_fingerprint": native_hash, "wrapper_fingerprint": wrapper_hash,
     "native_tag": native_tag, "wrapper_tag": wrapper_tag, "fingerprint_parity": native_ids == wrapper_ids,
-    "native_label_matches": native_matches, "wrapper_label_matches": wrapper_matches, "label_parity_count": label_parity,
-    "process_high_water_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
-    "runtime_approval": "not_granted_by_tokenizer_only_diagnostic"}
-encoded = json.dumps(report, sort_keys=True)
-assert len(encoded.encode()) <= 8192 and report["process_high_water_bytes"] <= 1024**3
-print(encoded)
+    "native_label_matches": native_matches, "wrapper_label_matches": wrapper_matches, "label_parity_count": label_parity})
 '''
 
 
-@pytest.mark.parametrize("mode", ["synthetic", "approved"])
+@pytest.mark.parametrize("mode", ["synthetic", "approved", "synthetic-inventory", "approved-inventory"])
 def test_pinned_profile_tokenizer_only_diagnostic(mode):
     import ast
     import hashlib
@@ -5692,8 +5706,10 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
     import time
 
     source_dir, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
-    if not source_dir or not interpreter or mode == "approved" and os.environ.get("MIMO_TOKENIZER_ONLY_APPROVED") != "1":
+    flags = {"approved": "MIMO_TOKENIZER_ONLY_APPROVED", "approved-inventory": "MIMO_TOKENIZER_INVENTORY_APPROVED"}
+    if not source_dir or not interpreter or mode in flags and os.environ.get(flags[mode]) != "1":
         pytest.skip("requires pinned cached libraries; learned tokenizer mode needs separate one-shot approval")
+    operation = "inventory" if mode.endswith("inventory") else "fingerprint"
     started = time.monotonic()
     source = Path(source_dir)
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
@@ -5709,14 +5725,14 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
     with TemporaryDirectory(prefix="jev-tokenizer-only-") as directory:
         scratch = Path(directory) / "inputs"
         scratch.mkdir()
-        if mode == "synthetic":
+        if mode.startswith("synthetic"):
             from test_inventory import _packaging_fixture
 
             metadata, _, record = _packaging_fixture(text_only=True)
             tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
             for label, token_id in record["tokenization"]["label_token_ids"].items():
                 tokens[token_id] = label
-            vocabulary = {token: token_id for token_id, token in enumerate(tokens)}
+            vocabulary = {token: token_id for token_id, token in enumerate(tokens) if operation != "inventory" or token_id not in (1, 5)}
             files = {"config.json": metadata["config.json"], "tokenizer_config.json": b'{"tokenizer_class":"PreTrainedTokenizerFast"}',
                 "tokenizer.json": json.dumps({"version": "1.0", "added_tokens": [], "model": {"type": "BPE", "vocab": vocabulary,
                     "merges": [], "dropout": None, "unk_token": None, "continuing_subword_prefix": None, "end_of_word_suffix": None,
@@ -5733,12 +5749,18 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
             assert local.resolve() == (Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177").resolve()
             profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
         payload = json.dumps({"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(scratch),
-                              "fingerprint_source": ast.unparse(fingerprint)}).encode()
+                              "operation": operation, "fingerprint_source": ast.unparse(fingerprint) if operation == "fingerprint" else None}).encode()
         result = _run_tokenizer_only_guard(interpreter, code, payload, env=env)
         assert result["returncode"] == 0, result["stderr"]
         report = json.loads(result["stdout"])
         assert report["input_files"] == 5 and report["input_bytes"] == report["scratch_bytes"] < 32 * 1024**2
         assert report["transformers"] == "5.12.1" and report["tokenizers"] == "0.22.2"
+        if operation == "inventory":
+            assert report["diagnostic"] == "tokenizer_id_inventory" and report["transformers_loaded"] is False
+            assert not {"native_fingerprint", "wrapper_tag", "native_label_matches"}.intersection(report)
+            assert sum(end - first for first, end in report["missing_token_id_ranges"]) == report["unassigned_profile_token_rows"]
+            if mode == "synthetic-inventory":
+                assert report["missing_token_id_ranges"] == [[1, 2], [5, 6]]
         assert report["process_high_water_bytes"] <= 1024**3 and result["observed_process_swap_bytes"] == 0
         assert result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
         assert len(list(scratch.iterdir())) == 5
@@ -5746,6 +5768,19 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
     report.update({name: result[name] for name in ("observed_rss_bytes", "observed_process_swap_bytes", "host_swap_baseline_bytes", "observed_host_swap_bytes")})
     report["scratch_cleaned"] = True
     print(json.dumps(report, sort_keys=True))
+
+
+@pytest.mark.parametrize("mode,wrong_flag", [("approved-inventory", "MIMO_TOKENIZER_ONLY_APPROVED"),
+                                           ("approved", "MIMO_TOKENIZER_INVENTORY_APPROVED")])
+def test_tokenizer_only_diagnostic_approvals_do_not_cross_modes(monkeypatch, mode, wrong_flag):
+    monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
+    monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
+    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(wrong_flag, "1")
+    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: pytest.fail("cross-mode approval reached source access"))
+    with pytest.raises(pytest.skip.Exception):
+        test_pinned_profile_tokenizer_only_diagnostic(mode)
 
 
 @pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory"])
