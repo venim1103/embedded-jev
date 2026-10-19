@@ -364,6 +364,45 @@ def prepare_profile_model_context_metadata(
                             "runtime_approval": "not_granted_by_metadata_preparation"})
 
 
+def prepare_profile_model_template_metadata(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+    template_source: str, gguf_template_bytes: bytes | None = None,
+):
+    """Select exact pinned UTF-8 template text without compiling or rendering it."""
+    if (template_source not in ("source", "gguf_embedded") or not isinstance(metadata_files, dict)
+            or any(type(data) is not bytes for data in metadata_files.values()) or type(tokenizer_bytes) is not bytes
+            or gguf_template_bytes is not None and type(gguf_template_bytes) is not bytes
+            or template_source == "source" and gguf_template_bytes is not None):
+        raise ValueError("invalid template selection or immutable byte inputs")
+    metadata = dict(metadata_files)
+    if sum(len(data) for data in metadata.values()) + len(tokenizer_bytes) + len(gguf_template_bytes or b"") > MODEL_METADATA_BYTES_V2:
+        raise ValueError("template preparation aggregate metadata budget exceeded")
+    prepared = prepare_profile_model_context_metadata(profile, metadata_files=metadata,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    name = profile.tokenization["template_file" if template_source == "source" else "gguf_template_file"]
+    if template_source == "gguf_embedded" and (name is None or gguf_template_bytes is None):
+        raise ValueError("missing separately pinned GGUF template bytes")
+    data = metadata[name] if template_source == "source" else gguf_template_bytes
+    pin = profile.files[name]
+    if len(data) != pin.bytes or hashlib.sha256(data).hexdigest() != pin.sha256:
+        raise ValueError("selected template input identity differs from profile")
+    try:
+        template = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("selected template is not valid UTF-8") from exc
+    if not template.strip() or "\x00" in template:
+        raise ValueError("selected template text is empty or contains NUL")
+    return MappingProxyType({**prepared, "template_source": template_source, "selected_template_file": name,
+                            "selected_template_bytes": pin.bytes, "selected_template_sha256": pin.sha256,
+                            "template": template, "template_metadata_name": "tokenizer.chat_template",
+                            "gguf_template_origin": profile.tokenization["gguf_template_origin"] if template_source == "gguf_embedded" else None,
+                            "gguf_template_origin_verification": "profile_declared_not_source_gguf_verified" if template_source == "gguf_embedded" else "not_applicable",
+                            "selected_template_verification": "profile_pinned_bytes_not_rendered",
+                            "gguf_template_verification": "profile_pinned_bytes_not_rendered" if template_source == "gguf_embedded" else "not_checked",
+                            "template_render_verification": "not_checked", "prompt_label_boundary_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_template_preparation"})
+
+
 def prepare_profile_model_tokenizer_vocabulary(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):

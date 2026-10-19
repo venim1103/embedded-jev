@@ -858,6 +858,70 @@ def test_profile_model_streaming_resource_plan_v2_refuses_invalid_budgets_before
         prism_codec.profile_model_streaming_resource_plan_v2(None, {}, {}, None, **budgets)
 
 
+@pytest.mark.parametrize("template_source,defect", [
+    ("source", None), ("gguf_embedded", None),
+    ("source", "unicode"), ("gguf_embedded", "unicode"),
+    *[(source, defect) for source in ("source", "gguf_embedded") for defect in ("pin", "empty", "nul", "utf8", "aggregate")],
+    ("gguf_embedded", "missing"), ("gguf_embedded", "unbound"), ("gguf_embedded", "mutable"),
+    ("source", "unexpected-external"), ("source", "selection"),
+])
+def test_profile_template_preparation_is_explicit_pinned_and_never_rendered(monkeypatch, template_source, defect):
+    from embedded_jev import prism_codec
+
+    metadata, _, record = _packaging_fixture(text_only=True)
+    config = json.loads(metadata["config.json"])
+    config["max_position_embeddings"] = 512
+    metadata["config.json"] = json.dumps(config).encode()
+    source_name, external_name = record["tokenization"]["template_file"], "gguf_template.jinja"
+    metadata[source_name], external = b"source {{ message }}", b"gguf {{ other }}"
+    selected = {"empty": b" \n", "nul": b"bad\x00template", "utf8": b"\xff", "unicode": b"text \xc3\xa9 {{ value }}"}.get(defect)
+    if selected is not None:
+        if template_source == "source":
+            metadata[source_name] = selected
+        else:
+            external = selected
+    for name, data in (*metadata.items(), (external_name, external)):
+        record["files"][name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    if defect != "unbound":
+        record["tokenization"].update(gguf_template_file=external_name, gguf_template_origin={
+            "model": "example/Synthetic-GGUF", "revision": "3" * 40, "file": "toy.gguf", "file_sha256": "4" * 64,
+        })
+    profile = parse_model_profile(json.dumps(record).encode())
+    extra = external if template_source == "gguf_embedded" or defect == "unexpected-external" else None
+    if defect == "pin":
+        if template_source == "source":
+            metadata[source_name] += b" "
+        else:
+            extra += b" "
+    elif defect == "missing":
+        extra = None
+    elif defect == "mutable":
+        extra = bytearray(extra)
+    elif defect == "selection":
+        template_source = "automatic"
+    if defect == "aggregate" or defect is None or defect == "unicode":
+        total = sum(len(data) for data in metadata.values()) + len(b"{}") + len(extra or b"")
+        monkeypatch.setattr(prism_codec, "MODEL_METADATA_BYTES_V2", total - (defect == "aggregate"))
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": b"{}", "context_length": 256,
+                 "template_source": template_source, "gguf_template_bytes": extra}
+    if defect and defect != "unicode":
+        with pytest.raises(ValueError, match="metadata identity" if defect == "pin" and template_source == "source" else "template"):
+            prism_codec.prepare_profile_model_template_metadata(profile, **arguments)
+        return
+    receipt = prism_codec.prepare_profile_model_template_metadata(profile, **arguments)
+    expected = metadata[source_name] if template_source == "source" else external
+    assert receipt["template"].encode() == expected
+    assert receipt["selected_template_sha256"] == hashlib.sha256(expected).hexdigest()
+    assert receipt["selected_template_verification"] == "profile_pinned_bytes_not_rendered"
+    assert receipt["template_render_verification"] == receipt["prompt_label_boundary_verification"] == "not_checked"
+    assert receipt["tokenizer_semantic_verification"] == receipt["source_weight_verification"] == "not_checked"
+    assert receipt["gguf_template_verification"] == ("profile_pinned_bytes_not_rendered" if template_source == "gguf_embedded" else "not_checked")
+    assert receipt["gguf_template_origin"] == (profile.tokenization["gguf_template_origin"] if template_source == "gguf_embedded" else None)
+    assert receipt["gguf_template_origin_verification"] == ("profile_declared_not_source_gguf_verified" if template_source == "gguf_embedded" else "not_applicable")
+    with pytest.raises(TypeError):
+        receipt["template"] = "other"
+
+
 def _profile_tokenizer_preparation_fixture(tokenizer_bytes):
     metadata, _, record = _packaging_fixture(text_only=True)
     config = json.loads(metadata["config.json"])

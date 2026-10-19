@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [standalone token checkpoint](#standalone-token-checkpoint-2026-10-19), followed by the
+the [template preparation checkpoint](#template-preparation-checkpoint-2026-10-19), followed by the
+[standalone token checkpoint](#standalone-token-checkpoint-2026-10-19),
 [vocabulary preparation checkpoint](#vocabulary-preparation-checkpoint-2026-10-19),
 [context emission checkpoint](#context-emission-checkpoint-2026-10-19),
 [metadata preparation checkpoint](#metadata-preparation-checkpoint-2026-10-19),
@@ -324,6 +325,47 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Template Preparation Checkpoint (2026-10-19)
+
+After `104559a`, added `prepare_profile_model_template_metadata`. It requires
+explicit `source` or `gguf_embedded` selection and snapshots immutable source
+metadata before reusing context/source preparation. Extra GGUF template bytes
+share the 32 MiB aggregate input budget. Source selection rejects extra bytes;
+GGUF selection requires a separately declared pin and actual caller bytes,
+with no fallback to source text. Exact length/SHA, nonempty strict UTF-8 and
+NUL refusal precede the immutable selected-text receipt.
+
+The receipt names `tokenizer.chat_template` but emits nothing. It retains
+source/tokenizer/weight evidence limits, explicitly marks rendering
+and prompt-boundary validity unchecked, and distinguishes the profile-declared
+GGUF origin from independent source-GGUF verification. It does not load or
+execute Jinja or any model repository code.
+
+Evidence:
+
+- Initial template/vocabulary/contract/context family: **59 passed,
+  662 deselected in 0.25 s**.
+- Refined the budget oracle so the GGUF case fits the source-only charge but
+  fails when the extra selected template is correctly charged. Exact aggregate
+  limits succeed; one-byte-under limits refuse without large allocations.
+  Added exact UTF-8 round trips and the explicit origin-verification marker.
+  Immediate focused family: **61 passed, 662 deselected in 0.26 s**.
+- The 19 template cases separately cover source/GGUF selection, fresh-pin
+  empty/NUL/invalid UTF-8, stale pins, absent/unbound external templates,
+  mutable inputs, unsupported selection and unexpected external bytes.
+- Required source gate: **875 passed, 96 skipped in 29.26 s**, Ruff and
+  whitespace clean. Editor error checks for both changed Python files are
+  clean. Optional controls were not rerun: this pure preparation increment
+  changes no writer, parser-engine or native execution path.
+
+No failed checks, new learned inputs, downloads, native builds, model jobs,
+refits, candidates or quality experiments occurred. Owned scratch/model caches
+and user settings remain untouched. Next: emit the selected pinned template
+string using the trusted writer protocol, with duplicate/protocol preflight
+and exact pinned GGUF string-byte verification. Complete tokenizer conversion,
+rendered-prompt boundaries, full-model artifacts and runtime/quality acceptance
+remain separate. See the [API contract](development.md#profile-gated-complete-model-policy).
 
 ## Standalone Token Checkpoint (2026-10-19)
 

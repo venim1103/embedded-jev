@@ -1463,6 +1463,20 @@ value; it does not write that field or create a model. An inert `{}` tokenizer
 fixture proves only byte identity, deliberately not tokenizer compatibility.
 See the [metadata preparation checkpoint](handover.md#metadata-preparation-checkpoint-2026-10-19).
 
+`prepare_profile_model_template_metadata(profile, metadata_files=...,
+tokenizer_bytes=..., context_length=..., template_source=...,
+gguf_template_bytes=None)` requires an explicit `source` or `gguf_embedded`
+selection. It snapshots immutable metadata and charges any extra GGUF template
+against the same 32 MiB aggregate input budget before source preparation.
+Source mode rejects an extra template; GGUF mode requires its separately
+declared file pin and caller bytes, with no fallback. Selected bytes must
+match the profile exactly and decode as nonempty UTF-8 without NUL. The
+immutable receipt preserves text verbatim and names `tokenizer.chat_template`
+without emitting it. Template identity is not template compilation/rendering,
+label-boundary validity or runtime approval. A returned GGUF origin is only
+the profile's declaration, not independent verification of that source GGUF.
+See the [template preparation checkpoint](handover.md#template-preparation-checkpoint-2026-10-19).
+
 `prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=...,
 tokenizer_bytes=..., context_length=...)` reuses that bounded source/context
 preparation, requires a declared BPE tokenizer, and uses the installed trusted
