@@ -1870,6 +1870,25 @@ method raising during emission. The optional BPE control uses this composer
 and the separate selected-array file verifier. See the [tokenizer subset
 composer checkpoint](handover.md#tokenizer-subset-composer-checkpoint-2026-10-19).
 
+The optional `test_pinned_profile_tokenizer_only_diagnostic[synthetic]` control
+uses the cached converter interpreter and trusted libraries with five tiny
+synthetic files; no model cache input is needed. Its `[approved]` counterpart
+is a separate one-shot learned-tokenizer diagnostic, gated by
+`MIMO_TOKENIZER_ONLY_APPROVED=1` and the exact documented MiMo `MIMO_LOCAL_DIR`.
+Setting a flag is not authorization: another run needs separate approval.
+Only five allowlisted tokenizer/config files are copied after profile-byte
+verification and rechecked afterward in parent-owned disposable scratch.
+Both modes disable library networking and Torch/TF/Flax model imports, add
+a child network audit refusal, use trusted installed code only, and compare
+the fixed pinned fingerprint probe and standalone A-P IDs, not chat rendering.
+The runner guards a 15 s child, 1 GiB observed RSS, no observed process/host
+swap growth and 8 KiB combined stdout/stderr; scratch/input are each below
+32 MiB and their logical aggregate/report below 64 MiB. It monitors until
+the child exits even if pipes close early, kills/reaps workers and closes
+descriptors on failure; the parent removes copied inputs even on termination.
+No weights, downloads, model conversion or execution are included. Sampling
+is not a hard host/device memory guarantee. See the [tokenizer-only checkpoint](handover.md#tokenizer-only-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [tokenizer subset composer checkpoint](#tokenizer-subset-composer-checkpoint-2026-10-19), followed by
+the [tokenizer-only checkpoint](#tokenizer-only-checkpoint-2026-10-19), followed by
+the [tokenizer subset composer checkpoint](#tokenizer-subset-composer-checkpoint-2026-10-19),
 the [tokenizer-only proposal](#tokenizer-only-proposal-2026-10-19),
 the [tokenizer array file checkpoint](#tokenizer-array-file-checkpoint-2026-10-19),
 the [vocabulary emission checkpoint](#vocabulary-emission-checkpoint-2026-10-19),
@@ -346,6 +347,67 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Tokenizer-Only Checkpoint (2026-10-19)
+
+After `e9e6a4c`, the user explicitly selected **Approve One Tokenizer-Only
+Diagnostic** for the proposal below. That approval was consumed exactly once,
+not retained as permission for another learned-input run or mapping change.
+The new optional control separates synthetic and explicitly approved modes;
+default tests never load the learned tokenizer. Only five allowlisted pinned
+MiMo files were hashed before copy, copied with a second digest/stat check,
+made read-only and rehashed after the fixed probes. The parent owns scratch
+cleanup on success or worker termination. Offline library flags, local-only
+loading, `trust_remote_code=False`, disabled Torch/TF/Flax model imports and
+a child network audit guard prohibit implicit model/network/code loading.
+
+Runner controls initially **5 passed in 0.14 s**. Worker preparation first
+hit a collection-only **IndentationError in 0.11 s** at the guard body; no
+worker or learned file read occurred. One-line repair gave the exact same
+synthetic dry-run/RSS checks **2 passed in 7.17 s**: 1794 source/copy bytes,
+32-token native/wrapper inventories, unknown matching fingerprint, 16/16
+standalone labels on each side and observed RSS 331,354,112 bytes, swap 0.
+Pylance syntax validation passed after supplying its required workspace root.
+
+The approved MiMo run **1 passed in 4.81 s**, within the unchanged child
+15 s/stage 60 s, observed RSS 1 GiB and metadata/scratch/report bounds:
+
+- Source revision `2367e865d009c13ac81713a2878291d33ab28177`; profile SHA-256
+  `1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`.
+- Five source files **30,069,292 bytes**, same-size disposable copies;
+  small summary below 8 KiB and aggregate logical input/copy/report below 64 MiB.
+- Trusted cached Transformers **5.12.1**, tokenizers **0.22.2**. Native and
+  wrapper fixed encodings match, with fingerprint SHA-256
+  `1444df51289cfa8063b96f0e62b1125440111bc79a52003ea14b6eac7016fd5f`.
+  The exact pinned upstream registry returns **`qwen35`** for both. No GGUF
+  pre-tokenizer field was emitted or promoted from this observation.
+- Native/wrapper vocabularies both **248,077**; profile output rows
+  **248,320**, a **243-row count gap**. The diagnostic does not locate absent
+  rows, validate complete inventory contiguity or authorize invented padding.
+- Both match every declared standalone A-P ID, **16/16**, with pairwise
+  native/wrapper label parity. This says nothing about rendered prompt boundaries.
+- Observed RSS **739,614,720 bytes**, process high water **739,205,120**;
+  observed process and host swap **0**. These are sampled/process metrics,
+  not target-device or hard host guarantees. Copied files/scratch were removed.
+
+After the completed real run, a synthetic-only runner hardening keeps resource
+monitoring active if both pipes close before child exit. Its first check had
+another collection-only **IndentationError in 0.23 s** at guard arguments;
+one-line repair gave **6 synthetic guard cases passed in 0.25 s**, including
+closed-pipe deadline and descriptor cleanup. The learned run was not repeated;
+its normal-pipe measurement predates this hardening. No caps, deadlines or
+assertions were relaxed. Both collection failures are retained as failures.
+
+Required gate with opt-in unset: **1099 passed, 101 skipped in 31.12 s**,
+Ruff/whitespace and editor checks clean. The real diagnostic loaded learned
+tokenizer data only, not weights; no downloads, builds, GGUF/model conversion,
+native/model execution, candidate mutation, refits or quality scoring ran.
+This establishes fixed-probe tokenizer-only parity for this revision, not
+complete tokenizer semantics, source/GGUF runtime parity or decision accuracy.
+Next autonomous work may use synthetic fixtures/static pinned source to
+prepare explicit missing-row/type policies. Another learned-input diagnostic,
+complete learned-vocabulary conversion or runtime experiment needs separate
+approval; do not rerun the consumed one-shot or guess a padding/type policy.
+
 ## Tokenizer Subset Composer Checkpoint (2026-10-19)
 
 After `1f5e638`, `write_profile_model_tokenizer_arrays` reuses one fresh
@@ -375,7 +437,10 @@ prerequisites are checkpointed; do not infer complete tokenizer compatibility.
 
 ## Tokenizer-Only Proposal (2026-10-19)
 
-**Not approved or run.** The next model-specific tokenizer compatibility
+**Historical proposal, subsequently approved and consumed once.** See the
+[tokenizer-only checkpoint](#tokenizer-only-checkpoint-2026-10-19) for the actual
+run and evidence limits. At proposal time it was **not approved or run**.
+The next model-specific tokenizer compatibility
 evidence needs a separately authorized non-synthetic input diagnostic, not
 a guessed tag. Prerequisites now include default and actual synthetic parser,
 writer, pinned fingerprint refusal and selected file/fault controls above.

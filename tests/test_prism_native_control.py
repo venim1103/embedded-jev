@@ -5475,6 +5475,279 @@ print(json.dumps({"cases": cases, "elapsed_seconds": elapsed, "before": before, 
     print(json.dumps(report, sort_keys=True))
 
 
+def _run_tokenizer_only_guard(interpreter, code, payload, *, env, maximum_seconds=15, maximum_rss_bytes=1024**3):
+    import selectors
+    import signal
+    import time
+
+    if not 0 < maximum_seconds <= 15 or not 0 < maximum_rss_bytes <= 1024**3 or len(payload) > 65536:
+        raise ValueError("invalid tokenizer diagnostic guard budget")
+
+    def host_swap():
+        values = {name: int(value.split()[0]) * 1024 for name, value in
+                  (line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())}
+        return values["SwapTotal"] - values["SwapFree"]
+
+    baseline_swap = host_swap()
+    deadline = time.monotonic() + maximum_seconds
+    process = subprocess.Popen([interpreter, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env=env, start_new_session=True)
+    selector = selectors.DefaultSelector()
+    output = {"stdout": bytearray(), "stderr": bytearray()}
+    peak_rss, peak_swap, peak_host_swap = 0, 0, baseline_swap
+    try:
+        process.stdin.write(payload)
+        process.stdin.close()
+        for name in output:
+            pipe = getattr(process, name)
+            os.set_blocking(pipe.fileno(), False)
+            selector.register(pipe, selectors.EVENT_READ, name)
+        while selector.get_map() or process.poll() is None:
+            if time.monotonic() > deadline:
+                raise ValueError("tokenizer diagnostic child deadline exceeded")
+            try:
+                status = dict(line.split(":", 1) for line in Path(f"/proc/{process.pid}/status").read_text().splitlines() if ":" in line)
+                peak_rss = max(peak_rss, *(int(status.get(name, "0 kB").split()[0]) * 1024 for name in ("VmRSS", "VmHWM")))
+                peak_swap = max(peak_swap, int(status.get("VmSwap", "0 kB").split()[0]) * 1024)
+            except FileNotFoundError:
+                pass
+            peak_host_swap = max(peak_host_swap, host_swap())
+            if peak_rss > maximum_rss_bytes or peak_swap > 0 or peak_host_swap > baseline_swap:
+                raise ValueError("tokenizer diagnostic RSS or swap budget exceeded")
+            for key, _ in selector.select(min(0.02, max(0, deadline - time.monotonic()))):
+                value = os.read(key.fd, 4096)
+                if value:
+                    output[key.data].extend(value)
+                    if sum(map(len, output.values())) > 8192:
+                        raise ValueError("tokenizer diagnostic output budget exceeded")
+                else:
+                    selector.unregister(key.fileobj)
+        returncode = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        if time.monotonic() > deadline or host_swap() > baseline_swap:
+            raise ValueError("tokenizer diagnostic final deadline or swap budget exceeded")
+        return {"returncode": returncode, **{name: bytes(value).decode("utf-8", errors="replace") for name, value in output.items()},
+                "observed_rss_bytes": peak_rss, "observed_process_swap_bytes": peak_swap,
+                "host_swap_baseline_bytes": baseline_swap, "observed_host_swap_bytes": peak_host_swap}
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        selector.close()
+        for pipe in (process.stdin, process.stdout, process.stderr):
+            pipe.close()
+
+
+@pytest.mark.parametrize("mode", ["success", "output", "deadline", "closed-pipes", "rss", "budget"])
+def test_tokenizer_only_guard_controls_are_synthetic_and_bounded(mode):
+    import sys
+
+    before = len(list(Path("/proc/self/fd").iterdir()))
+    body = {"success": 'print("ready")', "output": 'print("x" * 8193)', "deadline": "while True: pass",
+            "closed-pipes": "import os\nos.close(1)\nos.close(2)\nwhile True: pass",
+            "rss": "data = bytearray(1024 * 1024)\nwhile True: pass", "budget": 'print("ready")'}[mode]
+    arguments = {"env": os.environ, "maximum_seconds": 0.1 if mode in ("deadline", "closed-pipes") else 15,
+                 "maximum_rss_bytes": 1 if mode == "rss" else 1024**3}
+    if mode == "budget":
+        arguments["maximum_seconds"] = 16
+    code = "import sys\nsys.stdin.buffer.read()\n" + body
+    if mode == "success":
+        report = _run_tokenizer_only_guard(sys.executable, code, b"{}", **arguments)
+        assert report["returncode"] == 0 and report["stdout"] == "ready\n"
+        assert report["observed_process_swap_bytes"] == 0
+    else:
+        match = {"output": "output budget", "deadline": "deadline", "closed-pipes": "deadline", "rss": "RSS or swap", "budget": "invalid"}[mode]
+        with pytest.raises(ValueError, match=match):
+            _run_tokenizer_only_guard(sys.executable, code, b"{}", **arguments)
+    assert len(list(Path("/proc/self/fd").iterdir())) == before
+
+
+def _tokenizer_only_diagnostic_code():
+    return r'''
+import ast
+import hashlib
+import json
+import os
+from pathlib import Path
+import resource
+import stat
+import sys
+import time
+from types import SimpleNamespace
+from importlib.metadata import version
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.streamed_text import bounded_source_descriptor_record_v2
+
+fixture = json.loads(sys.stdin.buffer.read(65537))
+deadline = time.monotonic() + 15
+profile = parse_model_profile(bytes.fromhex(fixture["profile_hex"]))
+source, scratch = Path(fixture["source"]), Path(fixture["scratch"])
+names = ("config.json", "tokenizer_config.json", "tokenizer.json", "vocab.json", "merges.txt")
+total = sum(profile.files[name].bytes for name in names)
+assert 0 < total < 32 * 1024**2 and 2 * total + 8192 < 64 * 1024**2
+assert scratch.is_dir() and not list(scratch.iterdir())
+
+def identity(value):
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+for name in names:
+    pin = profile.files[name]
+    path = (source / name).resolve(strict=True)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        before = os.fstat(descriptor)
+        assert stat.S_ISREG(before.st_mode) and before.st_size == pin.bytes
+        record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=pin.bytes, deadline=deadline)
+        assert record["bytes"] == pin.bytes and record["sha256"] == pin.sha256
+        copied, digest = 0, hashlib.sha256()
+        with (scratch / name).open("xb") as destination:
+            while copied < pin.bytes:
+                assert time.monotonic() < deadline
+                chunk = os.pread(descriptor, min(65536, pin.bytes - copied), copied)
+                assert chunk
+                destination.write(chunk)
+                digest.update(chunk)
+                copied += len(chunk)
+            os.fchmod(destination.fileno(), 0o400)
+        assert copied == pin.bytes and digest.hexdigest() == pin.sha256
+        assert identity(os.fstat(descriptor)) == identity(before) == identity(os.stat(path, follow_symlinks=False))
+    finally:
+        os.close(descriptor)
+assert sum(path.stat().st_size for path in scratch.iterdir()) == total
+
+def deny_network(event, args):
+    if event in ("socket.connect", "socket.connect_ex", "socket.getaddrinfo", "socket.sendto", "socket.bind"):
+        raise RuntimeError("network prohibited in tokenizer-only diagnostic")
+
+sys.addaudithook(deny_network)
+from tokenizers import Tokenizer
+from transformers import AutoTokenizer
+
+native = Tokenizer.from_file(str(scratch / "tokenizer.json"))
+wrapper = AutoTokenizer.from_pretrained(str(scratch), local_files_only=True, trust_remote_code=False, use_fast=True)
+assert wrapper.is_fast
+namespace = {"sha256": hashlib.sha256, "logger": SimpleNamespace(debug=lambda message: None, warning=lambda message: None)}
+exec(compile(ast.parse(fixture["fingerprint_source"]), "<pinned-get-vocab-base-pre>", "exec"), namespace)
+
+def checked(encoder, text, *, special):
+    assert time.monotonic() < deadline and 0 < len(text.encode()) <= 4096
+    ids = encoder(text, special)
+    assert len(ids) <= 4096 and all(type(token_id) is int and 0 <= token_id < profile.geometry["vocab_size"] for token_id in ids)
+    return ids
+
+def fingerprint(encoder):
+    probes = []
+
+    def encode(text):
+        ids = checked(encoder, text, special=True)
+        probes.append(ids)
+        return ids
+
+    try:
+        tag = namespace["get_vocab_base_pre"](None, SimpleNamespace(encode=encode))
+    except NotImplementedError:
+        tag = None
+    assert len(probes) == 1 and (tag is None or isinstance(tag, str))
+    return probes[0], hashlib.sha256(str(probes[0]).encode()).hexdigest(), tag
+
+native_encode = lambda text, special: native.encode(text, add_special_tokens=special).ids
+wrapper_encode = lambda text, special: wrapper.encode(text, add_special_tokens=special)
+native_ids, native_hash, native_tag = fingerprint(native_encode)
+wrapper_ids, wrapper_hash, wrapper_tag = fingerprint(wrapper_encode)
+native_matches, wrapper_matches, label_parity = 0, 0, 0
+for label in "ABCDEFGHIJKLMNOP":
+    expected = [profile.tokenization["label_token_ids"][label]]
+    native_label = checked(native_encode, label, special=False)
+    wrapper_label = checked(wrapper_encode, label, special=False)
+    native_matches += native_label == expected
+    wrapper_matches += wrapper_label == expected
+    label_parity += native_label == wrapper_label
+for name in names:
+    descriptor = os.open(scratch / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=profile.files[name].bytes, deadline=deadline)
+        assert record["bytes"] == profile.files[name].bytes and record["sha256"] == profile.files[name].sha256
+    finally:
+        os.close(descriptor)
+assert set(path.name for path in scratch.iterdir()) == set(names) and time.monotonic() < deadline
+report = {"profile_id": profile.profile_id, "profile_sha256": profile.sha256, "source_revision": profile.revision,
+    "input_files": len(names), "input_bytes": total, "scratch_bytes": total,
+    "transformers": version("transformers"), "tokenizers": version("tokenizers"),
+    "native_vocabulary_size": native.get_vocab_size(with_added_tokens=True), "wrapper_vocabulary_size": len(wrapper),
+    "profile_vocabulary_size": profile.geometry["vocab_size"], "native_fingerprint": native_hash, "wrapper_fingerprint": wrapper_hash,
+    "native_tag": native_tag, "wrapper_tag": wrapper_tag, "fingerprint_parity": native_ids == wrapper_ids,
+    "native_label_matches": native_matches, "wrapper_label_matches": wrapper_matches, "label_parity_count": label_parity,
+    "process_high_water_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
+    "runtime_approval": "not_granted_by_tokenizer_only_diagnostic"}
+encoded = json.dumps(report, sort_keys=True)
+assert len(encoded.encode()) <= 8192 and report["process_high_water_bytes"] <= 1024**3
+print(encoded)
+'''
+
+
+@pytest.mark.parametrize("mode", ["synthetic", "approved"])
+def test_pinned_profile_tokenizer_only_diagnostic(mode):
+    import ast
+    import hashlib
+    from tempfile import TemporaryDirectory
+    import time
+
+    source_dir, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source_dir or not interpreter or mode == "approved" and os.environ.get("MIMO_TOKENIZER_ONLY_APPROVED") != "1":
+        pytest.skip("requires pinned cached libraries; learned tokenizer mode needs separate one-shot approval")
+    started = time.monotonic()
+    source = Path(source_dir)
+    assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    pinned = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:conversion/base.py"])
+    assert 0 < len(pinned) <= 1024**2 and (source / "conversion/base.py").read_bytes() == pinned
+    text_model = next(node for node in ast.parse(pinned).body if isinstance(node, ast.ClassDef) and node.name == "TextModel")
+    fingerprint = next(node for node in text_model.body if isinstance(node, ast.FunctionDef) and node.name == "get_vocab_base_pre")
+    code = _tokenizer_only_diagnostic_code()
+    ast.parse(code)
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+           "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
+           "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    with TemporaryDirectory(prefix="jev-tokenizer-only-") as directory:
+        scratch = Path(directory) / "inputs"
+        scratch.mkdir()
+        if mode == "synthetic":
+            from test_inventory import _packaging_fixture
+
+            metadata, _, record = _packaging_fixture(text_only=True)
+            tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
+            for label, token_id in record["tokenization"]["label_token_ids"].items():
+                tokens[token_id] = label
+            vocabulary = {token: token_id for token_id, token in enumerate(tokens)}
+            files = {"config.json": metadata["config.json"], "tokenizer_config.json": b'{"tokenizer_class":"PreTrainedTokenizerFast"}',
+                "tokenizer.json": json.dumps({"version": "1.0", "added_tokens": [], "model": {"type": "BPE", "vocab": vocabulary,
+                    "merges": [], "dropout": None, "unk_token": None, "continuing_subword_prefix": None, "end_of_word_suffix": None,
+                    "fuse_unk": False, "byte_fallback": False, "ignore_merges": False}}).encode(),
+                "vocab.json": json.dumps(vocabulary).encode(), "merges.txt": b"#version: 0.2\n"}
+            local = Path(directory) / "source"
+            local.mkdir()
+            for name, data in files.items():
+                (local / name).write_bytes(data)
+                record["files"][name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+            profile_bytes = json.dumps(record).encode()
+        else:
+            local = Path(os.environ["MIMO_LOCAL_DIR"])
+            assert local.resolve() == (Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177").resolve()
+            profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
+        payload = json.dumps({"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(scratch),
+                              "fingerprint_source": ast.unparse(fingerprint)}).encode()
+        result = _run_tokenizer_only_guard(interpreter, code, payload, env=env)
+        assert result["returncode"] == 0, result["stderr"]
+        report = json.loads(result["stdout"])
+        assert report["input_files"] == 5 and report["input_bytes"] == report["scratch_bytes"] < 32 * 1024**2
+        assert report["transformers"] == "5.12.1" and report["tokenizers"] == "0.22.2"
+        assert report["process_high_water_bytes"] <= 1024**3 and result["observed_process_swap_bytes"] == 0
+        assert result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
+        assert len(list(scratch.iterdir())) == 5
+    assert not Path(directory).exists() and time.monotonic() - started <= 60
+    report.update({name: result[name] for name in ("observed_rss_bytes", "observed_process_swap_bytes", "host_swap_baseline_bytes", "observed_host_swap_bytes")})
+    report["scratch_cleaned"] = True
+    print(json.dumps(report, sort_keys=True))
+
+
 @pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
