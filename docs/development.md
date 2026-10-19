@@ -1754,6 +1754,21 @@ python -m pytest -q -s -p no:cacheprovider \
 See the [larger GGUF checkpoint](handover.md#larger-gguf-checkpoint-2026-10-19)
 for measured values and evidence limits.
 
+`verify_profile_gguf_policy_metadata_v2(...)` verifies the same 25 selected
+typed policy declarations as the legacy entry point, including the writer's
+architecture field. Its file budget defaults to 16 MiB with an explicit
+24 GiB ceiling; header/table metadata is capped at 1 MiB, selected records at
+8 KiB and individual reads at 64 KiB. Both whole-file hashes use one retained
+descriptor; wrong size, changed/restored file writes, pathname replacement
+and final-stat deadline expiry refuse verification. V2 accepts bounded
+selected tensor subsets, not just a complete table, and explicitly leaves
+tensor-table completeness, tokenizer semantics and runtime approval unchecked.
+It does not accept a native v1 `model_owner`. The legacy signature, limits,
+receipt fields and owner contract remain unchanged; both policies share the
+selected-record parser. The larger optional command above exercises v2
+matrix and metadata allocation/read/hash/identity controls separately. See
+the [GGUF metadata checkpoint](handover.md#gguf-metadata-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

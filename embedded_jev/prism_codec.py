@@ -2111,13 +2111,41 @@ def verify_profile_gguf_policy_metadata(
     maximum_seconds: float = 30, model_owner=None,
 ):
     """Bind selected policy declarations to file bytes, not tokenizer semantics or runtime approval."""
+    return _verify_profile_gguf_policy_metadata(
+        profile, inventory, manifest, pq2_blocks, reader=reader, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes,
+        maximum_seconds=maximum_seconds, model_owner=model_owner, policy_version=1,
+    )
+
+
+def verify_profile_gguf_policy_metadata_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30,
+):
+    """Verify bounded policy records in an explicitly budgeted selected-tensor GGUF file."""
+    return _verify_profile_gguf_policy_metadata(
+        profile, inventory, manifest, pq2_blocks, reader=reader, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes,
+        maximum_seconds=maximum_seconds, model_owner=None, policy_version=2,
+    )
+
+
+def _verify_profile_gguf_policy_metadata(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int,
+    maximum_seconds: float, model_owner, policy_version: int,
+):
     import sys
 
     from embedded_jev.model_profile import SHA256
-    from embedded_jev.streamed_text import bounded_native_descriptor_record, bounded_native_file_record
+    from embedded_jev.streamed_text import bounded_native_descriptor_record, bounded_native_file_record, bounded_gguf_descriptor_record_v2
 
+    file_cap = 24 * 1024**3 if policy_version == 2 else 16 * 1024**2
+    header_cap = 1024**2 if policy_version == 2 else MODEL_METADATA_BYTES_V2
     if (
-        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        type(policy_version) is not int or policy_version not in (1, 2) or policy_version == 2 and model_owner is not None
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= file_cap
         or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
         or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
@@ -2132,9 +2160,11 @@ def verify_profile_gguf_policy_metadata(
         type(reader) is not gguf.GGUFReader or sys.byteorder != "little"
         or not isinstance(reader.data, np.memmap) or reader.data.dtype != np.dtype("u1") or reader.data.ndim != 1
         or reader.data.mode != "r" or reader.data.flags.writeable or reader.data.offset != 0
-        or reader.data.nbytes != expected_file_bytes or len(reader.tensors) != len(specification["tensors"])
+        or reader.data.nbytes != expected_file_bytes
+        or (not 1 <= len(reader.tensors) <= 427 if policy_version == 2 else len(reader.tensors) != len(specification["tensors"]))
         or not 3 <= len(reader.fields) <= MODEL_METADATA_KEYS_V2 + 3
-        or not 24 <= reader.data_offset <= min(expected_file_bytes, MODEL_METADATA_BYTES_V2)
+        or not 24 <= reader.data_offset <= min(expected_file_bytes, header_cap)
+        or policy_version == 2 and (reader.endianess != gguf.GGUFEndian.LITTLE or reader.data._mmap is None or reader.data._mmap.closed)
     ):
         raise ValueError("policy metadata reader layout or budget mismatch")
     declarations = _profile_model_policy_metadata_declarations(profile, specification)
@@ -2184,15 +2214,25 @@ def verify_profile_gguf_policy_metadata(
             raise ValueError("policy metadata declaration byte mismatch: " + name)
         records.append((name, int(field.offset), wanted))
     path = Path(reader.data.filename) if descriptor is None else Path(model_owner.model_path)
-    def file_record():
-        return (bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) if descriptor is None
-                else bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline))
-
-    before = file_record()
-    if before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256:
-        raise ValueError("policy metadata file identity mismatch")
-    retained = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK) if descriptor is None else os.dup(descriptor)
+    retained = None
     try:
+        if policy_version == 2:
+            retained = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            before_stat = os.fstat(retained)
+            if before_stat.st_size != expected_file_bytes:
+                raise ValueError("policy metadata file identity mismatch")
+
+        def file_record():
+            if policy_version == 2:
+                return bounded_gguf_descriptor_record_v2(retained, maximum_bytes=maximum_file_bytes, deadline=deadline)
+            return (bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) if descriptor is None
+                    else bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline))
+
+        before = file_record()
+        if before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256:
+            raise ValueError("policy metadata file identity mismatch")
+        if retained is None:
+            retained = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK) if descriptor is None else os.dup(descriptor)
         if os.pread(retained, 24, 0) != struct.pack("<4sIQQ", b"GGUF", 3, len(reader.tensors), len(reader.fields) - 3):
             raise ValueError("policy metadata header differs from reader")
         cursor = 24
@@ -2255,17 +2295,29 @@ def verify_profile_gguf_policy_metadata(
                 raise ValueError("policy metadata deadline exceeded")
             if os.pread(retained, len(wanted), offset) != wanted:
                 raise ValueError("policy metadata file range differs from declaration: " + name)
+        if file_record() != before or time.monotonic() > deadline:
+            raise ValueError("policy metadata file changed or deadline exceeded")
+        if policy_version == 2:
+            def identity(value):
+                return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+            if identity(os.fstat(retained)) != identity(before_stat) or identity(os.stat(path, follow_symlinks=False)) != identity(before_stat):
+                raise ValueError("policy metadata file changed during verification")
+            if time.monotonic() > deadline:
+                raise ValueError("policy metadata deadline exceeded")
     finally:
-        os.close(retained)
-    if file_record() != before or time.monotonic() > deadline:
-        raise ValueError("policy metadata file changed or deadline exceeded")
+        if retained is not None:
+            os.close(retained)
     return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                             "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
                             "metadata_names": tuple(name for name, _, _ in records), "metadata_record_bytes": consumed,
                             "policy_metadata_verification": "selected_typed_policy_records_match_declarations_and_file",
                             "model_file_access": "verified_owner_descriptor" if model_owner is not None else "reader_filename",
                             "model_metadata_verification": "selected_policy_records_only", "tokenizer_semantics_verification": "not_checked",
-                            "gguf_reader_verification": "not_checked", "runtime_approval": "not_granted_by_policy_metadata_verification"})
+                            "gguf_reader_verification": "not_checked", "runtime_approval": "not_granted_by_policy_metadata_verification",
+                            **({"gguf_policy_version": 2, "gguf_file_cap_bytes": file_cap, "header_cap_bytes": header_cap,
+                                "gguf_tensor_table_verification": "not_checked", "model_file_access": "retained_reader_filename_descriptor"}
+                               if policy_version == 2 else {})})
 
 
 class NativeModelTensor(ctypes.Structure):

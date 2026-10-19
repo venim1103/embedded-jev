@@ -5076,6 +5076,8 @@ for fixture in json.load(sys.stdin):
         writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
         spool_bytes = 0
         try:
+            emitted = codec.write_profile_model_policy_metadata(profile, fixture["inventory"], fixture["manifest"], payload, writer=writer)
+            assert emitted["metadata_count"] == 24
             writer.add_string("jev.synthetic.padding", "x" * 4096)
             padding_rows = 8191 if large else 1
             writer.add_tensor("synthetic.padding", source_values[:padding_rows].view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
@@ -5121,21 +5123,91 @@ for fixture in json.load(sys.stdin):
                 return original_record(descriptor, **arguments)
             codec.os.pread = bounded_read
             streamed.bounded_gguf_descriptor_record_v2 = file_record
-            tracemalloc.start()
             try:
-                receipt = codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
-                peak = tracemalloc.get_traced_memory()[1]
+                tracemalloc.start()
+                try:
+                    receipt = codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+                    peak = tracemalloc.get_traced_memory()[1]
+                finally:
+                    tracemalloc.stop()
+                assert len(descriptors) == 2 and descriptors[0] == descriptors[1]
+                matrix_reads = counts.copy()
+                counts.update(calls=0, maximum_bytes=0, maximum_offset=0)
+                descriptors.clear()
+                tracemalloc.start()
+                try:
+                    metadata = codec.verify_profile_gguf_policy_metadata_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                        reader=reader, expected_file_bytes=file_bytes, expected_file_sha256=file_pin, maximum_file_bytes=33 * 1024**2)
+                    metadata_peak = tracemalloc.get_traced_memory()[1]
+                finally:
+                    tracemalloc.stop()
             finally:
-                tracemalloc.stop()
                 codec.os.pread = original_pread
                 streamed.bounded_gguf_descriptor_record_v2 = original_record
             assert receipt["converted_sha256"] == source_pin and receipt["converted_bytes"] == source_bytes
             assert len(descriptors) == 2 and descriptors[0] == descriptors[1]
-            assert peak < 3 * 1024**2
+            assert peak < 3 * 1024**2 and metadata_peak < 3 * 1024**2
+            assert len(metadata["metadata_names"]) == 25 and metadata["metadata_record_bytes"] <= 8192
+            assert metadata["gguf_policy_version"] == 2 and metadata["gguf_file_cap_bytes"] == 24 * 1024**3
+            assert metadata["header_cap_bytes"] == 1024**2
+            assert metadata["model_file_access"] == "retained_reader_filename_descriptor"
+            assert metadata["policy_metadata_verification"] == "selected_typed_policy_records_match_declarations_and_file"
+            assert metadata["gguf_tensor_table_verification"] == metadata["tokenizer_semantics_verification"] == "not_checked"
+            assert metadata["runtime_approval"] == "not_granted_by_policy_metadata_verification"
+            metadata_keywords = {"reader": reader, "expected_file_bytes": file_bytes, "expected_file_sha256": file_pin,
+                                 "maximum_file_bytes": 33 * 1024**2}
+            policy_name = "jev.model.profile_sha256"
+            original_field = reader.fields[policy_name]
+            for defect in ("copied-field", "field-type", "closed-reader", "file-budget"):
+                changed_keywords = metadata_keywords.copy()
+                if defect == "copied-field":
+                    reader.fields[policy_name] = original_field._replace(parts=[part.copy() for part in original_field.parts])
+                elif defect == "field-type":
+                    reader.fields[policy_name] = original_field._replace(types=[gguf.GGUFValueType.INT32])
+                elif defect == "closed-reader":
+                    closed_reader = gguf.GGUFReader(path)
+                    closed_reader.data._mmap.close()
+                    changed_keywords["reader"] = closed_reader
+                else:
+                    changed_keywords["maximum_file_bytes"] = 1
+                try:
+                    try:
+                        codec.verify_profile_gguf_policy_metadata_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                            **changed_keywords)
+                        raise AssertionError("invalid v2 metadata binding accepted: " + defect)
+                    except ValueError as error:
+                        expected = {"copied-field": "field mapping mismatch", "field-type": "field type or range mismatch",
+                                    "closed-reader": "reader layout", "file-budget": "file identity or budget"}[defect]
+                        assert expected in str(error), str(error)
+                finally:
+                    reader.fields[policy_name] = original_field
+            if not large:
+                ceiling = codec.verify_profile_gguf_policy_metadata_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                    **{**metadata_keywords, "maximum_file_bytes": 24 * 1024**3})
+                assert ceiling["metadata_names"] == metadata["metadata_names"]
+                original_stat = codec.os.stat
+                original_clock = time.monotonic
+                clock = {"now": 0}
+                def delayed_stat(*arguments, **options):
+                    value = original_stat(*arguments, **options)
+                    clock["now"] = 31
+                    return value
+                codec.os.stat = delayed_stat
+                time.monotonic = lambda: clock["now"]
+                try:
+                    try:
+                        codec.verify_profile_gguf_policy_metadata_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                            **metadata_keywords)
+                        raise AssertionError("metadata deadline expiry during final path stat accepted")
+                    except ValueError as error:
+                        assert "policy metadata deadline exceeded" == str(error), str(error)
+                finally:
+                    codec.os.stat = original_stat
+                    time.monotonic = original_clock
             assert reader.data.mode == source_values.mode == "r"
             if large:
                 assert source_bytes > 16 * 1024**2 and receipt["converted_tensor_offset"] > 16 * 1024**2
-                assert counts["maximum_offset"] > 16 * 1024**2 and spool_bytes == 32 * 1024**2
+                assert matrix_reads["maximum_offset"] > 16 * 1024**2 and spool_bytes == 32 * 1024**2
                 for changes in ({"maximum_file_bytes": 16 * 1024**2}, {"maximum_bytes": 16 * 1024**2}):
                     try:
                         codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
@@ -5148,6 +5220,41 @@ for fixture in json.load(sys.stdin):
                     raise AssertionError("legacy matrix gate accepted larger GGUF budgets")
                 except ValueError as error:
                     assert "invalid GGUF vector file identity or budget" in str(error), str(error)
+                for defect in ("file-restored", "path-replaced"):
+                    changed_descriptors = []
+                    displaced_path = directory / "displaced.gguf"
+                    def changed_record(descriptor, **arguments):
+                        value = original_record(descriptor, **arguments)
+                        changed_descriptors.append(descriptor)
+                        if len(changed_descriptors) == 1:
+                            if defect == "file-restored":
+                                with path.open("r+b") as output:
+                                    output.seek(receipt["converted_tensor_offset"])
+                                    saved = output.read(1)
+                                    output.seek(-1, os.SEEK_CUR)
+                                    output.write(bytes([saved[0] ^ 1]))
+                                    output.seek(-1, os.SEEK_CUR)
+                                    output.write(saved)
+                            else:
+                                path.rename(displaced_path)
+                                with displaced_path.open("rb") as original, path.open("xb") as output:
+                                    while block := original.read(65536):
+                                        output.write(block)
+                        return value
+                    streamed.bounded_gguf_descriptor_record_v2 = changed_record
+                    try:
+                        try:
+                            codec.verify_profile_gguf_policy_metadata_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                                **metadata_keywords)
+                            raise AssertionError("mid-verification metadata file change accepted: " + defect)
+                        except ValueError as error:
+                            assert "policy metadata file changed during verification" == str(error), str(error)
+                        assert len(changed_descriptors) == 2 and changed_descriptors[0] == changed_descriptors[1]
+                    finally:
+                        streamed.bounded_gguf_descriptor_record_v2 = original_record
+                        if displaced_path.exists():
+                            path.unlink()
+                            displaced_path.rename(path)
                 fault_path = directory / "fault.gguf"
                 with path.open("rb") as original, fault_path.open("xb") as output:
                     while block := original.read(65536):
@@ -5168,17 +5275,36 @@ for fixture in json.load(sys.stdin):
                         raise AssertionError("fresh-hash changed large output accepted")
                     except ValueError as error:
                         assert "byte parity" in str(error), str(error)
+                    field = fault_reader.fields["jev.model.profile_sha256"]
+                    field_offset = field.parts[field.data[0]].ctypes.data - fault_reader.data.ctypes.data
+                    with fault_path.open("r+b") as output:
+                        output.seek(field_offset)
+                        saved = output.read(1)
+                        output.seek(field_offset)
+                        output.write(b"0" if saved != b"0" else b"1")
+                    with fault_path.open("rb", buffering=0) as opened:
+                        changed_pin = original_record(opened.fileno(), maximum_bytes=33 * 1024**2,
+                            deadline=time.monotonic() + 15)["sha256"]
+                    try:
+                        codec.verify_profile_gguf_policy_metadata_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                            reader=fault_reader, expected_file_bytes=file_bytes, expected_file_sha256=changed_pin,
+                            maximum_file_bytes=33 * 1024**2)
+                        raise AssertionError("fresh-hash changed large policy metadata accepted")
+                    except ValueError as error:
+                        assert "policy metadata declaration byte mismatch: jev.model.profile_sha256" == str(error), str(error)
                 finally:
                     fault_reader.data._mmap.close()
                     fault_path.unlink()
             cases.append({"operand_bytes": source_bytes, "file_bytes": file_bytes, "spool_bytes": spool_bytes,
                           "tensor_offset": receipt["converted_tensor_offset"], "traced_peak_bytes": peak,
+                          "metadata_traced_peak_bytes": metadata_peak, "metadata_names": len(metadata["metadata_names"]),
                           "logical_peak_including_fault_bytes": logical_peak, "physical_source_output_bytes": physical_bytes,
-                          "reads": counts, "observations": observations()})
+                          "reads": matrix_reads, "metadata_reads": counts, "observations": observations()})
         finally:
             reader.data._mmap.close()
             source_values._mmap.close()
 assert cases[1]["traced_peak_bytes"] - cases[0]["traced_peak_bytes"] <= 256 * 1024
+assert cases[1]["metadata_traced_peak_bytes"] - cases[0]["metadata_traced_peak_bytes"] <= 256 * 1024
 assert not list(root.iterdir())
 elapsed = time.monotonic() - started
 assert elapsed < 60

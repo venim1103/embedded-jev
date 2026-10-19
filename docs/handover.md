@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [larger GGUF checkpoint](#larger-gguf-checkpoint-2026-10-19), followed by
+the [GGUF metadata checkpoint](#gguf-metadata-checkpoint-2026-10-19), followed by
+the [larger GGUF checkpoint](#larger-gguf-checkpoint-2026-10-19),
 the [GGUF BF16 checkpoint](#gguf-bf16-checkpoint-2026-10-19),
 the [GGUF descriptor checkpoint](#gguf-descriptor-checkpoint-2026-10-19),
 the [larger GGUF proposal](#larger-gguf-proposal-2026-10-19) and the
@@ -334,6 +335,52 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## GGUF Metadata Checkpoint (2026-10-19)
+
+After `7b42957`, `verify_profile_gguf_policy_metadata_v2` adds separately
+budgeted verification of the same **25 selected typed declarations**, using
+the shared legacy record parser. Default file budget stays 16 MiB, explicit
+ceiling 24 GiB; v2 has a 1 MiB header cap, unchanged 8 KiB selected-record
+cap and 64 KiB maximum reads. It accepts bounded selected tensor subsets,
+not complete-model proof, and never accepts a native v1 `model_owner`.
+Two file hashes share one retained descriptor with size-before-read,
+entry/exit/path identity and post-stat deadline checks. The legacy public
+signature, budgets and receipt fields remain unchanged; its second hash now
+runs before closing its transient descriptor. No native runtime was run.
+
+Eleven v2 and seven legacy pre-import controls pass together in **0.44 s**.
+The affected legacy pinned frozen writer/control passed in **6.83 s** after
+parser extraction. The larger synthetic control now emits the 24 writer
+policy records plus automatic architecture and verifies both small/large
+files. Matrix and metadata allocation/read/hash measurements are independent.
+Copied fields, wrong field types, closed readers, invalid budgets, exact
+24 GiB declaration, restored writes, identical-content path replacement,
+fresh-hash changed policy bytes and final-stat deadline expiry are exercised.
+Every successful verification retains exactly two hashes on one descriptor.
+The optional control passed in **0.84, 0.95 and 1.03 s** as probes were added;
+15 s child and 60 s stage guards are unchanged. No failed checks this slice.
+
+Latest output is **33,560,096 bytes**, selected offset **16,780,832**,
+operand **16,779,264**, spool **33,554,432**, conservative logical sum
+including the single reused fault copy **117,453,888 bytes**. Matrix traced
+peaks **2,421,940 / 2,430,676**, metadata peaks **2,403,781 / 2,403,781 bytes**
+remain below the unchanged 3 MiB peak/256 KiB growth assertions. Large
+metadata uses **1,140 reads**, all at most 65,536 bytes, including the two
+full hashes. These warmed verifier-only values exclude setup/parser/writer,
+mapped pages and cache. Process high-water was **98,291,712 bytes**; host
+available memory **17,909,571,584 -> 17,923,866,624**, observed host/process
+swap zero, disk-free before/after equal and scratch removed. Stage **0.662 s**
+is not device or full-converter performance evidence.
+
+Required gate: **965 passed, 97 skipped in 25.53 s**, Ruff/whitespace and all
+three Python editor checks clean. No learned inputs, download, build, native
+execution, real artifact or quality experiment occurred. This completes the
+approved initial larger-file selected-BF16/typed-policy APIs and synthetic
+controls, not source safetensors provenance, context/template file proof,
+complete tensor tables, tokenizer mapping or model/runtime acceptance.
+Next: inspect the existing selected source/output composition and add only
+the small v2 source-binding follow-up within the same bounded synthetic scope.
 
 ## Larger GGUF Checkpoint (2026-10-19)
 

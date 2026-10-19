@@ -2920,6 +2920,36 @@ def test_profile_gguf_policy_metadata_refuses_invalid_inputs_before_import(monke
         verify_profile_gguf_policy_metadata(profile, report, manifest, blocks, **arguments)
 
 
+@pytest.mark.parametrize("defect", ["digest", "bytes", "boolean", "file-budget", "boolean-budget", "default-budget",
+                                    "seconds", "nan", "infinite", "zero", "owner"])
+def test_profile_gguf_policy_metadata_v2_refuses_invalid_inputs_before_import(monkeypatch, defect):
+    import sys
+
+    from embedded_jev.prism_codec import verify_profile_gguf_policy_metadata_v2
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture()
+    arguments = {"reader": object(), "expected_file_bytes": 1, "expected_file_sha256": "f" * 64}
+    if defect == "digest":
+        arguments["expected_file_sha256"] = "invalid"
+    elif defect == "bytes":
+        arguments["expected_file_bytes"] = 0
+    elif defect == "boolean":
+        arguments["expected_file_bytes"] = True
+    elif defect == "file-budget":
+        arguments["maximum_file_bytes"] = 24 * 1024**3 + 1
+    elif defect == "boolean-budget":
+        arguments["maximum_file_bytes"] = True
+    elif defect == "default-budget":
+        arguments["expected_file_bytes"] = 16 * 1024**2 + 1
+    elif defect in ("seconds", "nan", "infinite", "zero"):
+        arguments["maximum_seconds"] = {"seconds": True, "nan": float("nan"), "infinite": float("inf"), "zero": 0}[defect]
+    else:
+        arguments["model_owner"] = object()
+    monkeypatch.setitem(sys.modules, "gguf", None)
+    with pytest.raises(TypeError if defect == "owner" else ValueError):
+        verify_profile_gguf_policy_metadata_v2(profile, report, manifest, blocks, **arguments)
+
+
 def test_profile_model_policy_refuses_unpinned_runtime():
     from embedded_jev.prism_codec import profile_model_specification
 
