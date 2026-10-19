@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [context emission checkpoint](#context-emission-checkpoint-2026-10-19), followed by the
+the [vocabulary preparation checkpoint](#vocabulary-preparation-checkpoint-2026-10-19), followed by the
+[context emission checkpoint](#context-emission-checkpoint-2026-10-19),
 [metadata preparation checkpoint](#metadata-preparation-checkpoint-2026-10-19),
 [architecture metadata checkpoint](#architecture-metadata-checkpoint-2026-10-19),
 [frozen writer checkpoint](#frozen-writer-checkpoint-2026-10-19),
@@ -322,6 +323,53 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Vocabulary Preparation Checkpoint (2026-10-19)
+
+After `078f339`, added `prepare_profile_model_tokenizer_vocabulary`. It reuses
+the exact bounded source/context preparation, then parses declared BPE JSON
+with the trusted installed `tokenizers.Tokenizer` implementation. No code from
+a model repository is imported. Vocabulary IDs must be unique, contiguous
+from zero and fit profile capacity. Immutable ID-ordered token strings and
+unassigned-profile-row counts do not imply a GGUF padding-token policy.
+Special/label token behavior, full tokenizer semantics, GGUF mapping and
+template/weight/runtime compatibility remain explicitly unchecked. No writer
+is mutated or tokenizer/merge metadata emitted by this API.
+
+Evidence and limits:
+
+- The initial focused run had **10 failed, 46 passed in 1.15 s** because the
+  new default test double omitted a local `sys` import. No new behavior was
+  reached in those failing cases. After that fixture repair, the same family
+  passed: **56 passed, 642 deselected in 0.54 s**. The default tests deliberately
+  use a parser double to isolate pin/model/parser/layout refusal and ordering.
+- A small ordering refinement avoids intermediate item tuples and an unused
+  binding. Its immediate vocabulary-only check passed: **10 passed,
+  688 deselected in 0.16 s**.
+- The existing pinned metadata-only control now has inert identity-only and
+  actual-BPE-vocabulary parameters. The new real cached parser case first
+  passed **1 passed, 1 deselected in 0.39 s**; after the ordering refinement
+  it passed **1 passed, 1 deselected in 0.34 s**. It verifies ordered synthetic
+  tokens, a fresh-profile-pin invalid merge refusal, and the unchanged exact
+  GGUF context bytes. The changed inert branch separately passed **1 passed,
+  1 deselected in 0.31 s**. Each child retains the **15 s** deadline and the
+  output remains a disposable tensor-free GGUF smaller than 64 KiB.
+- Required source gate: **850 passed, 95 skipped in 22.91 s**, Ruff and
+  whitespace clean. The normal run skips both opt-in metadata cases above;
+  their actual execution is separate evidence. Editor error checks are clean.
+  Pylance's explicit diagnostic query reports optional `tokenizers` unavailable
+  in the editor environment, alongside existing optional `torch`/`gguf` import
+  warnings. This is not a cached-runtime failure or a claim that the editor
+  interpreter changed. Signature inspection finds no direct callers of the
+  parameterized pytest function; both dynamic pytest branches actually ran.
+
+No weights, learned tokenizer bytes or model code were read, and no downloads,
+native builds, conversions, refits, candidates or quality jobs ran. All scratch
+remains owned/disposable under the unchanged synthetic budgets. Next: check
+declared profile special/label token behavior with this same trusted parser
+on synthetic bytes before proposing GGUF vocabulary/merge emission. Full-model
+artifacts and runtime/quality work remain separately approved. See the
+[API contract](development.md#profile-gated-complete-model-policy).
 
 ## Context Emission Checkpoint (2026-10-19)
 

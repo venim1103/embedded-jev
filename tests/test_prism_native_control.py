@@ -4838,7 +4838,8 @@ print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 
         "frozen_operands": 1 if include_frozen_source else 0}
 
 
-def test_pinned_profile_context_metadata_on_toy_source():
+@pytest.mark.parametrize("with_vocabulary", [False, True])
+def test_pinned_profile_context_metadata_on_toy_source(with_vocabulary):
     import hashlib
 
     from test_inventory import _packaging_fixture
@@ -4854,30 +4855,59 @@ def test_pinned_profile_context_metadata_on_toy_source():
     config["max_position_embeddings"] = 512
     metadata["config.json"] = json.dumps(config).encode()
     record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
-    fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()}}
+    tokenizer_bytes = b"{}"
+    if with_vocabulary:
+        tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": [], "model": {
+            "type": "BPE", "vocab": {f"token{index}": index for index in range(record["geometry"]["vocab_size"])},
+            "merges": [], "dropout": None, "unk_token": None, "continuing_subword_prefix": None,
+            "end_of_word_suffix": None, "fuse_unk": False, "byte_fallback": False, "ignore_merges": False,
+        }}).encode()
+        record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
+    fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()},
+               "tokenizer": tokenizer_bytes.hex(), "with_vocabulary": with_vocabulary}
     code = """
+import hashlib
 import json
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import write_profile_model_context_metadata
+from embedded_jev.prism_codec import prepare_profile_model_tokenizer_vocabulary, write_profile_model_context_metadata
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
 metadata = {name: bytes.fromhex(data) for name, data in fixture["metadata"].items()}
+tokenizer_bytes = bytes.fromhex(fixture["tokenizer"])
+if fixture["with_vocabulary"]:
+    vocabulary = prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
+        tokenizer_bytes=tokenizer_bytes, context_length=256)
+    assert vocabulary["tokens"] == tuple(f"token{index}" for index in range(profile.geometry["vocab_size"]))
+    assert vocabulary["unassigned_profile_token_rows"] == 0
+    assert vocabulary["tokenizer_semantic_verification"] == vocabulary["gguf_tokenizer_verification"] == "not_checked"
+    invalid = json.loads(tokenizer_bytes)
+    invalid["model"]["merges"] = [["token0", "missing-token"]]
+    invalid_bytes = json.dumps(invalid).encode()
+    invalid_record = json.loads(json.dumps(fixture["profile"]))
+    invalid_record["files"]["tokenizer.json"] = {"bytes": len(invalid_bytes), "sha256": hashlib.sha256(invalid_bytes).hexdigest()}
+    invalid_profile = parse_model_profile(json.dumps(invalid_record).encode())
+    try:
+        prepare_profile_model_tokenizer_vocabulary(invalid_profile, metadata_files=metadata,
+            tokenizer_bytes=invalid_bytes, context_length=256)
+        raise AssertionError("invalid BPE merge was accepted")
+    except ValueError as error:
+        assert "unable to parse source tokenizer vocabulary" in str(error)
 with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
     path = Path(directory) / "metadata.gguf"
     writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
     try:
         receipt = write_profile_model_context_metadata(profile, metadata_files=metadata,
-            tokenizer_bytes=b"{}", context_length=256, writer=writer)
+            tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
         assert receipt["source_metadata_verification"] == "profile_pinned_caller_bytes"
         assert receipt["tokenizer_semantic_verification"] == receipt["gguf_template_verification"] == "not_checked"
         try:
             write_profile_model_context_metadata(profile, metadata_files=metadata,
-                tokenizer_bytes=b"{}", context_length=256, writer=writer)
+                tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
             raise AssertionError("duplicate context metadata was emitted")
         except ValueError as error:
             assert "conflicting" in str(error)

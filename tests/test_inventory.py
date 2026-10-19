@@ -858,6 +858,68 @@ def test_profile_model_streaming_resource_plan_v2_refuses_invalid_budgets_before
         prism_codec.profile_model_streaming_resource_plan_v2(None, {}, {}, None, **budgets)
 
 
+@pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "model-kind", "parser", "empty", "duplicate-id", "gap", "boolean-id", "capacity"])
+def test_profile_tokenizer_vocabulary_is_pinned_bounded_and_not_gguf_semantics(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_vocabulary
+
+    metadata, _, record = _packaging_fixture(text_only=True)
+    config = json.loads(metadata["config.json"])
+    config["max_position_embeddings"] = 512
+    metadata["config.json"] = json.dumps(config).encode()
+    record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
+    tokenizer_bytes = json.dumps({"model": {"type": "WordLevel" if defect == "model-kind" else "BPE"}}).encode()
+    record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
+    profile = parse_model_profile(json.dumps(record).encode())
+    vocabulary = {"B": 1, "A": 0}
+    if defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    elif defect == "empty":
+        vocabulary = {}
+    elif defect == "duplicate-id":
+        vocabulary["B"] = 0
+    elif defect == "gap":
+        vocabulary["B"] = 2
+    elif defect == "boolean-id":
+        vocabulary["A"] = False
+    elif defect == "capacity":
+        vocabulary = {str(token_id): token_id for token_id in range(profile.geometry["vocab_size"] + 1)}
+    calls = []
+
+    def from_str(text):
+        calls.append(text)
+        if defect in ("metadata-pin", "tokenizer-pin", "model-kind"):
+            pytest.fail("unverified tokenizer reached parser")
+        if defect == "parser":
+            raise ValueError("synthetic parser refusal")
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary) if with_added_tokens else {})
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256}
+    if defect:
+        message = ("metadata identity" if defect == "metadata-pin" else "tokenizer input identity" if defect == "tokenizer-pin"
+                   else "unsupported source tokenizer" if defect == "model-kind" else "unable to parse" if defect == "parser"
+                   else "vocabulary IDs")
+        with pytest.raises(ValueError, match=message):
+            prepare_profile_model_tokenizer_vocabulary(profile, **arguments)
+        assert len(calls) == (0 if defect in ("metadata-pin", "tokenizer-pin", "model-kind") else 1)
+        return
+    receipt = prepare_profile_model_tokenizer_vocabulary(profile, **arguments)
+    assert calls == [tokenizer_bytes.decode()]
+    assert receipt["tokens"] == ("A", "B")
+    assert receipt["tokenizer_vocabulary_size"] == 2
+    assert receipt["unassigned_profile_token_rows"] == profile.geometry["vocab_size"] - 2
+    assert receipt["tokenizer_vocabulary_verification"] == "trusted_tokenizers_parser_contiguous_ids"
+    for key in ("tokenizer_semantic_verification", "special_token_verification", "label_token_verification", "gguf_tokenizer_verification", "gguf_template_verification"):
+        assert receipt[key] == "not_checked"
+    with pytest.raises(TypeError):
+        receipt["tokens"] = ()
+
+
 def _profile_metadata_writer_fixture():
     class Writer:
         arch = "qwen35"

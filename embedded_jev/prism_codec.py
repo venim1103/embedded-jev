@@ -364,6 +364,40 @@ def prepare_profile_model_context_metadata(
                             "runtime_approval": "not_granted_by_metadata_preparation"})
 
 
+def prepare_profile_model_tokenizer_vocabulary(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+):
+    """Extract bounded vocabulary with the trusted parser, not a GGUF tokenizer conversion."""
+    from embedded_jev.inventory import _json_object
+
+    prepared = prepare_profile_model_context_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    document = _json_object(tokenizer_bytes, "tokenizer.json")
+    if not isinstance(document.get("model"), dict) or document["model"].get("type") != "BPE":
+        raise ValueError("unsupported source tokenizer model for vocabulary preparation")
+    from tokenizers import Tokenizer
+
+    try:
+        tokenizer = Tokenizer.from_str(tokenizer_bytes.decode("utf-8"))
+        vocabulary = tokenizer.get_vocab(with_added_tokens=True)
+    except Exception as exc:
+        raise ValueError("unable to parse source tokenizer vocabulary") from exc
+    if (not isinstance(vocabulary, dict) or not vocabulary
+            or len(vocabulary) > profile.geometry["vocab_size"]
+            or any(not isinstance(token, str) or type(token_id) is not int for token, token_id in vocabulary.items())
+            or set(vocabulary.values()) != set(range(len(vocabulary)))):
+        raise ValueError("source tokenizer vocabulary IDs exceed supported profile layout")
+    tokens = tuple(sorted(vocabulary, key=vocabulary.__getitem__))
+    return MappingProxyType({**prepared, "tokens": tokens, "tokenizer_vocabulary_size": len(tokens),
+                            "profile_vocabulary_size": profile.geometry["vocab_size"],
+                            "unassigned_profile_token_rows": profile.geometry["vocab_size"] - len(tokens),
+                            "tokenizer_vocabulary_verification": "trusted_tokenizers_parser_contiguous_ids",
+                            "tokenizer_semantic_verification": "not_checked",
+                            "special_token_verification": "not_checked", "label_token_verification": "not_checked",
+                            "gguf_tokenizer_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_vocabulary_preparation"})
+
+
 def write_profile_model_architecture_metadata(profile, inventory: dict, manifest: dict, pq2_blocks, *, writer):
     """Emit the checked architecture subset before headers; tokenizer/source files remain unverified."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)

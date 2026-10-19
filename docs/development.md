@@ -1463,6 +1463,22 @@ value; it does not write that field or create a model. An inert `{}` tokenizer
 fixture proves only byte identity, deliberately not tokenizer compatibility.
 See the [metadata preparation checkpoint](handover.md#metadata-preparation-checkpoint-2026-10-19).
 
+`prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=...,
+tokenizer_bytes=..., context_length=...)` reuses that bounded source/context
+preparation, requires a declared BPE tokenizer, and uses the installed trusted
+`tokenizers.Tokenizer` parser. Reuse the cached converter environment; this
+optional dependency is not required by the controller's default tests. No
+model repository Python is loaded. Parsed IDs must be unique, contiguous from
+zero and within profile vocabulary capacity. The immutable receipt returns
+ID-ordered token strings and counts unassigned profile rows without inventing
+padding tokens. It leaves special/label token behavior, full tokenizer
+semantics, GGUF token mapping and template/runtime compatibility unchecked.
+Default refusal/ordering tests use an explicit parser double; the real cached
+parser is exercised separately by the vocabulary parameter of the pinned
+metadata control, including a fresh-pin invalid BPE merge refusal. This does
+not emit vocabulary or merge metadata. See the
+[vocabulary preparation checkpoint](handover.md#vocabulary-preparation-checkpoint-2026-10-19).
+
 `write_profile_model_context_metadata(profile, metadata_files=...,
 tokenizer_bytes=..., context_length=..., writer=...)` runs that preparation
 directly on source bytes rather than accepting a caller-made receipt, then
