@@ -945,19 +945,51 @@ def _profile_gguf_table_layout(plan, pq2_blocks, source_values, pins, expected_f
     return total, kinds
 
 
-@contextmanager
 def mapped_profile_safetensors_bf16_shard(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_shard: str,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
     maximum_seconds: float = 30,
 ):
     """Own one verified shard and serial borrowed matrix contexts under a shared deadline."""
-    from embedded_jev.inventory import _json_object, parse_safetensors_header
-    from embedded_jev.model_profile import SHA256
     from embedded_jev.streamed_text import bounded_native_descriptor_record
 
+    return _mapped_profile_safetensors_bf16_shard(
+        profile, inventory, manifest, pq2_blocks, source_path=source_path, source_shard=source_shard,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
+        file_ceiling=16 * 1024**2, operand_ceiling=16 * 1024**2,
+        descriptor_record=bounded_native_descriptor_record, policy_version=1,
+    )
+
+
+def mapped_profile_safetensors_bf16_shard_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_shard: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30,
+):
+    """Explicit v2 shard policy; larger file and child budgets require caller opt-in."""
+    from embedded_jev.streamed_text import bounded_source_descriptor_record_v2
+
+    return _mapped_profile_safetensors_bf16_shard(
+        profile, inventory, manifest, pq2_blocks, source_path=source_path, source_shard=source_shard,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
+        file_ceiling=6 * 1024**3, operand_ceiling=2 * 1024**3,
+        descriptor_record=bounded_source_descriptor_record_v2, policy_version=2,
+    )
+
+
+@contextmanager
+def _mapped_profile_safetensors_bf16_shard(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_shard,
+    expected_file_bytes, expected_file_sha256, maximum_file_bytes, maximum_seconds,
+    file_ceiling, operand_ceiling, descriptor_record, policy_version,
+):
+    from embedded_jev.inventory import _json_object, parse_safetensors_header
+    from embedded_jev.model_profile import SHA256
+
     if (
-        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= file_ceiling
         or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
         or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
@@ -976,6 +1008,9 @@ def mapped_profile_safetensors_bf16_shard(
     ):
         raise ValueError("mapped source file pin or operand budget mismatch")
     path = Path(source_path).absolute()
+    policy_receipt = {} if policy_version == 1 else {"source_policy_version": policy_version,
+                                                   "source_file_cap_bytes": file_ceiling,
+                                                   "source_operand_cap_bytes": operand_ceiling}
 
     def identity(value):
         return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
@@ -994,7 +1029,7 @@ def mapped_profile_safetensors_bf16_shard(
                 raise ValueError("mapped source file identity changed")
 
         def verify_file():
-            record = bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline)
+            record = descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline)
             if record["bytes"] != expected_file_bytes or record["sha256"] != expected_file_sha256:
                 raise ValueError("mapped source file identity changed")
             check_identity()
@@ -1021,7 +1056,7 @@ def mapped_profile_safetensors_bf16_shard(
             if active:
                 raise ValueError("mapped source shard already has a live matrix")
             if (
-                type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
+                type(maximum_bytes) is not int or not 0 < maximum_bytes <= operand_ceiling
                 or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
             ):
                 raise ValueError("invalid mapped source identity or budget")
@@ -1054,7 +1089,7 @@ def mapped_profile_safetensors_bf16_shard(
                 mapped = np.memmap(source, mode="r", dtype="<u2", offset=offset, shape=shape)
                 active.append(mapped)
                 check_identity()
-                yield mapped, MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                yield mapped, MappingProxyType({**policy_receipt, "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                                                "source_name": source_name, "source_sha256": expected_source_sha256,
                                                "source_file_sha256": expected_file_sha256, "source_file_bytes": expected_file_bytes,
                                                "source_file_identity": before, "source_header_sha256": pin.header_sha256,
@@ -1073,7 +1108,7 @@ def mapped_profile_safetensors_bf16_shard(
                 active.clear()
 
         try:
-            yield matrix, MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+            yield matrix, MappingProxyType({**policy_receipt, "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                                            "source_shard": source_shard, "source_file_sha256": expected_file_sha256,
                                            "source_file_bytes": expected_file_bytes, "source_file_identity": before,
                                            "source_file_verification": "profile_pinned_shard_entry_and_exit_checks_required",

@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [v2 descriptor checkpoint](#v2-descriptor-checkpoint-2026-10-19).
+the [v2 shard checkpoint](#v2-shard-checkpoint-2026-10-19), followed by the
+[v2 descriptor checkpoint](#v2-descriptor-checkpoint-2026-10-19).
 The earlier pause below is historical. Existing real-model/resource boundaries
 remain unchanged; no cached learned weights or full conversion is authorized.
 
@@ -311,6 +312,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## V2 Shard Checkpoint (2026-10-19)
+
+After `51eb96b`, added `mapped_profile_safetensors_bf16_shard_v2` beside the
+unchanged legacy entry point. Both share a private ownership implementation;
+legacy ceilings remain **16 MiB**, while the explicitly named v2 API permits
+at most **6 GiB per file** and **2 GiB per selected matrix**. Defaults stay
+**16 MiB** for both file and child budgets: callers must opt into larger
+values even after choosing v2. V2 uses only the new descriptor hasher and
+adds source policy version/file-cap/operand-cap fields to immutable receipts.
+Legacy receipt fields, numerical checks and native/v1 policies are unchanged.
+
+The full existing entry/lifetime/allocation family also runs through v2:
+**138 focused passes in 8.86 s** before the larger fixture. The synthetic
+fixture helper now accepts an explicit vocabulary size with its prior default
+unchanged. One sparse source is **above 64 MiB and below 128 MiB**, with a
+**32 MiB** embedding at an offset beyond the old 16 MiB boundary. Source setup
+uses a header and sparse extent; expected zero-stream hashes and conversion
+use bounded chunks, not whole-shard arrays. Source plus selected operand fits
+the approved **256 MiB** scratch budget. Exact chunk hashes, read-only mappings,
+cleanup and exactly two whole-file hashes on one descriptor pass.
+
+Legacy and v2-default file refusals occur before open. Above-6-GiB and boolean
+file budgets also refuse before open; above-2-GiB and boolean operand budgets
+refuse before mapping. Exact ceiling values are exercised with bounded actual
+inputs, not multi-GiB artifacts. V2 child defaults still refuse the 32 MiB
+operand. Final larger-range/lifetime subset: **93 passed in 6.41 s**.
+Required gate: **716 passed, 89 optional skips in 19.71 s**, Ruff/whitespace/
+editor clean. Cached pinned BF16/F32 converter controls both pass in **5.76 s**;
+no dependencies were downloaded or rebuilt. No failures in this increment.
+
+This is approved synthetic source policy preparation, not a larger raw-payload
+owner, complete converter, process-RAM measurement, learned-weight read or
+runtime/quality acceptance. All files are disposable scratch; no learned
+inputs, full conversion, refit or new candidate. Next: an explicitly versioned
+raw payload owner with at-most-2-GiB policy and bounded 32 MiB synthetic tests,
+keeping the old 16 MiB payload API unchanged.
 
 ## V2 Descriptor Checkpoint (2026-10-19)
 

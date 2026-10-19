@@ -474,12 +474,12 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
     geometry = record["geometry"]
-    geometry.update(hidden_size=1024, intermediate_size=1024, num_attention_heads=4, num_key_value_heads=2, head_dim=32)
+    geometry.update(hidden_size=1024, intermediate_size=1024, num_attention_heads=4, num_key_value_heads=2, head_dim=32, vocab_size=vocab_size)
     geometry.update(num_hidden_layers=2, full_attention_interval=2 if hybrid else 1,
                     layer_types=["linear_attention", "full_attention"] if hybrid else ["full_attention", "full_attention"],
                     linear_num_key_heads=2, linear_num_value_heads=value_heads, linear_key_head_dim=state_size, linear_value_head_dim=32,
@@ -494,7 +494,7 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     config.update(geometry)
     metadata["config.json"] = json.dumps(config, sort_keys=True).encode()
     shapes = {
-        "model.embed_tokens.weight": (32, hidden), "lm_head.weight": (32, hidden), "model.norm.weight": (hidden,),
+        "model.embed_tokens.weight": (vocab_size, hidden), "lm_head.weight": (vocab_size, hidden), "model.norm.weight": (hidden,),
           **{f"model.layers.{layer}." + name: shape for layer, kind in enumerate(geometry["layer_types"])
               for name, shape in inventory._layer_shapes(geometry, kind).items()},
     }
@@ -1371,7 +1371,7 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
             actual_path.unlink()
 
 
-@pytest.mark.parametrize("consumer", ["mapping", "payload", "shared"])
+@pytest.mark.parametrize("consumer", ["mapping", "payload", "shared", "shared-v2"])
 @pytest.mark.parametrize("defect", [
     None, "allocation", "peak-scaling", "source-pin", "file-pin", "file-size", "operand-budget", "boolean-budget", "file-budget",
     "deadline-budget", "frozen", "vector", "missing", "symlink", "fifo", "before-yield", "changed", "restored",
@@ -1430,7 +1430,7 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
     elif defect == "boolean-budget":
         arguments["maximum_bytes"] = True
     elif defect == "file-budget":
-        arguments["maximum_file_bytes"] = 16 * 1024**2 + 1
+        arguments["maximum_file_bytes"] = (6 * 1024**3 if consumer == "shared-v2" else 16 * 1024**2) + 1
     elif defect == "deadline-budget":
         arguments["maximum_seconds"] = float("nan")
     elif defect in ("frozen", "vector", "missing"):
@@ -1448,16 +1448,22 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
     @contextmanager
     def shared_matrix():
         file_arguments = {key: value for key, value in arguments.items() if key not in ("source_name", "expected_source_sha256", "maximum_bytes")}
-        with prism_codec.mapped_profile_safetensors_bf16_shard(profile, inventory, manifest, blocks,
-                 source_shard=path.name, **file_arguments) as (matrix, _):
+        owner = prism_codec.mapped_profile_safetensors_bf16_shard_v2 if consumer == "shared-v2" else prism_codec.mapped_profile_safetensors_bf16_shard
+        with owner(profile, inventory, manifest, blocks, source_shard=path.name, **file_arguments) as (matrix, shard_receipt):
+            if consumer == "shared-v2":
+                assert shard_receipt["source_policy_version"] == 2
+                assert shard_receipt["source_file_cap_bytes"] == 6 * 1024**3
+                assert shard_receipt["source_operand_cap_bytes"] == 2 * 1024**3
             with matrix(arguments["source_name"], arguments["expected_source_sha256"],
                      maximum_bytes=arguments.get("maximum_bytes", 16 * 1024**2)) as result:
+                if consumer == "shared-v2":
+                    assert result[1]["source_policy_version"] == 2
                 yield result
 
     def ownership():
         if consumer == "payload":
             return prism_codec.temporary_profile_mapped_bf16_payload(profile, inventory, manifest, blocks, **arguments, directory=tmp_path)
-        if consumer == "shared":
+        if consumer in ("shared", "shared-v2"):
             return shared_matrix()
         return prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments)
 
@@ -1576,6 +1582,90 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
         path.unlink(missing_ok=True)
         if defect in ("symlink", "fifo"):
             alternate.unlink()
+
+
+def test_profile_mapped_bf16_shard_v2_streams_large_synthetic_ranges(tmp_path, monkeypatch):
+    from embedded_jev import prism_codec, streamed_text
+
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True, vocab_size=16384)
+    entries, payload_bytes = {}, 0
+    for item in sorted(inventory["tensors"], key=lambda item: item["name"]):
+        storage = int(np.prod(item["shape"])) * 2
+        entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + storage]}
+        payload_bytes += storage
+    header, file_bytes = _header(entries, payload_bytes)
+    source_name = "model.embed_tokens.weight"
+    operand_bytes = 32 * 1024**2
+    assert 64 * 1024**2 < file_bytes <= 128 * 1024**2
+    assert file_bytes + operand_bytes <= 256 * 1024**2
+    assert entries[source_name]["data_offsets"][0] > 16 * 1024**2
+    path = tmp_path / profile.packaging["shards"][0]
+    with path.open("xb") as output:
+        output.write(header)
+        output.truncate(file_bytes)
+    zero_chunk = bytes(65536)
+    source_digest = hashlib.sha256()
+    for _ in range(operand_bytes // len(zero_chunk)):
+        source_digest.update(zero_chunk)
+    arguments = {"source_path": path, "source_shard": path.name,
+                 "expected_file_bytes": file_bytes, "expected_file_sha256": profile.files[path.name].sha256}
+    original_pread = prism_codec.os.pread
+    original_record = streamed_text.bounded_source_descriptor_record_v2
+    hashes = []
+
+    def bounded_read(descriptor, count, offset):
+        assert 0 < count <= 65536
+        return original_pread(descriptor, count, offset)
+
+    def record(descriptor, **keywords):
+        hashes.append(descriptor)
+        return original_record(descriptor, **keywords)
+
+    def never_open(*arguments, **keywords):
+        pytest.fail("invalid file policy reached source open")
+
+    try:
+        with monkeypatch.context() as preflight:
+            preflight.setattr(prism_codec.os, "open", never_open)
+            with pytest.raises(ValueError, match="invalid mapped source identity or budget"):
+                with prism_codec.mapped_profile_safetensors_bf16_shard(profile, inventory, manifest, blocks,
+                         **arguments, maximum_file_bytes=file_bytes):
+                    pytest.fail("legacy shard policy accepted a large source")
+            with pytest.raises(ValueError, match="invalid mapped source identity or budget"):
+                with prism_codec.mapped_profile_safetensors_bf16_shard_v2(profile, inventory, manifest, blocks, **arguments):
+                    pytest.fail("v2 default file budget silently expanded")
+            for maximum_file_bytes in (6 * 1024**3 + 1, True):
+                with pytest.raises(ValueError, match="invalid mapped source identity or budget"):
+                    with prism_codec.mapped_profile_safetensors_bf16_shard_v2(profile, inventory, manifest, blocks,
+                             **arguments, maximum_file_bytes=maximum_file_bytes):
+                        pytest.fail("invalid v2 file ceiling reached source open")
+        monkeypatch.setattr(prism_codec.os, "pread", bounded_read)
+        monkeypatch.setattr(streamed_text, "bounded_source_descriptor_record_v2", record)
+        with prism_codec.mapped_profile_safetensors_bf16_shard_v2(profile, inventory, manifest, blocks,
+                 **arguments, maximum_file_bytes=6 * 1024**3) as (matrix, receipt):
+            assert receipt["source_policy_version"] == 2 and len(hashes) == 1
+            with pytest.raises(ValueError, match="operand budget mismatch"):
+                with matrix(source_name, source_digest.hexdigest()):
+                    pytest.fail("v2 default operand budget silently expanded")
+            with monkeypatch.context() as preflight:
+                preflight.setattr(prism_codec.np, "memmap", never_open)
+                for maximum_bytes in (2 * 1024**3 + 1, True):
+                    with pytest.raises(ValueError, match="invalid mapped source identity or budget"):
+                        with matrix(source_name, source_digest.hexdigest(), maximum_bytes=maximum_bytes):
+                            pytest.fail("invalid v2 operand ceiling reached mapping")
+            with matrix(source_name, source_digest.hexdigest(), maximum_bytes=2 * 1024**3) as (values, source_receipt):
+                assert values.nbytes == operand_bytes and not values.flags.owndata and not values.flags.writeable
+                assert source_receipt["source_range_offset"] == len(header) + entries[source_name]["data_offsets"][0]
+                converted_digest = hashlib.sha256()
+                for _, chunk in prism_codec.iter_profile_bf16_matrix_chunks(profile, inventory, manifest, blocks,
+                         source_name=source_name, source_values=values):
+                    assert chunk.nbytes <= 65536 and chunk.flags.owndata
+                    converted_digest.update(memoryview(chunk))
+                assert converted_digest.hexdigest() == source_digest.hexdigest()
+            assert values._mmap.closed and len(hashes) == 1
+        assert len(hashes) == 2 and hashes[0] == hashes[1]
+    finally:
+        path.unlink()
 
 
 def test_profile_mapped_bf16_shard_refuses_cross_shard_matrix(tmp_path):

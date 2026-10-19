@@ -1543,6 +1543,17 @@ environment; existing 16 MiB mapping/payload APIs are unchanged. The sparse
 64 MiB + 17 byte control is synthetic only, not model execution or process-RAM
 evidence. See the [v2 descriptor checkpoint](handover.md#v2-descriptor-checkpoint-2026-10-19).
 
+`mapped_profile_safetensors_bf16_shard_v2(...)` explicitly selects the separate
+6 GiB file/2 GiB selected-matrix policy and v2 descriptor hasher. Its file and
+child budget defaults remain 16 MiB; larger extents require explicit caller
+budgets. V2 immutable receipts add `source_policy_version: 2`,
+`source_file_cap_bytes` and `source_operand_cap_bytes`. Serial ownership,
+provisional publication, pinned header/range/file identity, deadlines, cleanup
+and borrowed-alias limitations match the legacy owner. Legacy 16 MiB entry
+points and their receipts remain unchanged. Synthetic evidence uses a sparse
+source below 128 MiB and a 32 MiB matrix, not real weights or multi-GiB artifacts.
+See the [v2 shard checkpoint](handover.md#v2-shard-checkpoint-2026-10-19).
+
 `mapped_profile_safetensors_bf16_shard(..., source_path=..., source_shard=...,
 expected_file_bytes=..., expected_file_sha256=...)` retains one verified
 descriptor/header and yields `(matrix_factory, immutable_shard_receipt)`.
