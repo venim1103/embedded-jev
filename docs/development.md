@@ -2831,7 +2831,8 @@ require `normalized=true`; special/special-looking rows declare CONTROL and othe
 rows USER_DEFINED. Required encode/decode normalization and user-defined-space
 rewriting refuse rather than silently changing source tokens. No padding, numeric
 GGUF token-type emission, pre-tag assignment or tokenizer/runtime acceptance is
-implied. Existing vocabulary writers do not consume these declarations yet.
+implied. The separate paired-row writer below consumes these declarations;
+existing vocabulary/merge writers retain their previous behavior.
 
 The existing optional tiny-tokenizer `types` mode checks the exact pinned source
 methods with a real trusted tokenizer parser but explicitly doubled Transformers
@@ -2850,6 +2851,22 @@ Its process guard keeps the 15 s child/60 s stage, 1 GiB observed RSS/no swap
 growth and 8 KiB output caps. No learned files or model repository code are read
 or executed; pinned converter source is the independent reference, not remote
 model code. Synthetic reference agreement is not wrapper or full-tokenizer parity.
+
+`write_profile_model_tokenizer_rows(..., token_type_policy=..., writer=...)`
+freshly prepares the same declarations once and preflights both token strings
+and numeric types before emitting either key. The selected pinned enum mapping
+is NORMAL=1, CONTROL=3, USER_DEFINED=4; output types are ARRAY/STRING and
+ARRAY/INT32. The receipt explicitly says emitted, not file-verified. This is
+joint conflict preflight, not rollback after arbitrary writer exceptions. No
+padding, tokenizer model/pre-tag, merges or complete tokenizer is produced.
+
+Use the same command with the `typed-rows` test parameter for paired typed
+readback and three deliberate string/value/type-tag corruptions. That mode
+verifies enum-source bytes against the pinned Git blob, keeps output/fault files
+below 256 KiB in parent-owned scratch below 8 MiB, and deletes scratch even if
+the guarded worker fails. The reader exposes numeric elements through indexed
+`field.data` parts, not a single numeric array at `parts[-1]`. No learned input,
+native build or model execution is implicit in either mode.
 
 ### Offline Selected Metadata Control
 

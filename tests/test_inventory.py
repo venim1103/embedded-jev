@@ -1222,6 +1222,54 @@ def test_profile_source_token_types_are_declarations_without_transforms(monkeypa
         records[0]["token_type"] = "CONTROL"
 
 
+@pytest.mark.parametrize("defect", [None, "tokens-conflict", "types-conflict", "architecture", "split", "method", "preparation"])
+def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypatch, defect):
+    from embedded_jev import prism_codec
+
+    writer = _profile_metadata_writer_fixture()
+    if defect in ("tokens-conflict", "types-conflict"):
+        writer.kv_data[0]["tokenizer.ggml.tokens" if defect == "tokens-conflict" else "tokenizer.ggml.token_type"] = ("existing", [7])
+    elif defect == "architecture":
+        writer.arch = "other"
+    elif defect == "split":
+        writer.kv_data.append({})
+    elif defect == "method":
+        writer.add_array = None
+    calls = []
+    profile = object()
+    prepared = {"tokens": ("base", "control", "user"), "source_token_type_records": (
+        {"token_id": 0, "token": "base", "token_type": "NORMAL"},
+        {"token_id": 1, "token": "control", "token_type": "CONTROL"},
+        {"token_id": 2, "token": "user", "token_type": "USER_DEFINED"}),
+        "gguf_token_type_verification": "not_checked", "pre_tokenizer_tag_verification": "not_checked"}
+
+    def prepare(actual_profile, **kwargs):
+        assert actual_profile is profile and kwargs["token_type_policy"] == "pinned_prism_no_transform_v1"
+        calls.append(kwargs)
+        if defect == "preparation":
+            raise ValueError("source token-type preparation refused")
+        return prepared
+
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_token_type_metadata", prepare)
+    arguments = {"metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256,
+                 "token_type_policy": "pinned_prism_no_transform_v1", "writer": writer}
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    if defect:
+        with pytest.raises(ValueError):
+            prism_codec.write_profile_model_tokenizer_rows(profile, **arguments)
+        assert len(calls) == 1 and json.dumps(writer.kv_data, sort_keys=True) == before
+        return
+    receipt = prism_codec.write_profile_model_tokenizer_rows(profile, **arguments)
+    assert len(calls) == 1 and receipt["metadata_count"] == 2
+    assert writer.kv_data[0]["tokenizer.ggml.tokens"][1] == ["base", "control", "user"]
+    assert writer.kv_data[0]["tokenizer.ggml.token_type"][1] == [1, 3, 4]
+    assert receipt["metadata_emission"] == "paired_token_strings_and_types_emitted"
+    assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
+    assert receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+    with pytest.raises(TypeError):
+        receipt["records"][1]["values"][0] = 5
+
+
 @pytest.mark.parametrize("defect", [None, "special-id", "special-encoding", "label-id", "label-encoding", "label-special"])
 def test_profile_tokenizer_contract_is_standalone_and_not_a_prompt_boundary(monkeypatch, defect):
     import sys

@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [source token-type checkpoint](#source-token-type-checkpoint-2026-10-19), followed by
+the [paired token rows checkpoint](#paired-token-rows-checkpoint-2026-10-19), followed by
+the [source token-type checkpoint](#source-token-type-checkpoint-2026-10-19),
 the [native UTF-8 checkpoint](#native-utf-8-checkpoint-2026-10-19),
 the [native selected-record checkpoint](#native-selected-record-checkpoint-2026-10-19),
 the [native selected-record proposal](#native-selected-record-proposal-2026-10-19),
@@ -360,6 +361,52 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Paired Token Rows Checkpoint (2026-10-19)
+
+After `8610e19`, the user separately approved a bounded paired token-string/type
+writer and synthetic typed readback. `write_profile_model_tokenizer_rows` invokes
+fresh no-transform source declarations once, then jointly preflights
+`tokenizer.ggml.tokens` and `tokenizer.ggml.token_type` before either write. It
+emits source strings and numeric NORMAL=1, CONTROL=3, USER_DEFINED=4 in ID order;
+both enum values and cached enum-source bytes are checked against the exact
+pinned GGUF revision in the optional control. Existing 29-record/native paths,
+vocabulary/merge writers and declaration-only mode are unchanged.
+
+The receipt says emitted but **not file-verified**. Joint preflight prevents
+either duplicate-key conflict from partially writing the other key; it does not
+roll back arbitrary writer exceptions. Policy capacity 4096, full contiguous
+source coverage, UTF-8 string/content caps and all normalization/space-rewrite
+refusals are inherited without relaxation. No padding, pre-tag/model assignment,
+normalization, merge emission or complete tokenizer acceptance is implied.
+
+**Checks:** seven writer unit cases **passed in 0.15 s**, including preparation
+failure, both conflicting keys and invalid writer protocol before mutation.
+The separate `typed-rows` mode uses the pinned synthetic source-method reference,
+then writes a metadata-only file in parent-owned scratch. Exact ARRAY/STRING and
+ARRAY/INT32 tags, counts, ID-ordered values, zero tensors and absence of unrelated
+tokenizer fields are checked. Duplicate emission refuses without mutation; three
+serial faults (token text, numeric type value and INT32-to-UINT32 tag) refuse.
+
+Initial actual readback failed **0.54 s**; a diagnostic probe failed **0.54 s**
+and showed correct tags but only the final numeric value. The mistaken oracle
+used `parts[-1]`, while this pinned reader stores numeric elements as separate
+indexed parts. Reading each `field.data` index repaired the oracle and fault
+offset without weakening INT32/value checks: **1 passed in 0.42 s**. Temporary
+diagnostics were removed. Measured writer/declaration modes **2 passed in 0.64 s**:
+file **800 bytes**, file-plus-one-fault scratch peak **1,600 bytes**, observed
+writer RSS **48,926,720 bytes**, process swap zero and host swap unchanged from
+**1,642,496 bytes**. Parent scratch was cleaned; child/stage/output/RSS limits
+remain 15 s/60 s/8 KiB/1 GiB, file/fault below 256 KiB and scratch below 8 MiB.
+
+All eight tiny-tokenizer modes plus writer units **15 passed in 2.04 s**; required
+root gate **1185 passed, 111 skipped in 28.09 s**, Ruff/whitespace clean and editor
+diagnostics clean. No native source/build/CTest, learned reads, downloads, model
+execution/conversion, refit or quality experiment. The optional readback is a
+synthetic test oracle, not a public retained-file proof or native integration.
+Next possible scope is a separately approved source-bound typed file verifier;
+the current native 29-record control does not accept the new token-type key as
+part of its selected contract. Both learned one-shot approvals remain consumed.
+
 ## Source Token-Type Checkpoint (2026-10-19)
 
 After `7dc3dcb`, the user separately approved a synthetic-only declaration
@@ -407,9 +454,9 @@ New declarations plus existing added-token and all seven tiny-tokenizer modes:
 **42 passed in 1.64 s**. Required root gate **1178 passed, 110 skipped in 23.73 s**,
 Ruff/whitespace clean; Pylance's two resolved API calls are compatible and editor
 diagnostics/syntax are clean. No C++ change/build/CTest, downloads, model execution,
-conversion, refit or quality experiment. Next possible scope is a separately
-approved bounded token-type writer/readback, with numeric encodings anchored to
-the pinned GGUF enum and unchanged refusal rules; no such emission is implemented.
+conversion, refit or quality experiment. The later paired-token-rows checkpoint
+implements the subsequently approved bounded writer/readback with numeric
+encodings anchored to the pinned GGUF enum and unchanged refusal rules.
 Both one-shot learned diagnostics remain consumed.
 
 ## Native UTF-8 Checkpoint (2026-10-19)

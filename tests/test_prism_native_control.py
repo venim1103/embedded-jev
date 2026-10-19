@@ -6583,7 +6583,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6601,7 +6601,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     fingerprint_source = None
     unused_source = None
     special_source = None
-    if tokenizer_mode in ("bpe", "inventory", "types"):
+    if tokenizer_mode in ("bpe", "inventory", "types", "typed-rows"):
         pinned = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:conversion/base.py"])
         assert 0 < len(pinned) <= 1024**2 and (source / "conversion/base.py").read_bytes() == pinned
         text_model = next(node for node in ast.parse(pinned).body if isinstance(node, ast.ClassDef) and node.name == "TextModel")
@@ -6611,9 +6611,13 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
             fingerprint_source = ast.unparse(method)
         else:
             unused_source = ast.unparse(method)
-        if tokenizer_mode == "types":
+        if tokenizer_mode in ("types", "typed-rows"):
             special_source = ast.unparse(next(node for node in text_model.body if isinstance(node, ast.FunctionDef)
                                              and node.name == "does_token_look_special"))
+    if tokenizer_mode == "typed-rows":
+        enum_path = "gguf-py/gguf/constants.py"
+        pinned_enum = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:{enum_path}"])
+        assert 0 < len(pinned_enum) <= 1024**2 and (source / enum_path).read_bytes() == pinned_enum
     metadata, _, record = _packaging_fixture(text_only=True)
     config = json.loads(metadata["config.json"])
     config["max_position_embeddings"] = 512
@@ -6645,7 +6649,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
                          "rstrip": False, "normalized": False, "special": True},
                         {"id": 1, "content": tokens[1], "single_word": True, "lstrip": True,
                          "rstrip": True, "normalized": True, "special": False}]
-    if tokenizer_mode == "types":
+    if tokenizer_mode in ("types", "typed-rows"):
         tokens[:13] = ["base", "user", "special", "<|marker|>", "<|base|>", "\u2581control", "<pad>", "<mask>",
                    "<2mass>", "[@BOS@]", "<\uff5cmarker\uff5c>", "<unused42>", "<unused42"]
         added_tokens = [{"id": token_id, "content": tokens[token_id], "single_word": False, "lstrip": False,
@@ -6682,11 +6686,11 @@ tokenizer_bytes = bytes.fromhex(fixture["tokenizer"])
 external_template = bytes.fromhex(fixture["external_template"]) if fixture["external_template"] is not None else None
 template_source = "gguf_embedded" if external_template is not None else "source"
 expected_template = external_template if external_template is not None else metadata[profile.tokenization["template_file"]]
-if fixture["tokenizer_mode"] == "types":
+if fixture["tokenizer_mode"] in ("types", "typed-rows"):
     import ast
     from types import SimpleNamespace
     from tokenizers import Tokenizer
-    from embedded_jev.prism_codec import prepare_profile_model_token_type_metadata
+    from embedded_jev.prism_codec import prepare_profile_model_token_type_metadata, write_profile_model_tokenizer_rows
 
     prepared = prepare_profile_model_token_type_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
         context_length=256, token_type_policy="pinned_prism_no_transform_v1")
@@ -6745,7 +6749,71 @@ if fixture["tokenizer_mode"] == "types":
             raise AssertionError("source token-type transform was silently accepted")
         except ValueError as error:
             assert defect in str(error)
-    print(json.dumps({"context_length": prepared["context_length"], "source_context_length": prepared["source_context_length"]}))
+    if fixture["tokenizer_mode"] == "typed-rows":
+        assert [int(gguf.TokenType[name]) for name in ("NORMAL", "CONTROL", "USER_DEFINED")] == [1, 3, 4]
+        root = Path(fixture["scratch"])
+        assert root.is_dir() and not list(root.iterdir())
+        path, fault_path = root / "typed-rows.gguf", root / "fault.gguf"
+        writer = gguf.GGUFWriter(path, "qwen35")
+        arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                     "token_type_policy": "pinned_prism_no_transform_v1", "writer": writer}
+        try:
+            emitted = write_profile_model_tokenizer_rows(profile, **arguments)
+            assert emitted["metadata_count"] == 2 and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
+            snapshot = [dict(mapping) for mapping in writer.kv_data]
+            try:
+                write_profile_model_tokenizer_rows(profile, **arguments)
+                raise AssertionError("paired token rows overwrote existing metadata")
+            except ValueError as error:
+                assert "conflicting" in str(error)
+            assert writer.kv_data == snapshot
+            writer.write_header_to_file()
+            writer.write_kv_data_to_file()
+            writer.write_tensors_to_file()
+        finally:
+            writer.close()
+        original = path.read_bytes()
+        assert len(original) < 256 * 1024
+
+        def check_token_rows(reader):
+            strings, types = reader.fields["tokenizer.ggml.tokens"], reader.fields["tokenizer.ggml.token_type"]
+            if (list(strings.types) != [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING] or
+                    list(types.types) != [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32] or
+                    [strings.parts[index].tobytes().decode() for index in strings.data] != rows or
+                    [int(types.parts[index][0]) for index in types.data] != kinds):
+                raise ValueError("typed token-row readback mismatch")
+            assert not reader.tensors
+            assert not {"tokenizer.ggml.pre", "tokenizer.ggml.model", "tokenizer.ggml.merges"}.intersection(reader.fields)
+
+        reader = gguf.GGUFReader(path)
+        try:
+            check_token_rows(reader)
+            strings, types = reader.fields["tokenizer.ggml.tokens"], reader.fields["tokenizer.ggml.token_type"]
+            offsets = [int(strings.parts[strings.data[0]].ctypes.data - reader.data.ctypes.data),
+                       int(types.parts[types.data[0]].ctypes.data - reader.data.ctypes.data),
+                       int(types.parts[3].ctypes.data - reader.data.ctypes.data)]
+            for offset in offsets:
+                changed = bytearray(original)
+                changed[offset] ^= 1
+                fault_path.write_bytes(changed)
+                assert fault_path.stat().st_size < 256 * 1024 and sum(entry.stat().st_size for entry in root.iterdir()) < 8 * 1024**2
+                fault = gguf.GGUFReader(fault_path)
+                try:
+                    try:
+                        check_token_rows(fault)
+                        raise AssertionError("changed token row/type accepted by typed readback")
+                    except ValueError as error:
+                        assert "readback mismatch" in str(error)
+                finally:
+                    fault.data._mmap.close()
+                fault_path.unlink()
+        finally:
+            reader.data._mmap.close()
+        assert path.read_bytes() == original
+    summary = {"context_length": prepared["context_length"], "source_context_length": prepared["source_context_length"]}
+    if fixture["tokenizer_mode"] == "typed-rows":
+        summary.update(output_file_bytes=len(original), logical_scratch_peak_bytes=2 * len(original), readback_faults=3)
+    print(json.dumps(summary))
     sys.exit(0)
 if fixture["tokenizer_mode"] not in ("identity", "inventory"):
     vocabulary = prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
@@ -7054,14 +7122,26 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
         reader.data._mmap.close()
 print(json.dumps({"context_length": receipt["context_length"], "source_context_length": receipt["source_context_length"]}))
 """
-    if tokenizer_mode == "types":
-        result = _run_tokenizer_only_guard(interpreter, code, json.dumps(fixture).encode(),
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
-                 "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
+    if tokenizer_mode in ("types", "typed-rows"):
+        from contextlib import ExitStack
+        from tempfile import TemporaryDirectory
+
+        with ExitStack() as stack:
+            if tokenizer_mode == "typed-rows":
+                fixture["scratch"] = stack.enter_context(TemporaryDirectory(prefix="jev-token-rows-"))
+            result = _run_tokenizer_only_guard(interpreter, code, json.dumps(fixture).encode(),
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+                     "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
         assert result["returncode"] == 0, result["stderr"]
-        assert json.loads(result["stdout"]) == {"context_length": 256, "source_context_length": 512}
+        summary = json.loads(result["stdout"])
+        assert {name: summary[name] for name in ("context_length", "source_context_length")} == {"context_length": 256, "source_context_length": 512}
         assert time.monotonic() - started < 60
-        print(json.dumps({**result, "synthetic_token_type_reference": True, "metadata_emission": "not_performed"}))
+        if tokenizer_mode == "typed-rows":
+            assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
+            assert summary["readback_faults"] == 3
+            assert not Path(fixture["scratch"]).exists()
+        print(json.dumps({**result, "synthetic_token_type_reference": True,
+                          "metadata_emission": "paired_rows_read_back" if tokenizer_mode == "typed-rows" else "not_performed"}))
         return
     result = subprocess.run([interpreter, "-c", code], check=False, capture_output=True, text=True,
         input=json.dumps(fixture), timeout=15,

@@ -789,6 +789,25 @@ def write_profile_model_policy_metadata(profile, inventory: dict, manifest: dict
                             "runtime_approval": "not_granted_by_policy_metadata_emission"})
 
 
+def write_profile_model_tokenizer_rows(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, token_type_policy: str, writer,
+):
+    """Preflight paired source token strings/types without normalization, padding or a tokenizer tag."""
+    prepared = prepare_profile_model_token_type_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, token_type_policy=token_type_policy)
+    encodings = {"NORMAL": 1, "CONTROL": 3, "USER_DEFINED": 4}
+    records = _write_profile_model_metadata_records(writer, [
+        {"name": "tokenizer.ggml.tokens", "kind": "str_array", "values": prepared["tokens"]},
+        {"name": "tokenizer.ggml.token_type", "kind": "i32_array",
+         "values": tuple(encodings[row["token_type"]] for row in prepared["source_token_type_records"])},
+    ])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "metadata_scope": "source_token_strings_and_types_subset",
+                            "metadata_emission": "paired_token_strings_and_types_emitted",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "runtime_approval": "not_granted_by_source_token_rows_emission"})
+
+
 def write_profile_model_tokenizer_arrays(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
     maximum_vocabulary_rows: int = 4096,
