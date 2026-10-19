@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [v2 mixed source checkpoint](#v2-mixed-source-checkpoint-2026-10-19), followed by the
+the [mixed writer checkpoint](#mixed-writer-checkpoint-2026-10-19), followed by the
+[v2 mixed source checkpoint](#v2-mixed-source-checkpoint-2026-10-19),
 [v2 resource checkpoint](#v2-resource-checkpoint-2026-10-19),
 [v2 writer checkpoint](#v2-writer-checkpoint-2026-10-19),
 [v2 payload checkpoint](#v2-payload-checkpoint-2026-10-19),
@@ -316,6 +317,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Mixed Writer Checkpoint (2026-10-19)
+
+After `3ee4ac1`, added two pinned synthetic mixed-writer cases, using BF16/F32
+auxiliary sources alongside the three existing BF16/v1, F32 and BF16/v2 cases.
+Each mixed case owns **27 unfrozen operands: 16 matrices and 11 auxiliaries**
+under one source parent and exactly two whole-file hashes on one descriptor.
+Vectors/convolution are decoded from verified mappings and passed through
+the pinned converter transforms, existing exact arithmetic gates and temporary
+writer spooling without retained writer tensor arrays. Every written operand
+then passes its typed GGUF range/byte gate and file/budget/view/shape/payload
+corruption refusals. The existing five source-mutation publication controls
+also run for mixed owners. The pure resource planner gates declared storage
+at **256 MiB** before opening the writer. Actual source/output files remain
+**below 16 MiB**; no larger artifact or learned source is used.
+
+Initial expanded check: **2 failed, 3 passed in 17.34 s**, with child stderr
+lost in the oversized subprocess-command traceback. The local test now
+explicitly asserts a zero return code with captured stderr, preserving the
+failure check and deadline. Diagnostic mixed-only check: **2 failed in
+7.39 s**; both report `verify_profile_gguf_vector() got an unexpected keyword
+argument 'maximum_bytes'`. The mixed test now uses the vector wrapper's
+supported explicit file budget and fixed 64 KiB operand contract; matrices
+and convolution retain their typed operand budgets. Vector file-budget
+refusal replaces the inapplicable caller-operand-budget argument; no public
+API or production cap changed. All five cases then pass in **19.11 s**.
+
+Required gate: **782 passed, 92 optional skips in 37.84 s**, Ruff/whitespace/
+editor clean. The two new default skips were actually run in the separate
+five-case pinned check. **Timeout correction:** earlier checkpoint prose
+described a 30-second child bound; this test's source uses **15 seconds**.
+That stricter value was discovered on read and remains unchanged, not raised
+to the approved ceiling. No native build/model execution, downloads, learned
+inputs, refit/candidate/quality work or retained scratch. Next: separately
+versioned frozen-source provenance ownership without dense reconversion or
+changes to frozen codes/scales; metadata/tokenizer and complete-converter
+acceptance remain separate, and real-model jobs still need explicit approval.
 
 ## V2 Mixed Source Checkpoint (2026-10-19)
 

@@ -4129,8 +4129,10 @@ print(json.dumps(results))
     assert all(result[2].endswith(".ssm_dt.bias") for result in renamed_biases)
 
 
-@pytest.mark.parametrize("vector_dtype,source_policy_version", [("BF16", 1), ("F32", 1), ("BF16", 2)])
-def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype, source_policy_version):
+@pytest.mark.parametrize("vector_dtype,source_policy_version,mixed_source", [
+    ("BF16", 1, False), ("F32", 1, False), ("BF16", 2, False), ("BF16", 2, True), ("F32", 2, True),
+])
+def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype, source_policy_version, mixed_source):
     from embedded_jev.prism_codec import profile_model_conversion_plan
     from test_inventory import _prefill_model_policy_fixture
 
@@ -4145,7 +4147,7 @@ def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype, sou
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture("down", vector_dtype=vector_dtype, conv_dtype=vector_dtype)
     plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
     fixture = _profile_parity_fixture(profile, inventory, manifest, blocks)
-    fixture = json.dumps({**json.loads(fixture), "source_policy_version": source_policy_version})
+    fixture = json.dumps({**json.loads(fixture), "source_policy_version": source_policy_version, "mixed_source": mixed_source})
     code = """
 from __future__ import annotations
 import ast
@@ -4486,10 +4488,13 @@ with TemporaryDirectory(prefix="jev-vector-gguf-") as directory:
                 output.write(original)
     del tensor, reader
 matrix_count = 0
+mixed_auxiliary_count = 0
 matrix_operands = {}
-if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "output_norm.weight") == "BF16":
+if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "output_norm.weight") == "BF16" or fixture["mixed_source"]:
     source_policy_version = fixture["source_policy_version"]
     source_owner = prism_codec.mapped_profile_safetensors_bf16_shard_v2 if source_policy_version == 2 else prism_codec.mapped_profile_safetensors_bf16_shard
+    if fixture["mixed_source"]:
+        source_owner = prism_codec.mapped_profile_safetensors_conversion_shard_v2
     payload_owner = prism_codec.temporary_profile_bf16_matrix_payload_v2 if source_policy_version == 2 else prism_codec.temporary_profile_bf16_matrix_payload
     model.hparams.update(plan["linear_head_layout"])
     model.hparams["hidden_size"] = profile.geometry["hidden_size"]
@@ -4530,11 +4535,11 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         source_header, source_chunks, source_offset = {}, [], 0
         for item in fixture["inventory"]["tensors"]:
             if item["name"] not in source_arrays:
-                assert len(item["shape"]) == 1 and item["dtype"] == "BF16"
-                source_arrays[item["name"]] = np.zeros(item["shape"], dtype="<u2")
+                assert len(item["shape"]) == 1 and item["dtype"] in ("BF16", "F32")
+                source_arrays[item["name"]] = np.zeros(item["shape"], dtype="<f4" if item["dtype"] == "F32" else "<u2")
             source_array = source_arrays[item["name"]]
             assert source_array.shape == tuple(item["shape"])
-            assert source_array.dtype == np.dtype("<u2")
+            assert source_array.dtype == np.dtype("<f4" if item["dtype"] == "F32" else "<u2")
             source_header[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"],
                                          "data_offsets": [source_offset, source_offset + source_array.nbytes]}
             source_chunks.append(source_array.tobytes())
@@ -4553,7 +4558,11 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         fixture["inventory"]["source"].update(profile_source(profile))
         fixture["manifest"]["profile_sha256"] = profile.sha256
         fixture["manifest"]["source_tensor_sha256"] = hashlib.sha256(memoryview(source_arrays[fixture["manifest"]["tensor"]])).hexdigest()
+        resources = prism_codec.profile_model_streaming_resource_plan_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+            maximum_source_file_bytes=16 * 1024**2, maximum_operand_bytes=16 * 1024**2, maximum_storage_bytes=256 * 1024**2)
+        assert resources["logical_storage_peak_bytes"] <= 256 * 1024**2
         path = Path(directory) / "matrices.gguf"
+        written_operands = matrix_operands.copy()
         writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
         import embedded_jev.streamed_text as streamed_text
 
@@ -4592,6 +4601,29 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
                                 mapped._mmap.close()
                         assert not payload_path.exists() and not payload_path.parent.exists()
                     assert source_mapping._mmap.closed
+                if fixture["mixed_source"]:
+                    for entry in plan["tensors"]:
+                        if entry["type"] != "F32":
+                            continue
+                        source_name = entry["source_name"]
+                        raw_source = source_arrays[source_name]
+                        source_pin = hashlib.sha256(memoryview(raw_source)).hexdigest()
+                        with source_matrix(source_name, source_pin) as (source_mapping, source_receipt):
+                            decoded = (np.asarray(source_mapping).astype("<u4") << 16).view("<f4") if entry["source_dtype"] == "BF16" else np.array(source_mapping, dtype="<f4", copy=True)
+                            converted = list(model.modify_tensors(torch.from_numpy(decoded), source_name, 0))[0][1]
+                            converted_values = np.ascontiguousarray(converted.numpy(), dtype="<f4")
+                            verifier = verify_profile_converted_convolution if len(entry["source_shape"]) == 3 else verify_profile_converted_vector
+                            receipt = verifier(profile, fixture["inventory"], fixture["manifest"], payload,
+                                source_name=source_name, source_values=source_mapping, converted_values=converted_values,
+                                expected_source_sha256=source_pin)
+                            assert receipt["converted_sha256"] == hashlib.sha256(memoryview(converted_values)).hexdigest()
+                            assert source_receipt["source_operand_kind"] == "auxiliary"
+                            writer.add_tensor(entry["name"], converted_values, raw_dtype=gguf.GGMLQuantizationType.F32)
+                            assert writer.tensors[-1][entry["name"]].tensor is None
+                            written_operands[entry["name"]] = (source_name, raw_source, converted_values)
+                            mixed_auxiliary_count += 1
+                        assert source_mapping._mmap.closed
+                    assert mixed_auxiliary_count == sum(entry["type"] == "F32" for entry in plan["tensors"])
                 assert len(source_hash_descriptors) == 1
             assert len(source_hash_descriptors) == 2 and source_hash_descriptors[0] == source_hash_descriptors[1]
             writer.write_header_to_file()
@@ -4698,31 +4730,39 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         assert path.stat().st_size <= 16 * 1024**2
         file_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
         reader = gguf.GGUFReader(path)
-        assert len(reader.tensors) == len(matrix_operands) == 16
+        assert len(matrix_operands) == 16
+        assert len(reader.tensors) == len(written_operands) == 16 + mixed_auxiliary_count
         for tensor in reader.tensors:
-            source_name, raw_source, raw_converted = matrix_operands[tensor.name]
+            source_name, raw_source, raw_converted = written_operands[tensor.name]
+            entry = next(item for item in plan["tensors"] if item["name"] == tensor.name)
+            verifier = verify_profile_gguf_matrix if entry["type"] == "BF16" else verify_profile_gguf_convolution if len(entry["source_shape"]) == 3 else verify_profile_gguf_vector
             keywords = {"reader": reader, "source_name": source_name, "source_values": raw_source,
                         "expected_source_sha256": hashlib.sha256(memoryview(raw_source)).hexdigest(),
                         "expected_file_bytes": path.stat().st_size, "expected_file_sha256": file_sha256,
-                        "maximum_bytes": 16 * 1024**2}
-            receipt = verify_profile_gguf_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+                        "maximum_file_bytes": 16 * 1024**2}
+            vector = entry["type"] == "F32" and len(entry["source_shape"]) == 1
+            if not vector:
+                keywords["maximum_bytes"] = 16 * 1024**2 if entry["type"] == "BF16" else 1 << 20
+            receipt = verifier(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
             assert receipt["converted_sha256"] == hashlib.sha256(memoryview(raw_converted)).hexdigest()
             assert receipt["converted_file_verification"] == "caller_sha256_and_reader_range_match"
             assert receipt["source_file_verification"] == receipt["gguf_reader_verification"] == "not_checked"
-            for defect in ("file-pin", "operand-budget", "copied-view", "shape"):
+            for defect in ("file-pin", "file-budget" if vector else "operand-budget", "copied-view", "shape"):
                 changed = keywords.copy()
                 original_tensors = reader.tensors
                 if defect == "file-pin":
                     changed["expected_file_sha256"] = "0" * 64
                 elif defect == "operand-budget":
                     changed["maximum_bytes"] = 1
+                elif defect == "file-budget":
+                    changed["maximum_file_bytes"] = 1
                 else:
                     modified = tensor._replace(data=tensor.data.copy()) if defect == "copied-view" else tensor._replace(shape=tensor.shape[::-1])
                     if defect == "shape" and np.array_equal(modified.shape, tensor.shape):
                         modified = tensor._replace(shape=tensor.shape + 1)
                     reader.tensors = [modified if item.name == tensor.name else item for item in reader.tensors]
                 try:
-                    verify_profile_gguf_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
+                    verifier(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
                     raise AssertionError("invalid BF16 file binding accepted: " + defect)
                 except ValueError:
                     pass
@@ -4735,7 +4775,7 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
                 output.write(bytes([saved[0] ^ 1]))
             changed = {**keywords, "expected_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
             try:
-                verify_profile_gguf_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
+                verifier(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
                 raise AssertionError("changed BF16 file payload accepted")
             except ValueError as error:
                 assert "byte parity" in str(error)
@@ -4744,14 +4784,17 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
                     output.seek(tensor.data_offset)
                     output.write(saved)
         del tensor, reader
-print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3], "matrix_operands": matrix_count}))
+print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 1, 3], "matrix_operands": matrix_count, "mixed_auxiliary_operands": mixed_auxiliary_count}))
 """
     result = subprocess.run(
-        [interpreter, "-c", code, str(source), json.dumps(plan)], check=True,
+        [interpreter, "-c", code, str(source), json.dumps(plan)], check=False,
         capture_output=True, text=True, input=fixture, timeout=15,
         env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))},
     )
-    assert json.loads(result.stdout) == {"qkv_shape": [16, 8], "v_head_order": [0, 2, 1, 3], "matrix_operands": 16 if vector_dtype == "BF16" else 0}
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"qkv_shape": [16, 8], "v_head_order": [0, 2, 1, 3],
+        "matrix_operands": 16 if vector_dtype == "BF16" or mixed_source else 0,
+        "mixed_auxiliary_operands": sum(item["type"] == "F32" for item in plan["tensors"]) if mixed_source else 0}
 
 
 def test_pinned_prism_grouped_v_metadata_writer_for_folded_out_projection():

@@ -1578,12 +1578,20 @@ artifact measurement. See the [v2 payload checkpoint](handover.md#v2-payload-che
 
 The existing pinned optional
 `test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors` runs BF16/v1,
-F32 and BF16/v2 cases. V2 uses both explicit owners through the same
-16-matrix byte-parity, two-hash and fail-closed publication controls; it does
-not select policy from file size or an environment variable. Its actual
-source/GGUF fixture stays below 16 MiB and the per-child deadline remains
-30 seconds. This is separate from the 32 MiB default allocation/cleanup
-fixture. See the [v2 writer checkpoint](handover.md#v2-writer-checkpoint-2026-10-19).
+F32, BF16/v2 and two mixed-v2 cases with BF16/F32 auxiliaries. The original
+16-matrix controls remain; each mixed case adds all 11 auxiliary operands to
+the same source owner and writer. Exact pinned arithmetic, GGUF bytes/ranges,
+corruption refusals and two whole-file hashes cover all 27 unfrozen operands.
+The static resource preflight runs before opening the writer. Publication
+remains after source-parent success; five source-mutation refusal workflows
+remain active. Policy is not selected from file size or an environment
+variable. Actual source/GGUF fixtures stay below 16 MiB and the unchanged
+per-child timeout is **15 seconds**, not the 30-second upper bound stated in
+older checkpoint prose. This is separate from the 32 MiB default allocation/
+cleanup fixture, not a full converter or frozen-source proof. Child failures
+surface stderr while nonzero return codes still fail. See the
+[mixed writer checkpoint](handover.md#mixed-writer-checkpoint-2026-10-19) and
+[v2 writer checkpoint](handover.md#v2-writer-checkpoint-2026-10-19).
 
 `mapped_profile_safetensors_conversion_shard_v2(...)` explicitly extends v2
 shared ownership to unfrozen BF16 matrices and declared BF16/F32 vectors and
