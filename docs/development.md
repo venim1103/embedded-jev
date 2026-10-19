@@ -1830,8 +1830,21 @@ pieces and oversized input refuse without mutation, rather than truncating
 ranks or inventing an escaping scheme. Receipts remain declaration-only;
 there is no public merge-file verifier or complete tokenizer mapping. The
 existing tiny optional BPE control reads back exact `ARRAY`/`STRING` types
-and rank while confirming no vocabulary, type or pre-tokenizer fields were
+and rank while confirming no model, type or pre-tokenizer fields were
 added. See the [merge emission checkpoint](handover.md#merge-emission-checkpoint-2026-10-19).
+
+`write_profile_model_tokenizer_vocabulary(...)` emits only
+`tokenizer.ggml.tokens` after fresh pinned contiguous-ID preparation, with
+every profile row source-backed. Unassigned rows refuse instead of receiving
+invented padding. The complete list is bounded to 1..4096 tokens, each
+nonempty/non-NUL content at most 4096 UTF-8 bytes and aggregate content at
+most 64 KiB. Existing metadata writer preflight applies; receipts do not
+prove file bytes, normalization, token types or a complete tokenizer. These
+are bounded metadata APIs, not full learned-vocabulary conversion APIs.
+The optional BPE mode now reads back vocabulary and merges and separately
+checks the pinned converter's unknown-fingerprint refusal with a native
+tokenizer adapter. That is not Transformers-wrapper or model compatibility.
+See the [vocabulary emission checkpoint](handover.md#vocabulary-emission-checkpoint-2026-10-19).
 
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It

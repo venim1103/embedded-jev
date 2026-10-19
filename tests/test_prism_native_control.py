@@ -5477,6 +5477,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": elapsed, "before": before, 
 
 @pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
+    import ast
     import hashlib
 
     from test_inventory import _packaging_fixture
@@ -5487,6 +5488,13 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         pytest.skip("requires pinned Prism GGUF writer and isolated converter environment")
     source = Path(source_dir)
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    fingerprint_source = None
+    if tokenizer_mode == "bpe":
+        pinned = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:conversion/base.py"])
+        assert 0 < len(pinned) <= 1024**2 and (source / "conversion/base.py").read_bytes() == pinned
+        text_model = next(node for node in ast.parse(pinned).body if isinstance(node, ast.ClassDef) and node.name == "TextModel")
+        fingerprint = next(node for node in text_model.body if isinstance(node, ast.FunctionDef) and node.name == "get_vocab_base_pre")
+        fingerprint_source = ast.unparse(fingerprint)
     metadata, _, record = _packaging_fixture(text_only=True)
     config = json.loads(metadata["config.json"])
     config["max_position_embeddings"] = 512
@@ -5529,6 +5537,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
     fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()},
                "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens,
+               "fingerprint_source": fingerprint_source,
                "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
@@ -5538,7 +5547,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata
+from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_vocabulary
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -5566,6 +5575,8 @@ if fixture["tokenizer_mode"] != "identity":
     except ValueError as error:
         assert "unable to parse source tokenizer vocabulary" in str(error)
 if fixture["tokenizer_mode"] == "bpe":
+    import ast
+    from types import SimpleNamespace
     from tokenizers import Tokenizer
 
     bpe = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
@@ -5577,6 +5588,24 @@ if fixture["tokenizer_mode"] == "bpe":
     assert bpe["tokenizer_semantic_verification"] == bpe["gguf_tokenizer_verification"] == "not_checked"
     tokenizer = Tokenizer.from_str(tokenizer_bytes.decode())
     assert tokenizer.encode("abc", add_special_tokens=False).ids == tokenizer.encode("ABC", add_special_tokens=False).ids == [4]
+    probes, debug_messages = [], []
+
+    def encode_probe(text):
+        assert isinstance(text, str) and len(text.encode()) <= 4096
+        ids = tokenizer.encode(text, add_special_tokens=True).ids
+        assert len(ids) <= 4096 and all(type(token_id) is int and 0 <= token_id < len(fixture["tokens"]) for token_id in ids)
+        probes.append(tuple(ids))
+        return ids
+
+    namespace = {"sha256": hashlib.sha256, "logger": SimpleNamespace(debug=debug_messages.append, warning=lambda message: None)}
+    exec(compile(ast.parse(fixture["fingerprint_source"]), "<pinned-get-vocab-base-pre>", "exec"), namespace)
+    try:
+        namespace["get_vocab_base_pre"](None, SimpleNamespace(encode=encode_probe))
+        raise AssertionError("unknown synthetic tokenizer fingerprint was recognized")
+    except NotImplementedError as error:
+        assert "BPE pre-tokenizer was not recognized" in str(error)
+    assert len(probes) == 1
+    assert "chkhsh: " + hashlib.sha256(str(list(probes[0])).encode()).hexdigest() in debug_messages
 if fixture["tokenizer_mode"] == "added":
     added = prepare_profile_model_added_token_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
     declarations = json.loads(tokenizer_bytes)["added_tokens"]
@@ -5616,6 +5645,19 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
     writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
     try:
         if fixture["tokenizer_mode"] == "bpe":
+            emitted_vocabulary = write_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
+                tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
+            assert emitted_vocabulary["metadata_scope"] == "tokenizer_vocabulary_subset" and emitted_vocabulary["metadata_count"] == 1
+            assert emitted_vocabulary["records"][0]["values"] == tuple(fixture["tokens"])
+            assert emitted_vocabulary["unassigned_profile_token_rows"] == 0
+            before = dict(writer.kv_data[0])
+            try:
+                write_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
+                    tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
+                raise AssertionError("duplicate vocabulary metadata was emitted")
+            except ValueError as error:
+                assert "conflicting" in str(error)
+            assert writer.kv_data[0] == before
             merges = write_profile_model_bpe_merge_metadata(profile, metadata_files=metadata,
                 tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
             assert merges["metadata_scope"] == "bpe_merge_subset" and merges["metadata_count"] == 1
@@ -5671,7 +5713,10 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
             field = reader.fields["tokenizer.ggml.merges"]
             assert field.types == [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING]
             assert tuple(field.parts[index].tobytes().decode() for index in field.data) == ("a b", "ab c")
-            assert not {"tokenizer.ggml.pre", "tokenizer.ggml.token_type", "tokenizer.ggml.tokens"}.intersection(reader.fields)
+            field = reader.fields["tokenizer.ggml.tokens"]
+            assert field.types == [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING]
+            assert tuple(field.parts[index].tobytes().decode() for index in field.data) == tuple(fixture["tokens"])
+            assert not {"tokenizer.ggml.pre", "tokenizer.ggml.token_type", "tokenizer.ggml.model"}.intersection(reader.fields)
         assert not reader.tensors
     finally:
         reader.data._mmap.close()

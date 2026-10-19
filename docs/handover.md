@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [merge emission checkpoint](#merge-emission-checkpoint-2026-10-19), followed by
+the [vocabulary emission checkpoint](#vocabulary-emission-checkpoint-2026-10-19), followed by
+the [merge emission checkpoint](#merge-emission-checkpoint-2026-10-19),
 the [added-token checkpoint](#added-token-checkpoint-2026-10-19),
 the [BPE declaration checkpoint](#bpe-declaration-checkpoint-2026-10-19),
 the [metadata file checkpoint](#metadata-file-checkpoint-2026-10-19),
@@ -341,6 +342,45 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Vocabulary Emission Checkpoint (2026-10-19)
+
+After `2fbdba0`, `write_profile_model_tokenizer_vocabulary` prepares fresh
+pinned contiguous IDs and emits one `tokenizer.ggml.tokens` string array
+through the existing writer preflight. Every profile row must be source-
+backed: unassigned rows refuse, with no invented padding. The complete list
+caps at 1..4096 tokens, 4096 UTF-8 bytes per nonempty/non-NUL token and 64 KiB
+aggregate content. Immutable receipts retain declaration-only file status
+and no model/tag/type/complete-tokenizer/runtime approval. These bounds
+deliberately do not support complete learned-model vocabularies.
+
+The pinned converter's `get_vocab_base_pre` was also extracted from a Git
+blob at the required Prism revision, compared byte-for-byte with cached
+`conversion/base.py` and executed in isolation against the real tiny native
+tokenizer adapter. Its public probe is capped to 4096 UTF-8 bytes and 4096
+output IDs, all within the synthetic vocabulary. The actual fingerprint
+must match its debug hash and raise the upstream unknown-pre-tokenizer
+refusal. The source table has a `qwen35` tag, but no such tag is assigned by
+these tools. This is not Transformers-wrapper parity or a model fingerprint.
+Only trusted pinned converter code executes, never model-repository code.
+
+The first unknown-only control **passed in 0.38 s**. Vocabulary **17 default
+cases passed in 0.18 s**, including unassigned-row, source/writer, ASCII/UTF-8
+and aggregate limits and immutable records. Count/aggregate preparation
+doubles isolate resource checks, not real-vocabulary compatibility. The
+augmented actual cached-parser/writer BPE mode **passed in 0.38 s**: exact
+typed vocabulary and merges read back, duplicate writes refuse without
+mutation, unknown fingerprint still refuses and model/tag/type fields remain
+absent. Child 15 s, tensor-free output below 64 KiB and writer/spool/map/
+scratch cleanup remain unchanged. No failed check occurred in this increment.
+
+Required gate: **1068 passed, 99 skipped in 23.86 s**, Ruff/whitespace and
+three Python editor checks clean. No learned tokenizer/weight reads,
+downloads, builds, native/model jobs, real artifacts, refits or quality
+experiments ran. Next: bounded retained-descriptor file proof for selected
+tokenizer string-array metadata, distinct from writer receipts. Complete
+model-specific tokenizer mapping still requires fingerprint/wrapper evidence;
+do not guess it from this synthetic result.
 
 ## Merge Emission Checkpoint (2026-10-19)
 

@@ -1308,6 +1308,68 @@ def test_profile_source_metadata_emission_preflights_all_groups_before_mutation(
 
 
 @pytest.mark.parametrize("defect", [None, "source-pin", "tokenizer-pin", "architecture", "duplicate", "split-writer", "missing-array",
+                                    "unassigned", "empty-token", "nul", "item-budget", "utf8-budget", "byte-limit", "utf8-limit",
+                                    "count-budget", "aggregate-budget", "aggregate-limit"])
+def test_profile_vocabulary_emission_requires_exact_source_rows_and_bounded_content(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    tokens = [f"token{index}" for index in range(profile.geometry["vocab_size"])]
+    if defect == "unassigned":
+        tokens.pop()
+    elif defect in ("empty-token", "nul", "item-budget", "utf8-budget", "byte-limit", "utf8-limit"):
+        tokens[0] = {"empty-token": "", "nul": "a\x00b", "item-budget": "x" * 4097, "utf8-budget": "\u00e9" * 2049,
+                     "byte-limit": "x" * 4096, "utf8-limit": "\u00e9" * 2048}[defect]
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=lambda text:
+        SimpleNamespace(get_vocab=lambda *, with_added_tokens: {token: index for index, token in enumerate(tokens)}))))
+    writer = _profile_metadata_writer_fixture()
+    writer.add_array = lambda name, values: writer.kv_data[0].update({name: ("str_array", list(values))})
+    if defect == "source-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    elif defect == "architecture":
+        writer.arch = "qwen3"
+    elif defect == "duplicate":
+        writer.kv_data[0]["tokenizer.ggml.tokens"] = ("str_array", ["keep"])
+    elif defect == "split-writer":
+        writer.kv_data.append({})
+    elif defect == "missing-array":
+        writer.add_array = None
+    elif defect in ("count-budget", "aggregate-budget", "aggregate-limit"):
+        prepared = prism_codec.prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
+            tokenizer_bytes=tokenizer_bytes, context_length=256)
+        tokens = [f"token{index}" for index in range(4097)] if defect == "count-budget" else [
+            f"{index:04d}" + "x" * 4092 for index in range(16 if defect == "aggregate-limit" else 17)]
+        monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_vocabulary", lambda *args, **kwargs:
+            {**prepared, "tokens": tuple(tokens), "tokenizer_vocabulary_size": len(tokens), "unassigned_profile_token_rows": 0})
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256, "writer": writer}
+    if defect not in (None, "byte-limit", "utf8-limit", "aggregate-limit"):
+        with pytest.raises(ValueError):
+            prism_codec.write_profile_model_tokenizer_vocabulary(profile, **arguments)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        return
+    receipt = prism_codec.write_profile_model_tokenizer_vocabulary(profile, **arguments)
+    expected = [{"tokenizer.ggml.tokens": ("str_array", tokens)}]
+    assert writer.kv_data == expected
+    assert receipt["records"][0]["values"] == tuple(tokens) and receipt["metadata_count"] == 1
+    assert receipt["vocabulary_content_bytes"] == sum(len(token.encode()) for token in tokens)
+    assert receipt["metadata_scope"] == "tokenizer_vocabulary_subset"
+    assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
+    assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == receipt["gguf_token_type_verification"] == "not_checked"
+    with pytest.raises(TypeError):
+        receipt["records"][0]["values"] = ()
+    with pytest.raises(ValueError, match="conflicting"):
+        prism_codec.write_profile_model_tokenizer_vocabulary(profile, **arguments)
+    assert writer.kv_data == expected
+
+
+@pytest.mark.parametrize("defect", [None, "source-pin", "tokenizer-pin", "architecture", "duplicate", "split-writer", "missing-array",
                                     "empty", "space", "nul", "item-budget", "count-budget", "aggregate-budget",
                                     "utf8-budget", "byte-limit", "utf8-limit", "aggregate-limit"])
 def test_profile_bpe_merge_emission_preflights_pins_format_budgets_and_writer(monkeypatch, defect):

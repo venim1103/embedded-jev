@@ -639,6 +639,33 @@ def write_profile_model_policy_metadata(profile, inventory: dict, manifest: dict
                             "runtime_approval": "not_granted_by_policy_metadata_emission"})
 
 
+def write_profile_model_tokenizer_vocabulary(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
+):
+    """Emit exact bounded source rows without inventing padding or GGUF token types."""
+    prepared = prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    tokens = prepared["tokens"]
+    if prepared["unassigned_profile_token_rows"] != 0 or not 0 < len(tokens) <= 4096:
+        raise ValueError("unsupported bounded vocabulary count or unassigned profile rows")
+    content_bytes = 0
+    for token in tokens:
+        if not token or "\x00" in token or len(token) > 4096:
+            raise ValueError("unsupported vocabulary token or content budget")
+        encoded_bytes = len(token.encode("utf-8"))
+        content_bytes += encoded_bytes
+        if encoded_bytes > 4096 or content_bytes > 64 * 1024:
+            raise ValueError("unsupported vocabulary content budget")
+    records = _write_profile_model_metadata_records(writer, [
+        {"name": "tokenizer.ggml.tokens", "kind": "str_array", "values": tokens},
+    ])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "vocabulary_content_bytes": content_bytes, "metadata_scope": "tokenizer_vocabulary_subset",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_vocabulary_emission"})
+
+
 def write_profile_model_bpe_merge_metadata(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
 ):
