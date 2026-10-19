@@ -1422,6 +1422,27 @@ and grouped-to-tiled linear V-head row/column transforms. The selected PQ2 row
 declares `frozen_projection_payload_not_dense_conversion`; codes/scales are
 not regenerated. The plan is metadata, not source or converted-byte proof.
 
+`profile_model_streaming_resource_plan_v2(..., maximum_source_file_bytes=...,
+maximum_operand_bytes=..., maximum_storage_bytes=...)` is a pure preflight
+over that validated plan. All budgets are explicit strict integers, with
+ceilings of 6 GiB per pinned input file, 2 GiB per source/output operand and
+48 GiB aggregate logical storage. It opens no files and launches no work.
+The conservative storage sum includes all pinned source shards and metadata,
+the independent frozen payload input, the complete 32-byte-aligned writer
+spool, one provisional output with the 32 MiB metadata allowance, and the
+largest nonfrozen raw payload. Input files count even when already cached;
+this is not an estimate of additional free disk alone. Frozen payload bytes
+enter the spool without a dense reconversion or a temporary raw payload.
+An exact budget is accepted; any one-byte excess refuses. Geometry-only
+32 MiB-operand controls refuse complete staging within 256 MiB even though
+the earlier selected-operand composition fits that budget. These controls
+create no source files. Returned per-file/tensor counts are detached from
+the inventory/profile and retain explicit unverified-source, unmeasured-memory
+and no-runtime-approval markers. The output bound is not a replacement for
+native file acceptance limits, actual free-space checks, live safety guards
+or separate approval for real-model work. See the
+[v2 resource checkpoint](handover.md#v2-resource-checkpoint-2026-10-19).
+
 `verify_profile_converted_vector(..., source_name=..., source_values=...,
 converted_values=..., expected_source_sha256=...)` checks one-dimensional F32
 output arrays from BF16/F32 source arrays. BF16 operands are raw little-endian

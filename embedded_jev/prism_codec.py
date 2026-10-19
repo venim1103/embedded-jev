@@ -269,6 +269,61 @@ def profile_model_conversion_plan(profile, inventory: dict, manifest: dict, pq2_
             "runtime_approval": "not_granted_by_conversion_plan"}
 
 
+def profile_model_streaming_resource_plan_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *,
+    maximum_source_file_bytes: int, maximum_operand_bytes: int, maximum_storage_bytes: int,
+) -> dict:
+    """Bound declared serial storage, not observed memory, file identity or execution approval."""
+    for value, ceiling in ((maximum_source_file_bytes, 6 * 1024**3),
+                           (maximum_operand_bytes, 2 * 1024**3),
+                           (maximum_storage_bytes, 48 * 1024**3)):
+        if type(value) is not int or not 0 < value <= ceiling:
+            raise ValueError("invalid v2 streaming resource budget")
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    source_files = [{"name": name, "bytes": profile.files[name].bytes}
+                    for name in profile.packaging["shards"]]
+    metadata_inputs = [{"name": name, "bytes": pin.bytes} for name, pin in sorted(profile.files.items())
+                       if name not in profile.packaging["shards"]]
+    if any(item["bytes"] > maximum_source_file_bytes for item in (*source_files, *metadata_inputs)):
+        raise ValueError("v2 streaming source file budget exceeded")
+    tensors = []
+    for entry in plan["tensors"]:
+        elements = int(np.prod(entry["source_shape"]))
+        source_bytes = elements * (4 if entry["source_dtype"] == "F32" else 2)
+        converted_bytes = elements * 34 // 128 if entry["type"] == "PQ2_0" else elements * (4 if entry["type"] == "F32" else 2)
+        if source_bytes > maximum_operand_bytes or converted_bytes > maximum_operand_bytes:
+            raise ValueError("v2 streaming operand budget exceeded")
+        tensors.append({"source_name": entry["source_name"], "name": entry["name"],
+                        "source_bytes": source_bytes, "converted_bytes": converted_bytes,
+                        "spool_bytes": (converted_bytes + 31) // 32 * 32,
+                        "temporary_payload_bytes": 0 if entry["type"] == "PQ2_0" else converted_bytes})
+    source_bytes = sum(item["bytes"] for item in source_files)
+    metadata_input_bytes = sum(item["bytes"] for item in metadata_inputs)
+    frozen_input_bytes = sum(item["converted_bytes"] for item in tensors if item["source_name"] == manifest["tensor"])
+    spool_bytes = sum(item["spool_bytes"] for item in tensors)
+    output_bytes = MODEL_METADATA_BYTES_V2 + spool_bytes
+    temporary_bytes = max(item["temporary_payload_bytes"] for item in tensors)
+    storage_bytes = source_bytes + metadata_input_bytes + frozen_input_bytes + spool_bytes + output_bytes + temporary_bytes
+    if storage_bytes > maximum_storage_bytes:
+        raise ValueError("v2 streaming aggregate storage budget exceeded")
+    return {
+        "resource_policy_version": 2, "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+        "source_revision": profile.revision, "converter_revision": PRISM_SOURCE_REVISION,
+        "projection_payload_sha256": plan["projection_payload_sha256"],
+        "source_files": source_files, "metadata_inputs": metadata_inputs, "tensors": tensors,
+        "source_storage_bytes": source_bytes, "metadata_input_storage_bytes": metadata_input_bytes,
+        "frozen_payload_input_bytes": frozen_input_bytes,
+        "spool_storage_bytes": spool_bytes, "output_file_ceiling_bytes": output_bytes,
+        "temporary_payload_peak_bytes": temporary_bytes, "logical_storage_peak_bytes": storage_bytes,
+        "maximum_source_file_bytes": maximum_source_file_bytes, "maximum_operand_bytes": maximum_operand_bytes,
+        "maximum_storage_bytes": maximum_storage_bytes, "data_alignment_bytes": 32,
+        "maximum_metadata_bytes": MODEL_METADATA_BYTES_V2, "ownership": "one_shard_one_operand_one_payload_serial",
+        "source_file_verification": "not_checked", "tensor_byte_verification": "not_checked",
+        "source_payload_verification": plan["source_payload_verification"],
+        "memory_measurement": "not_performed", "runtime_approval": "not_granted_by_resource_plan",
+    }
+
+
 def verify_profile_converted_vector(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
     source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,

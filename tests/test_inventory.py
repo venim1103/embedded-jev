@@ -684,6 +684,83 @@ def test_profile_model_conversion_plan_declares_dense_transforms_without_parity(
     assert plan["runtime_approval"] == "not_granted_by_conversion_plan"
 
 
+@pytest.mark.parametrize("source_shards", [1, 2])
+@pytest.mark.parametrize("vector_dtype", ["BF16", "F32"])
+@pytest.mark.parametrize("vocab_size", [32, 16384])
+def test_profile_model_streaming_resource_plan_v2_counts_serial_storage_without_io(monkeypatch, source_shards, vector_dtype, vocab_size):
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(source_shards=source_shards,
+        vector_dtype=vector_dtype, conv_dtype=vector_dtype, vocab_size=vocab_size)
+    original_report = json.dumps(report, sort_keys=True)
+    source_bytes = sum(profile.files[name].bytes for name in profile.packaging["shards"])
+    metadata_input_bytes = sum(pin.bytes for name, pin in profile.files.items() if name not in profile.packaging["shards"])
+    sizes, temporary_sizes = [], []
+    for item in report["tensors"]:
+        elements = int(np.prod(item["shape"]))
+        size = blocks.nbytes if item["name"] == manifest["tensor"] else elements * (4 if len(item["shape"]) != 2 else 2)
+        sizes.append(size + (-size % 32))
+        if item["name"] != manifest["tensor"]:
+            temporary_sizes.append(size)
+    expected_peak = source_bytes + metadata_input_bytes + blocks.nbytes + 2 * sum(sizes) + prism_codec.MODEL_METADATA_BYTES_V2 + max(temporary_sizes)
+
+    def never_open(*arguments, **keywords):
+        pytest.fail("resource planning attempted file I/O")
+
+    with monkeypatch.context() as no_io:
+        no_io.setattr("builtins.open", never_open)
+        no_io.setattr(prism_codec.os, "open", never_open)
+        plan = prism_codec.profile_model_streaming_resource_plan_v2(profile, report, manifest, blocks,
+            maximum_source_file_bytes=6 * 1024**3, maximum_operand_bytes=2 * 1024**3, maximum_storage_bytes=expected_peak)
+        assert plan["resource_policy_version"] == 2
+        assert plan["logical_storage_peak_bytes"] == expected_peak
+        assert plan["source_storage_bytes"] == source_bytes and len(plan["source_files"]) == source_shards
+        assert plan["metadata_input_storage_bytes"] == metadata_input_bytes
+        assert plan["frozen_payload_input_bytes"] == blocks.nbytes
+        assert plan["spool_storage_bytes"] == sum(sizes)
+        assert plan["temporary_payload_peak_bytes"] == max(temporary_sizes)
+        assert plan["projection_payload_sha256"] == manifest["payload_sha256"]
+        assert next(item for item in plan["tensors"] if item["source_name"] == manifest["tensor"])["temporary_payload_bytes"] == 0
+        assert plan["source_file_verification"] == plan["tensor_byte_verification"] == "not_checked"
+        assert plan["memory_measurement"] == "not_performed"
+        assert plan["runtime_approval"] == "not_granted_by_resource_plan"
+        for field, value, message in (
+            ("maximum_source_file_bytes", max(item["bytes"] for item in plan["source_files"]) - 1, "source file"),
+            ("maximum_operand_bytes", max(item["source_bytes"] for item in plan["tensors"]) - 1, "operand"),
+            ("maximum_storage_bytes", expected_peak - 1, "aggregate storage"),
+        ):
+            budgets = {"maximum_source_file_bytes": 6 * 1024**3, "maximum_operand_bytes": 2 * 1024**3,
+                       "maximum_storage_bytes": expected_peak, field: value}
+            with pytest.raises(ValueError, match=message):
+                prism_codec.profile_model_streaming_resource_plan_v2(profile, report, manifest, blocks, **budgets)
+        if vocab_size == 16384:
+            assert expected_peak > 256 * 1024**2
+            with pytest.raises(ValueError, match="aggregate storage"):
+                prism_codec.profile_model_streaming_resource_plan_v2(profile, report, manifest, blocks,
+                    maximum_source_file_bytes=6 * 1024**3, maximum_operand_bytes=2 * 1024**3,
+                    maximum_storage_bytes=256 * 1024**2)
+    plan["tensors"][0]["source_bytes"] = 0
+    plan["source_files"][0]["bytes"] = 0
+    assert json.dumps(report, sort_keys=True) == original_report
+    assert profile.files[profile.packaging["shards"][0]].bytes > 0
+
+
+@pytest.mark.parametrize("field,ceiling", [("maximum_source_file_bytes", 6 * 1024**3),
+                                          ("maximum_operand_bytes", 2 * 1024**3), ("maximum_storage_bytes", 48 * 1024**3)])
+@pytest.mark.parametrize("defect", [0, -1, True, 1.0, "over"])
+def test_profile_model_streaming_resource_plan_v2_refuses_invalid_budgets_before_plan(monkeypatch, field, ceiling, defect):
+    from embedded_jev import prism_codec
+
+    def never_plan(*arguments, **keywords):
+        pytest.fail("invalid resource budget reached conversion planning")
+
+    monkeypatch.setattr(prism_codec, "profile_model_conversion_plan", never_plan)
+    budgets = {"maximum_source_file_bytes": 6 * 1024**3, "maximum_operand_bytes": 2 * 1024**3,
+               "maximum_storage_bytes": 48 * 1024**3, field: ceiling + 1 if defect == "over" else defect}
+    with pytest.raises(ValueError, match="invalid v2 streaming resource budget"):
+        prism_codec.profile_model_streaming_resource_plan_v2(None, {}, {}, None, **budgets)
+
+
 @pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o"])
 def test_profile_model_conversion_plan_equal_heads_preserves_frozen_projection(target):
     from embedded_jev.prism_codec import profile_model_conversion_plan

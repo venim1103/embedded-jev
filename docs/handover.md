@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [v2 writer checkpoint](#v2-writer-checkpoint-2026-10-19), followed by the
+the [v2 resource checkpoint](#v2-resource-checkpoint-2026-10-19), followed by the
+[v2 writer checkpoint](#v2-writer-checkpoint-2026-10-19),
 [v2 payload checkpoint](#v2-payload-checkpoint-2026-10-19),
 [v2 shard checkpoint](#v2-shard-checkpoint-2026-10-19) and
 [v2 descriptor checkpoint](#v2-descriptor-checkpoint-2026-10-19).
@@ -314,6 +315,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## V2 Resource Checkpoint (2026-10-19)
+
+Resumed after user-pushed `8a16571`, tracked clean with only untouched user
+editor settings untracked. Added pure `profile_model_streaming_resource_plan_v2`
+over the existing profile-validated conversion plan. Caller budgets are
+explicit strict integers, capped at **6 GiB/input file**, **2 GiB/source or
+output operand** and **48 GiB aggregate logical storage**. Invalid budgets
+refuse before conversion-plan construction. No file opening or work launch.
+
+The conservative sum counts every pinned source shard and metadata input,
+the independent frozen payload input, the full 32-byte-aligned writer spool,
+one provisional output with the existing 32 MiB metadata allowance, and the
+largest nonfrozen temporary payload. Frozen codes/scales are never regenerated.
+Cached input sizes are still charged, so this is not merely additional free
+disk. Per-file/tensor counts are detached from caller inventory/profile.
+Receipts explicitly mark source/tensor verification unchecked, memory
+unmeasured and runtime approval not granted. Existing file acceptance and live
+resource guards are not replaced by this planning bound.
+
+Independent synthetic size oracles cover BF16/F32 auxiliary operands, one/two
+shards and small/32 MiB declared embedding geometry. Exact storage budgets
+pass; one-byte-under file/operand/aggregate budgets refuse. The larger full
+staging plan correctly refuses **256 MiB**, unlike the earlier selected-only
+composition. All planning checks prohibit file opening and create no large
+fixtures. Strict invalid-budget checks cover zero, negative, boolean, float
+and above-ceiling values. Final focused slice: **31 passed in 0.50 s**.
+Required gate: **757 passed, 90 optional skips in 20.68 s**, Ruff/whitespace/
+editor clean. No failures in this increment. Optional pinned converter/native
+controls were not rerun: this is a pure static preflight, not changed execution.
+
+No learned inputs, downloads, conversions, runtime builds/execution, candidate
+or quality work; no owned scratch or background jobs. Next: source ownership
+for the small vector/convolution operands needed alongside serial BF16 matrix
+streaming, using existing pinned arithmetic controls and bounded fixtures.
+Metadata/tokenizer integration, complete converter/resource validation and
+separate approval for any real-model artifact remain open.
 
 ## V2 Writer Checkpoint (2026-10-19)
 
