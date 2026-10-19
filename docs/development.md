@@ -1821,6 +1821,18 @@ parser disagreement and budget overflow refuse. It does not encode/decode
 contents, pre-normalize user-defined spaces, classify GGUF token types or
 select a pre-tokenizer tag. See the [added-token checkpoint](handover.md#added-token-checkpoint-2026-10-19).
 
+`write_profile_model_bpe_merge_metadata(...)` emits only
+`tokenizer.ggml.merges` through the existing metadata writer preflight. It
+requires the complete pinned ranked list to contain 1..4096 merges, each
+rendered string at most 4096 UTF-8 bytes and total content at most 64 KiB.
+Empty lists refuse because the pinned writer omits empty arrays. Space/NUL
+pieces and oversized input refuse without mutation, rather than truncating
+ranks or inventing an escaping scheme. Receipts remain declaration-only;
+there is no public merge-file verifier or complete tokenizer mapping. The
+existing tiny optional BPE control reads back exact `ARRAY`/`STRING` types
+and rank while confirming no vocabulary, type or pre-tokenizer fields were
+added. See the [merge emission checkpoint](handover.md#merge-emission-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

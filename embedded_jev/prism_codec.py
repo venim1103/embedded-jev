@@ -639,6 +639,36 @@ def write_profile_model_policy_metadata(profile, inventory: dict, manifest: dict
                             "runtime_approval": "not_granted_by_policy_metadata_emission"})
 
 
+def write_profile_model_bpe_merge_metadata(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
+):
+    """Emit a bounded ranked merge array, not a complete GGUF tokenizer."""
+    prepared = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    pairs = prepared["bpe_merge_pairs"]
+    if not 0 < len(pairs) <= 4096:
+        raise ValueError("unsupported bounded BPE merge count")
+    values = []
+    content_bytes = 0
+    for pair in pairs:
+        value = " ".join(pair)
+        if any(" " in token or "\x00" in token for token in pair) or len(value) > 4096:
+            raise ValueError("unsupported BPE merge string or content budget")
+        encoded_bytes = len(value.encode("utf-8"))
+        content_bytes += encoded_bytes
+        if encoded_bytes > 4096 or content_bytes > 64 * 1024:
+            raise ValueError("unsupported BPE merge content budget")
+        values.append(value)
+    records = _write_profile_model_metadata_records(writer, [
+        {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": values},
+    ])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "merge_content_bytes": content_bytes, "metadata_scope": "bpe_merge_subset",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_bpe_merge_emission"})
+
+
 def write_profile_model_context_metadata(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
 ):

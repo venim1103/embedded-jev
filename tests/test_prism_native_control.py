@@ -5538,7 +5538,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_context_metadata, write_profile_model_template_metadata
+from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -5615,6 +5615,20 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
     path = Path(directory) / "metadata.gguf"
     writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
     try:
+        if fixture["tokenizer_mode"] == "bpe":
+            merges = write_profile_model_bpe_merge_metadata(profile, metadata_files=metadata,
+                tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
+            assert merges["metadata_scope"] == "bpe_merge_subset" and merges["metadata_count"] == 1
+            assert merges["records"][0]["values"] == ("a b", "ab c")
+            assert merges["metadata_verification"] == "declared_records_emitted_not_file_verified"
+            before = dict(writer.kv_data[0])
+            try:
+                write_profile_model_bpe_merge_metadata(profile, metadata_files=metadata,
+                    tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
+                raise AssertionError("duplicate ranked merge metadata was emitted")
+            except ValueError as error:
+                assert "conflicting" in str(error)
+            assert writer.kv_data[0] == before
         receipt = write_profile_model_context_metadata(profile, metadata_files=metadata,
             tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
         assert receipt["source_metadata_verification"] == "profile_pinned_caller_bytes"
@@ -5653,6 +5667,11 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
         template_field = reader.fields["tokenizer.chat_template"]
         assert template_field.types == [gguf.GGUFValueType.STRING]
         assert b"".join(template_field.parts[index].tobytes() for index in template_field.data) == expected_template
+        if fixture["tokenizer_mode"] == "bpe":
+            field = reader.fields["tokenizer.ggml.merges"]
+            assert field.types == [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING]
+            assert tuple(field.parts[index].tobytes().decode() for index in field.data) == ("a b", "ab c")
+            assert not {"tokenizer.ggml.pre", "tokenizer.ggml.token_type", "tokenizer.ggml.tokens"}.intersection(reader.fields)
         assert not reader.tensors
     finally:
         reader.data._mmap.close()

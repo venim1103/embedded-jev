@@ -1307,6 +1307,71 @@ def test_profile_source_metadata_emission_preflights_all_groups_before_mutation(
     assert all(tuple(writer.kv_data[0][record["name"]][1]) == record["values"] for record in receipt["records"])
 
 
+@pytest.mark.parametrize("defect", [None, "source-pin", "tokenizer-pin", "architecture", "duplicate", "split-writer", "missing-array",
+                                    "empty", "space", "nul", "item-budget", "count-budget", "aggregate-budget",
+                                    "utf8-budget", "byte-limit", "utf8-limit", "aggregate-limit"])
+def test_profile_bpe_merge_emission_preflights_pins_format_budgets_and_writer(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    vocabulary = {"a": 0, "b": 1, "c": 2, "ab": 3, "abc": 4}
+    merges = [["a", "b"], ["ab", "c"]]
+    if defect == "empty":
+        merges = []
+    elif defect in ("space", "nul", "item-budget", "utf8-budget", "byte-limit", "utf8-limit"):
+        piece = {"space": "a b", "nul": "a\x00b", "item-budget": "a" * 4096, "utf8-budget": "\u00e9" * 2048,
+                 "byte-limit": "a" * 4094, "utf8-limit": "\u00e9" * 2047}[defect]
+        vocabulary, merges = {piece: 0, "c": 1, piece + "c": 2}, [[piece, "c"]]
+    expected_values = tuple(" ".join(pair) for pair in merges)
+    tokenizer_bytes = json.dumps({"model": {"type": "BPE", "vocab": vocabulary, "merges": merges}}).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=lambda text:
+        SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary)))))
+    writer = _profile_metadata_writer_fixture()
+    writer.add_array = lambda name, values: writer.kv_data[0].update({name: ("str_array", list(values))})
+    if defect == "source-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    elif defect == "architecture":
+        writer.arch = "qwen3"
+    elif defect == "duplicate":
+        writer.kv_data[0]["tokenizer.ggml.merges"] = ("str_array", ["keep"])
+    elif defect == "split-writer":
+        writer.kv_data.append({})
+    elif defect == "missing-array":
+        writer.add_array = None
+    elif defect in ("count-budget", "aggregate-budget", "aggregate-limit"):
+        prepared = prism_codec.prepare_profile_model_bpe_metadata(profile, metadata_files=metadata,
+            tokenizer_bytes=tokenizer_bytes, context_length=256)
+        pairs = (("a", "b"),) * 4097 if defect == "count-budget" else (("a" * 2048, "b" * 2047),) * (16 if defect == "aggregate-limit" else 17)
+        expected_values = tuple(" ".join(pair) for pair in pairs)
+        monkeypatch.setattr(prism_codec, "prepare_profile_model_bpe_metadata", lambda *args, **kwargs:
+            {**prepared, "bpe_merge_pairs": pairs, "bpe_merge_count": len(pairs)})
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256, "writer": writer}
+    if defect not in (None, "byte-limit", "utf8-limit", "aggregate-limit"):
+        with pytest.raises(ValueError):
+            prism_codec.write_profile_model_bpe_merge_metadata(profile, **arguments)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        return
+    receipt = prism_codec.write_profile_model_bpe_merge_metadata(profile, **arguments)
+    expected = [{"tokenizer.ggml.merges": ("str_array", list(expected_values))}]
+    assert writer.kv_data == expected
+    assert receipt["metadata_count"] == 1 and receipt["metadata_scope"] == "bpe_merge_subset"
+    assert receipt["records"][0]["values"] == expected_values
+    assert receipt["bpe_merge_count"] == len(expected_values) and receipt["merge_content_bytes"] == sum(len(value.encode()) for value in expected_values)
+    assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == receipt["gguf_token_type_verification"] == "not_checked"
+    assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
+    with pytest.raises(TypeError):
+        receipt["records"][0]["values"] = ()
+    with pytest.raises(ValueError, match="conflicting"):
+        prism_codec.write_profile_model_bpe_merge_metadata(profile, **arguments)
+    assert writer.kv_data == expected
+
+
 @pytest.mark.parametrize("defect", [None, "duplicate-policy", "duplicate-geometry", "missing-string", "architecture", "split-writer"])
 def test_profile_policy_metadata_emission_preflights_complete_declarations(defect):
     from embedded_jev import prism_codec

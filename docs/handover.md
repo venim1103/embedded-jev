@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [added-token checkpoint](#added-token-checkpoint-2026-10-19), followed by
+the [merge emission checkpoint](#merge-emission-checkpoint-2026-10-19), followed by
+the [added-token checkpoint](#added-token-checkpoint-2026-10-19),
 the [BPE declaration checkpoint](#bpe-declaration-checkpoint-2026-10-19),
 the [metadata file checkpoint](#metadata-file-checkpoint-2026-10-19),
 the [larger composition checkpoint](#larger-composition-checkpoint-2026-10-19),
@@ -340,6 +341,38 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Merge Emission Checkpoint (2026-10-19)
+
+After `392ae28`, `write_profile_model_bpe_merge_metadata` prepares fresh
+pinned BPE declarations and uses the existing metadata writer preflight for
+one `tokenizer.ggml.merges` string-array field. It emits the complete ranked
+list without truncation, bounded to 1..4096 rows, 4096 UTF-8 bytes per rendered
+string and 64 KiB aggregate content. Empty lists refuse: cached pinned
+`GGUFWriter.add_array` silently omits them. ASCII-space/NUL pieces refuse
+rather than guessing serialization. Missing writer methods, wrong/split
+architecture writers and an existing merge key refuse before mutation.
+Receipts say declarations emitted, not file verified; no pre-tokenizer,
+vocabulary, token-type, complete tokenizer or runtime proof is granted.
+
+Initial **13 default cases passed in 0.18 s**. With exact ASCII/UTF-8 and
+aggregate boundaries plus immutable records, **17 default cases and one
+actual cached writer/parser mode passed in 0.42 s**. Count/aggregate controls
+use explicit preparation doubles to isolate emitter limits; they are not
+source-vocabulary compatibility evidence. The existing tiny BPE mode emits
+`a b`, `ab c`, refuses duplicate emission without writer mutation and reads
+the literal ranked values back as `ARRAY` of `STRING`. The output has no
+vocabulary, token-type or pre-tokenizer fields and no tensors. Existing
+15 s child, output below 64 KiB and writer/spool/map/scratch cleanup remain.
+This file assertion is test evidence, not a public merge-file verifier.
+No failed check occurred in this increment.
+
+Required gate: **1051 passed, 99 skipped in 27.64 s**, Ruff/whitespace and
+three Python editor checks clean. No learned tokenizer/weight reads,
+downloads, builds, native/model jobs, real artifacts, refits or quality
+experiments ran. Next: prove the tiny tokenizer's unknown fingerprint is
+refused by the pinned converter before considering a pre-tokenizer mapping;
+do not assign a tag based only on a normalizer or successful merge readback.
 
 ## Added-Token Checkpoint (2026-10-19)
 
