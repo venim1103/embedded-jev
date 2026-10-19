@@ -2885,6 +2885,17 @@ part count needed by token types; the shared parser's old default of 32 parts
 is retained and independently exercised. The proof does not verify tensor data,
 the full tensor table, tokenizer/pre-tag semantics or native runtime acceptance.
 
+Use the `row-proof-capacity` parameter for the separately selectable synthetic
+4096-row ceiling check. It verifies that the 8 KiB record default refuses, then
+uses the explicit 128 KiB budget, preserving the old numeric-part default too.
+Its five corruption cases include the last string and type row. A parent-owned
+fixture packet below 1 MiB is passed by path, keeping the process guard's stdin
+cap at 64 KiB; packet, output and one serial fault all count toward the same
+8 MiB scratch cap. Existing 15 s child/60 s stage, 1 GiB observed RSS/no swap
+growth and 8 KiB summary limits are unchanged. The packet and output are removed
+even on guarded worker failure. This mode does not read learned inputs or run
+native/model code.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

@@ -6583,7 +6583,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6591,6 +6591,9 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
 
     from test_inventory import _packaging_fixture
 
+    capacity = tokenizer_mode == "row-proof-capacity"
+    if capacity:
+        tokenizer_mode = "row-proof"
     started = time.monotonic()
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
@@ -6619,6 +6622,12 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         pinned_enum = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:{enum_path}"])
         assert 0 < len(pinned_enum) <= 1024**2 and (source / enum_path).read_bytes() == pinned_enum
     metadata, _, record = _packaging_fixture(text_only=True)
+    if capacity:
+        from test_inventory import _prefill_model_policy_fixture
+
+        metadata = {}
+        profile, inventory, manifest, blocks = _prefill_model_policy_fixture(target="o", vocab_size=4096, metadata_output=metadata)
+        record = json.loads(_profile_parity_fixture(profile, inventory, manifest, blocks))["profile"]
     config = json.loads(metadata["config.json"])
     config["max_position_embeddings"] = 512
     metadata["config.json"] = json.dumps(config).encode()
@@ -6667,7 +6676,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()},
                "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens,
                "fingerprint_source": fingerprint_source, "unused_source": unused_source,
-               "special_source": special_source,
+               "special_source": special_source, "capacity": capacity,
                "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
@@ -6680,6 +6689,12 @@ from embedded_jev.model_profile import parse_model_profile
 from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_inventory, prepare_profile_model_tokenizer_vocabulary, prepare_profile_model_unused_token_rows, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_arrays, write_profile_model_tokenizer_vocabulary
 
 fixture = json.loads(sys.stdin.read())
+packet_bytes = 0
+if "fixture_path" in fixture:
+    packet_path = Path(fixture["fixture_path"])
+    packet_bytes = packet_path.stat().st_size
+    assert 0 < packet_bytes < 1024**2
+    fixture = json.loads(packet_path.read_bytes())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
 metadata = {name: bytes.fromhex(data) for name, data in fixture["metadata"].items()}
 tokenizer_bytes = bytes.fromhex(fixture["tokenizer"])
@@ -6800,12 +6815,21 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
                 proof_arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
                     "token_type_policy": "pinned_prism_no_transform_v1", "expected_file_bytes": len(original),
                     "expected_file_sha256": hashlib.sha256(original).hexdigest()}
+                if fixture["capacity"]:
+                    assert len(rows) == 4096 and len(original) > 8192
+                    try:
+                        prism_codec.verify_profile_gguf_tokenizer_rows_v2(profile, reader=reader, **proof_arguments)
+                        raise AssertionError("default token-row record budget grew implicitly")
+                    except ValueError as error:
+                        assert "records exceed byte budget" in str(error)
+                    proof_arguments["maximum_metadata_bytes"] = 128 * 1024
                 declarations = [{"name": row["name"], "kind": row["kind"], "values": row["values"]} for row in emitted["records"]]
                 try:
                     prism_codec._verify_profile_gguf_metadata_records(profile, reader=reader,
                         expected_file_bytes=len(original), expected_file_sha256=proof_arguments["expected_file_sha256"],
                         maximum_file_bytes=256 * 1024, deadline=time.monotonic() + 15, model_owner=None, descriptor=None,
-                        policy_version=2, file_cap=256 * 1024, header_cap=1024**2, declarations=declarations)
+                        policy_version=2, file_cap=256 * 1024, header_cap=1024**2, declarations=declarations,
+                        maximum_metadata_bytes=proof_arguments.get("maximum_metadata_bytes", 8192))
                     raise AssertionError("old numeric-array part cap changed implicitly")
                 except ValueError as error:
                     assert "field type or range mismatch: tokenizer.ggml.token_type" in str(error)
@@ -6878,11 +6902,14 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
             offsets = [int(strings.parts[strings.data[0]].ctypes.data - reader.data.ctypes.data),
                        int(types.parts[types.data[0]].ctypes.data - reader.data.ctypes.data),
                        int(types.parts[3].ctypes.data - reader.data.ctypes.data)]
+            if fixture["capacity"]:
+                offsets.extend([int(strings.parts[strings.data[-1]].ctypes.data - reader.data.ctypes.data),
+                                int(types.parts[types.data[-1]].ctypes.data - reader.data.ctypes.data)])
             for offset in offsets:
                 changed = bytearray(original)
                 changed[offset] ^= 1
                 fault_path.write_bytes(changed)
-                assert fault_path.stat().st_size < 256 * 1024 and sum(entry.stat().st_size for entry in root.iterdir()) < 8 * 1024**2
+                assert fault_path.stat().st_size < 256 * 1024 and packet_bytes + sum(entry.stat().st_size for entry in root.iterdir()) < 8 * 1024**2
                 fault = gguf.GGUFReader(fault_path)
                 try:
                     try:
@@ -6911,7 +6938,8 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
         assert path.read_bytes() == original
     summary = {"context_length": prepared["context_length"], "source_context_length": prepared["source_context_length"]}
     if fixture["tokenizer_mode"] in ("typed-rows", "row-proof"):
-        summary.update(output_file_bytes=len(original), logical_scratch_peak_bytes=2 * len(original), readback_faults=3)
+        summary.update(output_file_bytes=len(original), logical_scratch_peak_bytes=packet_bytes + 2 * len(original),
+                       readback_faults=len(offsets), token_rows=len(rows), fixture_packet_bytes=packet_bytes)
         if fixture["tokenizer_mode"] == "row-proof":
             summary.update(retained_file_hashes=len(hashes), maximum_read=max(reads), old_numeric_part_default_preserved=True)
     print(json.dumps(summary))
@@ -7229,8 +7257,17 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
 
         with ExitStack() as stack:
             if tokenizer_mode in ("typed-rows", "row-proof"):
-                fixture["scratch"] = stack.enter_context(TemporaryDirectory(prefix="jev-token-rows-"))
-            result = _run_tokenizer_only_guard(interpreter, code, json.dumps(fixture).encode(),
+                scratch = Path(stack.enter_context(TemporaryDirectory(prefix="jev-token-rows-")))
+                output_root = scratch / "output"
+                output_root.mkdir()
+                fixture["scratch"] = str(output_root)
+            payload = json.dumps(fixture).encode()
+            if capacity:
+                packet_path = scratch / "fixture.json"
+                assert 0 < len(payload) < 1024**2
+                packet_path.write_bytes(payload)
+                payload = json.dumps({"fixture_path": str(packet_path)}).encode()
+            result = _run_tokenizer_only_guard(interpreter, code, payload,
                 env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
                      "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
         assert result["returncode"] == 0, result["stderr"]
@@ -7239,7 +7276,9 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
         assert time.monotonic() - started < 60
         if tokenizer_mode in ("typed-rows", "row-proof"):
             assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
-            assert summary["readback_faults"] == 3
+            assert summary["readback_faults"] == (5 if capacity else 3)
+            assert summary["token_rows"] == (4096 if capacity else 32)
+            assert (summary["fixture_packet_bytes"] > 65536) is capacity
             if tokenizer_mode == "row-proof":
                 assert summary["retained_file_hashes"] == 2 and summary["maximum_read"] <= 65536
             assert not Path(fixture["scratch"]).exists()

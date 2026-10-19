@@ -6,6 +6,14 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Paused by user, 2026-10-19:** Finish the current bounded capacity check and
+pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
+completes that work after `91111b6`; no next implementation slice has started.
+All owned test scratch was cleaned and no experiment job remains. User editor
+settings stay untouched and untracked. Resume only on an explicit user request;
+prior autonomy, recorded approvals and tool notifications do not override this
+pause. Both learned-tokenizer one-shot approvals remain consumed.
+
 **Resumed by user, 2026-10-19:** Continue the previously approved synthetic-only
 larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 `origin/main`; untouched user editor settings remain untracked. An interrupted
@@ -361,6 +369,45 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Paired Rows Capacity Checkpoint (2026-10-19)
+
+After `91111b6`, the separately selectable `row-proof-capacity` synthetic control
+exercises the already-approved **4096-row ceiling**, without changing production
+code or widening any limits. Its profile/configuration and tokenizer pins are
+rebuilt together using existing fixtures. The source token-type reference,
+paired writer, exact typed readback and retained-file proof cover all rows.
+The default **8 KiB** selected-record budget still refuses this fixture; explicit
+**128 KiB** succeeds. The private numeric-array-part default **32** still refuses,
+while the public wrapper's existing bounded opt-in accepts the 4101-part record.
+No native 29-record contract changes.
+
+A size-only precheck found that the fixture packet exceeds the guard's **64 KiB
+stdin cap**. Rather than enlarging that cap, the parent owns a packet file below
+1 MiB in disposable scratch and sends only its path through stdin. Its bytes
+count toward the unchanged **8 MiB** logical scratch cap. Output/fault files stay
+below **256 KiB** each. Existing modes retain direct stdin fixture transport.
+
+**Evidence:** new capacity case **1 passed in 1.31 s**; all ten toy-tokenizer
+modes **10 passed in 3.25 s**. Capacity output **85,184 bytes**, packet
+**218,781 bytes**, packet-plus-output-and-one-fault peak **389,149 bytes**.
+Two whole-file hashes use the same retained descriptor; maximum read **65,536
+bytes**. Five fresh-hash corruption refusals include the final string and final
+type row, alongside first-row string/type and INT32-to-UINT32 faults. Existing
+bad-SHA, copied-part, restored-write-after-final-hash, closed-map, descriptor
+baseline and restored-byte checks also pass. Observed child RSS **81,985,536
+bytes**, process swap zero, host swap unchanged at **1,642,496 bytes**. Parent
+scratch is cleaned. Sampling is not a hard host memory guarantee.
+
+Required root gate **1193 passed, 113 skipped in 22.53 s**, Ruff/whitespace clean;
+Pylance syntax and editor diagnostics clean. No failed check in this increment.
+The interrupted prior patch was verified absent before editing. No native
+build/CTest, learned input, download, model execution/conversion, refit or quality
+experiment occurred. This proves bounded synthetic selected-row storage and
+lifetime checks, not complete tokenizer semantics, native integration or model
+quality. The user requested today's pause after this checkpoint; no next slice
+is authorized by this completion. A future explicit resume must retain all
+no-transform, no-padding, unverified pre-tag and learned-input boundaries.
 
 ## Paired Rows File Checkpoint (2026-10-19)
 
