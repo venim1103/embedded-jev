@@ -1944,6 +1944,26 @@ unchanged. Guarded copy/fault/restore/replacement/deadline/descriptor checks
 do not establish tokenizer or runtime semantics. See the [larger tokenizer
 checkpoint](handover.md#larger-tokenizer-checkpoint-2026-10-19).
 
+`write_profile_model_selected_metadata(...)` is a separate all-group
+preflight for policy, source-bound context/literal template and vocabulary/
+merge arrays. It reuses existing declaration builders and requires one
+complete preflight before writer mutation, including conflicts in either
+array key. Its row cap defaults to 4096 with explicit ceiling 16,384;
+receipts remain declaration-only, with no complete tokenizer mapping.
+
+`verify_profile_gguf_selected_metadata_v2(...)` prepares those inputs fresh
+and checks their selected typed records, including architecture, through
+one retained descriptor/shared deadline and the existing generic verifier.
+File default/ceiling are 16 MiB/24 GiB, header cap 1 MiB, selected record
+default/ceiling 8 KiB/128 KiB, row default/ceiling 4096/16,384 and reads at
+most 64 KiB. Template selection is explicit and its pinned size cannot
+exceed the chosen record budget. The old source writer/verifier contracts
+remain unchanged. This proof does not verify the tensor table, source
+weight files, template rendering, prompt boundaries, token types, pre-
+tokenizer or runtime. The separate synthetic composition control checks
+both old/new subset receipts, all-group fresh-hash faults and an unchanged
+frozen synthetic payload. See the [selected metadata checkpoint](handover.md#selected-metadata-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

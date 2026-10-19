@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [larger tokenizer checkpoint](#larger-tokenizer-checkpoint-2026-10-19), followed by
+the [selected metadata checkpoint](#selected-metadata-checkpoint-2026-10-19), followed by
+the [larger tokenizer checkpoint](#larger-tokenizer-checkpoint-2026-10-19),
 the [unused-row checkpoint](#unused-row-checkpoint-2026-10-19),
 the [larger tokenizer proposal](#larger-tokenizer-proposal-2026-10-19),
 the [missing-ID checkpoint](#missing-id-checkpoint-2026-10-19),
@@ -352,6 +353,61 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Selected Metadata Checkpoint (2026-10-19)
+
+After `3894adb`, `write_profile_model_selected_metadata` preflights policy,
+source-bound context/literal template and both tokenizer arrays together
+before mutation. `verify_profile_gguf_selected_metadata_v2` prepares fresh
+pinned inputs and verifies all selected typed declarations on one retained
+descriptor and shared deadline, using the existing generic file guards.
+The separate APIs preserve the old source writer and 8 KiB source verifier.
+Defaults remain 4096 rows/8 KiB selected bytes, explicit ceilings 16,384/
+128 KiB, header 1 MiB, file default/ceiling 16 MiB/24 GiB and reads 64 KiB.
+Template selection stays explicit with early pinned-size budget refusal.
+No tokenizer model/pre-tag/type/padding policy or rendering is inferred.
+
+The existing policy fixture gains an optional tokenizer pin; its default
+and frozen synthetic codes/scales are unchanged. Initial writer/source/
+capture checks **28 passed in 0.77 s**. Writer plus proof preparation/deadline
+and old source checks **38 passed in 1.12 s**. Controls cover source/manifest
+pins, invalid budgets/selections, preparation/final deadlines and conflicts
+in policy/context/template/vocabulary/merges before writer mutation.
+
+A separate actual cached parser/writer composition control uses 32/8193
+synthetic source-backed rows, the same frozen synthetic payload bytes/hash
+for both cases and a two-byte anchor. It first **passed in 2.91 s**: the
+old 27-record source subset remains provable in the same files; the new
+29-record proof includes writer-owned architecture and both arrays. Source
+declaration emission is 28 records in this fixture. Fresh whole-file hashes
+do not hide a byte fault in any of the five groups. Descriptor counts return
+to baseline, frozen payload hashes remain unchanged, maps/writers/spools/
+source and fault scratch clean normally. No real artifact is retained.
+
+After adding explicit writer-cap receipts and logical scratch measurement
+at the fault-copy peak, **14 default writer cases plus the actual control
+passed in 3.68 s**. Actual output sizes **2112/108,192 bytes**, selected bytes
+**1985/108,078**, spool **32** each. Logical scratch peaks, including synthetic
+inputs/payload and fault copies, **452,102/664,262 bytes**, below 8 MiB;
+each output and one serial fault copy below 1 MiB, spool at most 1 MiB.
+Exactly two hashes on one retained descriptor, reads **164/8328**, max
+**2112/65,536 bytes**. Uninstrumented verifier traces include all source and
+policy preparation: peaks **2,415,026/2,965,892 bytes**, below 8 MiB and
+growth at most 2 MiB; fixture/reader/writer/setup/mapped pages are excluded.
+Stage **2.710 s**, child 15 s/stage 60 s guards, observed RSS **89,419,776**,
+process high water **89,022,464**, process/host swap 0. Scratch cleaned.
+No failed check occurred in this increment.
+
+Required gate **1167 passed, 106 skipped in 41.97 s**, Ruff/whitespace and
+three Python editor checks clean. Pylance: all **41** fixture callers remain
+compatible. Existing independent array/matrix/resource controls were not
+changed. Neither consumed learned diagnostic was repeated; no learned data,
+downloads, builds, full-model conversion, BitNet/model execution, candidate
+mutation, refits or quality scoring ran. These files prove selected metadata
+only: the anchor/tensor table, source weights, actual tensor arithmetic,
+complete tokenizer/prompt semantics and runtime remain unverified. Next:
+bounded synthetic tensor/metadata composition, without changing old controls
+or treating independent receipts as an atomic whole-model proof.
 
 ## Larger Tokenizer Checkpoint (2026-10-19)
 
