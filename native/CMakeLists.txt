@@ -77,7 +77,7 @@ target_include_directories(prism_group_scale PRIVATE "${PRISM_SOURCE_DIR}/includ
 target_link_libraries(prism_group_scale PRIVATE ggml-cpu ggml-base ${CMAKE_DL_LIBS})
 add_executable(prism_bitnet_loader_control prism_bitnet_loader_control.cpp)
 target_compile_definitions(prism_bitnet_loader_control PRIVATE JEV_TEST_REAL_LOADER=1 JEV_TEST_FULL_RUNTIME=1)
-target_include_directories(prism_bitnet_loader_control PRIVATE "${PRISM_SOURCE_DIR}/src")
+target_include_directories(prism_bitnet_loader_control PRIVATE "${PRISM_SOURCE_DIR}/src" "${PRISM_SOURCE_DIR}/vendor")
 target_link_libraries(prism_bitnet_loader_control PRIVATE prism_group_scale llama Threads::Threads)
 
 add_library(prism_bitnet_prefill_test SHARED prism_bitnet_loader_control.cpp)

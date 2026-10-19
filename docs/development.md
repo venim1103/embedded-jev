@@ -2817,6 +2817,41 @@ pass actual native-A8/BitNet arithmetic, mixed graph concurrency, early discover
 and late refusal while linked to the full llama library. This is build/runtime
 compatibility, not complete MiMo weight loading or a native decoder prefill.
 
+### Offline Selected Metadata Control
+
+The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`
+branch runs before backend discovery. It compares exactly 29 selected typed
+declarations against pinned GGUF parser getters with `no_alloc=true` and no
+tensor context. Expected JSON is an array of `{name, kind, values}` objects;
+supported kinds are `string`, `u32`, `f32`, `i32_array` and `str_array`. Inputs
+must be regular/nonempty, GGUF below 1 MiB and JSON below 256 KiB. The control
+rejects duplicate members/names, nesting above eight, invalid types/counts,
+out-of-range values and mismatched values/order before calling typed getters.
+It is synthetic parser agreement, not file authentication, tensor arithmetic,
+complete tokenizer validation or native model execution.
+
+Build only the loader target through CMake Tools, with the existing cached tree,
+at most two jobs and an explicitly selected **Release** variant. Selecting a kit
+alone can let CMake Tools default to Debug and rebuild dependencies. Do not
+silently change variants or run a wider dependency rebuild; see the
+[recorded build history](handover.md#native-selected-record-checkpoint-2026-10-19).
+The opt-in test reuses source-bound 32/8193-row synthetic files, Python selected
+metadata proofs and the existing 15 s/1 GiB/no-swap-growth subprocess guard:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 \
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+PRISM_CONVERTER_PYTHON="$cache/dense-venv/bin/python" \
+MIMO_PRISM_RUNTIME_BUILD="$cache/native/jev-prism-runtime-v1-build" \
+python -m pytest -q -p no:cacheprovider --tb=short \
+   tests/test_prism_native_control.py::test_pinned_profile_selected_native_parser_on_synthetic_sources
+```
+
+This test never builds, downloads or opens learned inputs. Each GGUF/fault is
+below 1 MiB, expected declarations below 256 KiB, logical scratch below 8 MiB
+and the stage below 60 s. A short child can finish between RSS samples; observed
+values are not a hard peak-memory or target-device guarantee.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.

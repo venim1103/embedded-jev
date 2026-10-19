@@ -5,6 +5,8 @@
 #include "llama.h"
 #ifdef JEV_TEST_REAL_LOADER
 #include "llama-model-loader.h"
+#include "nlohmann/json.hpp"
+#include <set>
 #endif
 #ifdef JEV_TEST_FULL_RUNTIME
 #include "llama-model.h"
@@ -1314,7 +1316,150 @@ static int test_vocab_only(const char* path, const char* prompt) {
 }
 #endif
 
+#ifdef JEV_TEST_REAL_LOADER
+static std::vector<char> selected_metadata_file(const char* path, std::size_t limit) {
+    if (!std::filesystem::is_regular_file(path)) {
+        throw std::runtime_error("selected metadata input is not a regular file");
+    }
+    const auto size = std::filesystem::file_size(path);
+    if (size == 0 || size >= limit) {
+        throw std::runtime_error("selected metadata input exceeds bound");
+    }
+    std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"), std::fclose);
+    std::vector<char> bytes(size);
+    if (!file || std::fread(bytes.data(), 1, bytes.size(), file.get()) != bytes.size() ||
+            std::fgetc(file.get()) != EOF || std::ferror(file.get())) {
+        throw std::runtime_error("selected metadata input read failed");
+    }
+    return bytes;
+}
+
+static int test_selected_metadata(const char* path, const char* expected_path) {
+    using nlohmann::json;
+    try {
+        const auto expected_bytes = selected_metadata_file(expected_path, 256 * 1024);
+        std::vector<std::set<std::string>> object_keys(9);
+        const auto expected = json::parse(expected_bytes.begin(), expected_bytes.end(),
+            [&object_keys](int depth, json::parse_event_t event, json& value) {
+                if (depth > 8) {
+                    throw std::runtime_error("selected metadata JSON nesting exceeds bound");
+                }
+                if (event == json::parse_event_t::object_start) {
+                    object_keys.at(depth).clear();
+                } else if (event == json::parse_event_t::key &&
+                        (depth <= 0 || !object_keys.at(depth - 1).insert(value.get<std::string>()).second)) {
+                    throw std::runtime_error("selected metadata JSON duplicate member");
+                }
+                return true;
+            });
+        if (!expected.is_array() || expected.size() != 29) {
+            return 30;
+        }
+        std::set<std::string> names;
+        for (const auto& record : expected) {
+            if (!record.is_object() || record.size() != 3 || !record.contains("name") ||
+                    !record.contains("kind") || !record.contains("values") ||
+                    !record["name"].is_string() || !record["kind"].is_string() || !record["values"].is_array()) {
+                return 30;
+            }
+            const auto name = record["name"].get<std::string>();
+            const auto kind = record["kind"].get<std::string>();
+            const auto& values = record["values"];
+            if (name.empty() || name.size() > 256 || name.find('\0') != std::string::npos ||
+                    !names.insert(name).second || values.empty()) {
+                return 30;
+            }
+            if (kind == "string" || kind == "str_array") {
+                if (values.size() > (kind == "string" ? 1 : name == "tokenizer.ggml.merges" ? 4096 : 16384)) {
+                    return 30;
+                }
+                std::size_t total = 0;
+                for (const auto& value : values) {
+                    if (!value.is_string()) {
+                        return 30;
+                    }
+                    const auto text = value.get<std::string>();
+                    total += text.size();
+                    if (text.empty() || text.size() > 4096 || text.find('\0') != std::string::npos || total > 65536) {
+                        return 30;
+                    }
+                }
+            } else if (kind == "u32" || kind == "i32_array") {
+                if (values.size() > (kind == "u32" ? 1 : 16)) {
+                    return 30;
+                }
+                for (const auto& value : values) {
+                    if (!value.is_number_integer() ||
+                            (value.is_number_unsigned() && value.get<uint64_t>() >
+                                (kind == "u32" ? UINT32_MAX : INT32_MAX)) ||
+                            (!value.is_number_unsigned() &&
+                                (value.get<int64_t>() < (kind == "u32" ? 0 : INT32_MIN) ||
+                                 value.get<int64_t>() > (kind == "u32" ? int64_t(UINT32_MAX) : INT32_MAX)))) {
+                        return 30;
+                    }
+                }
+            } else if (kind != "f32" || values.size() != 1 || !values[0].is_number() ||
+                    !std::isfinite(values[0].get<double>()) ||
+                    !std::isfinite(values[0].get<float>())) {
+                return 30;
+            }
+        }
+        const auto bytes = selected_metadata_file(path, 1024 * 1024);
+        std::unique_ptr<gguf_context, decltype(&gguf_free)> context(
+            gguf_init_from_buffer(bytes.data(), bytes.size(), { true, nullptr }), gguf_free);
+        if (!context || gguf_get_n_kv(context.get()) > 64 || gguf_get_n_tensors(context.get()) > 427) {
+            return 31;
+        }
+        for (const auto& record : expected) {
+            const auto name = record["name"].get<std::string>();
+            const auto kind = record["kind"].get<std::string>();
+            const auto& values = record["values"];
+            const int64_t key = gguf_find_key(context.get(), name.c_str());
+            const auto type = kind == "string" ? GGUF_TYPE_STRING : kind == "u32" ? GGUF_TYPE_UINT32 :
+                kind == "f32" ? GGUF_TYPE_FLOAT32 : GGUF_TYPE_ARRAY;
+            if (key < 0 || gguf_get_kv_type(context.get(), key) != type) {
+                return 32;
+            }
+            if (kind == "string") {
+                if (values[0].get<std::string>() != gguf_get_val_str(context.get(), key)) {
+                    return 32;
+                }
+            } else if (kind == "u32") {
+                if (values[0].get<uint32_t>() != gguf_get_val_u32(context.get(), key)) {
+                    return 32;
+                }
+            } else if (kind == "f32") {
+                if (values[0].get<float>() != gguf_get_val_f32(context.get(), key)) {
+                    return 32;
+                }
+            } else {
+                if (gguf_get_arr_type(context.get(), key) != (kind == "str_array" ? GGUF_TYPE_STRING : GGUF_TYPE_INT32) ||
+                        gguf_get_arr_n(context.get(), key) != values.size()) {
+                    return 32;
+                }
+                for (std::size_t index = 0; index < values.size(); ++index) {
+                    if (kind == "str_array" ? values[index].get<std::string>() != gguf_get_arr_str(context.get(), key, index) :
+                            values[index].get<int32_t>() != static_cast<const int32_t*>(gguf_get_arr_data(context.get(), key))[index]) {
+                        return 32;
+                    }
+                }
+            }
+        }
+        std::puts("{\"selected_records\":29,\"tensor_data_allocated\":false,\"model_loaded\":false}");
+        return 0;
+    } catch (const std::exception&) {
+        std::fputs("selected metadata input refused\n", stderr);
+        return 30;
+    }
+}
+#endif
+
 int main(int argc, char** argv) {
+#ifdef JEV_TEST_REAL_LOADER
+    if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control") == 0) {
+        return test_selected_metadata(argv[2], argv[3]);
+    }
+#endif
 #ifdef JEV_TEST_FULL_RUNTIME
     if ((argc == 4 || argc == 5) && std::strcmp(argv[1], "--prefill-profile-bitnet-control") == 0) {
         return test_prefill_control(argv[2], true, argc == 5 ? argv[4] : "full", nullptr, nullptr, nullptr, argv[3]);

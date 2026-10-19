@@ -6042,14 +6042,24 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
     print(json.dumps(report, sort_keys=True))
 
 
-def _run_selected_metadata_composition_control(*, include_tensors=False, include_source_file=False):
+def _run_selected_metadata_composition_control(*, include_tensors=False, include_source_file=False, include_native_parser=False):
+    import sys
+    import time
     from tempfile import TemporaryDirectory
 
     from test_inventory import _prefill_model_policy_fixture
 
+    started = time.monotonic()
     source_dir, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
     if not source_dir or not interpreter:
         pytest.skip("requires pinned cached tokenizer/GGUF libraries; selected synthetic composition only")
+    if include_native_parser:
+        runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+        if not runtime_build:
+            pytest.skip("requires the separately built native selected-metadata control")
+        executable = Path(runtime_build) / "bin" / "prism_bitnet_loader_control"
+        assert executable.is_file()
+        assert "CMAKE_BUILD_TYPE:STRING=Release\n" in (Path(runtime_build) / "CMakeCache.txt").read_text()
     source = Path(source_dir)
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     code = r'''
@@ -6122,7 +6132,7 @@ for fixture in fixtures:
         manifest = {**manifest, "profile_sha256": profile.sha256,
                     "source_tensor_sha256": hashlib.sha256(bytes(rows * columns * 2)).hexdigest()}
         assert hashlib.sha256(blocks).hexdigest() == manifest["payload_sha256"]
-    path = root / "selected.gguf"
+    path = root / (f"selected-{fixture['vocabulary_rows']}.gguf" if fixture["include_native_parser"] else "selected.gguf")
     setup_logical_peak = 0
     writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
     try:
@@ -6362,12 +6372,29 @@ for fixture in fixtures:
             cases[-1]["source_faults"] = "changed_and_restored_after_output_refuse_before_receipt"
         assert len(os.listdir("/proc/self/fd")) == descriptor_count
         cases[-1]["logical_scratch_peak_bytes"] = logical_peak
+        if fixture["include_native_parser"]:
+            cases[-1]["native_fault_offsets"] = []
+            for name in ("jev.model.profile_sha256", "qwen35.context_length", "tokenizer.chat_template", "tokenizer.ggml.tokens", "tokenizer.ggml.merges"):
+                field = reader.fields[name]
+                cases[-1]["native_fault_offsets"].append({"name": name,
+                    "value": int(field.parts[field.data[0]].ctypes.data - reader.data.ctypes.data),
+                    "type": int(field.parts[2].ctypes.data - reader.data.ctypes.data),
+                    "name_start": int(field.parts[1].ctypes.data - reader.data.ctypes.data)})
         fault_path.unlink()
     finally:
         reader.data._mmap.close()
     assert hashlib.sha256(payload_path.read_bytes()).hexdigest() == manifest["payload_sha256"]
     assert sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file()) + spool_bytes < 8 * 1024**2
-    path.unlink()
+    if fixture["include_native_parser"]:
+        declarations = [{"name": "general.architecture", "kind": "string", "values": ["qwen35"]}]
+        declarations.extend({**record, "kind": "string" if record["kind"] == "str" else record["kind"]} for record in emitted["records"])
+        assert len(declarations) == 29
+        expected = json.dumps(declarations, default=dict).encode()
+        assert len(expected) < 256 * 1024
+        (root / f"expected-{fixture['vocabulary_rows']}.json").write_bytes(expected)
+        assert sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file()) < 8 * 1024**2
+    else:
+        path.unlink()
     if fixture["include_source_file"]:
         source_path.unlink()
 assert cases[1]["traced_peak_bytes"] - cases[0]["traced_peak_bytes"] <= 2 * 1024**2, cases
@@ -6398,7 +6425,8 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
             tokenizer_file = f"tokenizer-{vocabulary_rows}.json"
             (root / tokenizer_file).write_bytes(tokenizer_bytes)
             fixture.update(metadata={name: value.hex() for name, value in metadata.items()}, tokenizer_file=tokenizer_file,
-                           include_tensors=include_tensors, include_source_file=include_source_file)
+                           include_tensors=include_tensors, include_source_file=include_source_file,
+                           include_native_parser=include_native_parser, vocabulary_rows=vocabulary_rows)
             if include_source_file:
                 fixture["source_header_hex"] = headers[profile.packaging["shards"][0]][0].hex()
             fixtures.append(fixture)
@@ -6407,9 +6435,110 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
         assert result["returncode"] == 0, result["stderr"]
         report = json.loads(result["stdout"])
+        if include_native_parser:
+            native_reports = []
+            execute = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
+            for vocabulary_rows in (32, 8193):
+                path = root / f"selected-{vocabulary_rows}.gguf"
+                expected_path = root / f"expected-{vocabulary_rows}.json"
+                assert path.stat().st_size < 1024**2 and expected_path.stat().st_size < 256 * 1024
+                arguments = [str(executable), "--selected-metadata-control", str(path), str(expected_path)]
+                native = _run_tokenizer_only_guard(sys.executable, execute, json.dumps(arguments).encode(), env=os.environ)
+                assert native["returncode"] == 0, native
+                assert json.loads(native["stdout"]) == {"selected_records": 29, "tensor_data_allocated": False, "model_loaded": False}
+                declarations = json.loads(expected_path.read_bytes())
+                original = path.read_bytes()
+                fault_path = root / "native-fault.bin"
+                refused = 0
+                logical_peak = sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file())
+
+                def refuse(*, expected_bytes=None, gguf_bytes=None, status=30):
+                    nonlocal refused, logical_peak
+                    assert (expected_bytes is None) != (gguf_bytes is None)
+                    fault_path.write_bytes(expected_bytes if expected_bytes is not None else gguf_bytes)
+                    assert fault_path.stat().st_size < (256 * 1024 + 1 if expected_bytes is not None else 1024**2)
+                    logical_peak = max(logical_peak, sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file()))
+                    assert logical_peak < 8 * 1024**2
+                    call = [str(executable), "--selected-metadata-control",
+                            str(path if gguf_bytes is None else fault_path), str(expected_path if expected_bytes is None else fault_path)]
+                    fault = _run_tokenizer_only_guard(sys.executable, execute, json.dumps(call).encode(), env=os.environ)
+                    assert fault["returncode"] == status and not fault["stdout"], fault
+                    for name in ("observed_rss_bytes", "observed_process_swap_bytes", "observed_host_swap_bytes"):
+                        native[name] = max(native[name], fault[name])
+                    refused += 1
+                    fault_path.unlink()
+
+                refuse(expected_bytes=json.dumps(declarations[:-1]).encode())
+                refuse(expected_bytes=b'[{"name":"duplicate","name":"general.architecture","kind":"string","values":["qwen35"]},' + json.dumps(declarations[1:]).encode()[1:])
+                refuse(expected_bytes=b"[invalid")
+                refuse(expected_bytes=b" " * (256 * 1024))
+                refuse(expected_bytes=b"[" * 10 + b"0" + b"]" * 10)
+                for defect in ("duplicate", "missing-key", "wrong-kind", "wrong-value", "nul", "long-string", "unknown-kind",
+                               "array-order", "array-count", "row-cap", "content-cap", "bool-u32", "negative-u32", "overflow-u32",
+                               "overflow-i32", "overflow-f32"):
+                    changed = json.loads(json.dumps(declarations))
+                    number = next(record for record in changed if record["kind"] == "u32")
+                    tokens = next(record for record in changed if record["name"] == "tokenizer.ggml.tokens")
+                    status = 30
+                    if defect == "duplicate":
+                        changed[1] = changed[0]
+                    elif defect == "missing-key":
+                        changed[0]["name"] = "missing.selected.key"
+                        status = 32
+                    elif defect == "wrong-kind":
+                        changed[0].update(kind="u32", values=[1])
+                        status = 32
+                    elif defect == "wrong-value":
+                        changed[0]["values"] = ["not-qwen35"]
+                        status = 32
+                    elif defect in ("nul", "long-string", "unknown-kind"):
+                        if defect == "unknown-kind":
+                            changed[0]["kind"] = "unrecognized"
+                        else:
+                            changed[0]["values"] = ["qwen35\0suffix" if defect == "nul" else "x" * 4097]
+                    elif defect == "array-order":
+                        tokens["values"][:2] = reversed(tokens["values"][:2])
+                        status = 32
+                    elif defect == "array-count":
+                        tokens["values"].pop()
+                        status = 32
+                    elif defect == "row-cap":
+                        tokens["values"] = ["x"] * 16385
+                    elif defect == "content-cap":
+                        tokens["values"] = ["x" * (65536 // vocabulary_rows + 1)] * vocabulary_rows
+                    elif defect in ("bool-u32", "negative-u32", "overflow-u32"):
+                        number["values"] = [{"bool-u32": True, "negative-u32": -1, "overflow-u32": 2**32}[defect]]
+                    elif defect == "overflow-i32":
+                        next(record for record in changed if record["kind"] == "i32_array")["values"] = [2**31]
+                    elif defect == "overflow-f32":
+                        next(record for record in changed if record["kind"] == "f32")["values"] = [1e300]
+                    encoded = json.dumps(changed).encode()
+                    assert len(encoded) < 256 * 1024
+                    refuse(expected_bytes=encoded, status=status)
+                offsets = next(case for case in report["cases"] if case["rows"] == vocabulary_rows).pop("native_fault_offsets")
+                for field in offsets:
+                    changed = bytearray(original)
+                    changed[field["value"]] ^= 1
+                    refuse(gguf_bytes=changed, status=32)
+                context_field = next(field for field in offsets if field["name"] == "qwen35.context_length")
+                changed = bytearray(original)
+                changed[context_field["type"]:context_field["type"] + 4] = (5).to_bytes(4, "little")
+                refuse(gguf_bytes=changed, status=32)
+                changed = bytearray(original)
+                changed[context_field["name_start"]] ^= 1
+                refuse(gguf_bytes=changed, status=32)
+                refuse(gguf_bytes=b"bad", status=31)
+                assert path.read_bytes() == original and json.loads(expected_path.read_bytes()) == declarations
+                native_reports.append({"vocabulary_rows": vocabulary_rows, "refused_cases": refused,
+                                       "logical_scratch_peak_bytes": logical_peak, **native})
+            report["native_parser"] = native_reports
+            assert time.monotonic() - started < 60
+            report["native_stage_seconds"] = time.monotonic() - started
     assert not root.exists()
     report.update({name: result[name] for name in ("observed_rss_bytes", "observed_process_swap_bytes", "host_swap_baseline_bytes", "observed_host_swap_bytes")})
     report["scratch_cleaned"] = True
+    if include_native_parser:
+        assert len(json.dumps(report).encode()) <= 8192
     print(json.dumps(report, sort_keys=True))
 
 
@@ -6423,6 +6552,10 @@ def test_pinned_profile_selected_tensor_metadata_composition_on_synthetic_source
 
 def test_pinned_profile_selected_source_fixture_composition_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True)
+
+
+def test_pinned_profile_selected_native_parser_on_synthetic_sources():
+    _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
 @pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory"])

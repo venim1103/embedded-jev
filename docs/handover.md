@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [native selected-record proposal](#native-selected-record-proposal-2026-10-19), followed by
+the [native selected-record checkpoint](#native-selected-record-checkpoint-2026-10-19), followed by
+the [native selected-record proposal](#native-selected-record-proposal-2026-10-19),
 the [file-bound composition checkpoint](#file-bound-composition-checkpoint-2026-10-19),
 the [tensor metadata checkpoint](#tensor-metadata-checkpoint-2026-10-19),
 the [selected metadata checkpoint](#selected-metadata-checkpoint-2026-10-19),
@@ -357,9 +358,96 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Native Selected-Record Checkpoint (2026-10-19)
+
+The approved executable-only `--selected-metadata-control` now compiles and
+passes bounded synthetic agreement/refusal controls. It runs before backend
+discovery, parses GGUF with `no_alloc=true` and no tensor context, and compares
+29 expected typed records via checked getters: strings, UINT32, FLOAT32,
+INT32 arrays and string arrays. Expected declarations are fresh outputs from
+the existing synthetic writer, separately checked by the Python file proof;
+they are not an independent native profile/provenance authority. The shared
+prefill target and runtime ABI are unchanged.
+
+The native control accepts only regular, nonempty inputs below 1 MiB for GGUF
+and 256 KiB for expected JSON. It refuses duplicate JSON members and record
+names, excess nesting, unsupported types, wrong cardinality, NUL-bearing
+expected strings, integer overflow, nonfinite FLOAT32 conversion, row/content
+budget violations and mismatched native types/values/order. These controls do
+not certify arbitrary malformed GGUF handling, complete tokenizer semantics,
+tensor storage/arithmetic, a native model load or runtime/model quality. The
+Python proof retains its file identities/hashes; this native buffer comparison
+does not add an atomic cross-file or retained-descriptor authenticity receipt.
+
+**Build history and deviation:** initial dedicated-tool builds could not configure
+and had no diagnostics. The user's `[Unspecified]` kit selection unblocked the
+tool, but it silently chose **Debug**, causing an unexpected **192-step dependency
+rebuild in 104.7 s**, not the approved incremental-only scope. The result was
+discovered after the synchronous tool returned; that build's RSS/swap was not
+measured. No GGML CPU/base sources were rebuilt or pinned source files edited.
+The agent disclosed the deviation and obtained separate approval for one
+dependency rebuild after the user selected **Release**. That 192-step build
+passed in **106.7 s**, at most two jobs, with observed process-tree RSS peak
+**520,249,344 bytes**, no process swap, and host swap fixed at **1,929,216 bytes**
+across 1,037 active samples. Sampling is not a hard host-memory guarantee.
+The later duplicate-member repair built only the loader object/link: **two steps,
+6.43 s**. The cache remains Release/clang++-18 with the original pinned paths.
+
+**Checks and failure history:** native positive agreement first passed in
+**2.95 s** on both 32/8193-row source-bound fixtures. Adding 27 refusal cases
+per size passed in **3.93 s**. The subsequent duplicate-JSON-member regression
+correctly failed in **2.98 s**, because default JSON parsing silently retained
+the last member; a bounded parse callback now rejects that before GGUF access.
+The same expanded test passed in **3.68 s**, with **29 refusals per size**,
+including malformed GGUF, actual missing/changed fields and wrong scalar types
+without getter aborts. Native stage **3.56 s**, Python preparation **2.39 s**;
+child/stage limits remain 15/60 s. Native sampled RSS at most **7,774,208 bytes**,
+preparation observed RSS **90,951,680 bytes**; process swap stayed zero and host
+swap did not grow. Very short native processes can escape peak RSS sampling.
+
+Outputs **102,496/208,608 bytes**, source-bound scratch peak **6,419,609 bytes**,
+native fault-stage peak **868,926 bytes**, one serial fault copy, bounded JSON
+and summary below 8 KiB; parent scratch was cleaned. Old three composition modes
+and six guard controls: **9 passed in 7.72 s**. Pylance reports all four helper
+calls compatible and no syntax errors; editor diagnostics are clean. Required
+root gate: **1167 passed, 109 skipped in 22.65 s**, Ruff/whitespace clean.
+The new native opt-in ran separately; default skips are not native evidence.
+Final existing early/late CTests both passed (**0.11/0.01 s**); the tool also
+emitted non-fatal missing `DartConfiguration.tcl` warnings. No model data,
+downloads, learned diagnostic replay, conversion, refit or quality experiment ran.
+
+Next: a separately testable synthetic follow-up can exercise multibyte literals
+and selected string-array element types; do not promote this parser control to
+complete tokenizer or model acceptance. Preserve both consumed learned-tokenizer
+approval boundaries and untouched, untracked local editor settings.
+
 ## Native Selected-Record Proposal (2026-10-19)
 
-**Not approved, edited, built or run.** After `78a03ab`, read-only inspection
+**Historical proposal/setup state, superseded by the checkpoint above.** The user approved
+the bounded parser scope and three local CMake settings, then explicitly asked
+the agent to configure and continue despite editor target discovery. Configure-only
+against the existing Release/clang++-18/Ninja tree succeeded in 0.1 s, with
+generation taking 0.0 s. Its generated Ninja graph contains the loader target;
+cached pinned sources remained unchanged. Local `.vscode` settings stay untracked
+and must not be staged.
+
+The executable-only `--selected-metadata-control` branch now uses bounded JSON
+and GGUF buffers, `no_alloc=true`, and type-checked scalar/array getters before
+backend discovery. Only the executable receives the existing vendored JSON include
+directory. These are work-in-progress source changes, not native test evidence;
+the Python integration/fault controls have not yet been added.
+
+**Current build blocker:** the targeted CMake build tool failed before compilation
+with `Build failed: Unable to configure the project`. Its diagnostics tool returned
+none; the current CMake extension log shows the requested loader target but no
+configure command or compiler invocation. Source editor diagnostics are clean,
+which is not compilation evidence. No native binary or CTest ran. Do not report
+the cached binary as containing this branch or commit the unverified source.
+Builds/tests still require the dedicated CMake tools; do not bypass their failure
+with a terminal build. Resolve tool-driven configuration before the first compile,
+then add the bounded Python integration/fault checks and complete the gates below.
+
+**Historical prerequisite inspection:** after `78a03ab`, read-only inspection
 found the cached `jev-prism-runtime-v1-build` control and llama library plus
 cached GGML CPU/base libraries, Release configuration, `clang++-18` and
 Ninja. The pinned source is clean at
@@ -368,15 +456,13 @@ Ninja. The pinned source is clean at
 dependency is proposed. These observations do not attest cached binary
 provenance or constitute compiled/native test evidence.
 
-**Setup blocker:** VS Code CMake Tools returned no active build targets.
-The user must select/configure the existing `native` CMake project against
-`$cache/native/jev-prism-runtime-v1-build`, Release/clang++-18, with build
-parallelism at most two, before a targeted tool-driven build. Preserve user
-editor settings; no `.vscode` change was made. Do not substitute a manual
-terminal build or silently configure another tree/source. CMake build/test
-tools must discover the target/tests before building/running them.
+**Historical setup blocker:** VS Code CMake Tools returned no active build
+targets, including after the successful agent-run configuration described above.
+The user has waived editor target discovery as a prerequisite to parser edits,
+not the bounded build scope or verification requirements. Preserve the existing
+tree/source and build parallelism of at most two.
 
-If separately approved, add a test-only argument branch in the existing
+The approved scope is a test-only argument branch in the existing
 loader control before backend discovery. Use pinned GGUF metadata parsing
 with `no_alloc=true` and scalar/array getters, plus bounded structured JSON
 expected declarations from the Python-verified synthetic file. Compare all
@@ -402,8 +488,8 @@ Run the applicable two existing synthetic CTests after the native source
 change, preserving their actual arithmetic/dispatch assertions, plus focused
 parser controls and the required root gate. Those old CTests are compiled
 synthetic compatibility controls, not a new model execution or quality study.
-Another native/learned/runtime expansion needs its own scope. Wait for both
-approval and a discoverable correctly configured CMake target before editing.
+Another native/learned/runtime expansion needs its own scope. The parser approval
+does not renew either consumed learned-tokenizer diagnostic approval.
 
 ## File-Bound Composition Checkpoint (2026-10-19)
 
