@@ -2195,10 +2195,52 @@ def verify_profile_gguf_policy_metadata_v2(
     )
 
 
+def verify_profile_gguf_source_metadata_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, metadata_files: dict,
+    tokenizer_bytes: bytes, context_length: int, template_source: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30, gguf_template_bytes: bytes | None = None,
+):
+    """Bind pinned policy/context/literal-template inputs to selected v2 GGUF records, not rendering."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 24 * 1024**3
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or template_source not in ("source", "gguf_embedded")
+    ):
+        raise ValueError("invalid source metadata file identity, selection or budget")
+    template_name = profile.tokenization["template_file" if template_source == "source" else "gguf_template_file"]
+    if template_name is not None and profile.files[template_name].bytes > 8192:
+        raise ValueError("selected template exceeds bounded source metadata record budget")
+    deadline = time.monotonic() + maximum_seconds
+    prepared = prepare_profile_model_template_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length,
+        template_source=template_source, gguf_template_bytes=gguf_template_bytes)
+    duration = deadline - time.monotonic()
+    if duration <= 0:
+        raise ValueError("source metadata preparation deadline exceeded")
+    verified = _verify_profile_gguf_policy_metadata(
+        profile, inventory, manifest, pq2_blocks, reader=reader, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes,
+        maximum_seconds=duration, model_owner=None, policy_version=2, source_metadata=prepared,
+    )
+    if time.monotonic() > deadline:
+        raise ValueError("source metadata verification deadline exceeded")
+    return MappingProxyType({**prepared, **verified, "metadata_scope": "policy_context_template_subset",
+                            "source_metadata_verification": "profile_pinned_inputs_and_selected_gguf_records_match",
+                            "metadata_verification": "selected_policy_context_template_records_match_file",
+                            "model_metadata_verification": "selected_policy_context_template_records_only",
+                            "selected_template_file_verification": "exact_profile_pinned_utf8_bytes_match_output_record",
+                            "runtime_approval": "not_granted_by_source_metadata_verification"})
+
+
 def _verify_profile_gguf_policy_metadata(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int,
-    maximum_seconds: float, model_owner, policy_version: int,
+    maximum_seconds: float, model_owner, policy_version: int, source_metadata=None,
 ):
     import sys
 
@@ -2232,6 +2274,11 @@ def _verify_profile_gguf_policy_metadata(
     ):
         raise ValueError("policy metadata reader layout or budget mismatch")
     declarations = _profile_model_policy_metadata_declarations(profile, specification)
+    if source_metadata is not None:
+        declarations.extend([
+            {"name": source_metadata["context_metadata_name"], "kind": "u32", "values": [source_metadata["context_length"]]},
+            {"name": source_metadata["template_metadata_name"], "kind": "string", "values": [source_metadata["template"]]},
+        ])
     table_offset = min(int(tensor.field.offset) for tensor in reader.tensors)
     if not 24 <= table_offset <= reader.data_offset:
         raise ValueError("policy metadata tensor table boundary mismatch")
@@ -2245,7 +2292,7 @@ def _verify_profile_gguf_policy_metadata(
         name, kind, values = item["name"], item["kind"], item["values"]
         encoded_name = name.encode("ascii")
         if kind == "string":
-            value = values[0].encode("ascii")
+            value = values[0].encode("utf-8")
             encoded_value = struct.pack("<Q", len(value)) + value
         elif kind == "i32_array":
             encoded_value = struct.pack("<IQ", 5, len(values)) + struct.pack("<" + "i" * len(values), *values)

@@ -3053,6 +3053,80 @@ def test_profile_gguf_policy_metadata_v2_refuses_invalid_inputs_before_import(mo
         verify_profile_gguf_policy_metadata_v2(profile, report, manifest, blocks, **arguments)
 
 
+@pytest.mark.parametrize("defect", [None, "file-budget", "file-bytes", "file-pin", "seconds", "context", "template-selection", "embedded-missing", "template-budget",
+                                    "metadata-pin", "tokenizer-pin", "mutable", "prepare-deadline", "verify-deadline", "owner"])
+def test_profile_gguf_source_metadata_v2_prepares_pins_before_file_verification(monkeypatch, defect):
+    from types import MappingProxyType
+
+    from embedded_jev import prism_codec
+
+    metadata = {}
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(metadata_output=metadata)
+    clock = [0]
+    events = []
+    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: clock[0])
+    original_prepare = prism_codec.prepare_profile_model_template_metadata
+
+    def prepare(*arguments, **keywords):
+        result = original_prepare(*arguments, **keywords)
+        events.append("prepared")
+        clock[0] = 31 if defect == "prepare-deadline" else 2
+        return result
+
+    def verify(*arguments, **keywords):
+        prepared = keywords["source_metadata"]
+        events.append("verified")
+        assert prepared["context_length"] == 256 and prepared["source_context_length"] == 512
+        assert prepared["template"].encode() == metadata[profile.tokenization["template_file"]]
+        assert keywords["policy_version"] == 2 and keywords["model_owner"] is None and keywords["maximum_seconds"] == 28
+        clock[0] = 31 if defect == "verify-deadline" else 4
+        return MappingProxyType({"metadata_names": (prepared["context_metadata_name"], prepared["template_metadata_name"])})
+
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_template_metadata", prepare)
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_policy_metadata", verify)
+    arguments = {"reader": object(), "metadata_files": metadata, "tokenizer_bytes": b"{}", "context_length": 256,
+                 "template_source": "source", "expected_file_bytes": 1, "expected_file_sha256": "f" * 64}
+    if defect == "file-budget":
+        arguments["maximum_file_bytes"] = 24 * 1024**3 + 1
+    elif defect == "file-bytes":
+        arguments["expected_file_bytes"] = True
+    elif defect == "file-pin":
+        arguments["expected_file_sha256"] = "invalid"
+    elif defect == "seconds":
+        arguments["maximum_seconds"] = True
+    elif defect == "context":
+        arguments["context_length"] = 513
+    elif defect == "template-selection":
+        arguments["template_source"] = "automatic"
+    elif defect == "embedded-missing":
+        arguments["template_source"] = "gguf_embedded"
+    elif defect == "template-budget":
+        from dataclasses import replace
+
+        name = profile.tokenization["template_file"]
+        profile = replace(profile, files={**profile.files, name: replace(profile.files[name], bytes=8193)})
+    elif defect == "metadata-pin":
+        arguments["metadata_files"] = {**metadata, "config.json": metadata["config.json"] + b" "}
+    elif defect == "tokenizer-pin":
+        arguments["tokenizer_bytes"] = b"{ }"
+    elif defect == "mutable":
+        arguments["metadata_files"] = {name: bytearray(data) for name, data in metadata.items()}
+    elif defect == "owner":
+        arguments["model_owner"] = object()
+    if defect is not None:
+        with pytest.raises(TypeError if defect == "owner" else ValueError):
+            prism_codec.verify_profile_gguf_source_metadata_v2(profile, report, manifest, blocks, **arguments)
+        assert events == (["prepared"] if defect == "prepare-deadline" else ["prepared", "verified"] if defect == "verify-deadline" else [])
+        return
+    receipt = prism_codec.verify_profile_gguf_source_metadata_v2(profile, report, manifest, blocks, **arguments)
+    assert events == ["prepared", "verified"]
+    assert receipt["context_length"] == 256 and receipt["template_render_verification"] == "not_checked"
+    assert receipt["metadata_verification"] == "selected_policy_context_template_records_match_file"
+    assert receipt["runtime_approval"] == "not_granted_by_source_metadata_verification"
+    with pytest.raises(TypeError):
+        receipt["context_length"] = 512
+
+
 def test_profile_model_policy_refuses_unpinned_runtime():
     from embedded_jev.prism_codec import profile_model_specification
 

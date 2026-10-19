@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [larger composition checkpoint](#larger-composition-checkpoint-2026-10-19), followed by
+the [metadata file checkpoint](#metadata-file-checkpoint-2026-10-19), followed by
+the [larger composition checkpoint](#larger-composition-checkpoint-2026-10-19),
 the [source-bound GGUF checkpoint](#source-bound-gguf-checkpoint-2026-10-19),
 the [GGUF metadata checkpoint](#gguf-metadata-checkpoint-2026-10-19),
 the [larger GGUF checkpoint](#larger-gguf-checkpoint-2026-10-19),
@@ -337,6 +338,58 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Metadata File Checkpoint (2026-10-19)
+
+After `760e4b3`, `verify_profile_gguf_source_metadata_v2` binds freshly
+prepared immutable source metadata/tokenizer bytes to exact published policy,
+context and literal UTF-8 template records. It adds two declarations to the
+shared bounded parser, not a second independent parser or trusted external
+receipt. File/selection budgets are checked before preparation; preparation
+and file verification share one deadline. Existing 16 MiB default/24 GiB
+file ceiling, 1 MiB header, 8 KiB total selected records and 64 KiB maximum
+read limits stay unchanged. A template pin above 8 KiB refuses early; it
+does not relax the aggregate 8 KiB selected-record budget. Legacy and policy-
+only public APIs retain their contracts; Pylance confirms all **3** shared
+helper call sites are compatible with the optional source declarations.
+
+Fifteen default preparation/pin/budget/selection/no-fallback/deadline/owner
+controls pass, including missing embedded bytes and oversized template pin.
+The earlier 13-case subset passed in **0.36 s**. The affected actual small
+pinned frozen control verifies all **27 declarations** in **6.63 s**. The
+larger control emits the same policy/context/template composer and proves
+context **256** against pinned source context **512**, plus non-ASCII UTF-8
+templates. Small selects source text; large explicitly selects distinct,
+equal-byte-length separately pinned GGUF-embedded text. Origin remains
+`profile_declared_not_source_gguf_verified`, not a claim about an originating
+GGUF. Independent fresh-whole-file-hash faults in policy SHA, context value
+and template bytes are each refused on the same reused fault copy.
+
+The first larger/default focused run passed **16 cases in 2.25 s**; the
+explicit two-origin larger control then passed in **2.00 s**, no failures.
+Latest output **33,560,224 bytes**, selected output offset **16,780,960**,
+source **48,270,760**, operand **16,779,264**, spool **33,554,432** and
+conservative source/spool/output/fault extents **148,945,640** remain within
+all prior bounds. Matrix traces **2,421,988 / 2,430,676**, source metadata
+**2,406,294 / 2,405,867**, source-bound **2,562,656 / 2,499,169 bytes** all
+meet unchanged 3 MiB peak/256 KiB growth assertions. Large metadata uses
+**1,149 reads**, at most 65,536 bytes. Regions exclude fixture setup, GGUF
+parsing, writer, mapped pages and cache; source-bound tracing includes its
+source header/owner work. Every source/output hash-count and late source/
+file replacement/deadline/cleanup control remains active.
+
+Latest stage **1.601 s**, process high-water **99,393,536 bytes**, host
+available **17,344,720,896 -> 17,314,664,448**, observed host/process swap zero,
+disk-free equal and scratch cleaned. An earlier successful run observed a
+4 KiB disk-free delta; cleanup was still verified, and disk counters are
+time-local shared-host observations, not resource guarantees. Child/stage
+limits remain 15/60 s. Required gate: **996 passed, 97 skipped in 26.07 s**,
+Ruff/whitespace and three editor checks clean. No learned input, download,
+build, native runtime, real artifact, refit or quality experiment ran.
+Exact literal metadata proof is not template rendering, prompt boundaries,
+BPE/vocabulary conversion, complete-table/model support or runtime approval.
+Next: bounded trusted-parser/tokenizer metadata prerequisites only; do not
+infer full tokenizer support or authorize model execution from this file gate.
 
 ## Larger Composition Checkpoint (2026-10-19)
 

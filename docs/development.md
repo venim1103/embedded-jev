@@ -1786,6 +1786,19 @@ It grants neither native owner/runtime approval nor complete-table or model
 metadata verification, and explicitly does not claim a two-file atomic
 snapshot. See the [source-bound GGUF checkpoint](handover.md#source-bound-gguf-checkpoint-2026-10-19).
 
+`verify_profile_gguf_source_metadata_v2(...)` verifies the emitted
+policy/context/template subset against freshly prepared pinned immutable
+metadata/tokenizer bytes and an explicit `source` or `gguf_embedded` template
+choice. The same 16 MiB default/24 GiB file, 1 MiB header, 8 KiB total selected
+records and 64 KiB read limits apply; a template pin above 8 KiB is refused
+before preparation, and the complete selected record sum must fit 8 KiB.
+Context bytes are exact UINT32; template records use literal UTF-8 bytes,
+without compilation, rendering, tokenization or fallback. Preparation and
+file checks share one deadline. Its 27-record proof includes architecture,
+policy, context and literal template only, not complete tokenizer/model
+metadata. A GGUF-origin declaration remains unverified against the originating
+GGUF. See the [metadata file checkpoint](handover.md#metadata-file-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and
