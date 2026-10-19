@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [GGUF BF16 checkpoint](#gguf-bf16-checkpoint-2026-10-19), followed by
+the [larger GGUF checkpoint](#larger-gguf-checkpoint-2026-10-19), followed by
+the [GGUF BF16 checkpoint](#gguf-bf16-checkpoint-2026-10-19),
 the [GGUF descriptor checkpoint](#gguf-descriptor-checkpoint-2026-10-19),
 the [larger GGUF proposal](#larger-gguf-proposal-2026-10-19) and the
 [source metadata composer checkpoint](#source-metadata-composer-checkpoint-2026-10-19),
@@ -333,6 +334,49 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Larger GGUF Checkpoint (2026-10-19)
+
+After `e23687d`, the optional cached pinned writer control
+`test_pinned_profile_gguf_matrix_v2_large_range_bounds` measures small and
+larger synthetic selected matrices serially. The large raw BF16 source and
+selected operand are **16,779,264 bytes**, selected offset **16,779,520**,
+writer spool **33,554,432 bytes** and output **33,558,784 bytes**. Synthetic
+metadata padding keeps both the operand and offset above legacy 16 MiB while
+the spool remains exactly 32 MiB and output below 33 MiB. Conservative summed
+logical extents, including the one fault copy, are **117,451,264 bytes**,
+below 256 MiB. Sparse source extents are counted by length, not physical use.
+
+The two whole-file authentication hashes use the same retained descriptor.
+Every observed positional read is at most **65,536 bytes** (large case
+1,285 calls, maximum start offset **33,556,736**). Exact caller-source/output
+hashes match; readonly mappings remain alive through verification. Missing
+larger budgets and unchanged legacy APIs refuse the large file. A fresh-hash
+fault in the final selected byte, beyond the old limit, is refused by exact
+parity. All mappings, writer/spool, fault copies and directories are closed
+and removed; before/after disk-free observations are equal.
+
+Warmed verifier-only traced Python peaks are **2,421,988 / 2,422,276 bytes**
+for **65,536 / 16,779,264 byte** operands: **288 bytes growth**, below the
+unchanged 3 MiB peak and 256 KiB growth assertions. Setup, GGUF parsing,
+writer work, mapped pages and OS cache are excluded. The latest child process
+high-water observation is **94,883,840 bytes**, host available memory changed
+from **18,138,705,920 to 18,118,836,224 bytes**, and observed host/process swap
+was **zero**. These are time-local measurements, not host/device guarantees.
+The serial stage took **0.439 s**; child timeout stays **15 s**, stage guard
+60 s. No deadlines, tolerances or allocation assertions were relaxed.
+
+First run failed in **0.45 s** before verification because the new fixture
+flattened frozen blocks instead of preserving `(rows, columns // 128, 34)`.
+Only fixture reconstruction was repaired; the same control passed in
+**0.76 s**, then **0.78 s** after adding explicit legacy refusal. Required
+gate: **954 passed, 97 skipped in 21.36 s**, Ruff/whitespace/editor clean.
+Default skips do not stand in for the separately executed optional control.
+No learned input, download, build, native runtime, real model artifact or
+quality experiment ran. Only bounded selected-array/file evidence is added;
+source safetensors provenance, complete-table/model/runtime evidence remain
+separate. Next: separately bounded typed policy metadata verification on the
+larger file, reusing this control without expanding its resource bounds.
 
 ## GGUF BF16 Checkpoint (2026-10-19)
 

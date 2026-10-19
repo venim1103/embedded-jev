@@ -1733,6 +1733,27 @@ source-file provenance, the complete tensor table and runtime approval remain
 unchecked. No native/model-owner v1 policy is widened. See the
 [GGUF BF16 checkpoint](handover.md#gguf-bf16-checkpoint-2026-10-19).
 
+The optional larger selected-range control uses only synthetic raw BF16 and
+the cached pinned GGUF writer. It compares warmed verifier-only Python
+allocation peaks for small/large operands, places a selected operand beyond
+the old 16 MiB file/range limits, and refuses fresh-hash corruption. Its spool
+is at most 32 MiB, output at most 33 MiB, aggregate logical scratch below
+256 MiB, and child timeout remains 15 s. It closes mappings/writer/spool and
+removes scratch, and prints process/host RAM, swap and disk observations;
+these are not device or full-converter guarantees. Raw source-array identity
+is not safetensors provenance. Run with the existing pinned cache:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 \
+PRISM_SOURCE_DIR="$HOME/.cache/huggingface/embedded-jev/native/prism-source" \
+PRISM_CONVERTER_PYTHON="$HOME/.cache/huggingface/embedded-jev/dense-venv/bin/python" \
+python -m pytest -q -s -p no:cacheprovider \
+   tests/test_prism_native_control.py::test_pinned_profile_gguf_matrix_v2_large_range_bounds
+```
+
+See the [larger GGUF checkpoint](handover.md#larger-gguf-checkpoint-2026-10-19)
+for measured values and evidence limits.
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

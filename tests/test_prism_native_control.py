@@ -5007,6 +5007,193 @@ print(json.dumps({"qkv_shape": list(result[0][1].shape), "v_head_order": [0, 2, 
         "frozen_operands": 1 if include_frozen_source else 0}
 
 
+def test_pinned_profile_gguf_matrix_v2_large_range_bounds(tmp_path):
+    from test_inventory import _prefill_model_policy_fixture
+
+    source_dir = os.environ.get("PRISM_SOURCE_DIR")
+    interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source_dir or not interpreter:
+        pytest.skip("requires pinned Prism GGUF writer and isolated converter environment")
+    source = Path(source_dir)
+    assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    fixtures = []
+    for vocabulary in (32, 8193):
+        fixtures.append(json.loads(_profile_parity_fixture(*_prefill_model_policy_fixture("down", vocab_size=vocabulary))))
+    code = """
+import hashlib
+import json
+import os
+from pathlib import Path
+import resource
+import shutil
+import sys
+from tempfile import TemporaryDirectory
+import time
+import tracemalloc
+import gguf
+import numpy as np
+from embedded_jev.model_profile import parse_model_profile
+import embedded_jev.prism_codec as codec
+import embedded_jev.streamed_text as streamed
+
+root = Path(sys.argv[1])
+assert shutil.disk_usage(root).free >= 256 * 1024**2
+started = time.monotonic()
+def observations():
+    memory = {line.split(":", 1)[0]: int(line.split()[1]) * 1024
+              for line in Path("/proc/meminfo").read_text().splitlines()}
+    status = {line.split(":", 1)[0]: line.split(":", 1)[1].strip()
+              for line in Path("/proc/self/status").read_text().splitlines()}
+    return {"host_available_bytes": memory["MemAvailable"],
+            "host_swap_used_bytes": memory["SwapTotal"] - memory["SwapFree"],
+            "process_rss_bytes": int(status["VmRSS"].split()[0]) * 1024,
+            "process_swap_bytes": int(status["VmSwap"].split()[0]) * 1024,
+            "process_high_water_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
+            "disk_free_bytes": shutil.disk_usage(root).free}
+
+before = observations()
+cases = []
+for fixture in json.load(sys.stdin):
+    profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+    frozen_rows, frozen_columns = fixture["manifest"]["shape"]
+    payload = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(frozen_rows, frozen_columns // 128, 34)
+    rows, columns = profile.geometry["vocab_size"], profile.geometry["hidden_size"]
+    large = rows > 32
+    with TemporaryDirectory(prefix="jev-gguf-v2-bounds-", dir=root) as directory:
+        directory = Path(directory)
+        source_path = directory / "synthetic.bf16"
+        source_bytes = rows * columns * 2
+        assert source_bytes <= 32 * 1024**2
+        with source_path.open("xb") as output:
+            output.truncate(source_bytes)
+        writable = np.memmap(source_path, mode="r+", dtype="<u2", shape=(rows, columns))
+        writable[0] = np.arange(columns, dtype=np.uint16)
+        writable[-1] = 0xBF80
+        writable.flush()
+        writable._mmap.close()
+        source_values = np.memmap(source_path, mode="r", dtype="<u2", shape=(rows, columns))
+        path = directory / "selected.gguf"
+        writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
+        spool_bytes = 0
+        try:
+            writer.add_string("jev.synthetic.padding", "x" * 4096)
+            padding_rows = 8191 if large else 1
+            writer.add_tensor("synthetic.padding", source_values[:padding_rows].view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
+            writer.add_tensor("token_embd.weight", source_values.view(np.uint8), raw_dtype=gguf.GGMLQuantizationType.BF16)
+            assert all(item.tensor is None for item in writer.tensors[-1].values())
+            spool_bytes = os.fstat(writer.temp_file.fileno()).st_size
+            assert spool_bytes <= 32 * 1024**2
+            writer.write_header_to_file()
+            writer.write_kv_data_to_file()
+            writer.write_tensors_to_file()
+        finally:
+            writer.close()
+            if writer.temp_file is not None:
+                writer.temp_file.close()
+        file_bytes = path.stat().st_size
+        assert file_bytes <= 33 * 1024**2
+        logical_peak = source_bytes + spool_bytes + file_bytes * 2
+        assert logical_peak < 256 * 1024**2
+        physical_bytes = sum(item.stat().st_blocks * 512 for item in directory.iterdir())
+        source_pin = hashlib.sha256(memoryview(source_values)).hexdigest()
+        with path.open("rb", buffering=0) as opened:
+            file_pin = streamed.bounded_gguf_descriptor_record_v2(opened.fileno(), maximum_bytes=33 * 1024**2,
+                deadline=time.monotonic() + 15)["sha256"]
+        reader = gguf.GGUFReader(path)
+        keywords = {"reader": reader, "source_name": "model.embed_tokens.weight", "source_values": source_values,
+                    "expected_source_sha256": source_pin, "expected_file_bytes": file_bytes, "expected_file_sha256": file_pin,
+                    "maximum_file_bytes": 33 * 1024**2, "maximum_bytes": 32 * 1024**2}
+        try:
+            if not large:
+                codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+            original_pread = codec.os.pread
+            original_record = streamed.bounded_gguf_descriptor_record_v2
+            counts = {"calls": 0, "maximum_bytes": 0, "maximum_offset": 0}
+            descriptors = []
+            def bounded_read(descriptor, count, offset):
+                assert 0 < count <= 65536
+                counts["calls"] += 1
+                counts["maximum_bytes"] = max(counts["maximum_bytes"], count)
+                counts["maximum_offset"] = max(counts["maximum_offset"], offset)
+                return original_pread(descriptor, count, offset)
+            def file_record(descriptor, **arguments):
+                descriptors.append(descriptor)
+                return original_record(descriptor, **arguments)
+            codec.os.pread = bounded_read
+            streamed.bounded_gguf_descriptor_record_v2 = file_record
+            tracemalloc.start()
+            try:
+                receipt = codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+                codec.os.pread = original_pread
+                streamed.bounded_gguf_descriptor_record_v2 = original_record
+            assert receipt["converted_sha256"] == source_pin and receipt["converted_bytes"] == source_bytes
+            assert len(descriptors) == 2 and descriptors[0] == descriptors[1]
+            assert peak < 3 * 1024**2
+            assert reader.data.mode == source_values.mode == "r"
+            if large:
+                assert source_bytes > 16 * 1024**2 and receipt["converted_tensor_offset"] > 16 * 1024**2
+                assert counts["maximum_offset"] > 16 * 1024**2 and spool_bytes == 32 * 1024**2
+                for changes in ({"maximum_file_bytes": 16 * 1024**2}, {"maximum_bytes": 16 * 1024**2}):
+                    try:
+                        codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                            **{**keywords, **changes})
+                        raise AssertionError("larger fixture accepted without explicit budgets")
+                    except ValueError:
+                        pass
+                try:
+                    codec.verify_profile_gguf_matrix(profile, fixture["inventory"], fixture["manifest"], payload, **keywords)
+                    raise AssertionError("legacy matrix gate accepted larger GGUF budgets")
+                except ValueError as error:
+                    assert "invalid GGUF vector file identity or budget" in str(error), str(error)
+                fault_path = directory / "fault.gguf"
+                with path.open("rb") as original, fault_path.open("xb") as output:
+                    while block := original.read(65536):
+                        output.write(block)
+                fault_reader = gguf.GGUFReader(fault_path)
+                try:
+                    with fault_path.open("r+b") as output:
+                        output.seek(receipt["converted_tensor_offset"] + source_bytes - 1)
+                        saved = output.read(1)
+                        output.seek(-1, os.SEEK_CUR)
+                        output.write(bytes([saved[0] ^ 1]))
+                    with fault_path.open("rb", buffering=0) as opened:
+                        fault_pin = original_record(opened.fileno(), maximum_bytes=33 * 1024**2,
+                            deadline=time.monotonic() + 15)["sha256"]
+                    try:
+                        codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                            **{**keywords, "reader": fault_reader, "expected_file_sha256": fault_pin})
+                        raise AssertionError("fresh-hash changed large output accepted")
+                    except ValueError as error:
+                        assert "byte parity" in str(error), str(error)
+                finally:
+                    fault_reader.data._mmap.close()
+                    fault_path.unlink()
+            cases.append({"operand_bytes": source_bytes, "file_bytes": file_bytes, "spool_bytes": spool_bytes,
+                          "tensor_offset": receipt["converted_tensor_offset"], "traced_peak_bytes": peak,
+                          "logical_peak_including_fault_bytes": logical_peak, "physical_source_output_bytes": physical_bytes,
+                          "reads": counts, "observations": observations()})
+        finally:
+            reader.data._mmap.close()
+            source_values._mmap.close()
+assert cases[1]["traced_peak_bytes"] - cases[0]["traced_peak_bytes"] <= 256 * 1024
+assert not list(root.iterdir())
+elapsed = time.monotonic() - started
+assert elapsed < 60
+print(json.dumps({"cases": cases, "elapsed_seconds": elapsed, "before": before, "after": observations(), "scratch_cleaned": True}))
+"""
+    result = subprocess.run([interpreter, "-c", code, str(tmp_path)], check=False, capture_output=True, text=True,
+        input=json.dumps(fixtures), timeout=15,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert len(report["cases"]) == 2 and report["scratch_cleaned"] is True
+    assert report["cases"][1]["operand_bytes"] == 8193 * 1024 * 2
+    print(json.dumps(report, sort_keys=True))
+
+
 @pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import hashlib
