@@ -1836,7 +1836,7 @@ added. See the [merge emission checkpoint](handover.md#merge-emission-checkpoint
 `write_profile_model_tokenizer_vocabulary(...)` emits only
 `tokenizer.ggml.tokens` after fresh pinned contiguous-ID preparation, with
 every profile row source-backed. Unassigned rows refuse instead of receiving
-invented padding. The complete list is bounded to 1..4096 tokens, each
+invented padding. The default list budget is 1..4096 tokens, each
 nonempty/non-NUL content at most 4096 UTF-8 bytes and aggregate content at
 most 64 KiB. Existing metadata writer preflight applies; receipts do not
 prove file bytes, normalization, token types or a complete tokenizer. These
@@ -1849,7 +1849,7 @@ See the [vocabulary emission checkpoint](handover.md#vocabulary-emission-checkpo
 `verify_profile_gguf_tokenizer_arrays_v2(...)` prepares fresh pinned vocabulary
 and merges and binds those two exact typed records to file bytes through the
 shared retained-descriptor verifier. It never trusts a writer receipt. The
-existing selected-record budget remains 8 KiB total, header cap 1 MiB, reads
+default selected-record budget remains 8 KiB total, header cap 1 MiB, reads
 at most 64 KiB, file default 16 MiB with explicit ceiling 24 GiB and one shared
 preparation/file deadline. Emitter limits are not verifier permission to use
 larger selected records. A live read-only trusted GGUF reader and 1..427 tensor
@@ -1921,6 +1921,28 @@ branch is checked on the synthetic sparse fixture with explicit tokenizer-
 factory and pre-tag doubles, not a full tokenizer conversion. Normalization,
 actual GGUF types/bytes, complete semantics and runtime remain unchecked.
 Existing strict emitters are unchanged. See the [unused-row checkpoint](handover.md#unused-row-checkpoint-2026-10-19).
+
+The two vocabulary emitters and `verify_profile_gguf_tokenizer_arrays_v2`
+add an explicit `maximum_vocabulary_rows=4096` default with ceiling 16,384;
+array proof separately accepts `maximum_metadata_bytes=8192` with ceiling
+128 KiB. Strict integer/budget validation precedes tokenizer preparation.
+The 64 KiB aggregate vocabulary content, missing-row refusal, merge limits,
+1 MiB header and file/deadline/identity guards remain. Selected-record reads
+are chunked to at most 64 KiB. Default receipts/contracts stay unchanged;
+explicit larger-array proof includes its policy version and declared caps.
+The tiny unused-row planner remains capped to 4096 profile rows and no
+learned tokenizer/model compatibility is implied.
+
+`test_pinned_profile_tokenizer_array_explicit_large_bounds` uses only 32/8193
+synthetic source-backed rows and a two-byte anchor. Each output and one
+serial fault copy stay below 1 MiB, spool at most 1 MiB, logical scratch
+below 8 MiB, child 15 s/stage 60 s. Its verifier-only tracemalloc region
+includes fresh source preparation, excludes fixture/reader/writer/setup and
+mapped pages, and requires peak below 8 MiB and growth at most 2 MiB. Older
+matrix/source allocation and numerical assertions are independent and
+unchanged. Guarded copy/fault/restore/replacement/deadline/descriptor checks
+do not establish tokenizer or runtime semantics. See the [larger tokenizer
+checkpoint](handover.md#larger-tokenizer-checkpoint-2026-10-19).
 
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It

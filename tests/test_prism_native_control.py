@@ -5783,6 +5783,265 @@ def test_tokenizer_only_diagnostic_approvals_do_not_cross_modes(monkeypatch, mod
         test_pinned_profile_tokenizer_only_diagnostic(mode)
 
 
+def test_pinned_profile_tokenizer_array_explicit_large_bounds():
+    from tempfile import TemporaryDirectory
+
+    from test_inventory import _packaging_fixture
+
+    source_dir, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source_dir or not interpreter:
+        pytest.skip("requires pinned cached tokenizer/GGUF libraries; synthetic arrays only")
+    source = Path(source_dir)
+    assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    subprocess.check_output(["git", "-C", str(source), "diff", "--exit-code", PRISM_REVISION, "--", "gguf-py/gguf"])
+    metadata, _, record = _packaging_fixture(text_only=True)
+    code = r'''
+import gc
+import hashlib
+import json
+import os
+from pathlib import Path
+import resource
+import shutil
+import sys
+from tempfile import TemporaryDirectory
+import time
+import tracemalloc
+import gguf
+import numpy as np
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.prism_codec import verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_tokenizer_arrays
+from embedded_jev import prism_codec, streamed_text
+
+fixture = json.loads(sys.stdin.buffer.read(65537))
+root = Path(fixture["scratch"])
+started = time.monotonic()
+disk_before = shutil.disk_usage(root).free
+cases = []
+for vocabulary_rows in (32, 8193):
+    metadata = {name: bytes.fromhex(value) for name, value in fixture["metadata"].items()}
+    record = json.loads(json.dumps(fixture["profile"]))
+    config = json.loads(metadata["config.json"])
+    text = config
+    for name in record["packaging"]["text_config_path"]:
+        text = text[name]
+    text.update(vocab_size=vocabulary_rows, max_position_embeddings=512)
+    metadata["config.json"] = json.dumps(config).encode()
+    record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
+    record["geometry"]["vocab_size"] = vocabulary_rows
+    tokens = [f"t{token_id:04x}" for token_id in range(vocabulary_rows)]
+    tokens[:3] = ["a", "b", "ab"]
+    tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": [], "model": {"type": "BPE",
+        "vocab": {token: token_id for token_id, token in enumerate(tokens)}, "merges": [["a", "b"]],
+        "dropout": None, "unk_token": None, "continuing_subword_prefix": None, "end_of_word_suffix": None,
+        "fuse_unk": False, "byte_fallback": False, "ignore_merges": False}}).encode()
+    record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
+    profile = parse_model_profile(json.dumps(record).encode())
+    with TemporaryDirectory(prefix=f"case-{vocabulary_rows}-", dir=root) as directory:
+        path = Path(directory) / "arrays.gguf"
+        writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
+        try:
+            if vocabulary_rows > 4096:
+                before = dict(writer.kv_data[0])
+                try:
+                    write_profile_model_tokenizer_arrays(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
+                        context_length=256, writer=writer)
+                    raise AssertionError("default vocabulary budget was increased")
+                except ValueError as error:
+                    assert "vocabulary count" in str(error)
+                assert writer.kv_data[0] == before
+            emitted = write_profile_model_tokenizer_arrays(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
+                context_length=256, writer=writer, maximum_vocabulary_rows=16384)
+            assert emitted["vocabulary_row_cap"] == 16384 and emitted["metadata_count"] == 2
+            writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
+            spool_position = writer.temp_file.tell() if writer.temp_file is not None else 0
+            spool_bytes = writer.temp_file.seek(0, os.SEEK_END) if writer.temp_file is not None else 0
+            if writer.temp_file is not None:
+                writer.temp_file.seek(spool_position)
+            assert spool_bytes <= 1024**2
+            writer.write_header_to_file()
+            writer.write_kv_data_to_file()
+            writer.write_tensors_to_file()
+        finally:
+            writer.close()
+            if writer.temp_file is not None:
+                writer.temp_file.close()
+        original = path.read_bytes()
+        assert 0 < len(original) < 1024**2
+        reader = gguf.GGUFReader(path)
+        try:
+            field = reader.fields["tokenizer.ggml.tokens"]
+            assert field.types == [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING]
+            assert tuple(field.parts[index].tobytes().decode() for index in field.data) == tuple(tokens)
+            record_bytes = sum(part.nbytes for part in field.parts)
+            arguments = {"reader": reader, "metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                         "expected_file_bytes": len(original), "expected_file_sha256": hashlib.sha256(original).hexdigest(),
+                         "maximum_vocabulary_rows": 16384, "maximum_metadata_bytes": 128 * 1024}
+
+            def refuse(match, **changes):
+                try:
+                    verify_profile_gguf_tokenizer_arrays_v2(profile, **{**arguments, **changes})
+                    raise AssertionError("unsupported tokenizer array declaration or budget accepted")
+                except ValueError as error:
+                    assert match in str(error)
+
+            if vocabulary_rows > 4096:
+                assert record_bytes > 65536
+                refuse("records exceed byte budget", maximum_metadata_bytes=8192)
+                refuse("vocabulary count", maximum_vocabulary_rows=4096)
+            io = {"reads": 0, "maximum_read": 0, "selected_chunks": 0}
+            hashes = []
+            pread, hasher = os.pread, streamed_text.bounded_gguf_descriptor_record_v2
+
+            def measured_read(descriptor, size, offset):
+                io["reads"] += 1
+                io["maximum_read"] = max(io["maximum_read"], size)
+                if size > 8 and offset in range(int(field.offset), int(field.offset) + record_bytes, 65536):
+                    io["selected_chunks"] += 1
+                return pread(descriptor, size, offset)
+
+            def measured_hash(descriptor, **kwargs):
+                hashes.append(descriptor)
+                return hasher(descriptor, **kwargs)
+
+            gc.collect()
+            try:
+                os.pread, streamed_text.bounded_gguf_descriptor_record_v2 = measured_read, measured_hash
+                tracemalloc.start()
+                receipt = verify_profile_gguf_tokenizer_arrays_v2(profile, **arguments)
+                _, peak = tracemalloc.get_traced_memory()
+            finally:
+                tracemalloc.stop()
+                os.pread, streamed_text.bounded_gguf_descriptor_record_v2 = pread, hasher
+            assert peak < 8 * 1024**2, {"rows": vocabulary_rows, "peak": peak}
+            assert hashes[0] == hashes[1] and len(hashes) == 2 and io["maximum_read"] <= 65536
+            assert io["selected_chunks"] == (record_bytes + 65535) // 65536
+            assert receipt["vocabulary_row_cap"] == 16384 and receipt["selected_metadata_cap_bytes"] == 128 * 1024
+            assert receipt["tokenizer_array_policy_version"] == 2 and receipt["metadata_record_bytes"] <= 128 * 1024
+            cases.append({"rows": vocabulary_rows, "file_bytes": len(original), "vocabulary_record_bytes": record_bytes,
+                          "selected_record_bytes": receipt["metadata_record_bytes"], "traced_peak_bytes": peak,
+                          "spool_bytes": spool_bytes, **io})
+            del receipt
+            descriptor_count = len(os.listdir("/proc/self/fd"))
+            fault_path = Path(directory) / "fault.gguf"
+
+            def check_scratch():
+                sizes = [entry.stat().st_size for entry in Path(directory).iterdir() if entry.is_file()]
+                assert len(sizes) <= 2 and all(size < 1024**2 for size in sizes) and sum(sizes) + spool_bytes < 8 * 1024**2
+
+            refuse("file identity mismatch", expected_file_sha256="0" * 64)
+            for name in ("tokenizer.ggml.tokens", "tokenizer.ggml.merges"):
+                selected = reader.fields[name]
+                types = list(selected.types)
+                try:
+                    selected.types[:] = [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32]
+                    refuse("field type or range mismatch")
+                finally:
+                    selected.types[:] = types
+                part = selected.parts[-1]
+                try:
+                    selected.parts[-1] = part.copy()
+                    refuse("field mapping mismatch")
+                finally:
+                    selected.parts[-1] = part
+                offset = selected.parts[selected.data[0]].__array_interface__["data"][0] - reader.data.__array_interface__["data"][0]
+                mutated = bytearray(original)
+                mutated[offset] ^= 1
+                fault_path.write_bytes(mutated)
+                check_scratch()
+                fault_reader = gguf.GGUFReader(fault_path)
+                try:
+                    refuse("declaration byte mismatch", reader=fault_reader, expected_file_sha256=hashlib.sha256(mutated).hexdigest())
+                finally:
+                    fault_reader.data._mmap.close()
+
+            calls = []
+
+            def restored_after_final_hash(descriptor, **kwargs):
+                result = hasher(descriptor, **kwargs)
+                calls.append(descriptor)
+                if len(calls) == 2:
+                    writable = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+                    try:
+                        os.pwrite(writable, bytes([original[-1] ^ 1]), len(original) - 1)
+                        os.pwrite(writable, original[-1:], len(original) - 1)
+                    finally:
+                        os.close(writable)
+                return result
+
+            try:
+                streamed_text.bounded_gguf_descriptor_record_v2 = restored_after_final_hash
+                refuse("file changed during verification")
+            finally:
+                streamed_text.bounded_gguf_descriptor_record_v2 = hasher
+            assert len(calls) == 2 and hashlib.sha256(path.read_bytes()).hexdigest() == arguments["expected_file_sha256"]
+
+            backup = Path(directory) / "original.gguf"
+            fault_path.write_bytes(original)
+            calls.clear()
+
+            def replaced_after_final_hash(descriptor, **kwargs):
+                result = hasher(descriptor, **kwargs)
+                calls.append(descriptor)
+                if len(calls) == 2:
+                    os.replace(path, backup)
+                    os.replace(fault_path, path)
+                    check_scratch()
+                return result
+
+            try:
+                streamed_text.bounded_gguf_descriptor_record_v2 = replaced_after_final_hash
+                refuse("file changed during verification")
+            finally:
+                streamed_text.bounded_gguf_descriptor_record_v2 = hasher
+                if backup.exists():
+                    path.unlink()
+                    os.replace(backup, path)
+            assert len(calls) == 2 and hashlib.sha256(path.read_bytes()).hexdigest() == arguments["expected_file_sha256"]
+
+            original_stat, original_clock = os.stat, time.monotonic
+            expired = False
+
+            def late_stat(name, *args, **kwargs):
+                global expired
+                result = original_stat(name, *args, **kwargs)
+                if Path(name) == path and kwargs.get("follow_symlinks") is False:
+                    expired = True
+                return result
+
+            try:
+                os.stat = late_stat
+                prism_codec.time.monotonic = lambda: original_clock() + (31 if expired else 0)
+                refuse("deadline exceeded")
+            finally:
+                os.stat, prism_codec.time.monotonic = original_stat, original_clock
+            assert expired and len(os.listdir("/proc/self/fd")) == descriptor_count
+            check_scratch()
+            reader.data._mmap.close()
+            refuse("reader layout or budget mismatch")
+            cases[-1]["fault_controls"] = "fresh_hash_type_copy_restore_replace_deadline_closed_refuse"
+        finally:
+            reader.data._mmap.close()
+        assert sum(path.stat().st_size for path in Path(directory).rglob("*") if path.is_file()) + spool_bytes < 8 * 1024**2
+    gc.collect()
+assert cases[1]["traced_peak_bytes"] - cases[0]["traced_peak_bytes"] <= 2 * 1024**2, cases
+assert not list(root.iterdir()) and time.monotonic() - started <= 60
+print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
+    "disk_free_before": disk_before, "disk_free_after": shutil.disk_usage(root).free,
+    "process_high_water_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024}, sort_keys=True))
+'''
+    with TemporaryDirectory(prefix="jev-large-tokenizer-") as directory:
+        payload = json.dumps({"profile": record, "metadata": {name: value.hex() for name, value in metadata.items()}, "scratch": directory}).encode()
+        result = _run_tokenizer_only_guard(interpreter, code, payload,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
+        assert result["returncode"] == 0, result["stderr"]
+        report = json.loads(result["stdout"])
+    assert not Path(directory).exists()
+    report.update({name: result[name] for name in ("observed_rss_bytes", "observed_process_swap_bytes", "host_swap_baseline_bytes", "observed_host_swap_bytes")})
+    report["scratch_cleaned"] = True
+    print(json.dumps(report, sort_keys=True))
+
+
 @pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast

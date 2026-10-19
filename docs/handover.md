@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [unused-row checkpoint](#unused-row-checkpoint-2026-10-19), followed by
+the [larger tokenizer checkpoint](#larger-tokenizer-checkpoint-2026-10-19), followed by
+the [unused-row checkpoint](#unused-row-checkpoint-2026-10-19),
 the [larger tokenizer proposal](#larger-tokenizer-proposal-2026-10-19),
 the [missing-ID checkpoint](#missing-id-checkpoint-2026-10-19),
 the [sparse inventory checkpoint](#sparse-inventory-checkpoint-2026-10-19),
@@ -352,6 +353,78 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Larger Tokenizer Checkpoint (2026-10-19)
+
+After `f4af0b4`, the user explicitly approved **Synthetic Larger-Array
+Policy**. The two vocabulary emitters and v2 array proof now have optional
+row budget 4096/default to 16,384/ceiling; proof separately has selected-byte
+budget 8192/default to 128 KiB/ceiling. Defaults, default receipts, old
+policy/source wrappers, 64 KiB vocabulary content, missing-row refusal,
+merge limits, header/file caps and the 4096-row unused planner stay strict.
+Final selected reads use at most 64 KiB. Larger receipts explicitly identify
+their array policy and caps, not a new model/runtime approval.
+
+Focused row defaults/refusals **46 passed in 0.44 s**; byte forwarding and
+legacy/source refusals **51 passed in 0.93 s**. New actual cached parser/
+writer control uses 32 versus 8193 short source-backed rows, one valid merge,
+and a two-byte synthetic anchor. Large file **106,784 bytes**, vocabulary
+record **106,543**, selected total **106,599**, compared in **two** selected
+chunks. Small file **672**, vocabulary record **450**, selected total **506**,
+one chunk. Reads max **64 KiB**, two hashes on one retained descriptor;
+spool **32 bytes** each. Defaults refuse the large case before mutation/proof.
+No pre-tokenizer, source token types or padding is invented/emitted.
+
+Failed-check history is retained, with no threshold/fixture reduction:
+
+- First control **failed in 0.84 s** measuring a spool already closed by the
+  pinned transfer. Moving only the measurement before transfer and restoring
+  its position exposed the actual allocation-growth failure, **2.22 s**:
+  peaks 21,447/3,354,086 bytes, above the fixed 2 MiB growth bound.
+- First source repair replaced contiguous-ID sets with byte tracking;
+  **failed in 2.00 s**, peak essentially unchanged at 3,354,144. That was a
+  falsified dominant-peak hypothesis, temporarily reverted for diagnosis.
+- Phase instrumentation **failed in 2.22 s**: preparation peak 2,284,461,
+  mapped-record phase 3,355,172. Exact per-part comparisons instead of a
+  copied-part join, plus bounded ID tracking, lowered peak to 2,214,620 but
+  still **failed in 2.44 s**, now in preparation.
+- The BPE helper's redundant second decode now uses structured JSON only
+  after the same immutable bytes passed strict duplicate/non-finite parsing.
+  Duplicate/non-finite refusals remain explicit before tokenizer parsing.
+  The control still **failed in 2.33 s**: 17,761/2,146,190, growth 2,128,429,
+  **31,277 bytes over** 2 MiB. After three source repair attempts the agent
+  asked; user selected **Continue Focused Investigation** with bounds unchanged.
+- Temporary line tracing found string-array packing. Its **4.19 s pass was
+  not accepted as the fix**: tracing inflated the small baseline to 52,371.
+  Pending JSON/strict-ID checks ran through pytest (**30 passed in 0.32 s**)
+  after the editor test tool reported no tests. Incremental binary packing
+  removed the remaining join allocation; all temporary phase/line tracing
+  was removed before acceptance. Original uninstrumented gate then
+  **passed in 2.29 s**, peaks **16,613/1,770,791**, with unchanged bounds.
+
+Expanded actual fault control **passed in 2.53 s**, peaks **16,453/1,770,631**:
+typed/copied fields, freshly hashed vocabulary/merge byte corruption, stale
+pins, writes restored after final hash, identical-content path replacement,
+final-stat deadline expiry and closed mapping all refuse. Descriptor counts
+return to baseline; restored SHA checks pass. Each output and one serial
+fault copy are below 1 MiB, spool below 1 MiB, scratch below 8 MiB. Stage
+**2.109 s**, child 15 s/stage 60 s guards; observed RSS **87,678,976 bytes**,
+process high water **87,318,528**, process/host swap 0. Latest shared-host
+disk free was equal before/after; scratch/maps/writers/copies cleaned.
+Trace excludes fixture/reader/writer/setup/mapped pages, includes fresh
+source preparation, and still requires peak below 8 MiB/growth at most 2 MiB.
+
+Affected older matrix/source, legacy/source-metadata, tiny BPE/inventory
+controls ran serially: **4 passed, 9 deselected in 9.81 s**, original numeric,
+allocation and resource assertions unchanged. Required gate **1141 passed,
+105 skipped in 34.71 s**, Ruff/whitespace and editor checks clean. Pylance
+confirmed changed row signatures compatible (2/3 public and 7 private
+callers), final array-proof **4 callers** and shared metadata **2 callers**.
+Neither consumed learned-input diagnostic was repeated. No learned data,
+downloads, builds, full-model conversion, BitNet/model execution, candidate
+changes, refits or quality scoring occurred. Next: prepare bounded synthetic
+composition of array proof with existing source/policy/matrix paths without
+claiming a complete tokenizer or expanding any existing control's limits.
+
 ## Unused-Row Checkpoint (2026-10-19)
 
 After `109d7c8`, the existing synthetic two-hole inventory mode extracts
@@ -388,7 +461,10 @@ separate synthetic-only policy approval below; do not raise existing limits.
 
 ## Larger Tokenizer Proposal (2026-10-19)
 
-**Not approved or implemented.** Current typed array proof intentionally
+**Historical proposal, subsequently approved and implemented.** See the
+[larger tokenizer checkpoint](#larger-tokenizer-checkpoint-2026-10-19) for
+actual evidence, failures and limits. At proposal time it was **not approved
+or implemented**. Current default typed array proof intentionally
 caps selected records to 8 KiB and emission to 4096 rows. One proposed
 separately opted-in policy would allow at most **128 KiB selected records**
 and **16,384 vocabulary rows**, keeping all existing defaults/contracts and

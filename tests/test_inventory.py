@@ -990,7 +990,8 @@ def _profile_tokenizer_preparation_fixture(tokenizer_bytes):
 
 
 @pytest.mark.parametrize("defect", [None, "legacy", "missing-merges", "merges-type", "pair-type", "pair-length", "empty",
-                                    "unknown", "joined", "duplicate", "prefix", "suffix", "base-vocabulary", "base-id"])
+                                    "unknown", "joined", "duplicate", "prefix", "suffix", "base-vocabulary", "base-id",
+                                    "duplicate-json", "nonfinite-json"])
 def test_profile_bpe_metadata_preserves_rank_and_preprocessing_without_gguf_claims(monkeypatch, defect):
     import sys
     from types import SimpleNamespace
@@ -1029,6 +1030,10 @@ def test_profile_bpe_metadata_preserves_rank_and_preprocessing_without_gguf_clai
     elif defect == "base-id":
         model["vocab"]["ab"] = 1
     tokenizer_bytes = json.dumps(document).encode()
+    if defect == "duplicate-json":
+        tokenizer_bytes = b'{"model":{},' + tokenizer_bytes[1:]
+    elif defect == "nonfinite-json":
+        tokenizer_bytes = tokenizer_bytes[:-1] + b',"invalid":NaN}'
     profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
     calls = []
 
@@ -1037,6 +1042,11 @@ def test_profile_bpe_metadata_preserves_rank_and_preprocessing_without_gguf_clai
         return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary))
 
     monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    if defect in ("duplicate-json", "nonfinite-json"):
+        with pytest.raises(ValueError):
+            prepare_profile_model_bpe_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+        assert calls == []
+        return
     if defect not in (None, "legacy"):
         with pytest.raises(ValueError, match="BPE"):
             prepare_profile_model_bpe_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
@@ -1487,7 +1497,50 @@ def test_profile_tokenizer_array_emission_preflights_both_fields_with_one_parser
         receipt["records"][0]["values"] = ()
 
 
-@pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "unassigned", "empty-merges", "file-budget", "file-cap",
+@pytest.mark.parametrize("budget", [True, 0, 16385])
+def test_profile_tokenizer_row_budgets_refuse_before_source_preparation(monkeypatch, budget):
+    import sys
+
+    from embedded_jev import prism_codec
+
+    monkeypatch.setitem(sys.modules, "tokenizers", None)
+    arguments = {"metadata_files": {}, "tokenizer_bytes": b"", "context_length": 256, "maximum_vocabulary_rows": budget}
+    for emit in (prism_codec.write_profile_model_tokenizer_vocabulary, prism_codec.write_profile_model_tokenizer_arrays):
+        with pytest.raises(ValueError, match="row budget"):
+            emit(object(), **arguments, writer=object())
+    with pytest.raises(ValueError, match="budget"):
+        prism_codec.verify_profile_gguf_tokenizer_arrays_v2(object(), **arguments, reader=object(),
+            expected_file_bytes=100, expected_file_sha256="1" * 64)
+
+
+def test_profile_tokenizer_row_opt_in_preserves_defaults_and_content_limits():
+    from embedded_jev.prism_codec import _profile_tokenizer_vocabulary_record
+
+    prepared = {"tokens": tuple(f"t{token_id:04x}" for token_id in range(8193)), "unassigned_profile_token_rows": 0}
+    with pytest.raises(ValueError, match="vocabulary count"):
+        _profile_tokenizer_vocabulary_record(prepared)
+    record, content = _profile_tokenizer_vocabulary_record(prepared, maximum_vocabulary_rows=16384)
+    assert len(record["values"]) == 8193 and content == 8193 * 5
+    with pytest.raises(ValueError, match="vocabulary count"):
+        _profile_tokenizer_vocabulary_record(prepared, maximum_vocabulary_rows=8192)
+    prepared["tokens"] = tuple(f"t{token_id:04x}" for token_id in range(16384))
+    with pytest.raises(ValueError, match="content budget"):
+        _profile_tokenizer_vocabulary_record(prepared, maximum_vocabulary_rows=16384)
+
+
+@pytest.mark.parametrize("budget", [True, 0, 128 * 1024 + 1])
+def test_profile_tokenizer_record_budgets_refuse_before_source_preparation(monkeypatch, budget):
+    import sys
+
+    from embedded_jev.prism_codec import verify_profile_gguf_tokenizer_arrays_v2
+
+    monkeypatch.setitem(sys.modules, "tokenizers", None)
+    with pytest.raises(ValueError, match="budget"):
+        verify_profile_gguf_tokenizer_arrays_v2(object(), reader=object(), metadata_files={}, tokenizer_bytes=b"",
+            context_length=256, expected_file_bytes=100, expected_file_sha256="1" * 64, maximum_metadata_bytes=budget)
+
+
+@pytest.mark.parametrize("defect", [None, "extended", "metadata-pin", "tokenizer-pin", "unassigned", "empty-merges", "file-budget", "file-cap",
                                     "expected-size", "expected-cap", "file-hash", "seconds-bool", "seconds-nan", "preparation-deadline", "verification-deadline"])
 def test_profile_tokenizer_array_file_verification_prepares_fresh_bounded_declarations(monkeypatch, defect):
     import sys
@@ -1510,6 +1563,7 @@ def test_profile_tokenizer_array_file_verification_prepares_fresh_bounded_declar
     def verify(actual_profile, **kwargs):
         assert actual_profile is profile and kwargs["descriptor"] is kwargs["model_owner"] is None
         assert kwargs["policy_version"] == 2 and kwargs["header_cap"] == 1024**2 and kwargs["file_cap"] == 24 * 1024**3
+        assert kwargs["maximum_metadata_bytes"] == (128 * 1024 if defect == "extended" else 8192)
         assert tuple(item["name"] for item in kwargs["declarations"]) == ("tokenizer.ggml.tokens", "tokenizer.ggml.merges")
         assert all(item["kind"] == "str_array" for item in kwargs["declarations"])
         assert tuple(kwargs["declarations"][0]["values"]) == tuple(tokens)
@@ -1520,7 +1574,9 @@ def test_profile_tokenizer_array_file_verification_prepares_fresh_bounded_declar
     monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
     arguments = {"reader": object(), "metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
                  "expected_file_bytes": 100, "expected_file_sha256": "1" * 64}
-    if defect == "metadata-pin":
+    if defect == "extended":
+        arguments.update(maximum_vocabulary_rows=16384, maximum_metadata_bytes=128 * 1024)
+    elif defect == "metadata-pin":
         metadata["config.json"] += b" "
     elif defect == "tokenizer-pin":
         arguments["tokenizer_bytes"] += b" "
@@ -1535,7 +1591,7 @@ def test_profile_tokenizer_array_file_verification_prepares_fresh_bounded_declar
     elif defect in ("preparation-deadline", "verification-deadline"):
         clock = iter([5, 40] if defect == "preparation-deadline" else [5, 6, 40])
         monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
-    if defect:
+    if defect not in (None, "extended"):
         with pytest.raises(ValueError):
             prism_codec.verify_profile_gguf_tokenizer_arrays_v2(profile, **arguments)
         assert len(calls) == (1 if defect == "verification-deadline" else 0)
@@ -1545,6 +1601,11 @@ def test_profile_tokenizer_array_file_verification_prepares_fresh_bounded_declar
     assert receipt["metadata_scope"] == "tokenizer_vocabulary_merge_subset" and receipt["merge_content_bytes"] == 7
     assert receipt["metadata_verification"] == "selected_typed_tokenizer_array_records_match_file"
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+    if defect == "extended":
+        assert receipt["vocabulary_row_cap"] == 16384 and receipt["selected_metadata_cap_bytes"] == 128 * 1024
+        assert receipt["tokenizer_array_policy_version"] == 2
+    else:
+        assert not {"vocabulary_row_cap", "selected_metadata_cap_bytes", "tokenizer_array_policy_version"}.intersection(receipt)
 
 
 @pytest.mark.parametrize("defect", [None, "source-pin", "tokenizer-pin", "architecture", "duplicate", "split-writer", "missing-array",
