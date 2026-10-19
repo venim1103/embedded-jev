@@ -59,9 +59,20 @@ def bounded_native_file_record(path: Path, *, maximum_bytes: int, deadline: floa
 
 def bounded_native_descriptor_record(descriptor: int, *, maximum_bytes: int, deadline: float) -> dict:
     """Hash a borrowed regular descriptor positionally without following a filesystem path."""
+    return _bounded_descriptor_record(descriptor, maximum_bytes=maximum_bytes, deadline=deadline,
+                                      maximum_allowed_bytes=64 * 1024**2)
+
+
+def bounded_source_descriptor_record_v2(descriptor: int, *, maximum_bytes: int, deadline: float) -> dict:
+    """Hash an explicitly opted-in source descriptor with the separate v2 six-GiB ceiling."""
+    return _bounded_descriptor_record(descriptor, maximum_bytes=maximum_bytes, deadline=deadline,
+                                      maximum_allowed_bytes=6 * 1024**3)
+
+
+def _bounded_descriptor_record(descriptor: int, *, maximum_bytes: int, deadline: float, maximum_allowed_bytes: int) -> dict:
     if (
         type(descriptor) is not int or descriptor < 0 or type(maximum_bytes) is not int
-        or not 0 < maximum_bytes <= 64 * 1024**2 or type(deadline) not in (int, float) or not math.isfinite(deadline)
+        or not 0 < maximum_bytes <= maximum_allowed_bytes or type(deadline) not in (int, float) or not math.isfinite(deadline)
     ):
         raise InventoryError("invalid native descriptor or file budget")
 

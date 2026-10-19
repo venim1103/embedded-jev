@@ -1534,6 +1534,15 @@ chunk consumer checks those. The retained-allocation fixture is not a peak-RAM,
 mapped-RSS, OS page-cache or full-model memory claim. See the
 [mapped source checkpoint](handover.md#bf16-mapped-source-checkpoint-2026-10-16).
 
+`bounded_source_descriptor_record_v2(descriptor, maximum_bytes=..., deadline=...)`
+is the explicit large-source positional hasher with a 6 GiB ceiling. It retains
+the existing at-most-64-KiB reads, borrowed-descriptor position, regular-file and
+identity/deadline guards. The legacy `bounded_native_descriptor_record` keeps
+its 64 MiB ceiling and signature. Neither selects the other from file size or
+environment; existing 16 MiB mapping/payload APIs are unchanged. The sparse
+64 MiB + 17 byte control is synthetic only, not model execution or process-RAM
+evidence. See the [v2 descriptor checkpoint](handover.md#v2-descriptor-checkpoint-2026-10-19).
+
 `mapped_profile_safetensors_bf16_shard(..., source_path=..., source_shard=...,
 expected_file_bytes=..., expected_file_sha256=...)` retains one verified
 descriptor/header and yields `(matrix_factory, immutable_shard_receipt)`.

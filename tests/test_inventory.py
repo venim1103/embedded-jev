@@ -2503,8 +2503,9 @@ def test_bounded_native_file_record_limits_reads_and_refuses_changes(tmp_path, m
         assert reads == []
 
 
-@pytest.mark.parametrize("defect", [None, "budget", "boolean", "deadline", "nan", "infinite", "deadline-boolean", "grow", "truncate", "pipe"])
-def test_bounded_native_descriptor_preserves_position_and_refuses_changes(tmp_path, monkeypatch, defect):
+@pytest.mark.parametrize("hasher", ["bounded_native_descriptor_record", "bounded_source_descriptor_record_v2"])
+@pytest.mark.parametrize("defect", [None, "budget", "boolean", "ceiling", "descriptor-boolean", "deadline", "nan", "infinite", "deadline-boolean", "grow", "truncate", "pipe"])
+def test_bounded_native_descriptor_preserves_position_and_refuses_changes(tmp_path, monkeypatch, defect, hasher):
     from embedded_jev import streamed_text
 
     path = tmp_path / "descriptor.so"
@@ -2533,16 +2534,20 @@ def test_bounded_native_descriptor_preserves_position_and_refuses_changes(tmp_pa
             pipe = streamed_text.os.pipe()
             descriptor = pipe[0]
         arguments = {"maximum_bytes": True if defect == "boolean" else len(payload) - (defect == "budget"), "deadline": 30}
+        if defect == "ceiling":
+            arguments["maximum_bytes"] = (64 * 1024**2 if hasher == "bounded_native_descriptor_record" else 6 * 1024**3) + 1
+        elif defect == "descriptor-boolean":
+            descriptor = True
         if defect in ("nan", "infinite", "deadline-boolean"):
             arguments["deadline"] = {"nan": float("nan"), "infinite": float("inf"), "deadline-boolean": True}[defect]
         try:
             if defect is None:
-                assert streamed_text.bounded_native_descriptor_record(descriptor, **arguments) == {
+                assert getattr(streamed_text, hasher)(descriptor, **arguments) == {
                     "path": f"/proc/self/fd/{descriptor}", "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
                 }
             else:
                 with pytest.raises(ValueError):
-                    streamed_text.bounded_native_descriptor_record(descriptor, **arguments)
+                    getattr(streamed_text, hasher)(descriptor, **arguments)
             assert source.tell() == 7
         finally:
             if pipe:
@@ -2550,8 +2555,54 @@ def test_bounded_native_descriptor_preserves_position_and_refuses_changes(tmp_pa
                     streamed_text.os.close(endpoint)
     assert max((size for size, _ in calls), default=0) <= 65536
     assert sum(size for size, _ in calls) <= len(payload)
-    if defect in ("budget", "boolean", "deadline", "nan", "infinite", "deadline-boolean", "pipe"):
+    if defect in ("budget", "boolean", "ceiling", "descriptor-boolean", "deadline", "nan", "infinite", "deadline-boolean", "pipe"):
         assert calls == []
+
+
+def test_bounded_source_descriptor_v2_crosses_legacy_ceiling_without_large_buffers(tmp_path, monkeypatch):
+    import time
+    import tracemalloc
+
+    from embedded_jev import streamed_text
+
+    path = tmp_path / "synthetic-source-v2.bin"
+    size = 64 * 1024**2 + 17
+    with path.open("xb") as output:
+        output.truncate(size)
+    block = bytes(65536)
+    expected = hashlib.sha256()
+    for _ in range(size // len(block)):
+        expected.update(block)
+    expected.update(bytes(size % len(block)))
+    original_pread = streamed_text.os.pread
+    counts = []
+
+    def bounded_read(descriptor, count, offset):
+        assert 0 < count <= 65536
+        counts.append(count)
+        return original_pread(descriptor, count, offset)
+
+    monkeypatch.setattr(streamed_text.os, "pread", bounded_read)
+    was_tracing = tracemalloc.is_tracing()
+    try:
+        with path.open("rb", buffering=0) as source:
+            source.seek(7)
+            deadline = time.monotonic() + 30
+            with pytest.raises(ValueError, match="invalid native descriptor or file budget"):
+                streamed_text.bounded_native_descriptor_record(source.fileno(), maximum_bytes=size, deadline=deadline)
+            assert counts == []
+            if not was_tracing:
+                tracemalloc.start()
+            record = streamed_text.bounded_source_descriptor_record_v2(source.fileno(), maximum_bytes=size, deadline=deadline)
+            if not was_tracing:
+                assert tracemalloc.get_traced_memory()[1] < 1024**2
+            assert source.tell() == 7
+            assert record == {"path": f"/proc/self/fd/{source.fileno()}", "bytes": size, "sha256": expected.hexdigest()}
+            assert sum(counts) == size and counts[-1] == 17
+    finally:
+        if not was_tracing and tracemalloc.is_tracing():
+            tracemalloc.stop()
+        path.unlink()
 
 
 def test_profile_record_is_strict_immutable_and_canonically_hashed():

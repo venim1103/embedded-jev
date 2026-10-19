@@ -1,10 +1,20 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-16. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-19. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
+
+**Resumed by user, 2026-10-19:** Continue the previously approved synthetic-only
+larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
+`origin/main`; untouched user editor settings remain untracked. An interrupted
+resume had already edited the explicit v2 descriptor hasher and tests, and its
+focused terminal command completed successfully. Those edits were inspected
+and preserved rather than repeated. The required source gate now passes; read
+the [v2 descriptor checkpoint](#v2-descriptor-checkpoint-2026-10-19).
+The earlier pause below is historical. Existing real-model/resource boundaries
+remain unchanged; no cached learned weights or full conversion is authorized.
 
 **Paused by user, 2026-10-16:** Stop at the completed shared-source writer and
 larger-policy proposal checkpoints, user-pushed through `30e3f15`. The last
@@ -301,6 +311,33 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## V2 Descriptor Checkpoint (2026-10-19)
+
+Added `bounded_source_descriptor_record_v2` with an explicit **6 GiB** ceiling,
+sharing the existing private positional hashing loop. The old
+`bounded_native_descriptor_record` retains its **64 MiB** ceiling and signature;
+all source mapping/payload APIs retain their **16 MiB** limits. No environment
+variable, profile or file-size inference selects the new entry point.
+
+Both hashers run the existing descriptor-position, deadline, nonregular-file,
+growth/truncation and malformed-budget controls. A disposable sparse
+**64 MiB + 17 byte** fixture proves the old entry refuses before reading and
+the explicit v2 entry hashes the exact extent in at-most **64 KiB** reads,
+preserves descriptor position and returns the independent zero-stream SHA-256.
+The isolated traced Python allocation peak is below **1 MiB**; this is not
+process RSS, mapped-page, OS-cache or full-model memory evidence. Cleanup runs
+in `finally`. No multi-GiB fixture or model file was created or read.
+
+Recovered edits from the interrupted resume passed the required source gate:
+**692 passed, 89 optional skips in 18.14 s**, Ruff/whitespace/editor clean.
+No current failing check, dependency installation, native build, optional
+converter run, learned input, conversion, refit, candidate or quality experiment.
+This implements only the descriptor primitive of the approved larger-source
+policy, not a larger-source adapter or runtime authorization. Next: add the
+separately versioned shard owner with explicit 6 GiB file/2 GiB operand bounds,
+while leaving existing APIs unchanged and actual synthetic fixtures within
+the approved 128 MiB file/32 MiB operand/256 MiB scratch budget.
 
 ## Larger Source Proposal (2026-10-16)
 
