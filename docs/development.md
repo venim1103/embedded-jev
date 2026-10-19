@@ -1601,13 +1601,24 @@ serial child lifetime remain. New receipts add `source_operand_policy`,
 `source_auxiliary_cap_bytes`, and per-child dtype/shape/kind. Source BF16 is
 mapped as little-endian uint16 and F32 as little-endian float32; both are
 read-only and descriptor-owned. The existing matrix-only APIs and receipts
-are unchanged. Frozen replacement operands and unsupported arithmetic/dtypes
-still refuse. All source/header/range checks and parent/child failure cleanup
+are unchanged. Frozen replacement operands refuse by default; the strict
+boolean `include_frozen_source=True` opt-in permits only source-provenance
+mapping, never dense reconversion. The frozen name/source digest and payload
+digest/layout are snapshotted from the validated manifest/plan. Child caller
+digests must match that frozen source pin, and actual raw bytes must match
+the profile-pinned range. Later caller manifest mutation cannot replace the
+snapshot. Successful parent exit also requires the frozen payload's original
+bytes, dtype, shape and contiguous layout. Receipts explicitly leave
+`source_to_frozen_quantization_verification` unchecked: source authentication
+is not proof of quantizer correctness or representative model quality.
+Unsupported arithmetic/dtypes still refuse. All source/header/range checks and parent/child failure cleanup
 are shared; exactly two whole-file hashes cover serial mixed operands.
 This verifies raw provenance, not finiteness or conversion arithmetic:
 retain the separate vector/convolution numerical gates. Borrowed aliases
 must finish before child exit; concurrent truncation is not supported.
 See the [v2 mixed source checkpoint](handover.md#v2-mixed-source-checkpoint-2026-10-19).
+See the [frozen source owner checkpoint](handover.md#frozen-source-owner-checkpoint-2026-10-19)
+for opt-in provenance and payload-immutability evidence.
 
 `mapped_profile_safetensors_bf16_shard_v2(...)` explicitly selects the separate
 6 GiB file/2 GiB selected-matrix policy and v2 descriptor hasher. Its file and

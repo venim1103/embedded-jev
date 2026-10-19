@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [mixed writer checkpoint](#mixed-writer-checkpoint-2026-10-19), followed by the
+the [frozen source owner checkpoint](#frozen-source-owner-checkpoint-2026-10-19), followed by the
+[mixed writer checkpoint](#mixed-writer-checkpoint-2026-10-19),
 [v2 mixed source checkpoint](#v2-mixed-source-checkpoint-2026-10-19),
 [v2 resource checkpoint](#v2-resource-checkpoint-2026-10-19),
 [v2 writer checkpoint](#v2-writer-checkpoint-2026-10-19),
@@ -317,6 +318,44 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Frozen Source Owner Checkpoint (2026-10-19)
+
+After `83f2870`, the mixed v2 source owner accepts a strict boolean
+`include_frozen_source` opt-in, default **false**. Default mixed and both
+matrix-only APIs still refuse frozen ranges. Explicit opt-in maps only the
+declared frozen BF16 source, binding caller digest to a snapshot of the
+manifest's source digest and actual bytes to the profile-pinned raw range.
+The frozen source name, digest, payload digest and layout are retained at
+entry; later caller manifest mutation cannot replace them. Receipts label
+the child `frozen_source` and explicitly leave source-to-frozen quantization
+verification unchecked. The existing BF16 converter still refuses this row.
+No code/scale regeneration, refit or candidate promotion.
+
+Successful parent exit checks frozen payload bytes, dtype, shape and contiguous
+layout against entry. Synthetic byte/shape/dtype mutations each refuse;
+fixtures are fully restored in `finally`. Tests also preserve exact payload
+hashes through successful mapping, exercise caller/manifest digest mismatch,
+wrong declared manifest digest versus actual range, immutable snapshot and
+default refusal. Nonboolean flags refuse before planning/opening. BF16/F32
+auxiliary/matrix lifetimes and legacy frozen verifier checks remain intact.
+Final focused slice: **131 passed in 10.00 s**; no failures in this increment.
+
+Required gate: **788 passed, 92 optional skips in 79.44 s**, Ruff/whitespace/
+editor clean. Five cached pinned regressions pass in **47.31 s**, each retaining
+its unchanged 15-second subprocess deadline. These are aggregate test-suite
+times, not an individual synthetic artifact-stage or measured host-memory
+guarantee; no deadline/resource cap was raised and no successful gate was
+rerun. Pylance confirms all **4 public** and **3 private** resolved call sites
+compatible with the optional signatures. No learned input, download, runtime
+build/model execution, complete conversion, new candidate or quality action.
+No owned scratch/background jobs; user settings remain untouched.
+
+Next: include frozen source proof and the existing frozen payload in bounded
+pinned writer publication controls, without dense conversion. Metadata/
+tokenizer and complete-converter acceptance remain separate; another real
+artifact still needs its own bounded approval and cannot reuse the failed
+conversion unchanged.
 
 ## Mixed Writer Checkpoint (2026-10-19)
 

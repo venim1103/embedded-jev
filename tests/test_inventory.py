@@ -1455,11 +1455,15 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
 
 
 @pytest.mark.parametrize("source_dtype", ["BF16", "F32"])
-def test_profile_conversion_shard_v2_maps_auxiliaries_and_matrices_serially(tmp_path, monkeypatch, source_dtype):
+@pytest.mark.parametrize("include_frozen_source", [False, True])
+def test_profile_conversion_shard_v2_maps_auxiliaries_and_matrices_serially(tmp_path, monkeypatch, source_dtype, include_frozen_source):
     from embedded_jev import prism_codec, streamed_text
 
     profile, report, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True,
         vector_dtype=source_dtype, conv_dtype=source_dtype)
+    frozen_source_pin = hashlib.sha256(bytes(int(np.prod(manifest["shape"])) * 2)).hexdigest()
+    manifest["source_tensor_sha256"] = frozen_source_pin
+    frozen_payload_pin = hashlib.sha256(memoryview(blocks)).hexdigest()
     plan = prism_codec.profile_model_conversion_plan(profile, report, manifest, blocks)
     monkeypatch.setattr(prism_codec, "profile_model_conversion_plan", lambda *arguments, **keywords: plan)
     entries, payload_bytes = {}, 0
@@ -1483,7 +1487,8 @@ def test_profile_conversion_shard_v2_maps_auxiliaries_and_matrices_serially(tmp_
     try:
         with prism_codec.mapped_profile_safetensors_conversion_shard_v2(profile, report, manifest, blocks,
                  source_path=path, source_shard=path.name, expected_file_bytes=file_bytes,
-                 expected_file_sha256=profile.files[path.name].sha256) as (operand, shard_receipt):
+                 expected_file_sha256=profile.files[path.name].sha256,
+                 include_frozen_source=include_frozen_source) as (operand, shard_receipt):
             assert shard_receipt["source_auxiliary_cap_bytes"] == 1 << 20
             for source_name in ("model.norm.weight", "model.layers.0.linear_attn.conv1d.weight", "model.layers.1.self_attn.k_proj.weight"):
                 entry = entries[source_name]
@@ -1499,9 +1504,27 @@ def test_profile_conversion_shard_v2_maps_auxiliaries_and_matrices_serially(tmp_
                         with operand(source_name, source_sha256):
                             pytest.fail("overlapping conversion source was mapped")
                 assert values._mmap.closed and len(hashes) == 1
-            with pytest.raises(ValueError, match="requires an unfrozen BF16 matrix"):
-                with operand(manifest["tensor"], "f" * 64):
-                    pytest.fail("conversion mapping admitted the frozen replacement")
+            if include_frozen_source:
+                manifest["source_tensor_sha256"] = "0" * 64
+                try:
+                    with operand(manifest["tensor"], frozen_source_pin) as (frozen, receipt):
+                        assert receipt["source_operand_kind"] == "frozen_source"
+                        assert receipt["frozen_payload_sha256"] == frozen_payload_pin
+                        assert receipt["source_to_frozen_quantization_verification"] == "not_checked"
+                        assert hashlib.sha256(memoryview(frozen)).hexdigest() == frozen_source_pin
+                        with pytest.raises(ValueError):
+                            next(prism_codec.iter_profile_bf16_matrix_chunks(profile, report, manifest, blocks,
+                                source_name=manifest["tensor"], source_values=frozen))
+                    assert frozen._mmap.closed
+                    with pytest.raises(ValueError, match="frozen source digest differs from manifest"):
+                        with operand(manifest["tensor"], "0" * 64):
+                            pytest.fail("caller digest replaced the frozen manifest binding")
+                finally:
+                    manifest["source_tensor_sha256"] = frozen_source_pin
+            else:
+                with pytest.raises(ValueError, match="requires an unfrozen BF16 matrix"):
+                    with operand(manifest["tensor"], frozen_source_pin):
+                        pytest.fail("default conversion mapping admitted the frozen replacement")
             vector_entry = next(item for item in plan["tensors"] if item["source_name"] == "model.norm.weight")
             original_shape = vector_entry["source_shape"]
             vector_entry["source_shape"] = [(1 << 20) // (4 if source_dtype == "F32" else 2) + 1]
@@ -1518,8 +1541,53 @@ def test_profile_conversion_shard_v2_maps_auxiliaries_and_matrices_serially(tmp_
             finally:
                 vector_entry["source_shape"] = original_shape
         assert len(hashes) == 2 and hashes[0] == hashes[1]
+        assert hashlib.sha256(memoryview(blocks)).hexdigest() == frozen_payload_pin
+        if include_frozen_source:
+            original_layout = blocks.shape, blocks.dtype
+            for change in ("bytes", "shape", "dtype"):
+                changed = False
+                try:
+                    with pytest.raises(ValueError, match="frozen payload changed during source ownership"):
+                        with prism_codec.mapped_profile_safetensors_conversion_shard_v2(profile, report, manifest, blocks,
+                                 source_path=path, source_shard=path.name, expected_file_bytes=file_bytes,
+                                 expected_file_sha256=profile.files[path.name].sha256, include_frozen_source=True):
+                            if change == "bytes":
+                                blocks.flat[0] ^= 1
+                            elif change == "shape":
+                                blocks.shape = (blocks.size,)
+                            else:
+                                blocks.dtype = np.uint16
+                            changed = True
+                finally:
+                    blocks.dtype = original_layout[1]
+                    blocks.shape = original_layout[0]
+                    if changed and change == "bytes":
+                        blocks.flat[0] ^= 1
+                assert hashlib.sha256(memoryview(blocks)).hexdigest() == frozen_payload_pin
+            wrong_manifest = {**manifest, "source_tensor_sha256": "0" * 64}
+            with pytest.raises(ValueError, match="mapped source tensor identity mismatch"):
+                with prism_codec.mapped_profile_safetensors_conversion_shard_v2(profile, report, wrong_manifest, blocks,
+                         source_path=path, source_shard=path.name, expected_file_bytes=file_bytes,
+                         expected_file_sha256=profile.files[path.name].sha256, include_frozen_source=True) as (operand, _):
+                    with operand(wrong_manifest["tensor"], wrong_manifest["source_tensor_sha256"]):
+                        pytest.fail("declared frozen digest did not match actual pinned source bytes")
     finally:
         path.unlink()
+
+
+@pytest.mark.parametrize("value", [0, 1, "true", None])
+def test_profile_conversion_shard_v2_refuses_nonboolean_frozen_flag_before_plan(monkeypatch, value):
+    from embedded_jev import prism_codec
+
+    def never_plan(*arguments, **keywords):
+        pytest.fail("invalid frozen-source opt-in reached planning")
+
+    monkeypatch.setattr(prism_codec, "profile_model_conversion_plan", never_plan)
+    with pytest.raises(ValueError, match="invalid mapped source identity or budget"):
+        with prism_codec.mapped_profile_safetensors_conversion_shard_v2(None, {}, {}, None,
+                 source_path="unused.safetensors", source_shard="unused.safetensors",
+                 expected_file_bytes=1, expected_file_sha256="0" * 64, include_frozen_source=value):
+            pytest.fail("nonboolean frozen-source opt-in was accepted")
 
 
 @pytest.mark.parametrize("consumer", ["mapping", "payload", "shared", "shared-v2", "conversion-v2"])

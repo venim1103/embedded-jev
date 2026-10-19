@@ -1067,9 +1067,9 @@ def mapped_profile_safetensors_bf16_shard_v2(
 def mapped_profile_safetensors_conversion_shard_v2(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_shard: str,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
-    maximum_seconds: float = 30,
+    maximum_seconds: float = 30, include_frozen_source: bool = False,
 ):
-    """Own serial unfrozen matrices and bounded BF16/F32 auxiliary source operands."""
+    """Own serial conversion sources; frozen provenance requires explicit opt-in, never refitting."""
     from embedded_jev.streamed_text import bounded_source_descriptor_record_v2
 
     return _mapped_profile_safetensors_bf16_shard(
@@ -1078,6 +1078,7 @@ def mapped_profile_safetensors_conversion_shard_v2(
         maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
         file_ceiling=6 * 1024**3, operand_ceiling=2 * 1024**3,
         descriptor_record=bounded_source_descriptor_record_v2, policy_version=2, allow_auxiliary=True,
+        include_frozen_source=include_frozen_source,
     )
 
 
@@ -1085,13 +1086,14 @@ def mapped_profile_safetensors_conversion_shard_v2(
 def _mapped_profile_safetensors_bf16_shard(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_shard,
     expected_file_bytes, expected_file_sha256, maximum_file_bytes, maximum_seconds,
-    file_ceiling, operand_ceiling, descriptor_record, policy_version, allow_auxiliary=False,
+    file_ceiling, operand_ceiling, descriptor_record, policy_version, allow_auxiliary=False, include_frozen_source=False,
 ):
     from embedded_jev.inventory import _json_object, parse_safetensors_header
     from embedded_jev.model_profile import SHA256
 
     if (
-        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= file_ceiling
+        type(include_frozen_source) is not bool
+        or type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= file_ceiling
         or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
         or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
@@ -1099,6 +1101,9 @@ def _mapped_profile_safetensors_bf16_shard(
         raise ValueError("invalid mapped source identity or budget")
     deadline = time.monotonic() + maximum_seconds
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    frozen_source_name, frozen_source_pin = manifest["tensor"], manifest["source_tensor_sha256"]
+    frozen_payload_pin = plan["projection_payload_sha256"]
+    frozen_layout = (np.asarray(pq2_blocks).shape, np.asarray(pq2_blocks).dtype) if include_frozen_source else None
     if source_shard not in profile.packaging["shards"]:
         raise ValueError("mapped source shard is not declared")
     source_shards = {item["name"]: item["shard"] for item in inventory["tensors"]}
@@ -1115,6 +1120,8 @@ def _mapped_profile_safetensors_bf16_shard(
                                                    "source_operand_cap_bytes": operand_ceiling}
     if allow_auxiliary:
         policy_receipt.update(source_operand_policy="bf16_matrices_and_bf16_f32_auxiliaries", source_auxiliary_cap_bytes=1 << 20)
+    if include_frozen_source:
+        policy_receipt.update(frozen_source_policy="manifest_bound_source_only_no_refitting", frozen_payload_sha256=frozen_payload_pin)
 
     def identity(value):
         return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
@@ -1169,8 +1176,13 @@ def _mapped_profile_safetensors_bf16_shard(
             auxiliary_entry = (allow_auxiliary and entry is not None and entry["type"] == "F32"
                                and entry["arithmetic_dtype"] == "F32" and entry["source_dtype"] in ("BF16", "F32")
                                and (len(entry["source_shape"]) == 1 or (len(entry["source_shape"]) == 3 and source_name.endswith("conv1d.weight"))))
-            if not matrix_entry and not auxiliary_entry:
+            frozen_entry = (include_frozen_source and entry is not None and entry["type"] == "PQ2_0"
+                            and entry["source_dtype"] == "BF16" and len(entry["source_shape"]) == 2
+                            and source_name == frozen_source_name)
+            if not matrix_entry and not auxiliary_entry and not frozen_entry:
                 raise ValueError("mapped source requires an unfrozen BF16 matrix")
+            if frozen_entry and expected_source_sha256 != frozen_source_pin:
+                raise ValueError("frozen source digest differs from manifest")
             if source_shards.get(source_name) != source_shard:
                 raise ValueError("mapped source matrix belongs to another shard")
             shape = tuple(entry["source_shape"])
@@ -1199,7 +1211,10 @@ def _mapped_profile_safetensors_bf16_shard(
                 active.append(mapped)
                 check_identity()
                 layout_receipt = {} if not allow_auxiliary else {"source_dtype": entry["source_dtype"], "source_shape": shape,
-                                                               "source_operand_kind": "auxiliary" if auxiliary_entry else "matrix"}
+                                                               "source_operand_kind": "frozen_source" if frozen_entry else "auxiliary" if auxiliary_entry else "matrix"}
+                if frozen_entry:
+                    layout_receipt.update(frozen_source_verification="manifest_source_digest_and_profile_pinned_range_entry_and_exit_checks_required",
+                                          source_to_frozen_quantization_verification="not_checked")
                 yield mapped, MappingProxyType({**policy_receipt, **layout_receipt, "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                                                "source_name": source_name, "source_sha256": expected_source_sha256,
                                                "source_file_sha256": expected_file_sha256, "source_file_bytes": expected_file_bytes,
@@ -1226,6 +1241,11 @@ def _mapped_profile_safetensors_bf16_shard(
                                            "runtime_approval": "not_granted_by_source_shard"})
             if failed or active:
                 raise ValueError("mapped source shard has failed or unfinished matrix consumers")
+            if include_frozen_source:
+                frozen_payload = np.asarray(pq2_blocks)
+                if (not frozen_payload.flags.c_contiguous or (frozen_payload.shape, frozen_payload.dtype) != frozen_layout
+                        or hashlib.sha256(memoryview(frozen_payload)).hexdigest() != frozen_payload_pin):
+                    raise ValueError("frozen payload changed during source ownership")
             verify_file()
         finally:
             live = False
