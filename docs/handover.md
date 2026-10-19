@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [BPE declaration checkpoint](#bpe-declaration-checkpoint-2026-10-19), followed by
+the [added-token checkpoint](#added-token-checkpoint-2026-10-19), followed by
+the [BPE declaration checkpoint](#bpe-declaration-checkpoint-2026-10-19),
 the [metadata file checkpoint](#metadata-file-checkpoint-2026-10-19),
 the [larger composition checkpoint](#larger-composition-checkpoint-2026-10-19),
 the [source-bound GGUF checkpoint](#source-bound-gguf-checkpoint-2026-10-19),
@@ -339,6 +340,41 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Added-Token Checkpoint (2026-10-19)
+
+After `99bf162`, static inspection of pinned Prism `conversion/base.py`
+(`get_vocab_base`, `get_vocab_base_pre`, `_set_vocab_gpt2`) confirmed that its
+GPT-2 metadata path separately selects unused rows, normalizes/classifies
+added tokens and recognizes an encoding fingerprint before writing the
+pre-tokenizer tag. Declaration preparation does not establish any of these.
+No model inputs or repository code were loaded/executed by this inspection.
+
+`prepare_profile_model_added_token_metadata` now compares pinned source IDs,
+literal contents and all five exact boolean flags against the same single
+trusted parser and vocabulary. Immutable source-ordered rows cap at 4096,
+each content at 4096 UTF-8 bytes and aggregate content at 64 KiB, in addition
+to existing pinned 32 MiB input preparation. Duplicate/unknown/bool IDs,
+malformed/missing flags, parser disagreement and budget overflow refuse.
+It deliberately does not run encode/decode: arbitrary decoder declarations
+need separate supported-component/work bounds before bounded round trips can
+be claimed. GGUF types, pre-tokenizer tags and runtime approval stay unchecked.
+
+The first **15 default cases passed in 0.28 s**. After adding exact byte and
+aggregate boundaries, UTF-8 overflow, extra/wrongly typed parser IDs/flags and
+immutable records, **24 default cases plus one actual cached-parser mode
+passed in 0.47 s**. The new existing-fixture mode has a lowercase normalizer,
+special and non-special added tokens and non-default whitespace/word flags;
+it compares declarations, not round-trip text or GGUF token types. Its
+15 s child, tensor-free output below 64 KiB and writer/spool/map/scratch
+cleanup are unchanged. No failed check occurred in this increment.
+
+Required gate: **1034 passed, 99 skipped in 30.30 s**, Ruff/whitespace and
+three Python editor checks clean. Optional parser evidence and default
+doubles remain distinct. No learned tokenizer/weight reads, downloads,
+builds, native/model jobs, real artifacts, refits or quality experiments ran.
+Next: bounded selected BPE merge emission with preflight and file readback;
+do not infer a pre-tokenizer tag or added-token type from these declarations.
 
 ## BPE Declaration Checkpoint (2026-10-19)
 

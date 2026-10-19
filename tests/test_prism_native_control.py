@@ -5475,7 +5475,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": elapsed, "before": before, 
     print(json.dumps(report, sort_keys=True))
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import hashlib
 
@@ -5512,9 +5512,15 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         added_tokens = [{"id": token_id, "content": token, "single_word": False, "lstrip": False,
                          "rstrip": False, "normalized": False, "special": True}
                         for token, token_id in record["tokenization"]["special_token_ids"].items()]
+    if tokenizer_mode == "added":
+        tokens[:2] = ["<CONTROL>", "user"]
+        added_tokens = [{"id": 0, "content": tokens[0], "single_word": False, "lstrip": False,
+                         "rstrip": False, "normalized": False, "special": True},
+                        {"id": 1, "content": tokens[1], "single_word": True, "lstrip": True,
+                         "rstrip": True, "normalized": True, "special": False}]
     if tokenizer_mode != "identity":
         tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": added_tokens,
-            "normalizer": {"type": "Lowercase"} if tokenizer_mode == "bpe" else None, "model": {
+            "normalizer": {"type": "Lowercase"} if tokenizer_mode in ("bpe", "added") else None, "model": {
             "type": "BPE", "vocab": {token: index for index, token in enumerate(tokens)},
             "merges": [["a", "b"], ["ab", "c"]] if tokenizer_mode == "bpe" else [],
             "dropout": None, "unk_token": None, "continuing_subword_prefix": None,
@@ -5532,7 +5538,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_context_metadata, write_profile_model_template_metadata
+from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_context_metadata, write_profile_model_template_metadata
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -5571,6 +5577,15 @@ if fixture["tokenizer_mode"] == "bpe":
     assert bpe["tokenizer_semantic_verification"] == bpe["gguf_tokenizer_verification"] == "not_checked"
     tokenizer = Tokenizer.from_str(tokenizer_bytes.decode())
     assert tokenizer.encode("abc", add_special_tokens=False).ids == tokenizer.encode("ABC", add_special_tokens=False).ids == [4]
+if fixture["tokenizer_mode"] == "added":
+    added = prepare_profile_model_added_token_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+    declarations = json.loads(tokenizer_bytes)["added_tokens"]
+    assert added["added_token_count"] == 2
+    assert tuple(dict(row) for row in added["added_token_records"]) == tuple(
+        {"token_id": row["id"], **{name: value for name, value in row.items() if name != "id"}} for row in declarations)
+    assert added["added_token_content_bytes"] == sum(len(row["content"].encode()) for row in declarations)
+    assert added["added_token_round_trip_verification"] == added["gguf_token_type_verification"] == added["pre_tokenizer_tag_verification"] == "not_checked"
+    assert added["tokenizer_semantic_verification"] == added["gguf_tokenizer_verification"] == "not_checked"
 if fixture["tokenizer_mode"] == "contract":
     contract = prepare_profile_model_tokenizer_contract(profile, metadata_files=metadata,
         tokenizer_bytes=tokenizer_bytes, context_length=256)

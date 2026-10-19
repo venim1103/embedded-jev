@@ -1811,6 +1811,16 @@ bytes, not interpreted as GGUF pre-tokenizer tags or token types. Existing
 standalone/prompt boundaries, complete semantics and GGUF mapping remain
 unchecked. See the [BPE declaration checkpoint](handover.md#bpe-declaration-checkpoint-2026-10-19).
 
+`prepare_profile_model_added_token_metadata(...)` compares pinned source
+added-token IDs, literal contents and all five boolean flags with the same
+trusted parser and contiguous vocabulary used by vocabulary preparation. It
+returns immutable source-ordered declarations, with at most 4096 rows, 4096
+UTF-8 bytes per content and 64 KiB aggregate content; existing 32 MiB pinned
+metadata limits also apply. Unknown/duplicate IDs, missing/non-boolean flags,
+parser disagreement and budget overflow refuse. It does not encode/decode
+contents, pre-normalize user-defined spaces, classify GGUF token types or
+select a pre-tokenizer tag. See the [added-token checkpoint](handover.md#added-token-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

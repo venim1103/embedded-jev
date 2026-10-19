@@ -1056,6 +1056,96 @@ def test_profile_bpe_metadata_preserves_rank_and_preprocessing_without_gguf_clai
         receipt["preprocessing_json"]["normalizer"] = b"{}"
 
 
+@pytest.mark.parametrize("defect", [None, "empty", "rows", "row-budget", "boolean-id", "unknown-id", "duplicate", "content",
+                                    "flag-type", "missing-flag", "parsed-content", "parsed-flag", "parsed-ids", "parsed-id-type", "content-budget",
+                                    "row-type", "empty-content", "utf8-budget", "byte-limit", "aggregate-budget", "aggregate-limit",
+                                    "parsed-type", "parsed-flag-type", "extra-parsed-id"])
+def test_profile_added_token_metadata_is_bounded_pinned_and_not_a_token_type_mapping(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata
+
+    vocabulary = {"a": 0, "<A>": 1}
+    row = {"id": 1, "content": "<A>", "single_word": False, "lstrip": False, "rstrip": False, "normalized": False, "special": True}
+    parsed = {1: SimpleNamespace(**{name: value for name, value in row.items() if name != "id"})}
+    rows = [row.copy()]
+    if defect == "empty":
+        rows, parsed = [], {}
+    elif defect == "rows":
+        rows = {}
+    elif defect == "row-budget":
+        rows *= 4097
+    elif defect == "boolean-id":
+        rows[0]["id"] = True
+    elif defect == "unknown-id":
+        rows[0]["id"] = 2
+    elif defect == "duplicate":
+        rows *= 2
+    elif defect == "content":
+        rows[0]["content"] = "other"
+    elif defect == "flag-type":
+        rows[0]["special"] = 1
+    elif defect == "missing-flag":
+        del rows[0]["normalized"]
+    elif defect == "parsed-content":
+        parsed[1].content = "other"
+    elif defect == "parsed-flag":
+        parsed[1].normalized = True
+    elif defect == "parsed-ids":
+        parsed = {}
+    elif defect == "parsed-id-type":
+        parsed = {True: parsed[1]}
+    elif defect == "content-budget":
+        del vocabulary["<A>"]
+        vocabulary["x" * 4097] = 1
+        rows[0]["content"] = "x" * 4097
+    elif defect == "row-type":
+        rows[0] = None
+    elif defect in ("empty-content", "utf8-budget", "byte-limit"):
+        content = {"empty-content": "", "utf8-budget": "\u00e9" * 2049, "byte-limit": "x" * 4096}[defect]
+        vocabulary = {"a": 0, content: 1}
+        rows[0]["content"] = parsed[1].content = content
+    elif defect in ("aggregate-budget", "aggregate-limit"):
+        vocabulary, parsed, rows = {"a": 0}, {}, []
+        for token_id in range(1, 18 if defect == "aggregate-budget" else 17):
+            content = f"{token_id:04d}" + "x" * 4092
+            vocabulary[content] = token_id
+            rows.append({**row, "id": token_id, "content": content})
+            parsed[token_id] = SimpleNamespace(**{name: value for name, value in rows[-1].items() if name != "id"})
+    elif defect == "parsed-type":
+        parsed = []
+    elif defect == "parsed-flag-type":
+        parsed[1].normalized = 0
+    elif defect == "extra-parsed-id":
+        parsed[0] = parsed[1]
+    tokenizer_bytes = json.dumps({"model": {"type": "BPE"}, "added_tokens": rows}).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    calls = []
+
+    def from_str(text):
+        calls.append(text)
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary), get_added_tokens_decoder=lambda: parsed)
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    if defect not in (None, "empty", "byte-limit", "aggregate-limit"):
+        with pytest.raises(ValueError, match="added tokenizer"):
+            prepare_profile_model_added_token_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+        assert calls == [tokenizer_bytes.decode()]
+        return
+    receipt = prepare_profile_model_added_token_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+    assert calls == [tokenizer_bytes.decode()]
+    assert receipt["added_token_count"] == len(rows)
+    assert receipt["added_token_content_bytes"] == sum(len(item["content"].encode()) for item in rows)
+    assert receipt["added_token_round_trip_verification"] == receipt["gguf_token_type_verification"] == "not_checked"
+    assert receipt["pre_tokenizer_tag_verification"] == receipt["gguf_tokenizer_verification"] == "not_checked"
+    assert tuple(dict(item) for item in receipt["added_token_records"]) == tuple(
+        {"token_id": item["id"], **{name: value for name, value in item.items() if name != "id"}} for item in rows)
+    if rows:
+        with pytest.raises(TypeError):
+            receipt["added_token_records"][0]["special"] = False
+
+
 @pytest.mark.parametrize("defect", [None, "special-id", "special-encoding", "label-id", "label-encoding", "label-special"])
 def test_profile_tokenizer_contract_is_standalone_and_not_a_prompt_boundary(monkeypatch, defect):
     import sys

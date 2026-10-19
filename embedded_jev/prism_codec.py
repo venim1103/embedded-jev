@@ -483,6 +483,54 @@ def prepare_profile_model_bpe_metadata(
                             "runtime_approval": "not_granted_by_bpe_metadata_preparation"})
 
 
+def prepare_profile_model_added_token_metadata(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+):
+    """Verify bounded added-token flags without normalizing text or assigning GGUF token types."""
+    from embedded_jev.inventory import _json_object
+
+    prepared, tokenizer = _prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    rows = _json_object(tokenizer_bytes, "tokenizer.json").get("added_tokens", [])
+    flags = ("single_word", "lstrip", "rstrip", "normalized", "special")
+    if not isinstance(rows, list) or len(rows) > 4096:
+        raise ValueError("added tokenizer declarations exceed supported row budget")
+    parsed = tokenizer.get_added_tokens_decoder()
+    if not isinstance(parsed, dict):
+        raise ValueError("added tokenizer decoder declarations are invalid")
+    records = []
+    seen = set()
+    content_bytes = 0
+    for row in rows:
+        if (
+            not isinstance(row, dict) or type(row.get("id")) is not int
+            or not 0 <= row["id"] < len(prepared["tokens"]) or row["id"] in seen
+            or not isinstance(row.get("content"), str) or not 0 < len(row["content"]) <= 4096
+            or prepared["tokens"][row["id"]] != row["content"]
+            or any(type(row.get(name)) is not bool for name in flags)
+        ):
+            raise ValueError("added tokenizer ID, content or flags mismatch")
+        encoded = row["content"].encode("utf-8")
+        content_bytes += len(encoded)
+        if len(encoded) > 4096 or content_bytes > 64 * 1024:
+            raise ValueError("added tokenizer declarations exceed supported content budget")
+        token = parsed.get(row["id"])
+        if (token is None or getattr(token, "content", None) != row["content"]
+                or any(type(getattr(token, name, None)) is not bool or getattr(token, name) != row[name] for name in flags)):
+            raise ValueError("added tokenizer source flags differ from trusted parser")
+        seen.add(row["id"])
+        records.append(MappingProxyType({"token_id": row["id"], "content": row["content"],
+                                        **{name: row[name] for name in flags}}))
+    if set(parsed) != seen or any(type(token_id) is not int for token_id in parsed):
+        raise ValueError("added tokenizer source IDs differ from trusted decoder")
+    return MappingProxyType({**prepared, "added_token_records": tuple(records), "added_token_count": len(records),
+                            "added_token_content_bytes": content_bytes,
+                            "added_token_verification": "source_flags_match_trusted_parser_and_vocabulary",
+                            "added_token_round_trip_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "pre_tokenizer_tag_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_added_token_preparation"})
+
+
 def _prepare_profile_model_tokenizer_vocabulary(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):
