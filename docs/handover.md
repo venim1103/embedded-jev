@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [paired token rows checkpoint](#paired-token-rows-checkpoint-2026-10-19), followed by
+the [paired rows file checkpoint](#paired-rows-file-checkpoint-2026-10-19), followed by
+the [paired token rows checkpoint](#paired-token-rows-checkpoint-2026-10-19),
 the [source token-type checkpoint](#source-token-type-checkpoint-2026-10-19),
 the [native UTF-8 checkpoint](#native-utf-8-checkpoint-2026-10-19),
 the [native selected-record checkpoint](#native-selected-record-checkpoint-2026-10-19),
@@ -361,6 +362,52 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Paired Rows File Checkpoint (2026-10-19)
+
+After `8029579`, the user separately approved a retained-file paired-row proof,
+not a larger runtime/tokenizer contract. `verify_profile_gguf_tokenizer_rows_v2`
+freshly reruns the explicit no-transform source policy and checks the two exact
+typed records through the existing retained-file parser: read-only mapped parts,
+selected record ranges/bytes, two whole-file hashes on one retained descriptor,
+path/stat identity, at most 64 KiB reads and one deadline including preparation.
+Shared writer/proof record construction keeps numeric enum mapping consistent.
+
+The new API has a **256 KiB file ceiling**, policy capacity at most 4096,
+selected-record default **8 KiB** and explicit ceiling **128 KiB**. Existing
+metadata/file APIs and native 29-record contracts are unchanged. The private
+parser now has an explicit numeric-array-part budget, default **32** exactly as
+before, ceiling **4101**; only the new wrapper opts into `5 + profile capacity`.
+Scalar/other part limits stay unchanged. A real 32-row control proves the old
+default still refuses its 37-part numeric record before the new wrapper passes.
+The existing tensor-table boundary requirement is preserved: the proof fixture
+adds one **two-byte BF16 anchor**, rather than relaxing support to zero tensors.
+
+**Evidence:** eight new routing/budget/deadline cases plus seven writer controls
+**15 passed in 0.15 s**. Actual pinned `row-proof` mode **1 passed in 0.43 s**,
+then expanded identity/lifetime controls **1 passed in 0.43 s**, with no failures.
+It checks two hashes on the same descriptor, maximum actual read **896 bytes**,
+fresh-hash text/type-value/INT32-to-UINT32 contradictions, wrong file SHA,
+copied numeric mapping parts, a write-and-restore after the final hash, and a
+closed reader. Descriptor counts return to baseline and original file bytes are
+restored. File **896 bytes**, file-plus-one-fault scratch peak **1,792 bytes**,
+observed RSS **49,831,936 bytes**, process swap zero, host swap unchanged from
+**1,642,496 bytes**; parent scratch cleaned. The actual file has **32 rows**,
+not measured 4096-row or full-model acceptance. Existing 15 s child/60 s stage,
+1 GiB observed RSS/no swap growth and 8 KiB summary caps remain unchanged.
+
+All nine tiny-tokenizer modes, old selected-source composition and focused new
+controls **25 passed in 4.73 s**. Required root gate **1193 passed, 112 skipped
+in 24.04 s**, Ruff/whitespace and editor diagnostics clean. Pylance's two resolved
+public calls and four shared-parser calls are compatible; dynamic subprocess
+calls also ran in the focused tests. No native source/build/CTest, learned file
+read, download, model execution/conversion, refit or quality experiment occurred.
+
+This is selected source-pinned row/type storage evidence, not complete tokenizer
+semantics, table/tensor proof, atomic source/output snapshot, native integration
+or runtime approval. Next possible work must preserve the no-transform/padding/tag
+boundaries; a larger synthetic coverage check or tokenizer-composition policy is
+separate from learned acceptance. Both one-shot learned approvals remain consumed.
+
 ## Paired Token Rows Checkpoint (2026-10-19)
 
 After `8610e19`, the user separately approved a bounded paired token-string/type
@@ -403,7 +450,7 @@ root gate **1185 passed, 111 skipped in 28.09 s**, Ruff/whitespace clean and edi
 diagnostics clean. No native source/build/CTest, learned reads, downloads, model
 execution/conversion, refit or quality experiment. The optional readback is a
 synthetic test oracle, not a public retained-file proof or native integration.
-Next possible scope is a separately approved source-bound typed file verifier;
+The subsequent paired-rows-file checkpoint adds a separately approved source-bound typed verifier;
 the current native 29-record control does not accept the new token-type key as
 part of its selected contract. Both learned one-shot approvals remain consumed.
 

@@ -2868,6 +2868,23 @@ the guarded worker fails. The reader exposes numeric elements through indexed
 `field.data` parts, not a single numeric array at `parts[-1]`. No learned input,
 native build or model execution is implicit in either mode.
 
+`verify_profile_gguf_tokenizer_rows_v2(..., token_type_policy=...,
+expected_file_bytes=..., expected_file_sha256=...)` freshly prepares the same
+source policy and proves the exact two records against a read-only GGUF mapping
+and one retained file descriptor. It reuses the two hashes, path/stat/lifetime
+guards, 64 KiB read limit and shared deadline of selected metadata verification.
+File size is capped at 256 KiB, source capacity at 4096, selected bytes default
+to 8 KiB with explicit opt-in at most 128 KiB. It does not trust a writer receipt.
+
+The existing parser needs at least one tensor to anchor the table boundary;
+metadata-only zero-tensor writer outputs are therefore not accepted by this
+proof. The optional `row-proof` test parameter adds a two-byte synthetic BF16
+anchor and verifies fresh-hash faults, copied parts, final-hash restored writes
+and closed mappings. Only this new wrapper opts into the bounded numeric-array
+part count needed by token types; the shared parser's old default of 32 parts
+is retained and independently exercised. The proof does not verify tensor data,
+the full tensor table, tokenizer/pre-tag semantics or native runtime acceptance.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

@@ -795,17 +795,21 @@ def write_profile_model_tokenizer_rows(
     """Preflight paired source token strings/types without normalization, padding or a tokenizer tag."""
     prepared = prepare_profile_model_token_type_metadata(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length, token_type_policy=token_type_policy)
-    encodings = {"NORMAL": 1, "CONTROL": 3, "USER_DEFINED": 4}
-    records = _write_profile_model_metadata_records(writer, [
-        {"name": "tokenizer.ggml.tokens", "kind": "str_array", "values": prepared["tokens"]},
-        {"name": "tokenizer.ggml.token_type", "kind": "i32_array",
-         "values": tuple(encodings[row["token_type"]] for row in prepared["source_token_type_records"])},
-    ])
+    records = _write_profile_model_metadata_records(writer, _profile_tokenizer_row_records(prepared))
     return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
                             "metadata_scope": "source_token_strings_and_types_subset",
                             "metadata_emission": "paired_token_strings_and_types_emitted",
                             "metadata_verification": "declared_records_emitted_not_file_verified",
                             "runtime_approval": "not_granted_by_source_token_rows_emission"})
+
+
+def _profile_tokenizer_row_records(prepared):
+    encodings = {"NORMAL": 1, "CONTROL": 3, "USER_DEFINED": 4}
+    return [
+        {"name": "tokenizer.ggml.tokens", "kind": "str_array", "values": prepared["tokens"]},
+        {"name": "tokenizer.ggml.token_type", "kind": "i32_array",
+         "values": tuple(encodings[row["token_type"]] for row in prepared["source_token_type_records"])},
+    ]
 
 
 def write_profile_model_tokenizer_arrays(
@@ -2592,6 +2596,42 @@ def verify_profile_gguf_source_metadata_v2(
                             "runtime_approval": "not_granted_by_source_metadata_verification"})
 
 
+def verify_profile_gguf_tokenizer_rows_v2(
+    profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, token_type_policy: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 256 * 1024,
+    maximum_seconds: float = 30, maximum_metadata_bytes: int = 8192,
+):
+    """Bind fresh bounded no-transform source rows to selected typed records on one retained file."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 256 * 1024
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= 128 * 1024
+    ):
+        raise ValueError("invalid token-row file identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    prepared = prepare_profile_model_token_type_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, token_type_policy=token_type_policy)
+    if time.monotonic() > deadline:
+        raise ValueError("token-row preparation deadline exceeded")
+    verified = dict(_verify_profile_gguf_metadata_records(profile, reader=reader,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, deadline=deadline, model_owner=None, descriptor=None,
+        policy_version=2, file_cap=256 * 1024, header_cap=1024**2, declarations=_profile_tokenizer_row_records(prepared),
+        maximum_metadata_bytes=maximum_metadata_bytes, maximum_numeric_array_parts=5 + profile.geometry["vocab_size"]))
+    if time.monotonic() > deadline:
+        raise ValueError("token-row verification deadline exceeded")
+    verified.pop("policy_metadata_verification", None)
+    return MappingProxyType({**prepared, **verified, "metadata_scope": "source_token_strings_and_types_subset",
+                            "source_token_type_verification": "selected_pinned_no_transform_declarations_match_file",
+                            "gguf_token_type_verification": "selected_pinned_no_transform_type_rows_match_file",
+                            "metadata_verification": "selected_typed_token_rows_match_file",
+                            "runtime_approval": "not_granted_by_token_row_file_verification"})
+
+
 def verify_profile_gguf_tokenizer_arrays_v2(
     profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
@@ -2728,7 +2768,7 @@ def _verify_profile_gguf_policy_metadata(
 def _verify_profile_gguf_metadata_records(
     profile, *, reader, expected_file_bytes, expected_file_sha256, maximum_file_bytes, deadline,
     model_owner, descriptor, policy_version, file_cap, header_cap, declarations, expected_tensor_count=None,
-    maximum_metadata_bytes=8192,
+    maximum_metadata_bytes=8192, maximum_numeric_array_parts=32,
 ):
     import sys
 
@@ -2738,6 +2778,8 @@ def _verify_profile_gguf_metadata_records(
 
     if type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= 128 * 1024:
         raise ValueError("invalid selected metadata record budget")
+    if type(maximum_numeric_array_parts) is not int or not 0 < maximum_numeric_array_parts <= 4101:
+        raise ValueError("invalid selected numeric-array part budget")
     if (
         type(reader) is not gguf.GGUFReader or sys.byteorder != "little"
         or not isinstance(reader.data, np.memmap) or reader.data.dtype != np.dtype("u1") or reader.data.ndim != 1
@@ -2784,7 +2826,8 @@ def _verify_profile_gguf_metadata_records(
             field is None or field.name != name or tuple(field.types) != kinds[kind]
             or not isinstance(field.offset, (int, np.integer)) or isinstance(field.offset, (bool, np.bool_))
             or not 24 <= field.offset < field.offset + len(wanted) <= table_offset
-            or not 1 <= len(field.parts) <= (5 + 2 * len(values) if kind == "str_array" else 32)
+            or not 1 <= len(field.parts) <= (5 + 2 * len(values) if kind == "str_array" else
+                                            maximum_numeric_array_parts if kind == "i32_array" else 32)
         ):
             raise ValueError("policy metadata field type or range mismatch: " + name)
         position = int(field.offset)
