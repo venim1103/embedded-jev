@@ -1733,15 +1733,20 @@ source-file provenance, the complete tensor table and runtime approval remain
 unchecked. No native/model-owner v1 policy is widened. See the
 [GGUF BF16 checkpoint](handover.md#gguf-bf16-checkpoint-2026-10-19).
 
-The optional larger selected-range control uses only synthetic raw BF16 and
-the cached pinned GGUF writer. It compares warmed verifier-only Python
-allocation peaks for small/large operands, places a selected operand beyond
-the old 16 MiB file/range limits, and refuses fresh-hash corruption. Its spool
+The optional larger selected-range control uses profile-pinned synthetic
+safetensors and the cached pinned GGUF writer. It independently compares
+warmed matrix, typed-metadata and source-bound verification allocations for
+small/large operands, places selected source/output ranges beyond old 16 MiB
+limits, and refuses fresh-hash corruption and changed/restored source exits.
+The source fixture is at most 80 MiB, selected operand at most 32 MiB, spool
 is at most 32 MiB, output at most 33 MiB, aggregate logical scratch below
 256 MiB, and child timeout remains 15 s. It closes mappings/writer/spool and
 removes scratch, and prints process/host RAM, swap and disk observations;
-these are not device or full-converter guarantees. Raw source-array identity
-is not safetensors provenance. Run with the existing pinned cache:
+these are not device or full-converter guarantees. The source-bound region
+includes source header parsing and owner lifetimes; GGUF parsing, writer
+work and mapped-page/cache memory are outside the traced verifier regions.
+It proves only the selected source range, not frozen quantization equivalence
+or full-table/model acceptance. Run with the existing pinned cache:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 \

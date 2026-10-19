@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [source-bound GGUF checkpoint](#source-bound-gguf-checkpoint-2026-10-19), followed by
+the [larger composition checkpoint](#larger-composition-checkpoint-2026-10-19), followed by
+the [source-bound GGUF checkpoint](#source-bound-gguf-checkpoint-2026-10-19),
 the [GGUF metadata checkpoint](#gguf-metadata-checkpoint-2026-10-19),
 the [larger GGUF checkpoint](#larger-gguf-checkpoint-2026-10-19),
 the [GGUF BF16 checkpoint](#gguf-bf16-checkpoint-2026-10-19),
@@ -336,6 +337,54 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Larger Composition Checkpoint (2026-10-19)
+
+After `06c1052`, the same optional larger-GGUF control now creates actual
+synthetic safetensors with an aligned pinned header, sparse zero-filled
+unselected ranges and the bounded selected BF16 pattern. Profile shard
+length/header/file hashes, inventory source identity and manifest profile
+hash are rebound before writer emission. No learned input or retained real
+candidate codes are read; synthetic frozen payload bytes remain unchanged,
+without refit. Source files are **14,843,240 / 48,270,760 bytes**,
+selected ranges **65,536 / 16,779,264 bytes**, at source offsets
+**68,760 / 16,782,552**. The large output remains **33,560,096 bytes**, selected
+output offset **16,780,832**, spool **33,554,432**. Conservative summed logical
+source/spool/output/fault-copy extents are **148,945,384 bytes**, below 256 MiB;
+full sparse extents, not physical blocks, are counted.
+
+Source-bound verification independently measures **2,562,656 / 2,499,544 byte**
+traced Python peaks, below unchanged 3 MiB/256 KiB growth assertions. This
+region includes source header parsing and mapped-owner entry/exit; fixture
+setup, GGUF parsing, writer, mapped pages and cache remain excluded. The large
+composition makes **3,017 positional reads**, all at most **65,536 bytes**,
+maximum start offset **48,234,496**. Both source and output each retain exactly
+two whole-file hashes on one respective descriptor; exact source/output
+range hashes and completed source mapping/recheck flags agree.
+
+Wrong source range/file pins and missing larger source budget refuse. Actual
+source writes, including write-and-restore after successful output checks,
+refuse combined receipt publication at source-owner exit. Descriptor counts
+return to baseline on both failures; the original whole-source SHA is checked
+after restoration. The existing matrix/metadata corruption, replacement,
+deadline and allocation controls remain intact, and the single fault-copy
+allowance is reused serially. No numerical/deadline/allocation bound changed.
+
+The initial expanded control passed in **1.45 s**, then **1.95 s** with the
+source-exit probes; no failed checks. Latest serial stage **1.558 s**, child
+timeout still **15 s**, stage guard **60 s**. Process high-water observation
+**99,098,624 bytes**, host available memory **17,677,176,832 -> 17,664,724,992**,
+observed host/process swap zero, disk-free before/after equal and scratch
+cleaned. These are time-local process/host observations, not device or
+whole-converter memory/performance guarantees.
+
+Required gate: **981 passed, 97 skipped in 23.21 s**, Ruff/whitespace/editor
+clean. No optional native/runtime gate, learned input, download, build, real
+artifact, refit or quality experiment ran. This closes the bounded larger
+selected-source composition evidence gap, not atomic two-file snapshots,
+frozen quantization equivalence, complete-table/model support or deployment.
+Next: source-bound file verification for emitted context/template metadata;
+typed policy verification alone does not prove those additional records.
 
 ## Source-Bound GGUF Checkpoint (2026-10-19)
 

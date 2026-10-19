@@ -5042,7 +5042,7 @@ import time
 import tracemalloc
 import gguf
 import numpy as np
-from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.model_profile import parse_model_profile, profile_source
 import embedded_jev.prism_codec as codec
 import embedded_jev.streamed_text as streamed
 
@@ -5071,17 +5071,41 @@ for fixture in json.load(sys.stdin):
     large = rows > 32
     with TemporaryDirectory(prefix="jev-gguf-v2-bounds-", dir=root) as directory:
         directory = Path(directory)
-        source_path = directory / "synthetic.bf16"
+        source_shard = profile.packaging["shards"][0]
+        source_path = directory / source_shard
         source_bytes = rows * columns * 2
         assert source_bytes <= 32 * 1024**2
+        source_header = {}
+        source_cursor = 0
+        for item in fixture["inventory"]["tensors"]:
+            count = int(np.prod(item["shape"])) * (4 if item["dtype"] == "F32" else 2)
+            source_header[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"],
+                                         "data_offsets": [source_cursor, source_cursor + count]}
+            source_cursor += count
+        encoded_header = json.dumps(source_header, sort_keys=True).encode()
+        encoded_header += b" " * (-len(encoded_header) % 8)
+        source_prefix = len(encoded_header).to_bytes(8, "little") + encoded_header
+        assert len(source_prefix) <= 1024**2
+        source_file_bytes = len(source_prefix) + source_cursor
+        assert source_file_bytes <= 80 * 1024**2
+        source_offset = len(source_prefix) + source_header["model.embed_tokens.weight"]["data_offsets"][0]
         with source_path.open("xb") as output:
-            output.truncate(source_bytes)
-        writable = np.memmap(source_path, mode="r+", dtype="<u2", shape=(rows, columns))
+            output.write(source_prefix)
+            output.truncate(source_file_bytes)
+        writable = np.memmap(source_path, mode="r+", dtype="<u2", offset=source_offset, shape=(rows, columns))
         writable[0] = np.arange(columns, dtype=np.uint16)
         writable[-1] = 0xBF80
         writable.flush()
         writable._mmap.close()
-        source_values = np.memmap(source_path, mode="r", dtype="<u2", shape=(rows, columns))
+        source_values = np.memmap(source_path, mode="r", dtype="<u2", offset=source_offset, shape=(rows, columns))
+        with source_path.open("rb", buffering=0) as opened:
+            source_file_pin = streamed.bounded_source_descriptor_record_v2(opened.fileno(), maximum_bytes=80 * 1024**2,
+                deadline=time.monotonic() + 15)["sha256"]
+        fixture["profile"]["files"][source_shard].update(bytes=source_file_bytes, sha256=source_file_pin,
+            header_bytes=len(source_prefix), header_sha256=hashlib.sha256(source_prefix).hexdigest())
+        profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+        fixture["inventory"]["source"].update(profile_source(profile))
+        fixture["manifest"]["profile_sha256"] = profile.sha256
         path = directory / "selected.gguf"
         writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
         spool_bytes = 0
@@ -5104,7 +5128,7 @@ for fixture in json.load(sys.stdin):
                 writer.temp_file.close()
         file_bytes = path.stat().st_size
         assert file_bytes <= 33 * 1024**2
-        logical_peak = source_bytes + spool_bytes + file_bytes * 2
+        logical_peak = source_file_bytes + spool_bytes + file_bytes * 2
         assert logical_peak < 256 * 1024**2
         physical_bytes = sum(item.stat().st_blocks * 512 for item in directory.iterdir())
         source_pin = hashlib.sha256(memoryview(source_values)).hexdigest()
@@ -5164,6 +5188,39 @@ for fixture in json.load(sys.stdin):
             assert metadata["policy_metadata_verification"] == "selected_typed_policy_records_match_declarations_and_file"
             assert metadata["gguf_tensor_table_verification"] == metadata["tokenizer_semantics_verification"] == "not_checked"
             assert metadata["runtime_approval"] == "not_granted_by_policy_metadata_verification"
+            metadata_reads = counts.copy()
+            bound_keywords = {name: value for name, value in keywords.items() if name != "source_values"}
+            bound_keywords.update(source_path=source_path, source_shard=source_shard,
+                expected_source_file_bytes=source_file_bytes, expected_source_file_sha256=source_file_pin,
+                maximum_source_file_bytes=80 * 1024**2)
+            if not large:
+                codec.verify_profile_gguf_source_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload, **bound_keywords)
+            counts.update(calls=0, maximum_bytes=0, maximum_offset=0)
+            descriptors.clear()
+            original_source_record = streamed.bounded_source_descriptor_record_v2
+            source_descriptors = []
+            def source_record(descriptor, **arguments):
+                source_descriptors.append(descriptor)
+                return original_source_record(descriptor, **arguments)
+            codec.os.pread = bounded_read
+            streamed.bounded_gguf_descriptor_record_v2 = file_record
+            streamed.bounded_source_descriptor_record_v2 = source_record
+            tracemalloc.start()
+            try:
+                bound = codec.verify_profile_gguf_source_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload, **bound_keywords)
+                bound_peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+                codec.os.pread = original_pread
+                streamed.bounded_gguf_descriptor_record_v2 = original_record
+                streamed.bounded_source_descriptor_record_v2 = original_source_record
+            assert len(descriptors) == len(source_descriptors) == 2
+            assert descriptors[0] == descriptors[1] and source_descriptors[0] == source_descriptors[1]
+            assert bound_peak < 3 * 1024**2
+            assert bound["source"]["source_file_sha256"] == source_file_pin and bound["source"]["source_range_offset"] == source_offset
+            assert bound["converted"]["converted_sha256"] == receipt["converted_sha256"]
+            assert bound["source_file_rechecked_after_conversion"] is bound["source_mapping_closed_after_conversion"] is True
+            assert bound["cross_file_atomic_snapshot"] == "not_guaranteed"
             metadata_keywords = {"reader": reader, "expected_file_bytes": file_bytes, "expected_file_sha256": file_pin,
                                  "maximum_file_bytes": 33 * 1024**2}
             policy_name = "jev.model.profile_sha256"
@@ -5218,6 +5275,49 @@ for fixture in json.load(sys.stdin):
             if large:
                 assert source_bytes > 16 * 1024**2 and receipt["converted_tensor_offset"] > 16 * 1024**2
                 assert matrix_reads["maximum_offset"] > 16 * 1024**2 and spool_bytes == 32 * 1024**2
+                for changes in ({"expected_source_sha256": "0" * 64}, {"expected_source_file_sha256": "0" * 64},
+                                {"maximum_source_file_bytes": 16 * 1024**2}):
+                    try:
+                        codec.verify_profile_gguf_source_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                            **{**bound_keywords, **changes})
+                        raise AssertionError("invalid larger source binding accepted")
+                    except ValueError:
+                        pass
+                original_matrix_verifier = codec.verify_profile_gguf_matrix_v2
+                for defect in ("source-changed", "source-restored"):
+                    descriptor_count = len(list(Path("/proc/self/fd").iterdir()))
+                    changed_source_offset = source_offset + source_bytes - 1
+                    saved_source_byte = None
+                    def changed_source_after_output(*arguments, **options):
+                        global saved_source_byte
+                        value = original_matrix_verifier(*arguments, **options)
+                        with source_path.open("r+b") as output:
+                            output.seek(changed_source_offset)
+                            saved_source_byte = output.read(1)
+                            output.seek(-1, os.SEEK_CUR)
+                            output.write(bytes([saved_source_byte[0] ^ 1]))
+                            if defect == "source-restored":
+                                output.seek(-1, os.SEEK_CUR)
+                                output.write(saved_source_byte)
+                        return value
+                    codec.verify_profile_gguf_matrix_v2 = changed_source_after_output
+                    try:
+                        try:
+                            codec.verify_profile_gguf_source_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload, **bound_keywords)
+                            raise AssertionError("changed source owner published combined receipt: " + defect)
+                        except ValueError as error:
+                            assert "mapped source" in str(error) and "changed" in str(error), str(error)
+                    finally:
+                        codec.verify_profile_gguf_matrix_v2 = original_matrix_verifier
+                        if saved_source_byte is not None:
+                            with source_path.open("r+b") as output:
+                                output.seek(changed_source_offset)
+                                output.write(saved_source_byte)
+                    assert len(list(Path("/proc/self/fd").iterdir())) == descriptor_count
+                with source_path.open("rb", buffering=0) as opened:
+                    restored_source = original_source_record(opened.fileno(), maximum_bytes=80 * 1024**2,
+                        deadline=time.monotonic() + 15)
+                assert restored_source["sha256"] == source_file_pin
                 for changes in ({"maximum_file_bytes": 16 * 1024**2}, {"maximum_bytes": 16 * 1024**2}):
                     try:
                         codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
@@ -5305,16 +5405,19 @@ for fixture in json.load(sys.stdin):
                 finally:
                     fault_reader.data._mmap.close()
                     fault_path.unlink()
-            cases.append({"operand_bytes": source_bytes, "file_bytes": file_bytes, "spool_bytes": spool_bytes,
+            cases.append({"operand_bytes": source_bytes, "source_file_bytes": source_file_bytes, "source_offset": source_offset,
+                          "file_bytes": file_bytes, "spool_bytes": spool_bytes,
                           "tensor_offset": receipt["converted_tensor_offset"], "traced_peak_bytes": peak,
                           "metadata_traced_peak_bytes": metadata_peak, "metadata_names": len(metadata["metadata_names"]),
                           "logical_peak_including_fault_bytes": logical_peak, "physical_source_output_bytes": physical_bytes,
-                          "reads": matrix_reads, "metadata_reads": counts, "observations": observations()})
+                          "reads": matrix_reads, "metadata_reads": metadata_reads,
+                          "source_bound_traced_peak_bytes": bound_peak, "source_bound_reads": counts, "observations": observations()})
         finally:
             reader.data._mmap.close()
             source_values._mmap.close()
 assert cases[1]["traced_peak_bytes"] - cases[0]["traced_peak_bytes"] <= 256 * 1024
 assert cases[1]["metadata_traced_peak_bytes"] - cases[0]["metadata_traced_peak_bytes"] <= 256 * 1024
+assert cases[1]["source_bound_traced_peak_bytes"] - cases[0]["source_bound_traced_peak_bytes"] <= 256 * 1024
 assert not list(root.iterdir())
 elapsed = time.monotonic() - started
 assert elapsed < 60
