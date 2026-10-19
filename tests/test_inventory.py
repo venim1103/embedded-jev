@@ -1163,6 +1163,65 @@ def test_profile_added_token_metadata_is_bounded_pinned_and_not_a_token_type_map
             receipt["added_token_records"][0]["special"] = False
 
 
+@pytest.mark.parametrize("defect", [None, "policy", "capacity", "missing-row", "normalization", "user-space", "control-space",
+                                    "nul", "empty", "string-budget", "content-budget"])
+def test_profile_source_token_types_are_declarations_without_transforms(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import prepare_profile_model_token_type_metadata
+
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    tokens = [f"token{index}" for index in range(profile.geometry["vocab_size"])]
+    tokens[1:5] = ["user", "special", "<|marker|>", "<pad>"]
+    rows = [{"id": token_id, "content": tokens[token_id], "single_word": False, "lstrip": False, "rstrip": False,
+             "normalized": True, "special": token_id == 2} for token_id in (1, 2, 3)]
+    if defect in ("user-space", "control-space"):
+        tokens[1] = rows[0]["content"] = "\u2581user"
+        rows[0]["special"] = defect == "control-space"
+    elif defect == "normalization":
+        rows[0]["normalized"] = False
+    elif defect in ("nul", "empty", "string-budget"):
+        tokens[0] = {"nul": "base\0suffix", "empty": "", "string-budget": "x" * 4097}[defect]
+    elif defect == "content-budget":
+        for token_id in range(5, len(tokens)):
+            tokens[token_id] = f"{token_id:04d}" + "x" * 4092
+    vocabulary = {token: token_id for token_id, token in enumerate(tokens)}
+    if defect == "missing-row":
+        vocabulary.pop(tokens[-1])
+    tokenizer_bytes = json.dumps({"model": {"type": "BPE"}, "added_tokens": rows}).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    if defect == "capacity":
+        profile = SimpleNamespace(geometry={"vocab_size": 4097})
+    calls = []
+
+    def from_str(text):
+        calls.append(text)
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary), get_added_tokens_decoder=lambda: {
+            row["id"]: SimpleNamespace(**{name: value for name, value in row.items() if name != "id"}) for row in rows})
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                 "token_type_policy": "unsupported" if defect == "policy" else "pinned_prism_no_transform_v1"}
+    if defect not in (None, "control-space"):
+        with pytest.raises(ValueError, match="source token-type"):
+            prepare_profile_model_token_type_metadata(profile, **arguments)
+        assert len(calls) == (0 if defect in ("policy", "capacity") else 1)
+        return
+    prepared = prepare_profile_model_token_type_metadata(profile, **arguments)
+    records = prepared["source_token_type_records"]
+    assert [record["token_type"] for record in records[:5]] == ["NORMAL", "CONTROL" if defect == "control-space" else "USER_DEFINED",
+                                                               "CONTROL", "CONTROL", "NORMAL"]
+    assert [record["token"] for record in records] == tokens
+    assert prepared["source_token_content_bytes"] == sum(len(token.encode()) for token in tokens)
+    assert prepared["metadata_emission"] == "not_performed" and prepared["gguf_token_type_verification"] == "not_checked"
+    assert prepared["gguf_tokenizer_verification"] == "not_checked" and prepared["pre_tokenizer_tag_verification"] == "not_checked"
+    assert prepared["runtime_approval"] == "not_granted_by_source_token_type_preparation"
+    with pytest.raises(TypeError):
+        records[0]["token_type"] = "CONTROL"
+
+
 @pytest.mark.parametrize("defect", [None, "special-id", "special-encoding", "label-id", "label-encoding", "label-special"])
 def test_profile_tokenizer_contract_is_standalone_and_not_a_prompt_boundary(monkeypatch, defect):
     import sys

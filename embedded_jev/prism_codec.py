@@ -529,6 +529,46 @@ def prepare_profile_model_added_token_metadata(
                             "runtime_approval": "not_granted_by_added_token_preparation"})
 
 
+def prepare_profile_model_token_type_metadata(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, token_type_policy: str,
+):
+    """Declare bounded pinned source token types without normalization, rewriting or emission."""
+    if token_type_policy != "pinned_prism_no_transform_v1" or not 0 < profile.geometry["vocab_size"] <= 4096:
+        raise ValueError("unsupported bounded source token-type policy")
+    prepared = prepare_profile_model_added_token_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    tokens = prepared["tokens"]
+    if len(tokens) != profile.geometry["vocab_size"]:
+        raise ValueError("source token-type declarations require complete contiguous rows")
+    added = {row["token_id"]: row for row in prepared["added_token_records"]}
+    records = []
+    content_bytes = 0
+    for token_id, token in enumerate(tokens):
+        encoded = token.encode("utf-8")
+        content_bytes += len(encoded)
+        if not 0 < len(encoded) <= 4096 or content_bytes > 64 * 1024 or "\0" in token:
+            raise ValueError("source token-type declarations exceed string/content budget")
+        kind = "NORMAL"
+        if token_id in added:
+            row = added[token_id]
+            if not row["normalized"]:
+                raise ValueError("source token-type policy refuses encode/decode normalization")
+            looks_special = token in ("<pad>", "<mask>", "<2mass>", "[@BOS@]") or (
+                token.startswith("<|") and token.endswith("|>")) or (
+                token.startswith("<\uff5c") and token.endswith("\uff5c>")) or (
+                token.startswith("<unused") and token.endswith(">"))
+            kind = "CONTROL" if row["special"] or looks_special else "USER_DEFINED"
+            if kind == "USER_DEFINED" and "\u2581" in token:
+                raise ValueError("source token-type policy refuses user-defined space rewriting")
+        records.append(MappingProxyType({"token_id": token_id, "token": token, "token_type": kind}))
+    return MappingProxyType({**prepared, "token_type_policy": token_type_policy,
+                            "converter_revision": PRISM_SOURCE_REVISION, "source_token_type_records": tuple(records),
+                            "source_token_content_bytes": content_bytes,
+                            "source_token_type_verification": "selected_pinned_no_transform_declarations_not_file_verified",
+                            "gguf_token_type_verification": "not_checked", "metadata_emission": "not_performed",
+                            "runtime_approval": "not_granted_by_source_token_type_preparation"})
+
+
 def prepare_profile_model_tokenizer_inventory(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):

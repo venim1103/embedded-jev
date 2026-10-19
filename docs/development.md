@@ -2817,6 +2817,40 @@ pass actual native-A8/BitNet arithmetic, mixed graph concurrency, early discover
 and late refusal while linked to the full llama library. This is build/runtime
 compatibility, not complete MiMo weight loading or a native decoder prefill.
 
+### Source Token-Type Declarations
+
+`prepare_profile_model_token_type_metadata(...,
+token_type_policy="pinned_prism_no_transform_v1")` declares immutable ID-ordered
+source token-type records after the existing pinned vocabulary and added-token
+flag checks. Profile capacity must be at most 4096 before parser access, every
+row must have a contiguous source ID, strings must be nonempty/NUL-free and at
+most 4096 UTF-8 bytes each, and combined string content at most 64 KiB.
+
+The explicitly selected pinned convention declares base rows NORMAL. Added rows
+require `normalized=true`; special/special-looking rows declare CONTROL and other
+rows USER_DEFINED. Required encode/decode normalization and user-defined-space
+rewriting refuse rather than silently changing source tokens. No padding, numeric
+GGUF token-type emission, pre-tag assignment or tokenizer/runtime acceptance is
+implied. Existing vocabulary writers do not consume these declarations yet.
+
+The existing optional tiny-tokenizer `types` mode checks the exact pinned source
+methods with a real trusted tokenizer parser but explicitly doubled Transformers
+factory/pre-tag. It rejects any encode/decode call and exits before writer or
+scratch creation. Run it with the existing cached environment variables:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 \
+PRISM_SOURCE_DIR="$cache/native/prism-source" \
+PRISM_CONVERTER_PYTHON="$cache/dense-venv/bin/python" \
+python -m pytest -q -p no:cacheprovider --tb=short \
+   'tests/test_prism_native_control.py::test_pinned_profile_context_metadata_on_toy_source[types]'
+```
+
+Its process guard keeps the 15 s child/60 s stage, 1 GiB observed RSS/no swap
+growth and 8 KiB output caps. No learned files or model repository code are read
+or executed; pinned converter source is the independent reference, not remote
+model code. Synthetic reference agreement is not wrapper or full-tokenizer parity.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

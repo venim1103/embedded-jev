@@ -6583,13 +6583,15 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
+    import time
 
     from test_inventory import _packaging_fixture
 
+    started = time.monotonic()
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
     interpreter = os.environ.get("PRISM_CONVERTER_PYTHON")
     if not source_dir or not interpreter:
@@ -6598,7 +6600,8 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     fingerprint_source = None
     unused_source = None
-    if tokenizer_mode in ("bpe", "inventory"):
+    special_source = None
+    if tokenizer_mode in ("bpe", "inventory", "types"):
         pinned = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:conversion/base.py"])
         assert 0 < len(pinned) <= 1024**2 and (source / "conversion/base.py").read_bytes() == pinned
         text_model = next(node for node in ast.parse(pinned).body if isinstance(node, ast.ClassDef) and node.name == "TextModel")
@@ -6608,6 +6611,9 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
             fingerprint_source = ast.unparse(method)
         else:
             unused_source = ast.unparse(method)
+        if tokenizer_mode == "types":
+            special_source = ast.unparse(next(node for node in text_model.body if isinstance(node, ast.FunctionDef)
+                                             and node.name == "does_token_look_special"))
     metadata, _, record = _packaging_fixture(text_only=True)
     config = json.loads(metadata["config.json"])
     config["max_position_embeddings"] = 512
@@ -6639,6 +6645,12 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
                          "rstrip": False, "normalized": False, "special": True},
                         {"id": 1, "content": tokens[1], "single_word": True, "lstrip": True,
                          "rstrip": True, "normalized": True, "special": False}]
+    if tokenizer_mode == "types":
+        tokens[:13] = ["base", "user", "special", "<|marker|>", "<|base|>", "\u2581control", "<pad>", "<mask>",
+                   "<2mass>", "[@BOS@]", "<\uff5cmarker\uff5c>", "<unused42>", "<unused42"]
+        added_tokens = [{"id": token_id, "content": tokens[token_id], "single_word": False, "lstrip": False,
+                 "rstrip": False, "normalized": True, "special": token_id in (2, 5)}
+                for token_id in (1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12)]
     if tokenizer_mode != "identity":
         tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": added_tokens,
             "normalizer": {"type": "Lowercase"} if tokenizer_mode in ("bpe", "added") else None, "model": {
@@ -6651,6 +6663,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()},
                "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens,
                "fingerprint_source": fingerprint_source, "unused_source": unused_source,
+               "special_source": special_source,
                "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
@@ -6669,6 +6682,71 @@ tokenizer_bytes = bytes.fromhex(fixture["tokenizer"])
 external_template = bytes.fromhex(fixture["external_template"]) if fixture["external_template"] is not None else None
 template_source = "gguf_embedded" if external_template is not None else "source"
 expected_template = external_template if external_template is not None else metadata[profile.tokenization["template_file"]]
+if fixture["tokenizer_mode"] == "types":
+    import ast
+    from types import SimpleNamespace
+    from tokenizers import Tokenizer
+    from embedded_jev.prism_codec import prepare_profile_model_token_type_metadata
+
+    prepared = prepare_profile_model_token_type_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
+        context_length=256, token_type_policy="pinned_prism_no_transform_v1")
+    tokenizer = Tokenizer.from_str(tokenizer_bytes.decode())
+    declarations = json.loads(tokenizer_bytes)["added_tokens"]
+
+    def refuse_transform(*args, **kwargs):
+        raise AssertionError("no-transform reference invoked encode/decode")
+
+    tokenizer_double = SimpleNamespace(vocab=tokenizer.get_vocab(with_added_tokens=True),
+        get_added_vocab=lambda: {row["content"]: row["id"] for row in declarations},
+        added_tokens_decoder=tokenizer.get_added_tokens_decoder(), encode=refuse_transform, decode=refuse_transform)
+
+    def from_pretrained(directory):
+        assert directory == "synthetic-token-types-no-model"
+        return tokenizer_double
+
+    namespace = {"gguf": gguf, "logger": SimpleNamespace(info=refuse_transform)}
+    exec(compile(ast.parse(fixture["unused_source"] + "\\n" + fixture["special_source"]), "<pinned-source-token-types>", "exec"), namespace)
+    owner = SimpleNamespace(hparams={"vocab_size": profile.geometry["vocab_size"]}, dir_model="synthetic-token-types-no-model",
+        get_vocab_base_pre=lambda tokenizer: "synthetic-unverified-tag",
+        does_token_look_special=lambda token: namespace["does_token_look_special"](None, token))
+    previous = sys.modules.get("transformers")
+    try:
+        sys.modules["transformers"] = SimpleNamespace(AutoTokenizer=SimpleNamespace(from_pretrained=from_pretrained))
+        rows, kinds, tag = namespace["get_vocab_base"](owner)
+    finally:
+        if previous is None:
+            sys.modules.pop("transformers", None)
+        else:
+            sys.modules["transformers"] = previous
+    records = prepared["source_token_type_records"]
+    assert rows == [row["token"] for row in records] == fixture["tokens"]
+    assert kinds == [gguf.TokenType[row["token_type"]] for row in records]
+    assert kinds[:6] == [gguf.TokenType.NORMAL, gguf.TokenType.USER_DEFINED, gguf.TokenType.CONTROL,
+                         gguf.TokenType.CONTROL, gguf.TokenType.NORMAL, gguf.TokenType.CONTROL]
+    assert kinds[6:13] == [gguf.TokenType.CONTROL] * 6 + [gguf.TokenType.USER_DEFINED]
+    assert tag == "synthetic-unverified-tag"
+    assert prepared["metadata_emission"] == "not_performed" and prepared["gguf_token_type_verification"] == "not_checked"
+    assert prepared["gguf_tokenizer_verification"] == prepared["pre_tokenizer_tag_verification"] == "not_checked"
+    for defect in ("normalization", "space rewriting"):
+        changed = json.loads(tokenizer_bytes)
+        if defect == "normalization":
+            changed["added_tokens"][0]["normalized"] = False
+        else:
+            del changed["model"]["vocab"]["user"]
+            changed["model"]["vocab"][chr(0x2581) + "user"] = 1
+            changed["added_tokens"][0]["content"] = chr(0x2581) + "user"
+        changed_bytes = json.dumps(changed).encode()
+        changed_record = json.loads(json.dumps(fixture["profile"]))
+        changed_record["files"]["tokenizer.json"] = {"bytes": len(changed_bytes), "sha256": hashlib.sha256(changed_bytes).hexdigest()}
+        changed_profile = parse_model_profile(json.dumps(changed_record).encode())
+        try:
+            prepare_profile_model_token_type_metadata(changed_profile, metadata_files=metadata, tokenizer_bytes=changed_bytes,
+                context_length=256, token_type_policy="pinned_prism_no_transform_v1")
+            raise AssertionError("source token-type transform was silently accepted")
+        except ValueError as error:
+            assert defect in str(error)
+    print(json.dumps({"context_length": prepared["context_length"], "source_context_length": prepared["source_context_length"]}))
+    sys.exit(0)
 if fixture["tokenizer_mode"] not in ("identity", "inventory"):
     vocabulary = prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
         tokenizer_bytes=tokenizer_bytes, context_length=256)
@@ -6976,6 +7054,15 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
         reader.data._mmap.close()
 print(json.dumps({"context_length": receipt["context_length"], "source_context_length": receipt["source_context_length"]}))
 """
+    if tokenizer_mode == "types":
+        result = _run_tokenizer_only_guard(interpreter, code, json.dumps(fixture).encode(),
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+                 "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
+        assert result["returncode"] == 0, result["stderr"]
+        assert json.loads(result["stdout"]) == {"context_length": 256, "source_context_length": 512}
+        assert time.monotonic() - started < 60
+        print(json.dumps({**result, "synthetic_token_type_reference": True, "metadata_emission": "not_performed"}))
+        return
     result = subprocess.run([interpreter, "-c", code], check=False, capture_output=True, text=True,
         input=json.dumps(fixture), timeout=15,
         env={**os.environ, "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})

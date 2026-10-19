@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [native UTF-8 checkpoint](#native-utf-8-checkpoint-2026-10-19), followed by
+the [source token-type checkpoint](#source-token-type-checkpoint-2026-10-19), followed by
+the [native UTF-8 checkpoint](#native-utf-8-checkpoint-2026-10-19),
 the [native selected-record checkpoint](#native-selected-record-checkpoint-2026-10-19),
 the [native selected-record proposal](#native-selected-record-proposal-2026-10-19),
 the [file-bound composition checkpoint](#file-bound-composition-checkpoint-2026-10-19),
@@ -358,6 +359,58 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Token-Type Checkpoint (2026-10-19)
+
+After `7dc3dcb`, the user separately approved a synthetic-only declaration
+prerequisite, **not emission, padding, tokenizer-tag assignment or native jobs**.
+`prepare_profile_model_token_type_metadata` requires explicit
+`token_type_policy="pinned_prism_no_transform_v1"` and profile capacity at most
+4096 before parser access. Existing pinned vocabulary/added-flag preparation
+must supply complete contiguous rows; no missing rows are invented. Each string
+is nonempty/NUL-free and at most 4096 UTF-8 bytes, aggregate at most 64 KiB.
+Immutable ID-ordered records declare NORMAL, CONTROL or USER_DEFINED names,
+not emitted GGUF numeric metadata or complete tokenizer/runtime approval.
+
+Base rows stay NORMAL even when their text looks special. Added rows must have
+`normalized=true`: the policy refuses every encode/decode normalization case.
+Special added rows and the pinned converter's special-looking predicate declare
+CONTROL; other added rows declare USER_DEFINED unless their text requires the
+converter's user-defined-space rewrite, which is refused. Control text requiring
+no such rewrite stays unchanged. All prior vocabulary, added-flag, padding and
+pre-tokenizer contracts remain separate. The actual MiMo capacity exceeds this
+policy's cap and therefore refuses before parser access; no learned file reopened.
+
+**Evidence:** 11 focused default cases passed in **0.75 s**, covering type split,
+base/special distinction, early unsupported-policy/cap refusal, incomplete rows,
+normalization/rewrite refusal, string/content bounds and immutability. A separate
+`types` mode in the existing tiny-tokenizer test checks cached `conversion/base.py`
+against its exact pinned Git blob, extracts `get_vocab_base` and
+`does_token_look_special`, and compares all declared strings/types. A real trusted
+tokenizer parses the fixture, but the Transformers factory and pre-tag are explicit
+doubles, and encode/decode calls are wired to fail. All marker forms, full-width
+delimiters and a near miss match the pinned reference. Freshly repinned negative
+fixtures refuse normalization and user-defined-space rewriting. The mode exits
+before constructing any writer or creating scratch files.
+
+Failure history: initial generated-script newline escaping failed in **0.26 s**
+before parsing; its one-line repair passed in **0.36 s**. Expanded marker fixture
+indentation failed collection in **0.10 s**, so no worker ran; an anchored repair
+passed in **0.37 s**. Final fresh-pin reference/refusal check **1 passed in 0.39 s**,
+observed RSS **48,513,024 bytes**, process swap zero, host swap unchanged from
+**1,642,496 bytes**. Existing guard limits remain child 15 s, stage 60 s,
+observed RSS 1 GiB/no swap growth, payload 64 KiB and summary 8 KiB; no emission
+or scratch artifact is retained. This is a bounded source-policy reference, not
+HF-wrapper parity, learned token types or tokenizer semantic acceptance.
+
+New declarations plus existing added-token and all seven tiny-tokenizer modes:
+**42 passed in 1.64 s**. Required root gate **1178 passed, 110 skipped in 23.73 s**,
+Ruff/whitespace clean; Pylance's two resolved API calls are compatible and editor
+diagnostics/syntax are clean. No C++ change/build/CTest, downloads, model execution,
+conversion, refit or quality experiment. Next possible scope is a separately
+approved bounded token-type writer/readback, with numeric encodings anchored to
+the pinned GGUF enum and unchanged refusal rules; no such emission is implemented.
+Both one-shot learned diagnostics remain consumed.
 
 ## Native UTF-8 Checkpoint (2026-10-19)
 
