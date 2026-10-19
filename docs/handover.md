@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [native selected-record checkpoint](#native-selected-record-checkpoint-2026-10-19), followed by
+the [native UTF-8 checkpoint](#native-utf-8-checkpoint-2026-10-19), followed by
+the [native selected-record checkpoint](#native-selected-record-checkpoint-2026-10-19),
 the [native selected-record proposal](#native-selected-record-proposal-2026-10-19),
 the [file-bound composition checkpoint](#file-bound-composition-checkpoint-2026-10-19),
 the [tensor metadata checkpoint](#tensor-metadata-checkpoint-2026-10-19),
@@ -358,6 +359,35 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Native UTF-8 Checkpoint (2026-10-19)
+
+After `d60044c`, the same opt-in native parser control also passes actual
+multibyte UTF-8 scalar template, vocabulary and merge literals. Only its fixture
+uses the new strings; the old three modes retain their original bytes. The
+template file byte count/SHA, parsed profile, rebuilt inventory and manifest
+profile hash are rebound together before the existing source-file/selected-output
+proofs run. No template rendering or learned metadata access occurs.
+
+Two additional wrong-array-element expectations (STRING as INT32 and vice versa)
+refuse before a typed getter: **31 native refusals per size**. Initial multibyte
+array test passed in **3.77 s**; the complete source-pinned template variant
+passed in **4.21 s**, stage **4.03 s**, preparation **2.57 s**, with no failures.
+Native sampled RSS at most **7,942,144 bytes**, preparation **91,156,480 bytes**;
+process swap zero, host swap unchanged from **1,642,496 bytes**. Outputs remain
+**102,496/208,608 bytes**; selected records **1,990/108,083 bytes**; source-bound
+scratch peak **6,419,668 bytes**, native fault-stage peak **869,006 bytes**, and
+scratch cleaned. Existing deadlines, row/string/content/file/summary caps and
+allocation-growth assertions are unchanged. Short-process sampling limits stand.
+
+Old three optional composition modes: **3 passed in 7.71 s**. Required root gate:
+**1167 passed, 109 skipped in 23.13 s**, Ruff/whitespace clean. No C++ source,
+build configuration or binary changed, so the successful native build/CTest
+evidence at the preceding checkpoint was not rerun merely for reassurance.
+This completes the approved bounded selected-record parser scope, not a complete
+tokenizer schema or native model acceptance. A new tokenizer policy/emission
+scope must be separately specified; both learned diagnostic approvals remain
+consumed. No downloads, model conversion, refit or quality experiment ran.
+
 ## Native Selected-Record Checkpoint (2026-10-19)
 
 The approved executable-only `--selected-metadata-control` now compiles and
@@ -416,8 +446,8 @@ Final existing early/late CTests both passed (**0.11/0.01 s**); the tool also
 emitted non-fatal missing `DartConfiguration.tcl` warnings. No model data,
 downloads, learned diagnostic replay, conversion, refit or quality experiment ran.
 
-Next: a separately testable synthetic follow-up can exercise multibyte literals
-and selected string-array element types; do not promote this parser control to
+The subsequent UTF-8 checkpoint exercises multibyte literals and selected
+string-array element types; do not promote this parser control to
 complete tokenizer or model acceptance. Preserve both consumed learned-tokenizer
 approval boundaries and untouched, untracked local editor settings.
 

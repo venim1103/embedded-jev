@@ -6048,6 +6048,8 @@ def _run_selected_metadata_composition_control(*, include_tensors=False, include
     from tempfile import TemporaryDirectory
 
     from test_inventory import _prefill_model_policy_fixture
+    from embedded_jev.inventory import build_inventory
+    from embedded_jev.model_profile import parse_model_profile
 
     started = time.monotonic()
     source_dir, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
@@ -6408,14 +6410,26 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
         for vocabulary_rows in (32, 8193):
             tokens = [f"t{token_id:04x}" for token_id in range(vocabulary_rows)]
             tokens[:3] = ["a", "b", "ab"]
+            if include_native_parser:
+                tokens[:3] = [chr(0xE9), "b", chr(0xE9) + "b"]
             tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": [], "model": {"type": "BPE",
-                "vocab": {token: token_id for token_id, token in enumerate(tokens)}, "merges": [["a", "b"]],
+                "vocab": {token: token_id for token_id, token in enumerate(tokens)}, "merges": [[tokens[0], tokens[1]]],
                 "dropout": None, "unk_token": None, "continuing_subword_prefix": None, "end_of_word_suffix": None,
                 "fuse_unk": False, "byte_fallback": False, "ignore_merges": False}}).encode()
             metadata, headers = {}, {}
             profile, inventory, manifest, blocks = _prefill_model_policy_fixture(target="o" if include_source_file else "down",
                 vocab_size=vocabulary_rows, metadata_output=metadata, tokenizer_bytes=tokenizer_bytes, headers_output=headers)
             fixture = json.loads(_profile_parity_fixture(profile, inventory, manifest, blocks))
+            if include_native_parser:
+                import hashlib
+
+                template_name = profile.tokenization["template_file"]
+                metadata[template_name] += chr(0xE9).encode()
+                fixture["profile"]["files"][template_name] = {
+                    "bytes": len(metadata[template_name]), "sha256": hashlib.sha256(metadata[template_name]).hexdigest()}
+                profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+                fixture["inventory"] = build_inventory(metadata, headers, profile=profile)
+                fixture["manifest"]["profile_sha256"] = profile.sha256
             raw = bytes.fromhex(fixture.pop("payload_hex"))
             payload_path = root / "projection.bin"
             if payload_path.exists():
@@ -6447,6 +6461,11 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
                 assert native["returncode"] == 0, native
                 assert json.loads(native["stdout"]) == {"selected_records": 29, "tensor_data_allocated": False, "model_loaded": False}
                 declarations = json.loads(expected_path.read_bytes())
+                vocabulary = next(record["values"] for record in declarations if record["name"] == "tokenizer.ggml.tokens")
+                merges = next(record["values"] for record in declarations if record["name"] == "tokenizer.ggml.merges")
+                template = next(record["values"][0] for record in declarations if record["name"] == "tokenizer.chat_template")
+                assert vocabulary[:3] == [chr(0xE9), "b", chr(0xE9) + "b"] and merges == [chr(0xE9) + " b"]
+                assert len(vocabulary[0].encode()) == 2 and len(merges[0].encode()) == 4 and template.encode().endswith(bytes.fromhex("c3a9"))
                 original = path.read_bytes()
                 fault_path = root / "native-fault.bin"
                 refused = 0
@@ -6475,7 +6494,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
                 refuse(expected_bytes=b"[" * 10 + b"0" + b"]" * 10)
                 for defect in ("duplicate", "missing-key", "wrong-kind", "wrong-value", "nul", "long-string", "unknown-kind",
                                "array-order", "array-count", "row-cap", "content-cap", "bool-u32", "negative-u32", "overflow-u32",
-                               "overflow-i32", "overflow-f32"):
+                               "overflow-i32", "overflow-f32", "string-array-kind", "integer-array-kind"):
                     changed = json.loads(json.dumps(declarations))
                     number = next(record for record in changed if record["kind"] == "u32")
                     tokens = next(record for record in changed if record["name"] == "tokenizer.ggml.tokens")
@@ -6512,6 +6531,12 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
                         next(record for record in changed if record["kind"] == "i32_array")["values"] = [2**31]
                     elif defect == "overflow-f32":
                         next(record for record in changed if record["kind"] == "f32")["values"] = [1e300]
+                    elif defect == "string-array-kind":
+                        tokens.update(kind="i32_array", values=[1])
+                        status = 32
+                    elif defect == "integer-array-kind":
+                        next(record for record in changed if record["kind"] == "i32_array").update(kind="str_array", values=["x"])
+                        status = 32
                     encoded = json.dumps(changed).encode()
                     assert len(encoded) < 256 * 1024
                     refuse(expected_bytes=encoded, status=status)
@@ -6530,7 +6555,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
                 refuse(gguf_bytes=b"bad", status=31)
                 assert path.read_bytes() == original and json.loads(expected_path.read_bytes()) == declarations
                 native_reports.append({"vocabulary_rows": vocabulary_rows, "refused_cases": refused,
-                                       "logical_scratch_peak_bytes": logical_peak, **native})
+                                       "utf8_template_vocabulary_and_merges": True, "logical_scratch_peak_bytes": logical_peak, **native})
             report["native_parser"] = native_reports
             assert time.monotonic() - started < 60
             report["native_stage_seconds"] = time.monotonic() - started

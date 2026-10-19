@@ -2847,6 +2847,9 @@ python -m pytest -q -p no:cacheprovider --tb=short \
    tests/test_prism_native_control.py::test_pinned_profile_selected_native_parser_on_synthetic_sources
 ```
 
+The native-only fixture exercises source-pinned multibyte UTF-8 template,
+vocabulary and merge literals, plus both wrong string/integer array element-type
+expectations. Original non-native fixture modes keep their prior bytes.
 This test never builds, downloads or opens learned inputs. Each GGUF/fault is
 below 1 MiB, expected declarations below 256 KiB, logical scratch below 8 MiB
 and the stage below 60 s. A short child can finish between RSS samples; observed
