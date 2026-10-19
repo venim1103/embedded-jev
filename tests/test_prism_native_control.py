@@ -6042,7 +6042,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
     print(json.dumps(report, sort_keys=True))
 
 
-def test_pinned_profile_selected_metadata_composition_on_synthetic_sources():
+def _run_selected_metadata_composition_control(*, include_tensors=False):
     from tempfile import TemporaryDirectory
 
     from test_inventory import _prefill_model_policy_fixture
@@ -6065,7 +6065,7 @@ import tracemalloc
 import gguf
 import numpy as np
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import verify_profile_gguf_selected_metadata_v2, verify_profile_gguf_source_metadata_v2, write_profile_model_selected_metadata
+from embedded_jev.prism_codec import profile_model_conversion_plan, temporary_profile_bf16_matrix_payload_v2, verify_profile_gguf_matrix_v2, verify_profile_gguf_selected_metadata_v2, verify_profile_gguf_source_metadata_v2, write_profile_model_selected_metadata
 from embedded_jev import streamed_text
 
 root = Path(json.loads(sys.stdin.buffer.read(65537))["scratch"])
@@ -6085,14 +6085,43 @@ for fixture in fixtures:
     tokenizer_path = root / fixture["tokenizer_file"]
     assert tokenizer_path.stat().st_size < 1024**2
     tokenizer_bytes = tokenizer_path.read_bytes()
+    if fixture["include_tensors"]:
+        source_name = "model.layers.0.linear_attn.in_proj_qkv.weight"
+        plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
+        matrix_entry = next(item for item in plan["tensors"] if item["source_name"] == source_name)
+        assert matrix_entry["source_shape"] == [256, 1024] and matrix_entry["type"] == matrix_entry["source_dtype"] == "BF16"
+        source_values = (0x3f00 + np.arange(256 * 1024, dtype=np.uint32) % 97).astype("<u2").reshape(256, 1024)
+        source_values.flags.writeable = False
+        source_sha256 = hashlib.sha256(source_values).hexdigest()
     path = root / "selected.gguf"
+    setup_logical_peak = 0
     writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
     try:
         emitted = write_profile_model_selected_metadata(profile, inventory, manifest, blocks, metadata_files=metadata,
             tokenizer_bytes=tokenizer_bytes, context_length=256, template_source="source", writer=writer, maximum_vocabulary_rows=16384)
         assert emitted["metadata_count"] == 28 and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
         assert emitted["vocabulary_row_cap"] == 16384
-        writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
+        if fixture["include_tensors"]:
+            with temporary_profile_bf16_matrix_payload_v2(profile, inventory, manifest, blocks, source_name=source_name,
+                source_values=source_values, expected_source_sha256=source_sha256, directory=root,
+                maximum_bytes=524288, maximum_chunk_bytes=65536, maximum_seconds=15) as (raw_path, payload_receipt):
+                mapped = np.memmap(raw_path, dtype="<u2", mode="r", shape=(256, 1024))
+                try:
+                    writer.add_tensor(matrix_entry["name"], mapped, raw_dtype=gguf.GGMLQuantizationType.BF16)
+                    assert writer.tensors[-1][matrix_entry["name"]].tensor is None
+                    assert payload_receipt["source_file_verification"] == "not_checked"
+                    position = writer.temp_file.tell()
+                    partial_spool = writer.temp_file.seek(0, os.SEEK_END)
+                    writer.temp_file.seek(position)
+                    setup_logical_peak = sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + partial_spool
+                    assert setup_logical_peak < 8 * 1024**2
+                finally:
+                    mapped._mmap.close()
+            assert not raw_path.exists() and not raw_path.parent.exists()
+            writer.add_tensor(manifest["gguf_tensor"], blocks.reshape(rows, columns // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+            assert writer.tensors[-1][manifest["gguf_tensor"]].tensor is None
+        else:
+            writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
         spool_position = writer.temp_file.tell() if writer.temp_file is not None else 0
         spool_bytes = writer.temp_file.seek(0, os.SEEK_END) if writer.temp_file is not None else 0
         if writer.temp_file is not None:
@@ -6126,26 +6155,45 @@ for fixture in fixtures:
             counts["maximum_read"] = max(counts["maximum_read"], size)
             return pread(descriptor, size, offset)
 
+        def check_frozen_storage(actual_reader):
+            frozen = next(tensor for tensor in actual_reader.tensors if tensor.name == manifest["gguf_tensor"])
+            if (frozen.tensor_type != gguf.GGMLQuantizationType.PQ2_0 or frozen.n_bytes != blocks.nbytes
+                    or frozen.data.flags.writeable or not np.shares_memory(frozen.data, actual_reader.data)):
+                raise ValueError("frozen mapped storage layout mismatch")
+            if hashlib.sha256(memoryview(frozen.data).cast("B")).hexdigest() != manifest["payload_sha256"]:
+                raise ValueError("frozen mapped storage byte mismatch")
+
         gc.collect()
         try:
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = measured_hash, measured_read
             tracemalloc.start()
             verified = verify_profile_gguf_selected_metadata_v2(profile, inventory, manifest, blocks, **selected)
+            if fixture["include_tensors"]:
+                matrix_arguments = {"reader": reader, "source_name": source_name, "source_values": source_values,
+                    "expected_source_sha256": source_sha256, "expected_file_bytes": len(original),
+                    "expected_file_sha256": arguments["expected_file_sha256"], "maximum_bytes": 524288, "maximum_chunk_bytes": 65536}
+                matrix_receipt = verify_profile_gguf_matrix_v2(profile, inventory, manifest, blocks, **matrix_arguments)
+                assert matrix_receipt["source_file_verification"] == "not_checked"
+                check_frozen_storage(reader)
             _, peak = tracemalloc.get_traced_memory()
         finally:
             tracemalloc.stop()
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = hasher, pread
         assert peak < 8 * 1024**2 and counts["maximum_read"] <= 65536
-        assert len(hashes) == 2 and hashes[0] == hashes[1]
+        expected_hashes = 4 if fixture["include_tensors"] else 2
+        assert len(hashes) == expected_hashes and all(hashes[first] == hashes[first + 1] for first in range(0, expected_hashes, 2))
         assert len(verified["metadata_names"]) == 29 and set(legacy["metadata_names"]) < set(verified["metadata_names"])
         assert verified["metadata_scope"] == "policy_context_template_tokenizer_arrays_subset"
         assert verified["metadata_verification"] == "selected_typed_policy_source_array_records_match_file"
         assert verified["gguf_tokenizer_verification"] == verified["gguf_token_type_verification"] == verified["pre_tokenizer_tag_verification"] == "not_checked"
         cases.append({"rows": profile.geometry["vocab_size"], "file_bytes": len(original), "selected_records": 29,
             "selected_record_bytes": verified["metadata_record_bytes"], "traced_peak_bytes": peak, "spool_bytes": spool_bytes, **counts})
+        if fixture["include_tensors"]:
+            cases[-1].update(tensors=2, matrix_bytes=source_values.nbytes, frozen_bytes=blocks.nbytes,
+                            tensor_verification="borrowed_bf16_file_range_and_frozen_mapped_storage_only_not_atomic_model_proof")
         descriptor_count = len(os.listdir("/proc/self/fd"))
         fault_path = root / "fault.gguf"
-        logical_peak = sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file()) + spool_bytes
+        logical_peak = max(setup_logical_peak, sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file()) + spool_bytes)
         for name in ("jev.model.profile_sha256", "qwen35.context_length", "tokenizer.chat_template", "tokenizer.ggml.tokens", "tokenizer.ggml.merges"):
             field = reader.fields[name]
             offset = field.parts[field.data[0]].__array_interface__["data"][0] - reader.data.__array_interface__["data"][0]
@@ -6165,6 +6213,35 @@ for fixture in fixtures:
                     assert "declaration byte mismatch" in str(error)
             finally:
                 fault_reader.data._mmap.close()
+        if fixture["include_tensors"]:
+            for kind, name in (("bf16", matrix_entry["name"]), ("frozen", manifest["gguf_tensor"])):
+                tensor = next(item for item in reader.tensors if item.name == name)
+                offset = tensor.data.__array_interface__["data"][0] - reader.data.__array_interface__["data"][0]
+                changed = bytearray(original)
+                changed[offset] ^= 1
+                fault_path.write_bytes(changed)
+                assert fault_path.stat().st_size < 1024**2
+                logical_peak = max(logical_peak, sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file()) + spool_bytes)
+                assert logical_peak < 8 * 1024**2
+                fault_reader = gguf.GGUFReader(fault_path)
+                fresh_hash = hashlib.sha256(changed).hexdigest()
+                try:
+                    metadata_only = verify_profile_gguf_selected_metadata_v2(profile, inventory, manifest, blocks,
+                        **{**selected, "reader": fault_reader, "expected_file_sha256": fresh_hash})
+                    assert metadata_only["gguf_tensor_table_verification"] == "not_checked"
+                    try:
+                        if kind == "bf16":
+                            verify_profile_gguf_matrix_v2(profile, inventory, manifest, blocks,
+                                **{**matrix_arguments, "reader": fault_reader, "expected_file_sha256": fresh_hash})
+                        else:
+                            check_frozen_storage(fault_reader)
+                        raise AssertionError("fresh-hash tensor storage corruption accepted")
+                    except ValueError as error:
+                        assert ("matrix" in str(error) or "BF16" in str(error)) if kind == "bf16" else "storage byte mismatch" in str(error)
+                finally:
+                    fault_reader.data._mmap.close()
+            assert hashlib.sha256(source_values).hexdigest() == source_sha256
+            cases[-1]["tensor_faults"] = "metadata_only_passes_but_specific_tensor_check_refuses"
         assert len(os.listdir("/proc/self/fd")) == descriptor_count
         cases[-1]["logical_scratch_peak_bytes"] = logical_peak
         fault_path.unlink()
@@ -6200,7 +6277,8 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
                 payload_path.write_bytes(raw)
             tokenizer_file = f"tokenizer-{vocabulary_rows}.json"
             (root / tokenizer_file).write_bytes(tokenizer_bytes)
-            fixture.update(metadata={name: value.hex() for name, value in metadata.items()}, tokenizer_file=tokenizer_file)
+            fixture.update(metadata={name: value.hex() for name, value in metadata.items()}, tokenizer_file=tokenizer_file,
+                           include_tensors=include_tensors)
             fixtures.append(fixture)
         (root / "fixtures.json").write_text(json.dumps(fixtures))
         result = _run_tokenizer_only_guard(interpreter, code, json.dumps({"scratch": directory}).encode(),
@@ -6211,6 +6289,14 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
     report.update({name: result[name] for name in ("observed_rss_bytes", "observed_process_swap_bytes", "host_swap_baseline_bytes", "observed_host_swap_bytes")})
     report["scratch_cleaned"] = True
     print(json.dumps(report, sort_keys=True))
+
+
+def test_pinned_profile_selected_metadata_composition_on_synthetic_sources():
+    _run_selected_metadata_composition_control()
+
+
+def test_pinned_profile_selected_tensor_metadata_composition_on_synthetic_sources():
+    _run_selected_metadata_composition_control(include_tensors=True)
 
 
 @pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory"])

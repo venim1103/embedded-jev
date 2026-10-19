@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [selected metadata checkpoint](#selected-metadata-checkpoint-2026-10-19), followed by
+the [tensor metadata checkpoint](#tensor-metadata-checkpoint-2026-10-19), followed by
+the [selected metadata checkpoint](#selected-metadata-checkpoint-2026-10-19),
 the [larger tokenizer checkpoint](#larger-tokenizer-checkpoint-2026-10-19),
 the [unused-row checkpoint](#unused-row-checkpoint-2026-10-19),
 the [larger tokenizer proposal](#larger-tokenizer-proposal-2026-10-19),
@@ -353,6 +354,55 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Tensor Metadata Checkpoint (2026-10-19)
+
+After `8c98991`, the actual selected-metadata fixture is shared through a
+local control helper while its original anchor test remains independently
+runnable with unchanged bounds. Extraction check **1 passed in 2.79 s**.
+A separate tensor mode reuses the same source-backed 32/8193 vocabularies,
+metadata and frozen synthetic payload but emits two actual selected tensors:
+BF16 linear-QKV **256x1024/524,288 bytes**, declared grouped-to-tiled V-row
+transform, and frozen packed projection **1024x1024/278,528 bytes**. Dimensions
+were checked from the actual conversion plan in a bounded controller snippet.
+
+The existing temporary BF16 v2 payload owner hashes the borrowed source and
+raw file, feeds the pinned writer spool, and closes the mapping before
+successful context exit/cleanup. The existing BF16 file verifier checks the
+selected output range. Frozen storage uses the established packed shape and
+PQ2_0 type with exact read-only mapped-storage SHA matching the frozen
+synthetic payload. No codes/scales are changed or refit, and ternary storage
+is not BitNet execution. First actual tensor mode **1 passed in 4.51 s**.
+
+Expanded tensor controls **1 passed in 3.55 s**: all existing five metadata
+group faults remain, plus freshly hashed BF16/frozen tensor corruption.
+Metadata-only proof deliberately succeeds for tensor faults while the
+specific BF16 range check or frozen-storage digest refuses. This prevents
+overclaiming an independent metadata receipt as whole-model proof. Borrowed
+source and frozen-payload hashes remain unchanged, descriptor counts return
+to baseline and all maps/raw payloads/writer/spool/fault scratch clean up.
+
+Files **804,960/911,040 bytes**, matrix 524,288/frozen 278,528, spool
+**802,816** each, outputs and one serial fault copy below 1 MiB. Logical
+scratch peaks **2,860,632/3,072,792 bytes**, below 8 MiB, including nested
+temporary payload and partial spool measurement as well as final fault
+copies. Exactly two hashes on one descriptor per independent metadata or
+matrix proof (four total), reads **224/8390**, each at most **65,536 bytes**.
+Combined verifier trace peaks **2,452,575/3,001,667**, below 8 MiB/growth at
+most 2 MiB; includes source/policy preparation and BF16/frozen selected checks,
+excludes fixture/writer/reader/setup/mapped pages. Stage **2.985 s**, child
+15 s/stage 60 s; observed RSS and process high water **93,962,240**, swap 0.
+
+Original anchor mode **1 passed in 2.76 s** after branching. Required gate
+**1167 passed, 107 skipped in 36.61 s**, Ruff/whitespace/editor checks clean.
+No failed check occurred. No learned inputs, downloads, builds, full-model
+conversion, BitNet/model execution, candidate changes, refits or quality
+scoring ran. Source-array authentication is not complete-source-shard proof;
+the independent receipts are not an atomic file/model snapshot. Actual
+BitNet dispatch, full tensor table, tokenizer semantics, prompt boundaries
+and model quality remain unchecked. Next: prepare bounded file-verified
+synthetic source-shard composition without changing the independent controls
+or exceeding the existing logical scratch/output/deadline budgets.
 
 ## Selected Metadata Checkpoint (2026-10-19)
 

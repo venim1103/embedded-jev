@@ -1964,6 +1964,21 @@ tokenizer or runtime. The separate synthetic composition control checks
 both old/new subset receipts, all-group fresh-hash faults and an unchanged
 frozen synthetic payload. See the [selected metadata checkpoint](handover.md#selected-metadata-checkpoint-2026-10-19).
 
+The separately named optional
+`test_pinned_profile_selected_tensor_metadata_composition_on_synthetic_sources`
+reuses that fixture with an actual 256x1024 synthetic BF16 matrix and frozen
+1024x1024 packed projection instead of an anchor. The existing temporary
+payload owner and BF16 file verifier check the declared transform and
+borrowed-array pin; exact read-only mapped frozen-storage digest checks the
+packed payload, not BitNet dispatch. Both share the metadata file pin but
+remain independent receipts, not an atomic snapshot or complete model.
+Fresh-hash tensor faults deliberately still pass metadata-only proof and
+fail the applicable tensor check. Borrowed arrays are not source-shard
+authentication. The original anchor test remains independently runnable;
+new mode keeps output/fault below 1 MiB, spool at most 1 MiB, total logical
+scratch below 8 MiB including nested temporary payload, child 15 s/stage
+60 s and unchanged trace/read bounds. See the [tensor metadata checkpoint](handover.md#tensor-metadata-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and
