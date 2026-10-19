@@ -1889,6 +1889,17 @@ descriptors on failure; the parent removes copied inputs even on termination.
 No weights, downloads, model conversion or execution are included. Sampling
 is not a hard host/device memory guarantee. See the [tokenizer-only checkpoint](handover.md#tokenizer-only-checkpoint-2026-10-19).
 
+`prepare_profile_model_tokenizer_inventory(...)` shares fresh pinned BPE
+parsing with vocabulary preparation but inventories unique IDs anywhere
+within the profile capacity. It returns counts and immutable missing
+half-open `[first, end)` ID ranges, at most 4096 ranges, not token strings.
+Leading/internal/tail holes are explicit; duplicate/bool/negative/out-of-
+range IDs refuse. It does not fill gaps, select padding or token types, or
+relax the existing contiguous-ID preparer/emitter contracts. The existing
+metadata-only optional `inventory` mode tests two actual synthetic holes
+while confirming strict vocabulary preparation still refuses. No learned
+inventory was run by that control. See the [sparse inventory checkpoint](handover.md#sparse-inventory-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

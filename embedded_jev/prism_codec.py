@@ -531,7 +531,44 @@ def prepare_profile_model_added_token_metadata(
                             "runtime_approval": "not_granted_by_added_token_preparation"})
 
 
-def _prepare_profile_model_tokenizer_vocabulary(
+def prepare_profile_model_tokenizer_inventory(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+):
+    """Inventory bounded unique source IDs and missing ranges without inventing rows or token types."""
+    prepared, _, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    capacity = profile.geometry["vocab_size"]
+    if (
+        not isinstance(vocabulary, dict) or not vocabulary or len(vocabulary) > capacity
+        or any(not isinstance(token, str) or type(token_id) is not int or not 0 <= token_id < capacity
+               for token, token_id in vocabulary.items())
+        or len(set(vocabulary.values())) != len(vocabulary)
+    ):
+        raise ValueError("source tokenizer inventory requires unique bounded IDs")
+    ids = sorted(vocabulary.values())
+    missing = []
+    next_id = 0
+    for token_id in ids:
+        if token_id > next_id:
+            missing.append((next_id, token_id))
+            if len(missing) > 4096:
+                raise ValueError("source tokenizer missing ID ranges exceed inventory budget")
+        next_id = token_id + 1
+    if next_id < capacity:
+        missing.append((next_id, capacity))
+    if len(missing) > 4096:
+        raise ValueError("source tokenizer missing ID ranges exceed inventory budget")
+    return MappingProxyType({**prepared, "tokenizer_vocabulary_size": len(ids), "profile_vocabulary_size": capacity,
+                            "unassigned_profile_token_rows": capacity - len(ids), "missing_token_id_ranges": tuple(missing),
+                            "contiguous_source_ids": ids[0] == 0 and ids[-1] + 1 == len(ids),
+                            "tokenizer_vocabulary_verification": "trusted_tokenizers_parser_unique_bounded_ids",
+                            "tokenizer_semantic_verification": "not_checked", "special_token_verification": "not_checked",
+                            "label_token_verification": "not_checked", "gguf_tokenizer_verification": "not_checked",
+                            "padding_policy_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_tokenizer_inventory"})
+
+
+def _parse_profile_model_tokenizer_vocabulary(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):
     from embedded_jev.inventory import _json_object
@@ -548,6 +585,14 @@ def _prepare_profile_model_tokenizer_vocabulary(
         vocabulary = tokenizer.get_vocab(with_added_tokens=True)
     except Exception as exc:
         raise ValueError("unable to parse source tokenizer vocabulary") from exc
+    return prepared, tokenizer, vocabulary
+
+
+def _prepare_profile_model_tokenizer_vocabulary(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+):
+    prepared, tokenizer, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
     if (not isinstance(vocabulary, dict) or not vocabulary
             or len(vocabulary) > profile.geometry["vocab_size"]
             or any(not isinstance(token, str) or type(token_id) is not int for token, token_id in vocabulary.items())

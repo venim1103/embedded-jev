@@ -1307,6 +1307,70 @@ def test_profile_source_metadata_emission_preflights_all_groups_before_mutation(
     assert all(tuple(writer.kv_data[0][record["name"]][1]) == record["values"] for record in receipt["records"])
 
 
+@pytest.mark.parametrize("defect", [None, "contiguous", "full", "leading", "empty", "duplicate", "boolean", "negative", "out-of-range",
+                                    "non-string", "metadata-pin", "tokenizer-pin", "model-kind", "parser", "range-budget", "range-tail-budget"])
+def test_profile_tokenizer_inventory_reports_missing_ranges_without_padding_or_relaxing_emission(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    tokenizer_bytes = json.dumps({"model": {"type": "Unigram" if defect == "model-kind" else "BPE"}}).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    capacity = profile.geometry["vocab_size"]
+    vocabulary = {"a": 0, "b": 3}
+    if defect == "contiguous":
+        vocabulary["b"] = 1
+    elif defect == "full":
+        vocabulary = {f"token{token_id}": token_id for token_id in range(capacity)}
+    elif defect == "leading":
+        vocabulary["a"] = 1
+    elif defect == "empty":
+        vocabulary = {}
+    elif defect in ("duplicate", "boolean", "negative", "out-of-range"):
+        vocabulary["b"] = {"duplicate": 0, "boolean": True, "negative": -1, "out-of-range": capacity}[defect]
+    elif defect == "non-string":
+        vocabulary = {1: 0}
+    calls = []
+
+    def from_str(text):
+        calls.append(text)
+        if defect == "parser":
+            raise ValueError("synthetic parser refusal")
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary))
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    if defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    elif defect in ("range-budget", "range-tail-budget"):
+        capacity = 8194 if defect == "range-tail-budget" else 8196
+        vocabulary = {f"token{token_id}": token_id for token_id in range(0, capacity, 2)}
+        monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", lambda *args, **kwargs:
+            ({}, None, vocabulary))
+        profile = SimpleNamespace(geometry={"vocab_size": capacity})
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256}
+    if defect not in (None, "contiguous", "full", "leading"):
+        with pytest.raises(ValueError):
+            prism_codec.prepare_profile_model_tokenizer_inventory(profile, **arguments)
+        assert len(calls) == (0 if defect in ("metadata-pin", "tokenizer-pin", "model-kind", "range-budget", "range-tail-budget") else 1)
+        return
+    receipt = prism_codec.prepare_profile_model_tokenizer_inventory(profile, **arguments)
+    assert calls == [tokenizer_bytes.decode()]
+    expected = () if defect == "full" else ((2, capacity),) if defect == "contiguous" else ((0, 1), (2, 3), (4, capacity)) if defect == "leading" else ((1, 3), (4, capacity))
+    assert receipt["missing_token_id_ranges"] == expected
+    assert receipt["unassigned_profile_token_rows"] == sum(end - first for first, end in expected) == capacity - len(vocabulary)
+    assert receipt["contiguous_source_ids"] is (defect in ("contiguous", "full"))
+    assert "tokens" not in receipt
+    assert receipt["padding_policy_verification"] == receipt["gguf_token_type_verification"] == receipt["gguf_tokenizer_verification"] == "not_checked"
+    with pytest.raises(TypeError):
+        receipt["missing_token_id_ranges"] = ()
+    if defect in (None, "leading"):
+        with pytest.raises(ValueError, match="vocabulary IDs"):
+            prism_codec.prepare_profile_model_tokenizer_vocabulary(profile, **arguments)
+
+
 @pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "unassigned", "empty-merges", "bad-merge", "duplicate-vocabulary",
                                     "duplicate-merges", "architecture", "split-writer", "missing-array"])
 def test_profile_tokenizer_array_emission_preflights_both_fields_with_one_parser(monkeypatch, defect):

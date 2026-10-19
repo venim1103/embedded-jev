@@ -12,7 +12,9 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [tokenizer-only checkpoint](#tokenizer-only-checkpoint-2026-10-19), followed by
+the [sparse inventory checkpoint](#sparse-inventory-checkpoint-2026-10-19), followed by
+the [missing-ID proposal](#missing-id-proposal-2026-10-19),
+the [tokenizer-only checkpoint](#tokenizer-only-checkpoint-2026-10-19),
 the [tokenizer subset composer checkpoint](#tokenizer-subset-composer-checkpoint-2026-10-19),
 the [tokenizer-only proposal](#tokenizer-only-proposal-2026-10-19),
 the [tokenizer array file checkpoint](#tokenizer-array-file-checkpoint-2026-10-19),
@@ -346,6 +348,61 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Sparse Inventory Checkpoint (2026-10-19)
+
+After `fe63002`, `prepare_profile_model_tokenizer_inventory` shares the
+existing pinned BPE parser while allowing a separate inventory-only check
+of unique IDs within profile capacity. It returns counts and missing
+half-open `[first, end)` intervals, not token strings or invented padding.
+Leading/internal/tail gaps are reported, with at most 4096 missing ranges.
+Duplicate, bool, negative and out-of-range IDs refuse. Existing contiguous
+vocabulary preparation and all emission contracts remain strict; no source
+types, pre-tokenizer, padding policy or runtime approval is granted.
+
+Initial inventory and neighboring contiguous controls: **25 passed in
+0.24 s**. The existing metadata toy fixture adds an actual trusted-parser
+`inventory` mode with IDs 1 and 5 omitted: exact `(1,2),(5,6)` ranges and
+unchanged strict-preparer refusal, **1 passed in 0.37 s**. Four affected
+existing actual synthetic modes plus both interior/tail interval-cap
+controls: **6 passed, 2 deselected in 1.19 s**. Resource boundary cases use
+explicit parser-result doubles, not model inventory evidence. The new
+mode is tensor-free with output below 64 KiB, 15 s child and normal writer/
+spool/map/scratch cleanup. No failed check occurred in this increment.
+
+Required gate: **1115 passed, 102 skipped in 29.06 s**, Ruff/whitespace and
+three Python editor checks clean. The consumed fingerprint diagnostic was
+not repeated and no learned tokenizer contents were reopened. No weights,
+downloads, builds, conversion, native/model jobs, candidate changes, refits
+or quality experiments ran. The real 243-row count gap remains unlocated;
+the proposal below needs a new separate one-shot approval.
+
+## Missing-ID Proposal (2026-10-19)
+
+**Not approved or run.** One proposed offline MiMo tokenizer-ID inventory
+would reuse the verified five-file copy/guard path, trusted native parser
+and synthetic-tested unique-ID/missing-range logic. Read only the same
+profile-pinned five tokenizer/config files, compare actual ID coverage to
+248,320 profile rows, and report duplicate/out-of-range IDs or missing
+intervals. Do not rerun fingerprints/labels, load the Transformers wrapper,
+inspect added-token normalization, invent padding or emit any GGUF fields.
+
+Prerequisites are the completed one-shot fingerprint result and synthetic
+sparse/strict/layout/budget controls above. Reuse the cached interpreter and
+sources, profile-byte verification before copy, rechecks, offline/audit
+network refusal and parent-owned disposable scratch. Fixed bounds remain
+input/copy each below 32 MiB, small summary at most 8 KiB, aggregate logical
+input/copy/report below 64 MiB, child 15 s, serial stage 60 s, observed RSS
+at most 1 GiB and abort on observed process/host swap growth. Copy only five
+files and clean copies/workers after verifying the small summary. Sampling
+is not a hard host/device guarantee. No token strings need be retained.
+
+This is one additional learned-input diagnostic, not covered by the
+consumed fingerprint approval. Use a distinct explicit opt-in only after
+new approval. No weights, downloads, template rendering, conversion,
+native/model execution, padding/type promotion, candidate changes, refits,
+held-out scoring or quality experiment is included. An invalid inventory or
+resource breach is a reported result, not permission to rerun unchanged.
 
 ## Tokenizer-Only Checkpoint (2026-10-19)
 

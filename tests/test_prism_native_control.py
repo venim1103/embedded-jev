@@ -5748,7 +5748,7 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
     print(json.dumps(report, sort_keys=True))
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -5802,7 +5802,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     if tokenizer_mode != "identity":
         tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": added_tokens,
             "normalizer": {"type": "Lowercase"} if tokenizer_mode in ("bpe", "added") else None, "model": {
-            "type": "BPE", "vocab": {token: index for index, token in enumerate(tokens)},
+            "type": "BPE", "vocab": {token: index for index, token in enumerate(tokens) if tokenizer_mode != "inventory" or index not in (1, 5)},
             "merges": [["a", "b"], ["ab", "c"]] if tokenizer_mode == "bpe" else [],
             "dropout": None, "unk_token": None, "continuing_subword_prefix": None,
             "end_of_word_suffix": None, "fuse_unk": False, "byte_fallback": False, "ignore_merges": False,
@@ -5820,7 +5820,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_arrays, write_profile_model_tokenizer_vocabulary
+from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_inventory, prepare_profile_model_tokenizer_vocabulary, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_arrays, write_profile_model_tokenizer_vocabulary
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -5829,7 +5829,7 @@ tokenizer_bytes = bytes.fromhex(fixture["tokenizer"])
 external_template = bytes.fromhex(fixture["external_template"]) if fixture["external_template"] is not None else None
 template_source = "gguf_embedded" if external_template is not None else "source"
 expected_template = external_template if external_template is not None else metadata[profile.tokenization["template_file"]]
-if fixture["tokenizer_mode"] != "identity":
+if fixture["tokenizer_mode"] not in ("identity", "inventory"):
     vocabulary = prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
         tokenizer_bytes=tokenizer_bytes, context_length=256)
     assert vocabulary["tokens"] == tuple(fixture["tokens"])
@@ -5847,6 +5847,17 @@ if fixture["tokenizer_mode"] != "identity":
         raise AssertionError("invalid BPE merge was accepted")
     except ValueError as error:
         assert "unable to parse source tokenizer vocabulary" in str(error)
+if fixture["tokenizer_mode"] == "inventory":
+    inventory = prepare_profile_model_tokenizer_inventory(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+    assert inventory["missing_token_id_ranges"] == ((1, 2), (5, 6))
+    assert inventory["unassigned_profile_token_rows"] == 2 and inventory["tokenizer_vocabulary_size"] == len(fixture["tokens"]) - 2
+    assert inventory["contiguous_source_ids"] is False and "tokens" not in inventory
+    assert inventory["padding_policy_verification"] == inventory["gguf_token_type_verification"] == inventory["gguf_tokenizer_verification"] == "not_checked"
+    try:
+        prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+        raise AssertionError("sparse inventory silently relaxed contiguous vocabulary preparation")
+    except ValueError as error:
+        assert "vocabulary IDs" in str(error)
 if fixture["tokenizer_mode"] == "bpe":
     import ast
     from types import SimpleNamespace
