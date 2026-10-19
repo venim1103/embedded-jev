@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [file-bound composition checkpoint](#file-bound-composition-checkpoint-2026-10-19), followed by
+the [native selected-record proposal](#native-selected-record-proposal-2026-10-19), followed by
+the [file-bound composition checkpoint](#file-bound-composition-checkpoint-2026-10-19),
 the [tensor metadata checkpoint](#tensor-metadata-checkpoint-2026-10-19),
 the [selected metadata checkpoint](#selected-metadata-checkpoint-2026-10-19),
 the [larger tokenizer checkpoint](#larger-tokenizer-checkpoint-2026-10-19),
@@ -355,6 +356,54 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Native Selected-Record Proposal (2026-10-19)
+
+**Not approved, edited, built or run.** After `78a03ab`, read-only inspection
+found the cached `jev-prism-runtime-v1-build` control and llama library plus
+cached GGML CPU/base libraries, Release configuration, `clang++-18` and
+Ninja. The pinned source is clean at
+`842b1880415d6f508f03b789e5ce70194def7bfd`; its existing
+`vendor/nlohmann/json.hpp` is present, so no source download or new JSON
+dependency is proposed. These observations do not attest cached binary
+provenance or constitute compiled/native test evidence.
+
+**Setup blocker:** VS Code CMake Tools returned no active build targets.
+The user must select/configure the existing `native` CMake project against
+`$cache/native/jev-prism-runtime-v1-build`, Release/clang++-18, with build
+parallelism at most two, before a targeted tool-driven build. Preserve user
+editor settings; no `.vscode` change was made. Do not substitute a manual
+terminal build or silently configure another tree/source. CMake build/test
+tools must discover the target/tests before building/running them.
+
+If separately approved, add a test-only argument branch in the existing
+loader control before backend discovery. Use pinned GGUF metadata parsing
+with `no_alloc=true` and scalar/array getters, plus bounded structured JSON
+expected declarations from the Python-verified synthetic file. Compare all
+29 selected typed records, UTF-8 literals, vocabulary/merge order and counts,
+and malformed/wrong-type/changed expected values. Fail safely on missing,
+duplicate or oversized expected declarations; do not expand the runtime ABI
+or call model loading, tokenizer execution, context creation, decode or new
+BitNet dispatch. This is native parser agreement, not native model acceptance.
+
+Reuse the existing synthetic 32/8193-row source/selected-output fixtures and
+cleaned parent-owned scratch; outputs and one fault copy each below 1 MiB,
+expected JSON below 256 KiB, logical scratch below 8 MiB. Keep runtime child
+15 s/stage 60 s, observed process RSS at most 1 GiB and abort on observed
+process/host swap growth; only a summary below 8 KiB is retained. No learned
+inputs or replay of either consumed diagnostic is authorized. No downloads,
+full-model conversion, candidate changes, refits or quality scoring occur.
+
+Build only the existing loader control target incrementally in the cached
+tree, at most two jobs; no GGML CPU/base rebuild or pinned source edits. Stop
+and ask if that target unexpectedly requires broader rebuild/install/config
+work. Observe/report build resources; sampling is not a hard host guarantee.
+Run the applicable two existing synthetic CTests after the native source
+change, preserving their actual arithmetic/dispatch assertions, plus focused
+parser controls and the required root gate. Those old CTests are compiled
+synthetic compatibility controls, not a new model execution or quality study.
+Another native/learned/runtime expansion needs its own scope. Wait for both
+approval and a discoverable correctly configured CMake target before editing.
 
 ## File-Bound Composition Checkpoint (2026-10-19)
 
