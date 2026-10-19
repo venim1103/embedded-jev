@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [source metadata composer checkpoint](#source-metadata-composer-checkpoint-2026-10-19), followed by the
+the [larger GGUF proposal](#larger-gguf-proposal-2026-10-19), followed by the
+[source metadata composer checkpoint](#source-metadata-composer-checkpoint-2026-10-19),
 [streamed metadata checkpoint](#streamed-metadata-checkpoint-2026-10-19),
 [public streamed table checkpoint](#public-streamed-table-checkpoint-2026-10-19),
 [policy emission checkpoint](#policy-emission-checkpoint-2026-10-19),
@@ -330,6 +331,64 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Larger GGUF Proposal (2026-10-19)
+
+After `9d981dd`, the selected policy/context/template subset and 28 selected
+synthetic source/converted tensors are integrated through public verification
+APIs. The earlier larger-source approval covers source files and raw payloads;
+it does not implicitly expand legacy **16 MiB GGUF-file** verification limits.
+The following is a **pending, unimplemented scope proposal**, not approval or
+a new capability. No output limit was changed and no new artifact/job ran.
+
+A pure calculation from the repository's pinned MiMo geometry and declared
+BF16-matrix/F32-auxiliary policy, without cached input reads or array allocation,
+gives 427 tensor shapes and these storage estimates:
+
+- Dense output policy: **17,909,729,280 bytes**.
+- One unchanged PQ2 replacement: **17,822,435,328 bytes**.
+- That mixed output plus the existing 32 MiB metadata allowance:
+  **17,855,989,760 bytes**.
+
+These are static layout estimates, not converted files, RAM measurements,
+loader acceptance or permission to run MiMo. Proposed bounded next scope:
+
+- Separate opt-in read-only Python GGUF verification APIs, initially selected
+  BF16 matrices and typed metadata. Declared output-file ceiling **24 GiB
+  (25,769,803,776 bytes)** and selected-operand ceiling **2 GiB
+  (2,147,483,648 bytes)**. Exact caller/profile identities remain required.
+  Legacy 16 MiB APIs, native/runtime policies and source-policy ceilings remain
+  unchanged. No inference from file size or model execution approval.
+- Reuse existing bounded source/payload/chunk transforms and pinned writer,
+  with 64 KiB reads/default chunks, 1 MiB header/chunk ceilings, read-only
+  mappings, one owned operand and exact entry/exit/file/range checks. No full
+  operand F32 expansion, refit or frozen-payload replacement. Full-model
+  table/runtime support is not part of this first selected-operand increment.
+- Actual validation remains synthetic: source fixture at most **80 MiB**
+  (below the approved 128 MiB ceiling), selected operand/raw payload **32 MiB**,
+  temporary writer spool at most **32 MiB**, selected-output file at most
+  **33 MiB**. The declared source/raw/spool/output sum is **177 MiB
+  (185,597,952 bytes)**; one fault copy still keeps aggregate logical scratch
+  below **256 MiB**. Count logical sparse extents, not only physical disk use.
+- Serial stages at most **60 s**; existing opt-in child deadlines stay **15 s**.
+  Reject invalid/over-ceiling budgets before I/O/allocation. Exercise exact
+  bytes, offsets above old limits, allocation scaling, corruption/identity/
+  lifetime refusals and finally cleanup. Record applicable RAM/swap/disk
+  observations without claiming device or whole-converter memory guarantees.
+  Close mappings, readers, writer/spool and temporary payload before cleanup.
+- Reuse cached environments/sources. No downloads, native/library builds,
+  cached learned-weight or learned-tokenizer reads, complete-model artifact,
+  runtime execution, refit, new candidate, compensation promotion, held-out
+  scoring, quality experiment or another-model execution. Preserve all host,
+  numerical and security guards. No unchanged retry of the refused conversion.
+
+The geometry arithmetic was checked with explicit `/opt/venv/bin/python`.
+The successful source gate remains the composer checkpoint's **918 passed,
+96 skipped in 24.95 s**, unchanged and not rerun for this documentation-only
+proposal. Next requires a separate explicit user decision on this API/test
+expansion; the existing source-only approval is not sufficient. Work within
+legacy output limits and incomplete-tokenizer boundaries is still distinct
+from this proposal.
 
 ## Source Metadata Composer Checkpoint (2026-10-19)
 
