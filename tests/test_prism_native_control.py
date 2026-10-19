@@ -5547,7 +5547,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_vocabulary
+from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_vocabulary
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -5693,6 +5693,10 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
             raise AssertionError("duplicate context metadata was emitted")
         except ValueError as error:
             assert "conflicting" in str(error)
+        if fixture["tokenizer_mode"] == "bpe":
+            import numpy as np
+
+            writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
         writer.write_header_to_file()
         writer.write_kv_data_to_file()
         writer.write_tensors_to_file()
@@ -5717,7 +5721,89 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
             assert field.types == [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING]
             assert tuple(field.parts[index].tobytes().decode() for index in field.data) == tuple(fixture["tokens"])
             assert not {"tokenizer.ggml.pre", "tokenizer.ggml.token_type", "tokenizer.ggml.model"}.intersection(reader.fields)
-        assert not reader.tensors
+        if fixture["tokenizer_mode"] == "bpe":
+            import os
+            from embedded_jev import streamed_text
+
+            original = path.read_bytes()
+            arguments = {"reader": reader, "metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                         "expected_file_bytes": len(original), "expected_file_sha256": hashlib.sha256(original).hexdigest()}
+            hashes, reads = [], []
+            hasher, pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
+
+            def record_hash(descriptor, **kwargs):
+                hashes.append(descriptor)
+                return hasher(descriptor, **kwargs)
+
+            def record_read(descriptor, size, offset):
+                reads.append(size)
+                return pread(descriptor, size, offset)
+
+            try:
+                streamed_text.bounded_gguf_descriptor_record_v2, os.pread = record_hash, record_read
+                file_receipt = verify_profile_gguf_tokenizer_arrays_v2(profile, **arguments)
+            finally:
+                streamed_text.bounded_gguf_descriptor_record_v2, os.pread = hasher, pread
+            assert len(hashes) == 2 and hashes[0] == hashes[1] and reads and max(reads) <= 65536
+            assert file_receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.merges")
+            assert file_receipt["model_file_access"] == "retained_reader_filename_descriptor"
+            assert file_receipt["metadata_verification"] == "selected_typed_tokenizer_array_records_match_file"
+            assert file_receipt["gguf_tensor_table_verification"] == file_receipt["gguf_tokenizer_verification"] == "not_checked"
+            assert len(reader.tensors) == 1
+            descriptors = len(os.listdir("/proc/self/fd"))
+
+            def refuse(match=None, **changes):
+                try:
+                    verify_profile_gguf_tokenizer_arrays_v2(profile, **{**arguments, **changes})
+                    raise AssertionError("contradictory tokenizer array file proof was accepted")
+                except ValueError as error:
+                    if match is not None:
+                        assert match in str(error)
+
+            refuse(expected_file_sha256="0" * 64)
+            oversized = json.loads(tokenizer_bytes)
+            for token_id in range(5, 8):
+                del oversized["model"]["vocab"][fixture["tokens"][token_id]]
+                oversized["model"]["vocab"][f"{token_id:03d}" + "x" * 2997] = token_id
+            oversized_bytes = json.dumps(oversized).encode()
+            oversized_record = json.loads(json.dumps(fixture["profile"]))
+            oversized_record["files"]["tokenizer.json"] = {"bytes": len(oversized_bytes), "sha256": hashlib.sha256(oversized_bytes).hexdigest()}
+            oversized_profile = parse_model_profile(json.dumps(oversized_record).encode())
+            try:
+                verify_profile_gguf_tokenizer_arrays_v2(oversized_profile, **{**arguments, "tokenizer_bytes": oversized_bytes})
+                raise AssertionError("selected tokenizer record budget was increased implicitly")
+            except ValueError as error:
+                assert "records exceed byte budget" in str(error)
+            with TemporaryDirectory(prefix="jev-tokenizer-array-fault-") as fault_directory:
+                fault_path = Path(fault_directory) / "fault.gguf"
+                for name in ("tokenizer.ggml.tokens", "tokenizer.ggml.merges"):
+                    field = reader.fields[name]
+                    types = list(field.types)
+                    try:
+                        field.types[:] = [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32]
+                        refuse()
+                    finally:
+                        field.types[:] = types
+                    part = field.parts[-1]
+                    try:
+                        field.parts[-1] = part.copy()
+                        refuse()
+                    finally:
+                        field.parts[-1] = part
+                    offset = field.parts[field.data[0]].__array_interface__["data"][0] - reader.data.__array_interface__["data"][0]
+                    mutated = bytearray(original)
+                    mutated[offset] ^= 1
+                    fault_path.write_bytes(mutated)
+                    fault_reader = gguf.GGUFReader(fault_path)
+                    try:
+                        refuse(reader=fault_reader, expected_file_sha256=hashlib.sha256(mutated).hexdigest())
+                    finally:
+                        fault_reader.data._mmap.close()
+            assert len(os.listdir("/proc/self/fd")) == descriptors
+            reader.data._mmap.close()
+            refuse()
+        else:
+            assert not reader.tensors
     finally:
         reader.data._mmap.close()
 print(json.dumps({"context_length": receipt["context_length"], "source_context_length": receipt["source_context_length"]}))

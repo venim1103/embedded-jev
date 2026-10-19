@@ -1827,8 +1827,8 @@ requires the complete pinned ranked list to contain 1..4096 merges, each
 rendered string at most 4096 UTF-8 bytes and total content at most 64 KiB.
 Empty lists refuse because the pinned writer omits empty arrays. Space/NUL
 pieces and oversized input refuse without mutation, rather than truncating
-ranks or inventing an escaping scheme. Receipts remain declaration-only;
-there is no public merge-file verifier or complete tokenizer mapping. The
+ranks or inventing an escaping scheme. Writer receipts remain declaration-
+only; selected file proof is a separate API, not complete tokenizer mapping. The
 existing tiny optional BPE control reads back exact `ARRAY`/`STRING` types
 and rank while confirming no model, type or pre-tokenizer fields were
 added. See the [merge emission checkpoint](handover.md#merge-emission-checkpoint-2026-10-19).
@@ -1845,6 +1845,21 @@ The optional BPE mode now reads back vocabulary and merges and separately
 checks the pinned converter's unknown-fingerprint refusal with a native
 tokenizer adapter. That is not Transformers-wrapper or model compatibility.
 See the [vocabulary emission checkpoint](handover.md#vocabulary-emission-checkpoint-2026-10-19).
+
+`verify_profile_gguf_tokenizer_arrays_v2(...)` prepares fresh pinned vocabulary
+and merges and binds those two exact typed records to file bytes through the
+shared retained-descriptor verifier. It never trusts a writer receipt. The
+existing selected-record budget remains 8 KiB total, header cap 1 MiB, reads
+at most 64 KiB, file default 16 MiB with explicit ceiling 24 GiB and one shared
+preparation/file deadline. Emitter limits are not verifier permission to use
+larger selected records. A live read-only trusted GGUF reader and 1..427 tensor
+entries are required for the file-table boundary; tensors are not verified.
+Hashes use the same retained descriptor twice with stat/path/deadline checks.
+The BPE optional fixture now uses a two-byte synthetic anchor and one serial
+fault copy below 64 KiB each; other metadata modes remain tensor-free. Typed
+array proof does not establish architecture, context/template, added-token
+normalization/types, a pre-tokenizer tag, complete tokenizer semantics or
+runtime approval. See the [tokenizer array file checkpoint](handover.md#tokenizer-array-file-checkpoint-2026-10-19).
 
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It

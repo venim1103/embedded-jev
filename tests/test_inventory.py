@@ -1307,6 +1307,66 @@ def test_profile_source_metadata_emission_preflights_all_groups_before_mutation(
     assert all(tuple(writer.kv_data[0][record["name"]][1]) == record["values"] for record in receipt["records"])
 
 
+@pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "unassigned", "empty-merges", "file-budget", "file-cap",
+                                    "expected-size", "expected-cap", "file-hash", "seconds-bool", "seconds-nan", "preparation-deadline", "verification-deadline"])
+def test_profile_tokenizer_array_file_verification_prepares_fresh_bounded_declarations(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    count = _profile_tokenizer_preparation_fixture(b"{}")[0].geometry["vocab_size"]
+    tokens = ["a", "b", "c", "ab", "abc"] + [f"token{index}" for index in range(5, count)]
+    if defect == "unassigned":
+        tokens.pop()
+    vocabulary = {token: index for index, token in enumerate(tokens)}
+    tokenizer_bytes = json.dumps({"model": {"type": "BPE", "vocab": vocabulary,
+        "merges": [] if defect == "empty-merges" else [["a", "b"], ["ab", "c"]]}}).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=lambda text:
+        SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary)))))
+    calls = []
+
+    def verify(actual_profile, **kwargs):
+        assert actual_profile is profile and kwargs["descriptor"] is kwargs["model_owner"] is None
+        assert kwargs["policy_version"] == 2 and kwargs["header_cap"] == 1024**2 and kwargs["file_cap"] == 24 * 1024**3
+        assert tuple(item["name"] for item in kwargs["declarations"]) == ("tokenizer.ggml.tokens", "tokenizer.ggml.merges")
+        assert all(item["kind"] == "str_array" for item in kwargs["declarations"])
+        assert tuple(kwargs["declarations"][0]["values"]) == tuple(tokens)
+        assert tuple(kwargs["declarations"][1]["values"]) == ("a b", "ab c")
+        calls.append(kwargs)
+        return {"policy_metadata_verification": "must_not_leak_policy_claim", "metadata_names": tuple(item["name"] for item in kwargs["declarations"])}
+
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
+    arguments = {"reader": object(), "metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                 "expected_file_bytes": 100, "expected_file_sha256": "1" * 64}
+    if defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        arguments["tokenizer_bytes"] += b" "
+    elif defect in ("file-budget", "file-cap"):
+        arguments["maximum_file_bytes"] = True if defect == "file-budget" else 24 * 1024**3 + 1
+    elif defect in ("expected-size", "expected-cap"):
+        arguments["expected_file_bytes"] = 0 if defect == "expected-size" else 16 * 1024**2 + 1
+    elif defect == "file-hash":
+        arguments["expected_file_sha256"] = "bad"
+    elif defect in ("seconds-bool", "seconds-nan"):
+        arguments["maximum_seconds"] = True if defect == "seconds-bool" else float("nan")
+    elif defect in ("preparation-deadline", "verification-deadline"):
+        clock = iter([5, 40] if defect == "preparation-deadline" else [5, 6, 40])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    if defect:
+        with pytest.raises(ValueError):
+            prism_codec.verify_profile_gguf_tokenizer_arrays_v2(profile, **arguments)
+        assert len(calls) == (1 if defect == "verification-deadline" else 0)
+        return
+    receipt = prism_codec.verify_profile_gguf_tokenizer_arrays_v2(profile, **arguments)
+    assert len(calls) == 1 and "policy_metadata_verification" not in receipt
+    assert receipt["metadata_scope"] == "tokenizer_vocabulary_merge_subset" and receipt["merge_content_bytes"] == 7
+    assert receipt["metadata_verification"] == "selected_typed_tokenizer_array_records_match_file"
+    assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+
+
 @pytest.mark.parametrize("defect", [None, "source-pin", "tokenizer-pin", "architecture", "duplicate", "split-writer", "missing-array",
                                     "unassigned", "empty-token", "nul", "item-budget", "utf8-budget", "byte-limit", "utf8-limit",
                                     "count-budget", "aggregate-budget", "aggregate-limit"])

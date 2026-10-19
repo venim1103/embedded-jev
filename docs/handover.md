@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [vocabulary emission checkpoint](#vocabulary-emission-checkpoint-2026-10-19), followed by
+the [tokenizer array file checkpoint](#tokenizer-array-file-checkpoint-2026-10-19), followed by
+the [vocabulary emission checkpoint](#vocabulary-emission-checkpoint-2026-10-19),
 the [merge emission checkpoint](#merge-emission-checkpoint-2026-10-19),
 the [added-token checkpoint](#added-token-checkpoint-2026-10-19),
 the [BPE declaration checkpoint](#bpe-declaration-checkpoint-2026-10-19),
@@ -342,6 +343,48 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Tokenizer Array File Checkpoint (2026-10-19)
+
+After `aacb09a`, the existing vocabulary and merge declaration builders were
+shared with a new `verify_profile_gguf_tokenizer_arrays_v2` API. It prepares
+fresh immutable pinned source bytes once and verifies exact selected
+`tokenizer.ggml.tokens` and `tokenizer.ggml.merges` `ARRAY`/`STRING` records.
+It does not trust an emission receipt. Existing policy/source-metadata
+verification delegates its unchanged public contracts to the shared private
+retained-descriptor implementation; string-array encoding is the added kind.
+Selected records stay capped to 8 KiB total, header 1 MiB, reads 64 KiB, file
+default 16 MiB/explicit ceiling 24 GiB and tensor subset 1..427. One shared
+deadline includes preparation, both file hashes and final checks. There is
+no native owner argument, whole table verification or model runtime approval.
+
+Builder extraction: **34 focused cases passed in 0.29 s**. New wrapper:
+**14 default cases plus actual cached writer/parser proof passed in 0.48 s**,
+covering source pins, missing rows/merges, budgets, deadlines and receipt
+boundaries. Affected pinned legacy/source-metadata and larger synthetic
+source-to-GGUF controls ran serially: **2 passed, 5 deselected in 8.64 s**
+with their numerical, resource, allocation and corruption assertions unchanged.
+
+The BPE optional fixture now includes one two-byte synthetic BF16 anchor to
+establish a tensor-table boundary; it does not prove that tensor. Other
+metadata modes remain tensor-free. It checks exactly two hashes on one
+retained descriptor and reads at most 64 KiB. Wrong/copied array fields,
+fresh-hash vocabulary/merge byte faults, stale file pins and a closed mapping
+all refuse; failure paths return descriptor counts to baseline. One reusable
+fault copy and the main output are each below 64 KiB, with normal map/writer/
+spool/scratch cleanup and the unchanged 15 s child. Expanded fault mode
+**passed in 0.38 s**; adding an actual source-pinned declaration exceeding
+8 KiB verified that exact unchanged budget refusal, **passed in 0.34 s**.
+No failed check occurred in this increment.
+
+Required gate: **1082 passed, 99 skipped in 25.38 s**, Ruff/whitespace and
+three Python editor checks clean. No learned tokenizer/weight reads,
+downloads, builds, native/model jobs, real artifacts, refits or quality
+experiments ran. Selected array proof does not verify architecture, output
+context/template, added-token normalization/types, pre-tokenizer, complete
+tokenizer or model quality. Next: preflight the bounded vocabulary/merge
+subset together before writer mutation; complete model-specific mapping
+still needs separately established fingerprint/wrapper and type semantics.
 
 ## Vocabulary Emission Checkpoint (2026-10-19)
 

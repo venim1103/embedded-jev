@@ -645,6 +645,16 @@ def write_profile_model_tokenizer_vocabulary(
     """Emit exact bounded source rows without inventing padding or GGUF token types."""
     prepared = prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    record, content_bytes = _profile_tokenizer_vocabulary_record(prepared)
+    records = _write_profile_model_metadata_records(writer, [record])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "vocabulary_content_bytes": content_bytes, "metadata_scope": "tokenizer_vocabulary_subset",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_vocabulary_emission"})
+
+
+def _profile_tokenizer_vocabulary_record(prepared):
     tokens = prepared["tokens"]
     if prepared["unassigned_profile_token_rows"] != 0 or not 0 < len(tokens) <= 4096:
         raise ValueError("unsupported bounded vocabulary count or unassigned profile rows")
@@ -656,14 +666,7 @@ def write_profile_model_tokenizer_vocabulary(
         content_bytes += encoded_bytes
         if encoded_bytes > 4096 or content_bytes > 64 * 1024:
             raise ValueError("unsupported vocabulary content budget")
-    records = _write_profile_model_metadata_records(writer, [
-        {"name": "tokenizer.ggml.tokens", "kind": "str_array", "values": tokens},
-    ])
-    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
-                            "vocabulary_content_bytes": content_bytes, "metadata_scope": "tokenizer_vocabulary_subset",
-                            "metadata_verification": "declared_records_emitted_not_file_verified",
-                            "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
-                            "runtime_approval": "not_granted_by_vocabulary_emission"})
+    return {"name": "tokenizer.ggml.tokens", "kind": "str_array", "values": tokens}, content_bytes
 
 
 def write_profile_model_bpe_merge_metadata(
@@ -672,6 +675,16 @@ def write_profile_model_bpe_merge_metadata(
     """Emit a bounded ranked merge array, not a complete GGUF tokenizer."""
     prepared = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    record, content_bytes = _profile_bpe_merge_record(prepared)
+    records = _write_profile_model_metadata_records(writer, [record])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "merge_content_bytes": content_bytes, "metadata_scope": "bpe_merge_subset",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_bpe_merge_emission"})
+
+
+def _profile_bpe_merge_record(prepared):
     pairs = prepared["bpe_merge_pairs"]
     if not 0 < len(pairs) <= 4096:
         raise ValueError("unsupported bounded BPE merge count")
@@ -686,14 +699,7 @@ def write_profile_model_bpe_merge_metadata(
         if encoded_bytes > 4096 or content_bytes > 64 * 1024:
             raise ValueError("unsupported BPE merge content budget")
         values.append(value)
-    records = _write_profile_model_metadata_records(writer, [
-        {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": values},
-    ])
-    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
-                            "merge_content_bytes": content_bytes, "metadata_scope": "bpe_merge_subset",
-                            "metadata_verification": "declared_records_emitted_not_file_verified",
-                            "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
-                            "runtime_approval": "not_granted_by_bpe_merge_emission"})
+    return {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": tuple(values)}, content_bytes
 
 
 def write_profile_model_context_metadata(
@@ -2390,15 +2396,50 @@ def verify_profile_gguf_source_metadata_v2(
                             "runtime_approval": "not_granted_by_source_metadata_verification"})
 
 
+def verify_profile_gguf_tokenizer_arrays_v2(
+    profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30,
+):
+    """Bind fresh pinned vocabulary/merge arrays to file bytes, not complete tokenizer semantics."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 24 * 1024**3
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+    ):
+        raise ValueError("invalid tokenizer array file identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    prepared = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    vocabulary, vocabulary_bytes = _profile_tokenizer_vocabulary_record(prepared)
+    merges, merge_bytes = _profile_bpe_merge_record(prepared)
+    if time.monotonic() > deadline:
+        raise ValueError("tokenizer array preparation deadline exceeded")
+    verified = dict(_verify_profile_gguf_metadata_records(profile, reader=reader,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, deadline=deadline, model_owner=None, descriptor=None,
+        policy_version=2, file_cap=24 * 1024**3, header_cap=1024**2, declarations=[vocabulary, merges]))
+    if time.monotonic() > deadline:
+        raise ValueError("tokenizer array verification deadline exceeded")
+    verified.pop("policy_metadata_verification", None)
+    return MappingProxyType({**prepared, **verified, "vocabulary_content_bytes": vocabulary_bytes,
+                            "merge_content_bytes": merge_bytes, "metadata_scope": "tokenizer_vocabulary_merge_subset",
+                            "source_metadata_verification": "profile_pinned_inputs_and_selected_tokenizer_records_match",
+                            "metadata_verification": "selected_typed_tokenizer_array_records_match_file",
+                            "model_metadata_verification": "selected_tokenizer_array_records_only",
+                            "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_tokenizer_array_verification"})
+
+
 def _verify_profile_gguf_policy_metadata(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int,
     maximum_seconds: float, model_owner, policy_version: int, source_metadata=None,
 ):
-    import sys
-
     from embedded_jev.model_profile import SHA256
-    from embedded_jev.streamed_text import bounded_native_descriptor_record, bounded_native_file_record, bounded_gguf_descriptor_record_v2
 
     file_cap = 24 * 1024**3 if policy_version == 2 else 16 * 1024**2
     header_cap = 1024**2 if policy_version == 2 else MODEL_METADATA_BYTES_V2
@@ -2413,32 +2454,46 @@ def _verify_profile_gguf_policy_metadata(
     deadline = time.monotonic() + maximum_seconds
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
     descriptor = _verified_owner_descriptor(model_owner, profile, manifest, expected_file_bytes, expected_file_sha256)
-    import gguf
-
-    if (
-        type(reader) is not gguf.GGUFReader or sys.byteorder != "little"
-        or not isinstance(reader.data, np.memmap) or reader.data.dtype != np.dtype("u1") or reader.data.ndim != 1
-        or reader.data.mode != "r" or reader.data.flags.writeable or reader.data.offset != 0
-        or reader.data.nbytes != expected_file_bytes
-        or (not 1 <= len(reader.tensors) <= 427 if policy_version == 2 else len(reader.tensors) != len(specification["tensors"]))
-        or not 3 <= len(reader.fields) <= MODEL_METADATA_KEYS_V2 + 3
-        or not 24 <= reader.data_offset <= min(expected_file_bytes, header_cap)
-        or policy_version == 2 and (reader.endianess != gguf.GGUFEndian.LITTLE or reader.data._mmap is None or reader.data._mmap.closed)
-    ):
-        raise ValueError("policy metadata reader layout or budget mismatch")
     declarations = _profile_model_policy_metadata_declarations(profile, specification)
     if source_metadata is not None:
         declarations.extend([
             {"name": source_metadata["context_metadata_name"], "kind": "u32", "values": [source_metadata["context_length"]]},
             {"name": source_metadata["template_metadata_name"], "kind": "string", "values": [source_metadata["template"]]},
         ])
+    return _verify_profile_gguf_metadata_records(profile, reader=reader, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes, deadline=deadline,
+        model_owner=model_owner, descriptor=descriptor, policy_version=policy_version, file_cap=file_cap,
+        header_cap=header_cap, declarations=declarations, expected_tensor_count=len(specification["tensors"]))
+
+
+def _verify_profile_gguf_metadata_records(
+    profile, *, reader, expected_file_bytes, expected_file_sha256, maximum_file_bytes, deadline,
+    model_owner, descriptor, policy_version, file_cap, header_cap, declarations, expected_tensor_count=None,
+):
+    import sys
+
+    import gguf
+
+    from embedded_jev.streamed_text import bounded_native_descriptor_record, bounded_native_file_record, bounded_gguf_descriptor_record_v2
+
+    if (
+        type(reader) is not gguf.GGUFReader or sys.byteorder != "little"
+        or not isinstance(reader.data, np.memmap) or reader.data.dtype != np.dtype("u1") or reader.data.ndim != 1
+        or reader.data.mode != "r" or reader.data.flags.writeable or reader.data.offset != 0
+        or reader.data.nbytes != expected_file_bytes
+        or (not 1 <= len(reader.tensors) <= 427 if policy_version == 2 else len(reader.tensors) != expected_tensor_count)
+        or not 3 <= len(reader.fields) <= MODEL_METADATA_KEYS_V2 + 3
+        or not 24 <= reader.data_offset <= min(expected_file_bytes, header_cap)
+        or policy_version == 2 and (reader.endianess != gguf.GGUFEndian.LITTLE or reader.data._mmap is None or reader.data._mmap.closed)
+    ):
+        raise ValueError("policy metadata reader layout or budget mismatch")
     table_offset = min(int(tensor.field.offset) for tensor in reader.tensors)
     if not 24 <= table_offset <= reader.data_offset:
         raise ValueError("policy metadata tensor table boundary mismatch")
     records = []
     consumed = 0
     address = reader.data.__array_interface__["data"][0]
-    kinds = {"string": (8,), "u32": (4,), "f32": (6,), "i32_array": (9, 5)}
+    kinds = {"string": (8,), "u32": (4,), "f32": (6,), "i32_array": (9, 5), "str_array": (9, 8)}
     for item in declarations:
         if time.monotonic() > deadline:
             raise ValueError("policy metadata deadline exceeded")
@@ -2449,6 +2504,9 @@ def _verify_profile_gguf_policy_metadata(
             encoded_value = struct.pack("<Q", len(value)) + value
         elif kind == "i32_array":
             encoded_value = struct.pack("<IQ", 5, len(values)) + struct.pack("<" + "i" * len(values), *values)
+        elif kind == "str_array":
+            encoded_values = [value.encode("utf-8") for value in values]
+            encoded_value = struct.pack("<IQ", 8, len(values)) + b"".join(struct.pack("<Q", len(value)) + value for value in encoded_values)
         else:
             encoded_value = struct.pack("<I" if kind == "u32" else "<f", values[0])
         wanted = struct.pack("<Q", len(encoded_name)) + encoded_name + struct.pack("<I", kinds[kind][0]) + encoded_value
@@ -2460,7 +2518,7 @@ def _verify_profile_gguf_policy_metadata(
             field is None or field.name != name or tuple(field.types) != kinds[kind]
             or not isinstance(field.offset, (int, np.integer)) or isinstance(field.offset, (bool, np.bool_))
             or not 24 <= field.offset < field.offset + len(wanted) <= table_offset
-            or not 1 <= len(field.parts) <= 32
+            or not 1 <= len(field.parts) <= (5 + 2 * len(values) if kind == "str_array" else 32)
         ):
             raise ValueError("policy metadata field type or range mismatch: " + name)
         position = int(field.offset)
