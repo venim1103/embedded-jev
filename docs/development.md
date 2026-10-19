@@ -1443,6 +1443,21 @@ native file acceptance limits, actual free-space checks, live safety guards
 or separate approval for real-model work. See the
 [v2 resource checkpoint](handover.md#v2-resource-checkpoint-2026-10-19).
 
+`write_profile_model_architecture_metadata(..., writer=...)` emits the checked
+architecture subset from the validated model specification: three base
+geometry fields and its 14 typed records. The trusted writer must target
+`qwen35`, have one metadata/output part and expose the pinned scalar/array
+methods. Wrong architecture, multiple parts, missing protocol or existing
+target keys refuse before metadata mutation. Call before writing headers;
+arbitrary writer-method failures are not an atomic rollback guarantee.
+Its immutable receipt freezes the declared names/kinds/values and marks
+metadata as emitted, not file-verified, with source/tokenizer verification
+unchecked and no runtime approval. Default fixtures cover hybrid/full and
+alternate geometry; the pinned frozen-writer case independently checks all
+17 output fields' exact GGUF types and uint32/float32/int32-array bytes.
+This is not context/tokenizer metadata or complete-model compatibility.
+See the [architecture metadata checkpoint](handover.md#architecture-metadata-checkpoint-2026-10-19).
+
 `verify_profile_converted_vector(..., source_name=..., source_values=...,
 converted_values=..., expected_source_sha256=...)` checks one-dimensional F32
 output arrays from BF16/F32 source arrays. BF16 operands are raw little-endian

@@ -324,6 +324,37 @@ def profile_model_streaming_resource_plan_v2(
     }
 
 
+def write_profile_model_architecture_metadata(profile, inventory: dict, manifest: dict, pq2_blocks, *, writer):
+    """Emit the checked architecture subset before headers; tokenizer/source files remain unverified."""
+    specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
+    records = [{"name": "qwen35." + key, "kind": "u32", "values": [value]} for key, value in {
+        "block_count": specification["layers"], "embedding_length": specification["hidden"],
+        "feed_forward_length": specification["intermediate"],
+    }.items()] + specification["metadata"]
+    mappings = getattr(writer, "kv_data", None)
+    if (getattr(writer, "arch", None) != "qwen35" or not isinstance(mappings, list) or len(mappings) != 1
+            or any(not isinstance(mapping, dict) for mapping in mappings)
+            or any(not callable(getattr(writer, method, None)) for method in ("add_uint32", "add_float32", "add_array"))
+            or any(record["name"] in mapping for record in records for mapping in mappings)):
+        raise ValueError("invalid or conflicting architecture metadata writer")
+    frozen_records = tuple(MappingProxyType({"name": record["name"], "kind": record["kind"],
+                                            "values": tuple(record["values"])}) for record in records)
+    for record in frozen_records:
+        name, kind, values = record["name"], record["kind"], record["values"]
+        if kind == "u32":
+            writer.add_uint32(name, values[0])
+        elif kind == "f32":
+            writer.add_float32(name, values[0])
+        else:
+            writer.add_array(name, list(values))
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_revision": profile.revision, "converter_revision": PRISM_SOURCE_REVISION,
+                            "metadata_count": len(frozen_records), "records": frozen_records,
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "tokenizer_verification": "not_checked", "source_file_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_metadata_emission"})
+
+
 def verify_profile_converted_vector(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
     source_values: np.ndarray, converted_values: np.ndarray, expected_source_sha256: str,

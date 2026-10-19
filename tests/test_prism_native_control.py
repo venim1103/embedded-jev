@@ -4568,6 +4568,10 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         path = Path(directory) / "matrices.gguf"
         written_operands = matrix_operands.copy()
         writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
+        architecture_receipt = None
+        if fixture["include_frozen_source"]:
+            architecture_receipt = prism_codec.write_profile_model_architecture_metadata(
+                profile, fixture["inventory"], fixture["manifest"], payload, writer=writer)
         import embedded_jev.streamed_text as streamed_text
 
         source_hash_descriptors = []
@@ -4755,6 +4759,15 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         if fixture["include_frozen_source"]:
             assert {tensor.name for tensor in reader.tensors} == {entry["name"] for entry in plan["tensors"]}
             assert hashlib.sha256(memoryview(payload)).hexdigest() == fixture["manifest"]["payload_sha256"]
+            for record in architecture_receipt["records"]:
+                field = reader.fields[record["name"]]
+                dtype = {"u32": "<u4", "f32": "<f4", "i32_array": "<i4"}[record["kind"]]
+                expected_types = {"u32": [gguf.GGUFValueType.UINT32], "f32": [gguf.GGUFValueType.FLOAT32],
+                                  "i32_array": [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32]}[record["kind"]]
+                assert field.types == expected_types
+                actual = np.concatenate([field.parts[index] for index in field.data])
+                assert actual.dtype == np.dtype(dtype)
+                assert actual.tobytes() == np.asarray(record["values"], dtype=dtype).tobytes()
         for tensor in reader.tensors:
             source_name, raw_source, raw_converted = written_operands[tensor.name]
             entry = next(item for item in plan["tensors"] if item["name"] == tensor.name)

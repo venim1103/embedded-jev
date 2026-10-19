@@ -761,6 +761,60 @@ def test_profile_model_streaming_resource_plan_v2_refuses_invalid_budgets_before
         prism_codec.profile_model_streaming_resource_plan_v2(None, {}, {}, None, **budgets)
 
 
+@pytest.mark.parametrize("target", ["down", "o"])
+@pytest.mark.parametrize("hybrid", [False, True])
+@pytest.mark.parametrize("defect", [None, "architecture", "duplicate", "missing-method", "split-writer"])
+def test_profile_architecture_metadata_emission_is_declared_and_preflighted(target, hybrid, defect):
+    from embedded_jev import prism_codec
+
+    class Writer:
+        arch = "qwen35"
+
+        def __init__(self):
+            self.kv_data = [{}]
+
+        def add_uint32(self, name, value):
+            self.kv_data[0][name] = ("u32", [value])
+
+        def add_float32(self, name, value):
+            self.kv_data[0][name] = ("f32", [value])
+
+        def add_array(self, name, values):
+            self.kv_data[0][name] = ("i32_array", list(values))
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(target, hybrid=hybrid)
+    specification = prism_codec.profile_model_specification(profile, report, manifest, blocks)
+    writer = Writer()
+    if defect == "architecture":
+        writer.arch = "qwen3"
+    elif defect == "duplicate":
+        writer.kv_data[0]["qwen35.embedding_length"] = ("u32", [1])
+    elif defect == "missing-method":
+        writer.add_array = None
+    elif defect == "split-writer":
+        writer.kv_data.append({})
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    if defect:
+        with pytest.raises(ValueError, match="invalid or conflicting architecture metadata writer"):
+            prism_codec.write_profile_model_architecture_metadata(profile, report, manifest, blocks, writer=writer)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        return
+    receipt = prism_codec.write_profile_model_architecture_metadata(profile, report, manifest, blocks, writer=writer)
+    expected = {record["name"]: (record["kind"], record["values"]) for record in specification["metadata"]}
+    expected.update({"qwen35.block_count": ("u32", [specification["layers"]]),
+                     "qwen35.embedding_length": ("u32", [specification["hidden"]]),
+                     "qwen35.feed_forward_length": ("u32", [specification["intermediate"]])})
+    assert writer.kv_data[0] == expected and receipt["metadata_count"] == len(expected)
+    assert receipt["tokenizer_verification"] == receipt["source_file_verification"] == "not_checked"
+    assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
+    assert receipt["runtime_approval"] == "not_granted_by_metadata_emission"
+    with pytest.raises(TypeError):
+        receipt["records"][0]["values"] = (0,)
+    with pytest.raises(ValueError, match="conflicting"):
+        prism_codec.write_profile_model_architecture_metadata(profile, report, manifest, blocks, writer=writer)
+    assert writer.kv_data[0] == expected
+
+
 @pytest.mark.parametrize("target", ["down", "up", "gate", "q", "k", "v", "o"])
 def test_profile_model_conversion_plan_equal_heads_preserves_frozen_projection(target):
     from embedded_jev.prism_codec import profile_model_conversion_plan

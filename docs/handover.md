@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [frozen writer checkpoint](#frozen-writer-checkpoint-2026-10-19), followed by the
+the [architecture metadata checkpoint](#architecture-metadata-checkpoint-2026-10-19), followed by the
+[frozen writer checkpoint](#frozen-writer-checkpoint-2026-10-19),
 [frozen source owner checkpoint](#frozen-source-owner-checkpoint-2026-10-19),
 [mixed writer checkpoint](#mixed-writer-checkpoint-2026-10-19),
 [v2 mixed source checkpoint](#v2-mixed-source-checkpoint-2026-10-19),
@@ -319,6 +320,40 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Architecture Metadata Checkpoint (2026-10-19)
+
+After `67d10d5`, promoted the existing pinned fixture's checked architecture
+emission pattern into `write_profile_model_architecture_metadata`. It reuses
+the profile-validated model specification, emitting three base geometry keys
+plus 14 typed fields: uint32, float32 and the int32 rotary-section array.
+The writer must target `qwen35`, expose the expected methods and have exactly
+one metadata/output part, matching the resource plan. Wrong architecture,
+split writer, missing protocol and duplicate target keys refuse before
+metadata mutation. Call before headers; this is not rollback protection
+against arbitrary later writer-method failure.
+
+The immutable receipt freezes names/kinds/values, but correctly labels them
+declared/emitted rather than file-verified; source/tokenizer identity and
+runtime approval remain unchecked/not granted. Default tests cover hybrid/
+full attention and two existing synthetic geometries, exact records, repeated
+emission refusal, immutability and preflight nonmutation. Final focused slice:
+**21 passed in 0.47 s**. The pinned frozen-writer case now emits this subset
+and independently verifies all **17 metadata fields' exact types and bytes**
+with the pinned GGUF reader, alongside all 28 tensor checks: **1 passed,
+5 deselected in 4.04 s**. Unchanged earlier optional cases were not rerun.
+
+Required gate: **808 passed, 93 optional skips in 23.66 s**, Ruff/whitespace/
+editor clean; no failures in this increment. Source/output fixture and
+15-second child bounds are unchanged. No learned inputs, downloads, native
+builds/model execution, complete conversion, candidate/refit/quality action
+or retained scratch. User editor settings untouched.
+
+This remains the checked architecture subset, not context/tokenizer metadata,
+complete model metadata, public whole-table/loader acceptance or a complete
+converter. Next: bounded source-pinned tokenizer/context metadata preparation
+using existing profile metadata contracts, without executing model-repository
+code or authorizing real-model artifacts.
 
 ## Frozen Writer Checkpoint (2026-10-19)
 
