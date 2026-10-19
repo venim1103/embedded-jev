@@ -385,7 +385,6 @@ def iter_profile_bf16_matrix_chunks(
         yield first, chunk
 
 
-@contextmanager
 def temporary_profile_bf16_matrix_payload(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
     source_values: np.ndarray, expected_source_sha256: str, directory,
@@ -393,12 +392,41 @@ def temporary_profile_bf16_matrix_payload(
     maximum_seconds: float = 30,
 ):
     """Own a bounded raw payload; finish file users before exit and publish only after successful exit."""
+    return _temporary_profile_bf16_matrix_payload(
+        profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
+        expected_source_sha256=expected_source_sha256, directory=directory, maximum_bytes=maximum_bytes,
+        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=maximum_seconds,
+        payload_ceiling=16 * 1024**2, policy_version=1,
+    )
+
+
+def temporary_profile_bf16_matrix_payload_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, directory,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Explicit v2 raw payload policy; larger extents require a caller budget."""
+    return _temporary_profile_bf16_matrix_payload(
+        profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
+        expected_source_sha256=expected_source_sha256, directory=directory, maximum_bytes=maximum_bytes,
+        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=maximum_seconds,
+        payload_ceiling=2 * 1024**3, policy_version=2,
+    )
+
+
+@contextmanager
+def _temporary_profile_bf16_matrix_payload(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_name, source_values,
+    expected_source_sha256, directory, maximum_bytes, maximum_chunk_bytes, maximum_seconds,
+    payload_ceiling, policy_version,
+):
     from tempfile import TemporaryDirectory
 
     from embedded_jev.model_profile import SHA256
 
     if (
-        type(maximum_bytes) is not int or not 0 < maximum_bytes <= 16 * 1024**2
+        type(maximum_bytes) is not int or not 0 < maximum_bytes <= payload_ceiling
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
         or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
         or not isinstance(source_values, np.ndarray) or source_values.dtype != np.dtype("<u2")
@@ -473,7 +501,9 @@ def temporary_profile_bf16_matrix_payload(
 
         check_source()
         check_payload()
-        receipt = MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+        policy_receipt = {} if policy_version == 1 else {"payload_policy_version": policy_version,
+                                   "payload_cap_bytes": payload_ceiling}
+        receipt = MappingProxyType({**policy_receipt, "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                                    "source_name": source_name, "source_sha256": expected_source_sha256,
                                    "converted_sha256": converted_sha256, "converted_bytes": written,
                                    "source_array_verification": "entry_and_exit_checks_required",

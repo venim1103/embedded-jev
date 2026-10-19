@@ -948,10 +948,11 @@ def test_profile_bf16_matrix_chunks_borrow_source_but_own_each_result(monkeypatc
     chunks.close()
 
 
+@pytest.mark.parametrize("policy_version", [1, 2])
 @pytest.mark.parametrize("defect", ["digest", "boolean-budget", "large-budget", "small-budget", "deadline", "boolean-deadline",
                                     "chunk-budget", "frozen", "nonfinite", "late-nonfinite", "mid-write", "source-mutation",
                                     "payload-mutation", "payload-restored", "payload-replaced", "payload-deleted", "exit-deadline", "body-error"])
-def test_temporary_profile_bf16_payload_refuses_and_cleans_partial_files(tmp_path, monkeypatch, defect):
+def test_temporary_profile_bf16_payload_refuses_and_cleans_partial_files(tmp_path, monkeypatch, defect, policy_version):
     import os
 
     from embedded_jev import prism_codec
@@ -970,7 +971,7 @@ def test_temporary_profile_bf16_payload_refuses_and_cleans_partial_files(tmp_pat
     elif defect == "boolean-budget":
         arguments["maximum_bytes"] = True
     elif defect == "large-budget":
-        arguments["maximum_bytes"] = 16 * 1024**2 + 1
+        arguments["maximum_bytes"] = (2 * 1024**3 if policy_version == 2 else 16 * 1024**2) + 1
     elif defect == "small-budget":
         arguments["maximum_bytes"] = source.nbytes - 1
     elif defect == "deadline":
@@ -991,9 +992,14 @@ def test_temporary_profile_bf16_payload_refuses_and_cleans_partial_files(tmp_pat
     sentinel = tmp_path / "keep.txt"
     sentinel.write_text("unrelated fixture")
     failure = RuntimeError if defect in ("mid-write", "body-error") else ValueError
+    owner = prism_codec.temporary_profile_bf16_matrix_payload_v2 if policy_version == 2 else prism_codec.temporary_profile_bf16_matrix_payload
     with monkeypatch.context() as patch:
         with pytest.raises(failure):
-            with prism_codec.temporary_profile_bf16_matrix_payload(profile, report, manifest, blocks, **arguments) as (path, _):
+            with owner(profile, report, manifest, blocks, **arguments) as (path, receipt):
+                if policy_version == 2:
+                    assert receipt["payload_policy_version"] == 2 and receipt["payload_cap_bytes"] == 2 * 1024**3
+                else:
+                    assert "payload_policy_version" not in receipt
                 if defect == "source-mutation":
                     source[0, 0] ^= 1
                 elif defect == "payload-mutation":
@@ -1585,6 +1591,8 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
 
 
 def test_profile_mapped_bf16_shard_v2_streams_large_synthetic_ranges(tmp_path, monkeypatch):
+    import tracemalloc
+
     from embedded_jev import prism_codec, streamed_text
 
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True, vocab_size=16384)
@@ -1662,9 +1670,55 @@ def test_profile_mapped_bf16_shard_v2_streams_large_synthetic_ranges(tmp_path, m
                     assert chunk.nbytes <= 65536 and chunk.flags.owndata
                     converted_digest.update(memoryview(chunk))
                 assert converted_digest.hexdigest() == source_digest.hexdigest()
+                payload_arguments = {"source_name": source_name, "source_values": values,
+                                     "expected_source_sha256": source_digest.hexdigest(), "directory": tmp_path}
+                with monkeypatch.context() as preflight:
+                    preflight.setattr(prism_codec.os, "open", never_open)
+                    for owner in (prism_codec.temporary_profile_bf16_matrix_payload, prism_codec.temporary_profile_bf16_matrix_payload_v2):
+                        with pytest.raises(ValueError, match="invalid temporary BF16 payload source or resource budget"):
+                            with owner(profile, inventory, manifest, blocks, **payload_arguments):
+                                pytest.fail("default payload budget silently expanded")
+                    with pytest.raises(ValueError, match="invalid temporary BF16 payload source or resource budget"):
+                        with prism_codec.temporary_profile_bf16_matrix_payload_v2(profile, inventory, manifest, blocks,
+                                 **payload_arguments, maximum_bytes=2 * 1024**3 + 1):
+                            pytest.fail("invalid payload ceiling reached file open")
+                    tracemalloc.start()
+                with prism_codec.temporary_profile_bf16_matrix_payload_v2(profile, inventory, manifest, blocks,
+                         **payload_arguments, maximum_bytes=2 * 1024**3) as (payload_path, payload_receipt):
+                    assert payload_receipt["payload_policy_version"] == 2
+                    assert payload_receipt["payload_cap_bytes"] == 2 * 1024**3
+                    assert payload_receipt["converted_bytes"] == payload_path.stat().st_size == operand_bytes
+                    assert file_bytes + payload_path.stat().st_size <= 256 * 1024**2
+                    payload_digest = hashlib.sha256()
+                    with payload_path.open("rb", buffering=0) as output:
+                        while data := output.read(65536):
+                            payload_digest.update(data)
+                    assert payload_digest.hexdigest() == payload_receipt["converted_sha256"] == source_digest.hexdigest()
+                _, payload_peak = tracemalloc.get_traced_memory()
+                tracemalloc.stop()
+                assert payload_peak < 3 * 1024**2
+                assert not payload_path.exists() and not payload_path.parent.exists()
+                original_chunks = prism_codec.iter_profile_bf16_matrix_chunks
+
+                def interrupted_chunks(*arguments, **keywords):
+                    chunks = original_chunks(*arguments, **keywords)
+                    try:
+                        yield next(chunks)
+                        raise RuntimeError("injected large payload failure")
+                    finally:
+                        chunks.close()
+
+                with monkeypatch.context() as interruption:
+                    interruption.setattr(prism_codec, "iter_profile_bf16_matrix_chunks", interrupted_chunks)
+                    with pytest.raises(RuntimeError, match="injected large payload failure"):
+                        with prism_codec.temporary_profile_bf16_matrix_payload_v2(profile, inventory, manifest, blocks,
+                                 **payload_arguments, maximum_bytes=operand_bytes):
+                            pytest.fail("partial large payload was yielded")
+                assert not list(tmp_path.glob("jev-bf16-payload-*"))
             assert values._mmap.closed and len(hashes) == 1
         assert len(hashes) == 2 and hashes[0] == hashes[1]
     finally:
+        tracemalloc.stop()
         path.unlink()
 
 

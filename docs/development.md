@@ -1543,6 +1543,18 @@ environment; existing 16 MiB mapping/payload APIs are unchanged. The sparse
 64 MiB + 17 byte control is synthetic only, not model execution or process-RAM
 evidence. See the [v2 descriptor checkpoint](handover.md#v2-descriptor-checkpoint-2026-10-19).
 
+`temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
+2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
+shares the legacy chunked writes, hashes, identity checks, deadlines and
+private-file cleanup. V2 receipts add `payload_policy_version: 2` and
+`payload_cap_bytes`; legacy 16 MiB APIs and receipt fields are unchanged.
+It accepts a borrowed BF16 array or mapping, not source-file provenance:
+compose with verified v2 shard ownership and publish only after both owners
+exit successfully. A 32 MiB synthetic composition passes exact streamed
+hashes, partial-write cleanup and the existing below-3-MiB traced Python
+allocation bound. That is not a host/device RAM guarantee or a multi-GiB
+artifact measurement. See the [v2 payload checkpoint](handover.md#v2-payload-checkpoint-2026-10-19).
+
 `mapped_profile_safetensors_bf16_shard_v2(...)` explicitly selects the separate
 6 GiB file/2 GiB selected-matrix policy and v2 descriptor hasher. Its file and
 child budget defaults remain 16 MiB; larger extents require explicit caller

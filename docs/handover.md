@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [v2 shard checkpoint](#v2-shard-checkpoint-2026-10-19), followed by the
+the [v2 payload checkpoint](#v2-payload-checkpoint-2026-10-19), followed by the
+[v2 shard checkpoint](#v2-shard-checkpoint-2026-10-19) and
 [v2 descriptor checkpoint](#v2-descriptor-checkpoint-2026-10-19).
 The earlier pause below is historical. Existing real-model/resource boundaries
 remain unchanged; no cached learned weights or full conversion is authorized.
@@ -312,6 +313,35 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## V2 Payload Checkpoint (2026-10-19)
+
+After `f8b2f85`, added `temporary_profile_bf16_matrix_payload_v2` with an
+explicit **2 GiB** policy ceiling and unchanged **16 MiB** default. Legacy
+raw payload ownership still caps at **16 MiB**. Both public wrappers share
+the existing chunked conversion, source/payload entry/exit hashes, identity
+checks, cooperative deadline and `finally` cleanup. Only v2 receipts add
+`payload_policy_version: 2` and `payload_cap_bytes`. Payload ownership alone
+still does not verify a source file or grant runtime approval.
+
+All 18 existing refusal/cleanup cases now run through both versions; unchanged
+head/index transform workflows also pass. The larger sparse fixture now
+composes v2 source mapping with a **32 MiB raw payload**, checks the exact
+output hash in 64 KiB reads and source/output scratch below **256 MiB**, and
+proves successful private-file/directory cleanup. Legacy/v2 default payload
+budgets and above-2-GiB budgets refuse before file opening. The exact 2 GiB
+ceiling accepts this bounded input. An injected failure after the first chunk
+also removes partial output. Traced Python allocations during the successful
+32 MiB payload lifecycle stay below the existing **3 MiB** streaming bound;
+this is not RSS, mapped-page, OS-cache or full-converter memory evidence.
+
+Final focused checks: **47 passed in 1.85 s**. Required gate: **734 passed,
+89 optional skips in 24.83 s**, Ruff/whitespace/editor clean. Cached pinned
+BF16/F32 converter controls: **2 passed in 6.33 s**. No failures, downloads,
+builds, learned-weight reads or retained artifacts in this increment.
+Next: exercise explicit v2 owners through the existing pinned synthetic GGUF
+publication workflow, without increasing real inputs or authorizing a
+complete conversion/runtime/quality job.
 
 ## V2 Shard Checkpoint (2026-10-19)
 
