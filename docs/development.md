@@ -1593,6 +1593,17 @@ surface stderr while nonzero return codes still fail. See the
 [mixed writer checkpoint](handover.md#mixed-writer-checkpoint-2026-10-19) and
 [v2 writer checkpoint](handover.md#v2-writer-checkpoint-2026-10-19).
 
+A sixth opt-in case enables frozen source provenance and writes the unchanged
+`PQ2_0` payload with the 27 unfrozen operands. All 28 selected tensor names,
+exact bytes and typed corruption/refusal controls are checked; the existing
+bounded projection verifier checks packed output bytes, not dense-to-ternary
+quality. Source proof precedes spooling and publication remains after the
+parent's payload-layout/hash and final file checks. This is complete selected
+tensor-byte coverage for the tiny fixture, **not** complete architecture/
+tokenizer metadata, public whole-table acceptance, model execution or a real
+artifact approval. See the
+[frozen writer checkpoint](handover.md#frozen-writer-checkpoint-2026-10-19).
+
 `mapped_profile_safetensors_conversion_shard_v2(...)` explicitly extends v2
 shared ownership to unfrozen BF16 matrices and declared BF16/F32 vectors and
 convolution kernels. Auxiliary raw ranges have a tighter **1 MiB** ceiling;

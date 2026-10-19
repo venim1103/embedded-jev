@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [frozen source owner checkpoint](#frozen-source-owner-checkpoint-2026-10-19), followed by the
+the [frozen writer checkpoint](#frozen-writer-checkpoint-2026-10-19), followed by the
+[frozen source owner checkpoint](#frozen-source-owner-checkpoint-2026-10-19),
 [mixed writer checkpoint](#mixed-writer-checkpoint-2026-10-19),
 [v2 mixed source checkpoint](#v2-mixed-source-checkpoint-2026-10-19),
 [v2 resource checkpoint](#v2-resource-checkpoint-2026-10-19),
@@ -318,6 +319,40 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Frozen Writer Checkpoint (2026-10-19)
+
+After `dfe097f`, added one separately selected frozen-provenance writer case
+beside all five existing pinned synthetic cases. It explicitly enables
+frozen source ownership, verifies that raw range against the manifest, and
+spools the existing packed payload unchanged as `PQ2_0`; no dense reconversion
+or refit. The same parent owns **28 selected tensors: 16 BF16 matrices,
+11 F32 auxiliaries and the frozen projection**, with exactly two whole-file
+hashes on one descriptor. Parent source/payload identity success still
+precedes GGUF publication. All original five source-mutation publication
+refusals run with the explicit frozen opt-in too.
+
+The output has exactly the declared 28 tensor names; every entry retains
+exact typed file/range/byte and corruption/refusal checks. The existing
+internal bounded projection verifier checks the frozen packed bytes, while
+the independent source context checks dense-source provenance. These are
+distinct checks, not quantization-quality proof. Fixtures/source/output remain
+below 16 MiB, declared storage below 256 MiB, and child timeout **15 seconds**.
+
+Focused new case: **1 passed, 5 deselected in 10.58 s**. After shared test
+changes, the prior five cases separately pass: **5 passed, 1 deselected in
+18.22 s**. All six actually executed; no unchanged successful case was rerun
+for reassurance. Required gate: **788 passed, 93 optional skips in 28.74 s**,
+Ruff/whitespace/editor clean. No failures in this increment. Before continuing,
+a read-only host snapshot showed **19,041,157,120 bytes available RAM, zero
+swap used**; time-sensitive, not model-job headroom or device evidence.
+
+This covers the tiny selected tensor set, not complete architecture/tokenizer
+metadata, public whole-table/loader acceptance, a complete streaming converter
+or any learned model job. No download, native build/runtime, conversion/refit,
+candidate/quality action or retained scratch. Next: bounded profile-declared
+architecture metadata emission and pinned validation; tokenizer/template
+identity and any real-artifact approval remain separate.
 
 ## Frozen Source Owner Checkpoint (2026-10-19)
 
