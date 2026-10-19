@@ -474,7 +474,7 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32, metadata_output=None, tokenizer_bytes=None):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32, metadata_output=None, tokenizer_bytes=None, headers_output=None):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -558,6 +558,8 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     }
     if metadata_output is not None:
         metadata_output.update(metadata)
+    if headers_output is not None:
+        headers_output.update(headers)
     return profile, report, manifest, blocks
 
 
@@ -566,8 +568,11 @@ def test_profile_prefill_metadata_capture_retains_actual_pins_and_context(source
     from embedded_jev.model_profile import verify_profile_metadata
     from embedded_jev.prism_codec import prepare_profile_model_context_metadata, prepare_profile_model_template_metadata
 
-    metadata = {}
-    profile, report, manifest, blocks = _prefill_model_policy_fixture(source_shards=source_shards, metadata_output=metadata)
+    metadata, headers = {}, {}
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(source_shards=source_shards, metadata_output=metadata, headers_output=headers)
+    assert set(headers) == set(profile.packaging["shards"])
+    assert all(len(prefix) == profile.files[name].header_bytes and size == profile.files[name].bytes
+               and hashlib.sha256(prefix).hexdigest() == profile.files[name].header_sha256 for name, (prefix, size) in headers.items())
     verify_profile_metadata(profile, metadata)
     assert report["source"]["profile_sha256"] == manifest["profile_sha256"] == profile.sha256
     receipt = prepare_profile_model_context_metadata(profile, metadata_files=metadata, tokenizer_bytes=b"{}", context_length=256)

@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [tensor metadata checkpoint](#tensor-metadata-checkpoint-2026-10-19), followed by
+the [file-bound composition checkpoint](#file-bound-composition-checkpoint-2026-10-19), followed by
+the [tensor metadata checkpoint](#tensor-metadata-checkpoint-2026-10-19),
 the [selected metadata checkpoint](#selected-metadata-checkpoint-2026-10-19),
 the [larger tokenizer checkpoint](#larger-tokenizer-checkpoint-2026-10-19),
 the [unused-row checkpoint](#unused-row-checkpoint-2026-10-19),
@@ -354,6 +355,61 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## File-Bound Composition Checkpoint (2026-10-19)
+
+After `bcb9f18`, a bounded synthetic size check selected the existing compact
+`target="o"` fixture: hidden width 128, 256x128 BF16 QKV and 128x1024 frozen
+output projection. Complete source extents **1,401,480/5,579,986 bytes** for
+32/8193 vocabularies fit the unchanged 8 MiB scratch budget; no larger-file
+permission or learned input was needed. The existing fixture optionally
+captures exact header tuples without identity/default changes, verified
+against pins in both existing metadata-capture cases: **2 passed in 0.24 s**.
+
+A separate source mode writes captured pinned headers, sparse zero ranges
+and one finite selected BF16 matrix. Whole-file SHA, profile, inventory and
+manifest pins are rebound before writer use. Frozen raw source provenance
+is explicitly zero-filled and separately pinned; frozen codes/scales/hash
+are unchanged. This is not a refit or evidence of source-to-frozen
+quantization equivalence. Initial file-preparation mode **1 passed in 3.60 s**.
+Mapped serial writer owners then verify the actual BF16 range and declared
+frozen raw range before consuming their spool and closing child/parent
+mappings. Existing source-to-GGUF matrix composition rechecks whole source
+and closes mappings after selected output verification: **1 passed in 3.24 s**.
+
+Final source fault controls **1 passed in 3.01 s**: unchanged output proof
+followed by changed or write-and-restored unselected source data refuses
+before a receipt. Both source mutations restore exact original bytes/SHA;
+descriptor counts return to baseline. Existing five metadata-group and
+two tensor fresh-hash faults still refuse at their respective checks, while
+metadata-only proof does not claim tensor verification. The source receipt
+keeps `cross_file_atomic_snapshot="not_guaranteed"`; sequential independent
+source/output/metadata receipts are not an atomic model proof.
+
+Pinned source headers **3128/3202 bytes**; BF16 matrix **65,536**, frozen
+packed payload **34,816**, outputs **102,496/208,608**, spool **100,352** each.
+Logical scratch peaks **1,923,603/6,314,333 bytes**, including complete sparse
+source extents, synthetic fixture inputs, nested raw payload/partial spool
+and final serial fault copies, below 8 MiB; each output/fault below 1 MiB,
+spool at most 1 MiB. Traced selected verification peaks **501,083/1,772,979**,
+below 8 MiB/growth at most 2 MiB, including source-owner/header/hash lifetimes
+but excluding setup/reader/writer/mapped pages. Source hashes exactly twice
+on one retained source descriptor; each independent GGUF metadata/matrix
+proof likewise hashes twice on its retained descriptor. Reads **219/8517**,
+all at most **65,536 bytes**. Stage **2.542 s**, child 15 s/stage 60 s;
+observed RSS **90,583,040**, process high water **90,140,672**, swap 0.
+All files/maps/temporary payloads/writers/spools/copies cleaned normally.
+
+Prior anchor/borrowed modes **2 passed in 5.79 s**, unchanged assertions.
+Required gate **1167 passed, 108 skipped in 31.84 s**, Ruff/whitespace/editor
+checks clean; Pylance all **41** fixture callers compatible. No failed check
+occurred. Both learned-input one-shots remain consumed, not repeated. No
+learned data, downloads, builds, full-model conversion, BitNet/model runtime,
+candidate changes, refits or quality scoring ran. Complete tensor table,
+prompt/tokenizer semantics, genuine dispatch and representative accuracy
+remain separate gates. Next: use this bounded file fixture as an offline
+integration prerequisite; native/profile-runtime changes require their own
+explicit scope and compiled verification, not an inference from these proofs.
 
 ## Tensor Metadata Checkpoint (2026-10-19)
 

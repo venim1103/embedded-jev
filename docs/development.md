@@ -1979,6 +1979,21 @@ new mode keeps output/fault below 1 MiB, spool at most 1 MiB, total logical
 scratch below 8 MiB including nested temporary payload, child 15 s/stage
 60 s and unchanged trace/read bounds. See the [tensor metadata checkpoint](handover.md#tensor-metadata-checkpoint-2026-10-19).
 
+`test_pinned_profile_selected_source_fixture_composition_on_synthetic_sources`
+is a separate compact-geometry file-bound mode. It writes only pinned
+synthetic safetensors headers, sparse zero ranges and one finite BF16 matrix,
+then rebinds actual source/profile/inventory pins. Serial mapped writer
+owners verify the BF16 and declared frozen raw source; the existing
+source-to-GGUF composer rechecks the whole source after selected output proof.
+Frozen codes/scales remain unchanged and no source-to-frozen quantization
+agreement is inferred from the synthetic raw provenance. Late changed and
+write-and-restore source faults refuse before a receipt and restore source
+bytes/hashes. Existing anchor/borrowed-array controls remain separate;
+the same 8 MiB logical scratch limit includes sparse source extents, nested
+raw payloads/spool and fault copies. Source/output checks are independent,
+not an atomic cross-file snapshot or full-model/native/quality validation.
+See the [file-bound composition checkpoint](handover.md#file-bound-composition-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

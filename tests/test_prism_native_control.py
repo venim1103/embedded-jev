@@ -6042,7 +6042,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
     print(json.dumps(report, sort_keys=True))
 
 
-def _run_selected_metadata_composition_control(*, include_tensors=False):
+def _run_selected_metadata_composition_control(*, include_tensors=False, include_source_file=False):
     from tempfile import TemporaryDirectory
 
     from test_inventory import _prefill_model_policy_fixture
@@ -6057,6 +6057,7 @@ import gc
 import hashlib
 import json
 import os
+from contextlib import ExitStack
 from pathlib import Path
 import resource
 import sys
@@ -6065,8 +6066,9 @@ import tracemalloc
 import gguf
 import numpy as np
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import profile_model_conversion_plan, temporary_profile_bf16_matrix_payload_v2, verify_profile_gguf_matrix_v2, verify_profile_gguf_selected_metadata_v2, verify_profile_gguf_source_metadata_v2, write_profile_model_selected_metadata
-from embedded_jev import streamed_text
+from embedded_jev.inventory import build_inventory
+from embedded_jev.prism_codec import mapped_profile_safetensors_conversion_shard_v2, profile_model_conversion_plan, temporary_profile_bf16_matrix_payload_v2, verify_profile_gguf_matrix_v2, verify_profile_gguf_source_matrix_v2, verify_profile_gguf_selected_metadata_v2, verify_profile_gguf_source_metadata_v2, write_profile_model_selected_metadata
+from embedded_jev import prism_codec, streamed_text
 
 root = Path(json.loads(sys.stdin.buffer.read(65537))["scratch"])
 started = time.monotonic()
@@ -6089,10 +6091,37 @@ for fixture in fixtures:
         source_name = "model.layers.0.linear_attn.in_proj_qkv.weight"
         plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
         matrix_entry = next(item for item in plan["tensors"] if item["source_name"] == source_name)
-        assert matrix_entry["source_shape"] == [256, 1024] and matrix_entry["type"] == matrix_entry["source_dtype"] == "BF16"
-        source_values = (0x3f00 + np.arange(256 * 1024, dtype=np.uint32) % 97).astype("<u2").reshape(256, 1024)
+        matrix_shape = [256, 128] if fixture["include_source_file"] else [256, 1024]
+        assert matrix_entry["source_shape"] == matrix_shape and matrix_entry["type"] == matrix_entry["source_dtype"] == "BF16"
+        matrix_bytes = int(np.prod(matrix_shape)) * 2
+        source_values = (0x3f00 + np.arange(int(np.prod(matrix_shape)), dtype=np.uint32) % 97).astype("<u2").reshape(matrix_shape)
         source_values.flags.writeable = False
         source_sha256 = hashlib.sha256(source_values).hexdigest()
+    if fixture["include_source_file"]:
+        shard = profile.packaging["shards"][0]
+        prefix = bytes.fromhex(fixture["source_header_hex"])
+        source_path = root / shard
+        source_bytes = profile.files[shard].bytes
+        assert 0 < source_bytes < 8 * 1024**2 and len(prefix) == profile.files[shard].header_bytes
+        header = json.loads(prefix[8:])
+        with source_path.open("xb") as output:
+            output.write(prefix)
+            output.truncate(source_bytes)
+            output.seek(len(prefix) + header[source_name]["data_offsets"][0])
+            output.write(memoryview(source_values))
+        descriptor = os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            source_record = streamed_text.bounded_source_descriptor_record_v2(descriptor, maximum_bytes=source_bytes,
+                deadline=time.monotonic() + 15)
+        finally:
+            os.close(descriptor)
+        rebound = json.loads(json.dumps(fixture["profile"]))
+        rebound["files"][shard]["sha256"] = source_record["sha256"]
+        profile = parse_model_profile(json.dumps(rebound).encode())
+        inventory = build_inventory(metadata, {shard: (prefix, source_bytes)}, profile=profile)
+        manifest = {**manifest, "profile_sha256": profile.sha256,
+                    "source_tensor_sha256": hashlib.sha256(bytes(rows * columns * 2)).hexdigest()}
+        assert hashlib.sha256(blocks).hexdigest() == manifest["payload_sha256"]
     path = root / "selected.gguf"
     setup_logical_peak = 0
     writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
@@ -6102,24 +6131,46 @@ for fixture in fixtures:
         assert emitted["metadata_count"] == 28 and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
         assert emitted["vocabulary_row_cap"] == 16384
         if fixture["include_tensors"]:
-            with temporary_profile_bf16_matrix_payload_v2(profile, inventory, manifest, blocks, source_name=source_name,
-                source_values=source_values, expected_source_sha256=source_sha256, directory=root,
-                maximum_bytes=524288, maximum_chunk_bytes=65536, maximum_seconds=15) as (raw_path, payload_receipt):
-                mapped = np.memmap(raw_path, dtype="<u2", mode="r", shape=(256, 1024))
-                try:
-                    writer.add_tensor(matrix_entry["name"], mapped, raw_dtype=gguf.GGMLQuantizationType.BF16)
-                    assert writer.tensors[-1][matrix_entry["name"]].tensor is None
-                    assert payload_receipt["source_file_verification"] == "not_checked"
-                    position = writer.temp_file.tell()
-                    partial_spool = writer.temp_file.seek(0, os.SEEK_END)
-                    writer.temp_file.seek(position)
-                    setup_logical_peak = sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + partial_spool
-                    assert setup_logical_peak < 8 * 1024**2
-                finally:
-                    mapped._mmap.close()
-            assert not raw_path.exists() and not raw_path.parent.exists()
-            writer.add_tensor(manifest["gguf_tensor"], blocks.reshape(rows, columns // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
-            assert writer.tensors[-1][manifest["gguf_tensor"]].tensor is None
+            with ExitStack() as shard_stack:
+                if fixture["include_source_file"]:
+                    source_matrix, writer_shard_receipt = shard_stack.enter_context(mapped_profile_safetensors_conversion_shard_v2(
+                        profile, inventory, manifest, blocks, source_path=source_path, source_shard=shard,
+                        expected_file_bytes=source_bytes, expected_file_sha256=source_record["sha256"],
+                        maximum_file_bytes=source_bytes, maximum_seconds=15, include_frozen_source=True))
+                with ExitStack() as matrix_stack:
+                    values = source_values
+                    if fixture["include_source_file"]:
+                        values, writer_source_receipt = matrix_stack.enter_context(source_matrix(source_name, source_sha256, maximum_bytes=matrix_bytes))
+                        assert writer_source_receipt["source_policy_version"] == writer_shard_receipt["source_policy_version"] == 2
+                    with temporary_profile_bf16_matrix_payload_v2(profile, inventory, manifest, blocks, source_name=source_name,
+                        source_values=values, expected_source_sha256=source_sha256, directory=root,
+                        maximum_bytes=matrix_bytes, maximum_chunk_bytes=65536, maximum_seconds=15) as (raw_path, payload_receipt):
+                        mapped = np.memmap(raw_path, dtype="<u2", mode="r", shape=tuple(matrix_shape))
+                        try:
+                            writer.add_tensor(matrix_entry["name"], mapped, raw_dtype=gguf.GGMLQuantizationType.BF16)
+                            assert writer.tensors[-1][matrix_entry["name"]].tensor is None
+                            assert payload_receipt["source_file_verification"] == "not_checked"
+                            position = writer.temp_file.tell()
+                            partial_spool = writer.temp_file.seek(0, os.SEEK_END)
+                            writer.temp_file.seek(position)
+                            setup_logical_peak = sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + partial_spool
+                            assert setup_logical_peak < 8 * 1024**2
+                        finally:
+                            mapped._mmap.close()
+                    assert not raw_path.exists() and not raw_path.parent.exists()
+                if fixture["include_source_file"]:
+                    assert values._mmap.closed
+                with ExitStack() as frozen_stack:
+                    if fixture["include_source_file"]:
+                        frozen_source, frozen_source_receipt = frozen_stack.enter_context(source_matrix(manifest["tensor"],
+                            manifest["source_tensor_sha256"], maximum_bytes=rows * columns * 2))
+                        assert frozen_source_receipt["source_operand_kind"] == "frozen_source"
+                        assert frozen_source_receipt["source_to_frozen_quantization_verification"] == "not_checked"
+                        assert hashlib.sha256(frozen_source).hexdigest() == manifest["source_tensor_sha256"]
+                    writer.add_tensor(manifest["gguf_tensor"], blocks.reshape(rows, columns // 128 * 34), raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
+                    assert writer.tensors[-1][manifest["gguf_tensor"]].tensor is None
+                if fixture["include_source_file"]:
+                    assert frozen_source._mmap.closed
         else:
             writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
         spool_position = writer.temp_file.tell() if writer.temp_file is not None else 0
@@ -6145,6 +6196,8 @@ for fixture in fixtures:
         selected = {**arguments, "maximum_vocabulary_rows": 16384, "maximum_metadata_bytes": 128 * 1024}
         counts, hashes = {"reads": 0, "maximum_read": 0}, []
         hasher, pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
+        source_hasher = streamed_text.bounded_source_descriptor_record_v2
+        source_hashes = []
 
         def measured_hash(descriptor, **kwargs):
             hashes.append(descriptor)
@@ -6154,6 +6207,10 @@ for fixture in fixtures:
             counts["reads"] += 1
             counts["maximum_read"] = max(counts["maximum_read"], size)
             return pread(descriptor, size, offset)
+
+        def measured_source_hash(descriptor, **kwargs):
+            source_hashes.append(descriptor)
+            return source_hasher(descriptor, **kwargs)
 
         def check_frozen_storage(actual_reader):
             frozen = next(tensor for tensor in actual_reader.tensors if tensor.name == manifest["gguf_tensor"])
@@ -6166,19 +6223,33 @@ for fixture in fixtures:
         gc.collect()
         try:
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = measured_hash, measured_read
+            if fixture["include_source_file"]:
+                streamed_text.bounded_source_descriptor_record_v2 = measured_source_hash
             tracemalloc.start()
             verified = verify_profile_gguf_selected_metadata_v2(profile, inventory, manifest, blocks, **selected)
             if fixture["include_tensors"]:
-                matrix_arguments = {"reader": reader, "source_name": source_name, "source_values": source_values,
+                matrix_arguments = {"reader": reader, "source_name": source_name,
                     "expected_source_sha256": source_sha256, "expected_file_bytes": len(original),
-                    "expected_file_sha256": arguments["expected_file_sha256"], "maximum_bytes": 524288, "maximum_chunk_bytes": 65536}
-                matrix_receipt = verify_profile_gguf_matrix_v2(profile, inventory, manifest, blocks, **matrix_arguments)
-                assert matrix_receipt["source_file_verification"] == "not_checked"
+                    "expected_file_sha256": arguments["expected_file_sha256"], "maximum_bytes": matrix_bytes, "maximum_chunk_bytes": 65536}
+                if fixture["include_source_file"]:
+                    matrix_arguments.update(source_path=source_path, source_shard=shard, expected_source_file_bytes=source_bytes,
+                        expected_source_file_sha256=source_record["sha256"], maximum_source_file_bytes=source_bytes)
+                    matrix_verifier = verify_profile_gguf_source_matrix_v2
+                else:
+                    matrix_arguments["source_values"] = source_values
+                    matrix_verifier = verify_profile_gguf_matrix_v2
+                matrix_receipt = matrix_verifier(profile, inventory, manifest, blocks, **matrix_arguments)
+                if fixture["include_source_file"]:
+                    assert matrix_receipt["source_file_rechecked_after_conversion"] and matrix_receipt["source_mapping_closed_after_conversion"]
+                    assert matrix_receipt["cross_file_atomic_snapshot"] == "not_guaranteed"
+                else:
+                    assert matrix_receipt["source_file_verification"] == "not_checked"
                 check_frozen_storage(reader)
             _, peak = tracemalloc.get_traced_memory()
         finally:
             tracemalloc.stop()
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = hasher, pread
+            streamed_text.bounded_source_descriptor_record_v2 = source_hasher
         assert peak < 8 * 1024**2 and counts["maximum_read"] <= 65536
         expected_hashes = 4 if fixture["include_tensors"] else 2
         assert len(hashes) == expected_hashes and all(hashes[first] == hashes[first + 1] for first in range(0, expected_hashes, 2))
@@ -6191,6 +6262,11 @@ for fixture in fixtures:
         if fixture["include_tensors"]:
             cases[-1].update(tensors=2, matrix_bytes=source_values.nbytes, frozen_bytes=blocks.nbytes,
                             tensor_verification="borrowed_bf16_file_range_and_frozen_mapped_storage_only_not_atomic_model_proof")
+        if fixture["include_source_file"]:
+            assert len(source_hashes) == 2 and source_hashes[0] == source_hashes[1]
+            cases[-1].update(source_file_bytes=source_bytes, source_header_bytes=len(prefix),
+                            source_fixture="whole_file_verified_serial_writer_owners_and_selected_source_to_gguf_proof_not_atomic",
+                            source_hashes=2, tensor_verification="file_bound_bf16_range_and_frozen_mapped_storage_only_not_atomic_model_proof")
         descriptor_count = len(os.listdir("/proc/self/fd"))
         fault_path = root / "fault.gguf"
         logical_peak = max(setup_logical_peak, sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file()) + spool_bytes)
@@ -6231,7 +6307,7 @@ for fixture in fixtures:
                     assert metadata_only["gguf_tensor_table_verification"] == "not_checked"
                     try:
                         if kind == "bf16":
-                            verify_profile_gguf_matrix_v2(profile, inventory, manifest, blocks,
+                            matrix_verifier(profile, inventory, manifest, blocks,
                                 **{**matrix_arguments, "reader": fault_reader, "expected_file_sha256": fresh_hash})
                         else:
                             check_frozen_storage(fault_reader)
@@ -6242,6 +6318,48 @@ for fixture in fixtures:
                     fault_reader.data._mmap.close()
             assert hashlib.sha256(source_values).hexdigest() == source_sha256
             cases[-1]["tensor_faults"] = "metadata_only_passes_but_specific_tensor_check_refuses"
+        if fixture["include_source_file"]:
+            source_offset = len(prefix) + header[manifest["tensor"]]["data_offsets"][0]
+            original_matrix_verifier = prism_codec.verify_profile_gguf_matrix_v2
+            for restore in (False, True):
+                calls = []
+
+                def changed_after_output(*args, **kwargs):
+                    result = original_matrix_verifier(*args, **kwargs)
+                    descriptor = os.open(source_path, os.O_RDWR | os.O_NOFOLLOW)
+                    try:
+                        original_byte = os.pread(descriptor, 1, source_offset)
+                        assert original_byte == b"\x00"
+                        os.pwrite(descriptor, b"\x01", source_offset)
+                        if restore:
+                            os.pwrite(descriptor, original_byte, source_offset)
+                    finally:
+                        os.close(descriptor)
+                    calls.append(True)
+                    return result
+
+                try:
+                    prism_codec.verify_profile_gguf_matrix_v2 = changed_after_output
+                    try:
+                        matrix_verifier(profile, inventory, manifest, blocks, **matrix_arguments)
+                        raise AssertionError("source mutation after output proof accepted")
+                    except ValueError as error:
+                        assert "source" in str(error) and ("changed" in str(error) or "identity" in str(error))
+                finally:
+                    prism_codec.verify_profile_gguf_matrix_v2 = original_matrix_verifier
+                    descriptor = os.open(source_path, os.O_RDWR | os.O_NOFOLLOW)
+                    try:
+                        os.pwrite(descriptor, b"\x00", source_offset)
+                    finally:
+                        os.close(descriptor)
+                assert calls == [True] and len(os.listdir("/proc/self/fd")) == descriptor_count
+                descriptor = os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    restored = source_hasher(descriptor, maximum_bytes=source_bytes, deadline=time.monotonic() + 15)
+                    assert restored["sha256"] == source_record["sha256"] and restored["bytes"] == source_bytes
+                finally:
+                    os.close(descriptor)
+            cases[-1]["source_faults"] = "changed_and_restored_after_output_refuse_before_receipt"
         assert len(os.listdir("/proc/self/fd")) == descriptor_count
         cases[-1]["logical_scratch_peak_bytes"] = logical_peak
         fault_path.unlink()
@@ -6250,6 +6368,8 @@ for fixture in fixtures:
     assert hashlib.sha256(payload_path.read_bytes()).hexdigest() == manifest["payload_sha256"]
     assert sum(entry.stat().st_size for entry in root.iterdir() if entry.is_file()) + spool_bytes < 8 * 1024**2
     path.unlink()
+    if fixture["include_source_file"]:
+        source_path.unlink()
 assert cases[1]["traced_peak_bytes"] - cases[0]["traced_peak_bytes"] <= 2 * 1024**2, cases
 assert time.monotonic() - started <= 60
 print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
@@ -6265,9 +6385,9 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
                 "vocab": {token: token_id for token_id, token in enumerate(tokens)}, "merges": [["a", "b"]],
                 "dropout": None, "unk_token": None, "continuing_subword_prefix": None, "end_of_word_suffix": None,
                 "fuse_unk": False, "byte_fallback": False, "ignore_merges": False}}).encode()
-            metadata = {}
-            profile, inventory, manifest, blocks = _prefill_model_policy_fixture(vocab_size=vocabulary_rows,
-                metadata_output=metadata, tokenizer_bytes=tokenizer_bytes)
+            metadata, headers = {}, {}
+            profile, inventory, manifest, blocks = _prefill_model_policy_fixture(target="o" if include_source_file else "down",
+                vocab_size=vocabulary_rows, metadata_output=metadata, tokenizer_bytes=tokenizer_bytes, headers_output=headers)
             fixture = json.loads(_profile_parity_fixture(profile, inventory, manifest, blocks))
             raw = bytes.fromhex(fixture.pop("payload_hex"))
             payload_path = root / "projection.bin"
@@ -6278,7 +6398,9 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
             tokenizer_file = f"tokenizer-{vocabulary_rows}.json"
             (root / tokenizer_file).write_bytes(tokenizer_bytes)
             fixture.update(metadata={name: value.hex() for name, value in metadata.items()}, tokenizer_file=tokenizer_file,
-                           include_tensors=include_tensors)
+                           include_tensors=include_tensors, include_source_file=include_source_file)
+            if include_source_file:
+                fixture["source_header_hex"] = headers[profile.packaging["shards"][0]][0].hex()
             fixtures.append(fixture)
         (root / "fixtures.json").write_text(json.dumps(fixtures))
         result = _run_tokenizer_only_guard(interpreter, code, json.dumps({"scratch": directory}).encode(),
@@ -6297,6 +6419,10 @@ def test_pinned_profile_selected_metadata_composition_on_synthetic_sources():
 
 def test_pinned_profile_selected_tensor_metadata_composition_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True)
+
+
+def test_pinned_profile_selected_source_fixture_composition_on_synthetic_sources():
+    _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True)
 
 
 @pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory"])
