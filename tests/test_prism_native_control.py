@@ -5475,7 +5475,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": elapsed, "before": before, 
     print(json.dumps(report, sort_keys=True))
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import hashlib
 
@@ -5504,6 +5504,8 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     tokenizer_bytes = b"{}"
     tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
     added_tokens = []
+    if tokenizer_mode == "bpe":
+        tokens[:5] = ["a", "b", "c", "ab", "abc"]
     if tokenizer_mode == "contract":
         for token, token_id in {**record["tokenization"]["special_token_ids"], **record["tokenization"]["label_token_ids"]}.items():
             tokens[token_id] = token
@@ -5511,9 +5513,11 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
                          "rstrip": False, "normalized": False, "special": True}
                         for token, token_id in record["tokenization"]["special_token_ids"].items()]
     if tokenizer_mode != "identity":
-        tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": added_tokens, "model": {
+        tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": added_tokens,
+            "normalizer": {"type": "Lowercase"} if tokenizer_mode == "bpe" else None, "model": {
             "type": "BPE", "vocab": {token: index for index, token in enumerate(tokens)},
-            "merges": [], "dropout": None, "unk_token": None, "continuing_subword_prefix": None,
+            "merges": [["a", "b"], ["ab", "c"]] if tokenizer_mode == "bpe" else [],
+            "dropout": None, "unk_token": None, "continuing_subword_prefix": None,
             "end_of_word_suffix": None, "fuse_unk": False, "byte_fallback": False, "ignore_merges": False,
         }}).encode()
         record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
@@ -5528,7 +5532,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_context_metadata, write_profile_model_template_metadata
+from embedded_jev.prism_codec import prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, write_profile_model_context_metadata, write_profile_model_template_metadata
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -5555,6 +5559,18 @@ if fixture["tokenizer_mode"] != "identity":
         raise AssertionError("invalid BPE merge was accepted")
     except ValueError as error:
         assert "unable to parse source tokenizer vocabulary" in str(error)
+if fixture["tokenizer_mode"] == "bpe":
+    from tokenizers import Tokenizer
+
+    bpe = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+    assert bpe["bpe_merge_pairs"] == (("a", "b"), ("ab", "c")) and bpe["bpe_merge_count"] == 2
+    assert bpe["bpe_base_vocabulary_size"] == len(fixture["tokens"])
+    assert json.loads(bpe["preprocessing_json"]["normalizer"]) == {"type": "Lowercase"}
+    assert all(json.loads(bpe["preprocessing_json"][name]) is None for name in ("pre_tokenizer", "decoder", "post_processor"))
+    assert bpe["preprocessing_verification"] == "source_declarations_only_not_gguf_mapped"
+    assert bpe["tokenizer_semantic_verification"] == bpe["gguf_tokenizer_verification"] == "not_checked"
+    tokenizer = Tokenizer.from_str(tokenizer_bytes.decode())
+    assert tokenizer.encode("abc", add_special_tokens=False).ids == tokenizer.encode("ABC", add_special_tokens=False).ids == [4]
 if fixture["tokenizer_mode"] == "contract":
     contract = prepare_profile_model_tokenizer_contract(profile, metadata_files=metadata,
         tokenizer_bytes=tokenizer_bytes, context_length=256)

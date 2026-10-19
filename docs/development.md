@@ -1799,6 +1799,18 @@ policy, context and literal template only, not complete tokenizer/model
 metadata. A GGUF-origin declaration remains unverified against the originating
 GGUF. See the [metadata file checkpoint](handover.md#metadata-file-checkpoint-2026-10-19).
 
+`prepare_profile_model_bpe_metadata(...)` is a pinned source-declaration
+prerequisite, not a GGUF tokenizer converter. It reuses one trusted tokenizer
+parse and contiguous token inventory, preserves merge rank as immutable pairs
+and validates pair pieces/joined tokens against the base vocabulary. Modern
+pair arrays and unambiguous legacy single-space pairs are accepted; duplicate
+pairs and nonempty subword prefix/suffix markers are refused. Preprocessing
+and non-vocabulary model options are preserved as canonical immutable JSON
+bytes, not interpreted as GGUF pre-tokenizer tags or token types. Existing
+32 MiB aggregate metadata limits and source pin checks apply. Special IDs,
+standalone/prompt boundaries, complete semantics and GGUF mapping remain
+unchecked. See the [BPE declaration checkpoint](handover.md#bpe-declaration-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

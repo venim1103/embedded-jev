@@ -989,6 +989,73 @@ def _profile_tokenizer_preparation_fixture(tokenizer_bytes):
     return parse_model_profile(json.dumps(record).encode()), metadata
 
 
+@pytest.mark.parametrize("defect", [None, "legacy", "missing-merges", "merges-type", "pair-type", "pair-length", "empty",
+                                    "unknown", "joined", "duplicate", "prefix", "suffix", "base-vocabulary", "base-id"])
+def test_profile_bpe_metadata_preserves_rank_and_preprocessing_without_gguf_claims(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import prepare_profile_model_bpe_metadata
+
+    vocabulary = {"a": 0, "b": 1, "c": 2, "ab": 3, "abc": 4}
+    document = {"model": {"type": "BPE", "vocab": vocabulary.copy(), "merges": [["a", "b"], ["ab", "c"]]},
+                "normalizer": None, "pre_tokenizer": {"type": "Sequence", "pretokenizers": []},
+                "decoder": None, "post_processor": None}
+    model = document["model"]
+    if defect == "legacy":
+        model["merges"] = ["a b", "ab c"]
+    elif defect == "missing-merges":
+        del model["merges"]
+    elif defect == "merges-type":
+        model["merges"] = "a b"
+    elif defect == "pair-type":
+        model["merges"] = [42]
+    elif defect == "pair-length":
+        model["merges"] = [["a", "b", "c"]]
+    elif defect == "empty":
+        model["merges"] = [["a", ""]]
+    elif defect == "unknown":
+        model["merges"] = [["a", "missing"]]
+    elif defect == "joined":
+        model["merges"] = [["b", "c"]]
+    elif defect == "duplicate":
+        model["merges"] *= 2
+    elif defect == "prefix":
+        model["continuing_subword_prefix"] = "##"
+    elif defect == "suffix":
+        model["end_of_word_suffix"] = "</w>"
+    elif defect == "base-vocabulary":
+        del model["vocab"]["ab"]
+    elif defect == "base-id":
+        model["vocab"]["ab"] = 1
+    tokenizer_bytes = json.dumps(document).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    calls = []
+
+    def from_str(text):
+        calls.append(text)
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary))
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    if defect not in (None, "legacy"):
+        with pytest.raises(ValueError, match="BPE"):
+            prepare_profile_model_bpe_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+        assert calls == [tokenizer_bytes.decode()]
+        return
+    receipt = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256)
+    assert calls == [tokenizer_bytes.decode()]
+    assert receipt["bpe_merge_pairs"] == (("a", "b"), ("ab", "c")) and receipt["bpe_merge_count"] == 2
+    assert receipt["bpe_base_vocabulary_size"] == 5
+    assert json.loads(receipt["bpe_options_json"]) == {"type": "BPE"}
+    assert {name: json.loads(data) for name, data in receipt["preprocessing_json"].items()} == {
+        name: document[name] for name in ("normalizer", "pre_tokenizer", "decoder", "post_processor")}
+    assert receipt["preprocessing_verification"] == "source_declarations_only_not_gguf_mapped"
+    assert receipt["gguf_tokenizer_verification"] == receipt["tokenizer_semantic_verification"] == "not_checked"
+    assert receipt["runtime_approval"] == "not_granted_by_bpe_metadata_preparation"
+    with pytest.raises(TypeError):
+        receipt["preprocessing_json"]["normalizer"] = b"{}"
+
+
 @pytest.mark.parametrize("defect", [None, "special-id", "special-encoding", "label-id", "label-encoding", "label-special"])
 def test_profile_tokenizer_contract_is_standalone_and_not_a_prompt_boundary(monkeypatch, defect):
     import sys

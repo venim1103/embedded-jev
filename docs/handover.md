@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [metadata file checkpoint](#metadata-file-checkpoint-2026-10-19), followed by
+the [BPE declaration checkpoint](#bpe-declaration-checkpoint-2026-10-19), followed by
+the [metadata file checkpoint](#metadata-file-checkpoint-2026-10-19),
 the [larger composition checkpoint](#larger-composition-checkpoint-2026-10-19),
 the [source-bound GGUF checkpoint](#source-bound-gguf-checkpoint-2026-10-19),
 the [GGUF metadata checkpoint](#gguf-metadata-checkpoint-2026-10-19),
@@ -338,6 +339,41 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## BPE Declaration Checkpoint (2026-10-19)
+
+After `8cbf555`, `prepare_profile_model_bpe_metadata` reuses the existing
+single trusted `tokenizers` parser and pinned contiguous vocabulary. It
+extracts ranked pairs from modern arrays or unambiguous legacy single-space
+strings, requires both pieces and their concatenation in the base vocabulary,
+and refuses duplicates, malformed pairs, base-ID mismatches and nonempty
+continuing/end-of-word markers rather than guessing their merge semantics.
+Canonical immutable JSON bytes retain normalizer/pre-tokenizer/decoder/post-
+processor declarations and model options. Existing 32 MiB aggregate metadata
+and immutable byte identity checks remain. This is not GGUF token types,
+pre-tokenizer tags, vocabulary/merge emission or complete tokenizer semantics.
+
+Fourteen default controls cover modern/legacy rank preservation, canonical
+declarations, immutable receipts, single parser use and all above refusals.
+Initial **2 failed / 12 passed in 0.57 s**: the two positive paths exposed a
+missing local `json` import at serialization. The import-only repair gave
+**14 passed in 0.20 s** with unchanged assertions. The existing metadata-only
+optional fixture gains one tiny real-parser BPE mode: ranks `(a,b),(ab,c)`
+encode `abc` to ID 4. It passed in **0.41 s**, then **0.32 s** with a non-null
+lowercase declaration and actual `abc`/`ABC` -> ID 4 behavior. Three affected
+existing identity/vocabulary/standalone-contract modes passed separately in
+**0.75 s**; the already successful BPE mode was not rerun for reassurance.
+Each child remains bounded to 15 s, output below 64 KiB and no tensors;
+writer/spool/mappings and temporary directories are cleaned normally.
+
+Required gate: **1010 passed, 98 skipped in 24.91 s**, Ruff/whitespace and
+three Python editor checks clean. Default parser doubles and actual cached
+library evidence are distinct. No downloads, learned tokenizer/weight reads,
+builds, native/runtime jobs, real artifacts, refits or quality experiments ran.
+The receipt explicitly keeps GGUF semantics, special IDs, standalone/prompt
+boundaries and runtime approval unchecked; the lowercase toy is not model
+tokenizer compatibility. Next: inspect pinned converter token/pre-tokenizer
+metadata requirements before adding any bounded tokenizer writer mapping.
 
 ## Metadata File Checkpoint (2026-10-19)
 

@@ -435,6 +435,54 @@ def prepare_profile_model_tokenizer_contract(
                             "runtime_approval": "not_granted_by_token_contract_preparation"})
 
 
+def prepare_profile_model_bpe_metadata(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+):
+    """Extract ranked pinned BPE declarations without assigning GGUF tokenizer semantics."""
+    import json
+
+    from embedded_jev.inventory import _json_object
+
+    prepared, _ = _prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    document = _json_object(tokenizer_bytes, "tokenizer.json")
+    model = document["model"]
+    vocabulary, merges = model.get("vocab"), model.get("merges")
+    if (
+        not isinstance(vocabulary, dict) or not vocabulary or not isinstance(merges, list)
+        or any(not isinstance(token, str) or type(token_id) is not int or not 0 <= token_id < len(prepared["tokens"])
+               or prepared["tokens"][token_id] != token for token, token_id in vocabulary.items())
+        or model.get("continuing_subword_prefix") not in (None, "") or model.get("end_of_word_suffix") not in (None, "")
+    ):
+        raise ValueError("unsupported pinned BPE vocabulary, merges or subword markers")
+    pairs = []
+    seen = set()
+    for merge in merges:
+        pair = merge.split(" ") if isinstance(merge, str) else merge
+        if (
+            not isinstance(pair, list) or len(pair) != 2 or any(not isinstance(token, str) or not token for token in pair)
+            or any(token not in vocabulary for token in pair) or pair[0] + pair[1] not in vocabulary
+        ):
+            raise ValueError("pinned BPE merge requires two base tokens and their joined token")
+        pair = tuple(pair)
+        if pair in seen:
+            raise ValueError("pinned BPE merge pair is duplicated")
+        seen.add(pair)
+        pairs.append(pair)
+    preprocessing = MappingProxyType({
+        name: json.dumps(document.get(name), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        for name in ("normalizer", "pre_tokenizer", "decoder", "post_processor")
+    })
+    options = json.dumps({name: value for name, value in model.items() if name not in ("vocab", "merges")},
+                         sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return MappingProxyType({**prepared, "bpe_merge_pairs": tuple(pairs), "bpe_merge_count": len(pairs),
+                            "bpe_base_vocabulary_size": len(vocabulary), "bpe_options_json": options,
+                            "preprocessing_json": preprocessing,
+                            "bpe_merge_verification": "trusted_parser_ranked_pairs_and_base_vocabulary",
+                            "preprocessing_verification": "source_declarations_only_not_gguf_mapped",
+                            "runtime_approval": "not_granted_by_bpe_metadata_preparation"})
+
+
 def _prepare_profile_model_tokenizer_vocabulary(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):
