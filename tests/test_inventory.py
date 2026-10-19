@@ -659,6 +659,103 @@ def test_profile_model_policy_recurrent_table_matches_pinned_converter_float_pol
     assert table["blk.3.attn_k.weight"]["type"] == "PQ2_0"
 
 
+@pytest.mark.parametrize("defect", [None, "missing", "extra", "size", "digest"])
+def test_profile_metadata_identity_without_weight_headers_or_execution(defect):
+    from embedded_jev.model_profile import ProfileError, verify_profile_headers, verify_profile_metadata
+
+    metadata, headers, record = _packaging_fixture(text_only=True)
+    profile = parse_model_profile(json.dumps(record).encode())
+    original = dict(metadata)
+    if defect == "missing":
+        metadata.pop("config.json")
+    elif defect == "extra":
+        metadata["undeclared.json"] = b"{}"
+    elif defect == "size":
+        metadata["config.json"] += b" "
+    elif defect == "digest":
+        changed = bytearray(metadata["config.json"])
+        changed[0] ^= 1
+        metadata["config.json"] = bytes(changed)
+    if defect:
+        message = "metadata file set" if defect in ("missing", "extra") else "metadata identity"
+        with pytest.raises(ProfileError, match=message):
+            verify_profile_metadata(profile, metadata)
+        with pytest.raises(ProfileError, match=message):
+            verify_profile_headers(profile, metadata, headers)
+    else:
+        assert verify_profile_metadata(profile, metadata) is None
+        assert metadata == original
+        verify_profile_headers(profile, metadata, headers)
+
+
+def test_profile_metadata_extraction_preserves_existing_header_error_order():
+    from embedded_jev.model_profile import ProfileError, verify_profile_headers, verify_profile_metadata
+
+    metadata, _, record = _packaging_fixture(text_only=True)
+    profile = parse_model_profile(json.dumps(record).encode())
+    metadata["config.json"] += b" "
+    with pytest.raises(ProfileError, match="metadata identity"):
+        verify_profile_metadata(profile, metadata)
+    with pytest.raises(ProfileError, match="shard file set"):
+        verify_profile_headers(profile, metadata, {})
+    metadata.pop("config.json")
+    with pytest.raises(ProfileError, match="metadata file set"):
+        verify_profile_headers(profile, metadata, {})
+
+
+@pytest.mark.parametrize("text_only", [False, True])
+@pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "missing-context", "boolean-context",
+                                    "excess-context", "boolean-request", "excess-request", "mutable-metadata", "aggregate-budget"])
+def test_profile_context_metadata_preparation_pins_bytes_without_tokenizer_semantic_claims(monkeypatch, text_only, defect):
+    from embedded_jev import prism_codec
+    from embedded_jev.prism_codec import prepare_profile_model_context_metadata
+
+    metadata, _, record = _packaging_fixture(text_only=text_only)
+    config = json.loads(metadata["config.json"])
+    text = config if text_only else config["text_config"]
+    text["max_position_embeddings"] = 512
+    if defect == "missing-context":
+        text.pop("max_position_embeddings")
+    elif defect == "boolean-context":
+        text["max_position_embeddings"] = True
+    elif defect == "excess-context":
+        text["max_position_embeddings"] = 1024**2 + 1
+    metadata["config.json"] = json.dumps(config).encode()
+    record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
+    profile = parse_model_profile(json.dumps(record).encode())
+    tokenizer = b"{}"
+    context_length = 256
+    if defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer = b"[]"
+    elif defect == "boolean-request":
+        context_length = True
+    elif defect == "excess-request":
+        context_length = 513
+    elif defect == "mutable-metadata":
+        metadata["config.json"] = bytearray(metadata["config.json"])
+    elif defect == "aggregate-budget":
+        monkeypatch.setattr(prism_codec, "MODEL_METADATA_BYTES_V2", 1)
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer, "context_length": context_length}
+    if defect:
+        message = "metadata identity" if defect == "metadata-pin" else "tokenizer input identity" if defect == "tokenizer-pin" else "invalid source metadata" if defect in ("boolean-request", "mutable-metadata", "aggregate-budget") else "context length exceeds"
+        with pytest.raises(ValueError, match=message):
+            prepare_profile_model_context_metadata(profile, **arguments)
+        return
+    receipt = prepare_profile_model_context_metadata(profile, **arguments)
+    assert receipt["context_length"] == 256 and receipt["source_context_length"] == 512
+    assert receipt["tokenizer_sha256"] == profile.files["tokenizer.json"].sha256
+    assert receipt["source_metadata_verification"] == "profile_pinned_caller_bytes"
+    assert receipt["tokenizer_semantic_verification"] == receipt["source_weight_verification"] == "not_checked"
+    assert receipt["source_template_file"] == profile.tokenization["template_file"]
+    assert receipt["template_verification"] == "profile_pinned_bytes_not_rendered"
+    assert receipt["gguf_template_verification"] == "not_checked"
+    assert receipt["runtime_approval"] == "not_granted_by_metadata_preparation"
+    with pytest.raises(TypeError):
+        receipt["metadata_inputs"][0]["bytes"] = 0
+
+
 def test_profile_model_conversion_plan_declares_dense_transforms_without_parity():
     from embedded_jev.prism_codec import profile_model_conversion_plan, profile_model_specification
 

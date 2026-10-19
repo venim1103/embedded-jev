@@ -379,6 +379,16 @@ def validate_template_input(profile: ModelProfile, value) -> None:
             raise ProfileError("unsupported untrusted template input type")
 
 
+def verify_profile_metadata(profile: ModelProfile, metadata_files: Mapping[str, bytes]) -> None:
+    """Verify the exact declared metadata bytes, without source headers, weights or execution."""
+    if set(metadata_files) != set(profile.packaging["metadata_files"]):
+        raise ProfileError("metadata file set does not match the model profile")
+    for name, data in metadata_files.items():
+        expected = profile.files[name]
+        if len(data) != expected.bytes or hashlib.sha256(data).hexdigest() != expected.sha256:
+            raise ProfileError(f"metadata identity does not match the model profile: {name}")
+
+
 def verify_profile_headers(
     profile: ModelProfile, metadata_files: Mapping[str, bytes],
     shard_headers: Mapping[str, tuple[bytes, int]],
@@ -388,10 +398,7 @@ def verify_profile_headers(
         raise ProfileError("metadata file set does not match the model profile")
     if set(shard_headers) != set(profile.packaging["shards"]):
         raise ProfileError("shard file set does not match the model profile")
-    for name, data in metadata_files.items():
-        expected = profile.files[name]
-        if len(data) != expected.bytes or hashlib.sha256(data).hexdigest() != expected.sha256:
-            raise ProfileError(f"metadata identity does not match the model profile: {name}")
+    verify_profile_metadata(profile, metadata_files)
     for name, (prefix, size) in shard_headers.items():
         expected = profile.files[name]
         if (

@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [architecture metadata checkpoint](#architecture-metadata-checkpoint-2026-10-19), followed by the
+the [metadata preparation checkpoint](#metadata-preparation-checkpoint-2026-10-19), followed by the
+[architecture metadata checkpoint](#architecture-metadata-checkpoint-2026-10-19),
 [frozen writer checkpoint](#frozen-writer-checkpoint-2026-10-19),
 [frozen source owner checkpoint](#frozen-source-owner-checkpoint-2026-10-19),
 [mixed writer checkpoint](#mixed-writer-checkpoint-2026-10-19),
@@ -320,6 +321,46 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Metadata Preparation Checkpoint (2026-10-19)
+
+After `0111f89`, extracted `verify_profile_metadata` from the existing header
+verifier without changing its metadata/shard error precedence. It verifies
+the exact metadata set/lengths/digests without requiring weight headers.
+`prepare_profile_model_context_metadata` now verifies immutable caller
+metadata and separate tokenizer bytes against the profile, with a **32 MiB
+aggregate input** ceiling before hashing/parsing. It reads the profile-selected
+text configuration, requires declared integer `max_position_embeddings`
+within **1,048,576**, and bounds an explicit positive integer requested context
+to that source maximum. No silent default for missing/unsupported context.
+
+The immutable receipt prepares `qwen35.context_length`, identifies the pinned
+source template and explicitly leaves tokenizer semantics, separate GGUF
+template, weights and runtime approval unchecked/not granted. Source-template
+bytes are pinned, not rendered. JSON parsing/hash checks execute no tokenizer,
+model-repository or template code. Tests deliberately accept an inert `{}`
+tokenizer as a **byte-identity fixture only**, not a working vocabulary/merges
+or prompt-format compatibility claim. No context field is written yet.
+
+Controls cover both existing text-only/multimodal config paths, metadata sets,
+changed sizes/bytes, tokenizer pin mismatch, missing/boolean/oversized source
+context, invalid/too-large requests, mutable inputs, an injected aggregate
+budget and receipt immutability. The original header verifier retains its
+exact precedence when metadata and shard declarations are both invalid.
+Final focused slice: **46 passed in 0.46 s**. Initial gate: **834 passed,
+93 optional skips in 24.05 s**. After clarifying the receipt's source-versus-
+GGUF-template boundary, focused checks pass again and the required source
+gate is **834 passed, 93 optional skips in 21.93 s**, Ruff/whitespace clean;
+source/test editor diagnostics were clean before that two-field clarification.
+No failures or guard relaxation. Optional converter/native controls were not
+rerun: no writer/runtime execution path changed.
+
+No files, learned weights, downloads, native builds/model execution, complete
+conversion, refit/candidate/quality work, background jobs or owned scratch.
+Next: bounded source-bound context emission and separate tokenizer/template
+semantic preparation using pinned implementations. Complete tokenizer/GGUF
+metadata and public whole-table/loader acceptance remain open; real-model
+jobs still require separate bounded approval.
 
 ## Architecture Metadata Checkpoint (2026-10-19)
 

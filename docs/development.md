@@ -1443,6 +1443,26 @@ native file acceptance limits, actual free-space checks, live safety guards
 or separate approval for real-model work. See the
 [v2 resource checkpoint](handover.md#v2-resource-checkpoint-2026-10-19).
 
+`verify_profile_metadata(profile, metadata_files)` checks the exact declared
+metadata file set, lengths and SHA-256 values independently of weight headers.
+`verify_profile_headers` reuses it with its prior error precedence unchanged.
+Neither operation reads weights or executes repository code.
+
+`prepare_profile_model_context_metadata(profile, metadata_files=...,
+tokenizer_bytes=..., context_length=...)` accepts immutable caller bytes only,
+with metadata plus tokenizer bounded to 32 MiB before hashes/parsing. It
+verifies the metadata set and separate tokenizer file pin, then reads context
+from the profile-selected text-config path. Requested/source context lengths
+must be positive strict integers within 1,048,576, and the request cannot exceed
+the source's `max_position_embeddings`. Missing or unsupported declarations
+refuse rather than receiving a default. The immutable receipt names the
+source template and pins source metadata bytes but does not render a template,
+verify tokenizer semantics/vocabulary/merges, authenticate a separate GGUF
+template or verify weights/runtime. It prepares the `qwen35.context_length`
+value; it does not write that field or create a model. An inert `{}` tokenizer
+fixture proves only byte identity, deliberately not tokenizer compatibility.
+See the [metadata preparation checkpoint](handover.md#metadata-preparation-checkpoint-2026-10-19).
+
 `write_profile_model_architecture_metadata(..., writer=...)` emits the checked
 architecture subset from the validated model specification: three base
 geometry fields and its 14 typed records. The trusted writer must target

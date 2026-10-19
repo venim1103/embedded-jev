@@ -324,6 +324,46 @@ def profile_model_streaming_resource_plan_v2(
     }
 
 
+def prepare_profile_model_context_metadata(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+):
+    """Verify caller metadata bytes and bound context; do not infer tokenizer compatibility."""
+    from embedded_jev.inventory import _json_object
+    from embedded_jev.model_profile import profile_text_config, verify_profile_metadata
+
+    if (not isinstance(metadata_files, dict) or any(type(data) is not bytes for data in metadata_files.values())
+            or type(tokenizer_bytes) is not bytes
+            or sum(len(data) for data in metadata_files.values()) + len(tokenizer_bytes) > MODEL_METADATA_BYTES_V2
+            or type(context_length) is not int or not 0 < context_length <= 1024**2):
+        raise ValueError("invalid source metadata preparation input or context budget")
+    metadata = dict(metadata_files)
+    verify_profile_metadata(profile, metadata)
+    tokenizer_pin = profile.files["tokenizer.json"]
+    if (tokenizer_pin.bytes > MODEL_METADATA_BYTES_V2 or len(tokenizer_bytes) != tokenizer_pin.bytes
+            or hashlib.sha256(tokenizer_bytes).hexdigest() != tokenizer_pin.sha256):
+        raise ValueError("tokenizer input identity differs from profile")
+    _json_object(tokenizer_bytes, "tokenizer.json")
+    config = _json_object(metadata["config.json"], "config.json")
+    text = profile_text_config(profile, config)
+    source_context = text.get("max_position_embeddings")
+    if type(source_context) is not int or not context_length <= source_context <= 1024**2:
+        raise ValueError("context length exceeds supported pinned source configuration")
+    records = tuple(MappingProxyType({"name": name, "bytes": profile.files[name].bytes,
+                                      "sha256": profile.files[name].sha256}) for name in sorted(metadata))
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_revision": profile.revision, "context_length": context_length,
+                            "source_context_length": source_context, "context_metadata_name": "qwen35.context_length",
+                            "metadata_inputs": records, "tokenizer_bytes": tokenizer_pin.bytes,
+                            "tokenizer_sha256": tokenizer_pin.sha256,
+                            "source_metadata_verification": "profile_pinned_caller_bytes",
+                            "tokenizer_semantic_verification": "not_checked",
+                            "source_template_file": profile.tokenization["template_file"],
+                            "template_verification": "profile_pinned_bytes_not_rendered",
+                            "gguf_template_verification": "not_checked",
+                            "source_weight_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_metadata_preparation"})
+
+
 def write_profile_model_architecture_metadata(profile, inventory: dict, manifest: dict, pq2_blocks, *, writer):
     """Emit the checked architecture subset before headers; tokenizer/source files remain unverified."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
