@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [streamed metadata checkpoint](#streamed-metadata-checkpoint-2026-10-19), followed by the
+the [source metadata composer checkpoint](#source-metadata-composer-checkpoint-2026-10-19), followed by the
+[streamed metadata checkpoint](#streamed-metadata-checkpoint-2026-10-19),
 [public streamed table checkpoint](#public-streamed-table-checkpoint-2026-10-19),
 [policy emission checkpoint](#policy-emission-checkpoint-2026-10-19),
 [template emission checkpoint](#template-emission-checkpoint-2026-10-19),
@@ -329,6 +330,46 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Source Metadata Composer Checkpoint (2026-10-19)
+
+After `e9658c9`, added `write_profile_model_source_metadata`. It prepares
+selected pinned source bytes and validates the model specification, then
+preflights all policy/context/template records together before writer mutation.
+Policy record normalization is shared with the existing policy-only emitter.
+The immutable receipt explicitly names the `policy_context_template_subset`
+and preserves source, tokenizer, rendering, origin and runtime evidence limits.
+Arbitrary later writer-method failures still do not promise rollback.
+
+Evidence:
+
+- Initial composer/policy/sibling family: **54 passed, 711 deselected in
+  0.86 s**. Refined refusal assertions to require their intended errors and
+  added invalid frozen-manifest refusal; immediate composer/policy family:
+  **25 passed, 741 deselected in 0.65 s**.
+- Twelve composer cases cover exact 26-field output and no mutation on source
+  or tokenizer pin mismatch, excess context, unbound external template, invalid
+  frozen payload manifest, conflicts in each of the three record groups,
+  missing string method, wrong architecture and split writer.
+- Full synthetic writer now uses the composer instead of three separate
+  calls. Independent exact GGUF field bytes, all 28 tensors, public policy
+  verification and complete source/converted table proof still pass, including
+  the existing fresh-hash and source/lifetime refusals: **1 passed,
+  5 deselected in 5.65 s**, under the unchanged **15 s** child deadline.
+- Required source gate: **918 passed, 96 skipped in 24.95 s**, Ruff and
+  whitespace clean. Editor error checks for all three changed Python files
+  are clean. Other unchanged optional controls were not rerun.
+
+No failed checks, learned inputs, downloads, native builds, model executions,
+refits, candidates or quality experiments occurred. The inert tokenizer remains
+identity-only and the output is not a complete BPE/tokenizer or loader proof.
+Selected policy/source/converted structural integration is tested; RAM/device
+performance and actual whole-model BitNet dispatch remain separate. Next:
+read the approved larger-source policy before deciding whether a separately
+versioned larger-GGUF verification path fits that authorization; do not silently
+raise any legacy 16 MiB file or operand limit. Source-bound tokenizer conversion,
+rendered-prompt checks and real-model/runtime/quality work also remain open.
+See the [API contract](development.md#profile-gated-complete-model-policy).
 
 ## Streamed Metadata Checkpoint (2026-10-19)
 

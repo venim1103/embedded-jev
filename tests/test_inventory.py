@@ -1098,6 +1098,58 @@ def test_profile_tokenizer_vocabulary_is_pinned_bounded_and_not_gguf_semantics(m
         receipt["tokens"] = ()
 
 
+@pytest.mark.parametrize("defect", [None, "source-pin", "tokenizer-pin", "context-limit", "unbound-template", "policy-manifest",
+    "duplicate-policy", "duplicate-context", "duplicate-template", "missing-string", "architecture", "split-writer"])
+def test_profile_source_metadata_emission_preflights_all_groups_before_mutation(defect):
+    from embedded_jev.prism_codec import write_profile_model_source_metadata
+
+    metadata = {}
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(metadata_output=metadata)
+    writer = _profile_metadata_writer_fixture()
+    tokenizer_bytes, context_length, template_source = b"{}", 256, "source"
+    if defect == "source-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    elif defect == "context-limit":
+        context_length = 513
+    elif defect == "unbound-template":
+        template_source = "gguf_embedded"
+    elif defect == "policy-manifest":
+        manifest["payload_sha256"] = "0" * 64
+    elif defect and defect.startswith("duplicate"):
+        name = {"duplicate-policy": "jev.model.profile_sha256", "duplicate-context": "qwen35.context_length",
+                "duplicate-template": "tokenizer.chat_template"}[defect]
+        writer.kv_data[0][name] = ("str", ["keep"])
+    elif defect == "missing-string":
+        writer.add_string = None
+    elif defect == "architecture":
+        writer.arch = "qwen3"
+    elif defect == "split-writer":
+        writer.kv_data.append({})
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": context_length,
+                 "template_source": template_source, "writer": writer}
+    if defect:
+        message = {"source-pin": "metadata identity", "tokenizer-pin": "tokenizer input identity",
+                   "context-limit": "context length", "unbound-template": "missing separately pinned",
+                   "policy-manifest": "payload identity"}.get(defect, "conflicting")
+        with pytest.raises(ValueError, match=message):
+            write_profile_model_source_metadata(profile, report, manifest, blocks, **arguments)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        return
+    receipt = write_profile_model_source_metadata(profile, report, manifest, blocks, **arguments)
+    assert receipt["metadata_count"] == len(writer.kv_data[0]) == 26
+    assert receipt["metadata_scope"] == "policy_context_template_subset"
+    assert writer.kv_data[0]["jev.model.profile_sha256"] == ("str", [profile.sha256])
+    assert writer.kv_data[0]["qwen35.context_length"] == ("u32", [256])
+    assert writer.kv_data[0]["tokenizer.chat_template"] == ("str", [metadata[profile.tokenization["template_file"]].decode()])
+    assert receipt["source_context_length"] == 512
+    assert receipt["tokenizer_semantic_verification"] == receipt["source_weight_verification"] == "not_checked"
+    assert receipt["runtime_approval"] == "not_granted_by_source_metadata_emission"
+    assert all(tuple(writer.kv_data[0][record["name"]][1]) == record["values"] for record in receipt["records"])
+
+
 @pytest.mark.parametrize("defect", [None, "duplicate-policy", "duplicate-geometry", "missing-string", "architecture", "split-writer"])
 def test_profile_policy_metadata_emission_preflights_complete_declarations(defect):
     from embedded_jev import prism_codec

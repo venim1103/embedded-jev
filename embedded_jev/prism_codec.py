@@ -501,12 +501,39 @@ def _profile_model_policy_metadata_declarations(profile, specification):
     return records
 
 
+def _profile_model_policy_emission_records(profile, specification):
+    return [{**record, "kind": "str" if record["kind"] == "string" else record["kind"]}
+            for record in _profile_model_policy_metadata_declarations(profile, specification)
+            if record["name"] != "general.architecture"]
+
+
+def write_profile_model_source_metadata(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, metadata_files: dict,
+    tokenizer_bytes: bytes, context_length: int, template_source: str, writer,
+    gguf_template_bytes: bytes | None = None,
+):
+    """Preflight the policy/context/template subset together, not complete tokenizer metadata."""
+    prepared = prepare_profile_model_template_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length,
+        template_source=template_source, gguf_template_bytes=gguf_template_bytes)
+    specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
+    records = _profile_model_policy_emission_records(profile, specification)
+    records.extend([
+        {"name": prepared["context_metadata_name"], "kind": "u32", "values": [prepared["context_length"]]},
+        {"name": prepared["template_metadata_name"], "kind": "str", "values": [prepared["template"]]},
+    ])
+    frozen_records = _write_profile_model_metadata_records(writer, records)
+    return MappingProxyType({**prepared, "converter_revision": PRISM_SOURCE_REVISION,
+                            "metadata_count": len(frozen_records), "records": frozen_records,
+                            "metadata_scope": "policy_context_template_subset",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "runtime_approval": "not_granted_by_source_metadata_emission"})
+
+
 def write_profile_model_policy_metadata(profile, inventory: dict, manifest: dict, pq2_blocks, *, writer):
     """Emit policy declarations expected by the public verifier, not execution approval."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
-    records = [{**record, "kind": "str" if record["kind"] == "string" else record["kind"]}
-               for record in _profile_model_policy_metadata_declarations(profile, specification)
-               if record["name"] != "general.architecture"]
+    records = _profile_model_policy_emission_records(profile, specification)
     frozen_records = _write_profile_model_metadata_records(writer, records)
     return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                             "source_revision": profile.revision, "converter_revision": PRISM_SOURCE_REVISION,

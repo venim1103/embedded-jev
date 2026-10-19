@@ -4573,15 +4573,13 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
         metadata_receipt = None
         if fixture["include_frozen_source"]:
-            metadata_receipt = prism_codec.write_profile_model_policy_metadata(
-                profile, fixture["inventory"], fixture["manifest"], payload, writer=writer)
             pinned_metadata = {name: bytes.fromhex(data) for name, data in fixture["source_metadata"].items()}
-            context_receipt = prism_codec.write_profile_model_context_metadata(profile, metadata_files=pinned_metadata,
-                tokenizer_bytes=b"{}", context_length=256, writer=writer)
-            template_receipt = prism_codec.write_profile_model_template_metadata(profile, metadata_files=pinned_metadata,
+            metadata_receipt = prism_codec.write_profile_model_source_metadata(
+                profile, fixture["inventory"], fixture["manifest"], payload, metadata_files=pinned_metadata,
                 tokenizer_bytes=b"{}", context_length=256, template_source="source", writer=writer)
-            assert context_receipt["source_context_length"] == 512
-            assert context_receipt["tokenizer_semantic_verification"] == template_receipt["template_render_verification"] == "not_checked"
+            assert metadata_receipt["source_context_length"] == 512 and metadata_receipt["metadata_count"] == 26
+            assert metadata_receipt["metadata_scope"] == "policy_context_template_subset"
+            assert metadata_receipt["tokenizer_semantic_verification"] == metadata_receipt["template_render_verification"] == "not_checked"
         import embedded_jev.streamed_text as streamed_text
 
         source_hash_descriptors = []

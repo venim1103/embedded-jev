@@ -1507,6 +1507,19 @@ real cached parser, including freshly pinned special-ID, lowercasing and
 special-label contradictions. See the
 [standalone token checkpoint](handover.md#standalone-token-checkpoint-2026-10-19).
 
+`write_profile_model_source_metadata(profile, inventory, manifest, pq2_blocks,
+metadata_files=..., tokenizer_bytes=..., context_length=..., template_source=...,
+writer=..., gguf_template_bytes=None)` composes the policy/context/template
+subset in one call. It prepares source bytes and validates the model before
+preflighting all 26 records together, so source/model failures and conflicts
+in any group leave the writer unchanged. Arbitrary later writer failures are
+not rolled back. Prefer this over three separate emitters when all groups
+are required. The immutable receipt explicitly names
+`policy_context_template_subset`: it neither emits complete BPE metadata nor
+grants tokenizer/runtime compatibility. The full synthetic writer control uses
+this composer and retains independent exact-field and public source/table
+proofs. See the [source metadata composer checkpoint](handover.md#source-metadata-composer-checkpoint-2026-10-19).
+
 `write_profile_model_policy_metadata(profile, inventory, manifest, pq2_blocks,
 writer=...)` emits seven profile/source/converter/execution-policy strings
 plus the 17 architecture records expected by `verify_profile_gguf_policy_metadata`.
