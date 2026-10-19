@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [policy emission checkpoint](#policy-emission-checkpoint-2026-10-19), followed by the
+the [public streamed table checkpoint](#public-streamed-table-checkpoint-2026-10-19), followed by the
+[policy emission checkpoint](#policy-emission-checkpoint-2026-10-19),
 [template emission checkpoint](#template-emission-checkpoint-2026-10-19),
 [template preparation checkpoint](#template-preparation-checkpoint-2026-10-19),
 [standalone token checkpoint](#standalone-token-checkpoint-2026-10-19),
@@ -327,6 +328,46 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Public Streamed Table Checkpoint (2026-10-19)
+
+After `bf92a0c`, extended the existing frozen-source streamed-writer control
+without changing production APIs or limits. It now binds the published output
+to all 28 selected synthetic safetensors ranges through
+`verify_profile_gguf_source_tensor_table`, including its nested public converted
+tensor-table proof and source recheck after conversion. Existing typed operand
+and corruption controls remain unchanged. A one-bit changed caller BF16 operand
+with a fresh operand hash still fails the direct public complete converted-table
+gate on exact byte parity; source arrays and the frozen payload are not changed.
+
+Evidence:
+
+- First integrated the standalone public converted-table proof: **1 passed,
+  5 deselected in 5.74 s**.
+- Replaced that redundant positive call with the existing public source/converted
+  composition, retaining the nested converted-table assertions and direct
+  contradictory-operand refusal: **1 passed, 5 deselected in 5.94 s**. All 28
+  selected tensors pass, within unchanged **16 MiB/file**, **64 MiB aggregate
+  operand** and **15 s child** limits. The source recheck is explicitly true;
+  frozen quantization equivalence remains unchecked and cross-file atomicity
+  is not guaranteed.
+- Required source gate: **904 passed, 96 skipped in 23.55 s**, Ruff and
+  whitespace clean. The edited test's editor error check is clean. Default
+  skips are not execution evidence for this opt-in control. Unchanged optional
+  controls were not rerun.
+
+The public source/table gates perform additional bounded verification reads;
+the shared conversion owner's exactly two whole-file hashes are not an overall
+test hash count. The older public table APIs also copy bounded caller operands;
+this is not a whole-converter RSS or larger-policy allocation measurement.
+No failed checks, learned inputs, downloads, native builds, runtime jobs,
+refits, candidates or quality experiments occurred. Policy metadata and selected
+source/converted structural proof are now tested together, but tokenizer/BPE
+mapping, source-bound context/template composition on this tensor fixture,
+rendered-prompt labels and complete-loader/runtime acceptance remain separate.
+Next: integrate the independently checked source-bound context/template fields
+without substituting unverified synthetic metadata or weakening any existing
+guard. See the [API contract](development.md#profile-gated-complete-model-policy).
 
 ## Policy Emission Checkpoint (2026-10-19)
 

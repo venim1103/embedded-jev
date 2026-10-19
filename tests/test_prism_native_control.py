@@ -4777,6 +4777,35 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
             assert policy["policy_metadata_verification"] == "selected_typed_policy_records_match_declarations_and_file"
             assert policy["model_metadata_verification"] == "selected_policy_records_only"
             assert policy["tokenizer_semantics_verification"] == "not_checked"
+            dense_sources = {entry["source_name"]: source_arrays[entry["source_name"]]
+                             for entry in plan["tensors"] if entry["type"] != "PQ2_0"}
+            dense_pins = {name: hashlib.sha256(memoryview(values)).hexdigest() for name, values in dense_sources.items()}
+            all_sources = {entry["source_name"]: source_arrays[entry["source_name"]] for entry in plan["tensors"]}
+            all_pins = {name: hashlib.sha256(memoryview(values)).hexdigest() for name, values in all_sources.items()}
+            publication = prism_codec.verify_profile_gguf_source_tensor_table(profile, fixture["inventory"], fixture["manifest"], payload,
+                reader=reader, source_paths={source_path.name: source_path}, source_values=all_sources, expected_source_sha256=all_pins,
+                expected_file_bytes=path.stat().st_size, expected_file_sha256=file_sha256)
+            assert publication["tensor_count"] == 28 and publication["operand_budget_bytes"] <= 64 * 1024**2
+            assert publication["source_conversion_table_verification"] == "selected_source_and_converted_ranges_match_shared_operands_or_frozen_payload"
+            assert publication["source_file_rechecked_after_conversion"] is True
+            assert publication["source_to_frozen_quantization_verification"] == "not_checked"
+            assert publication["cross_file_atomic_snapshot"] == "not_guaranteed"
+            table = publication["converted"]
+            assert table["tensor_count"] == len(plan["tensors"]) == 28
+            assert table["operand_budget_bytes"] <= 64 * 1024**2
+            assert table["tensor_table_verification"] == "all_declared_ranges_match_caller_operands_and_frozen_payload"
+            assert table["source_file_verification"] == table["model_metadata_verification"] == "not_checked"
+            source_name = next(entry["source_name"] for entry in plan["tensors"] if entry["type"] == "BF16")
+            wrong_sources = {**dense_sources, source_name: dense_sources[source_name].copy()}
+            wrong_sources[source_name].flat[0] ^= 1
+            wrong_pins = {**dense_pins, source_name: hashlib.sha256(memoryview(wrong_sources[source_name])).hexdigest()}
+            try:
+                prism_codec.verify_profile_gguf_tensor_table(profile, fixture["inventory"], fixture["manifest"], payload,
+                    reader=reader, source_values=wrong_sources, expected_source_sha256=wrong_pins,
+                    expected_file_bytes=path.stat().st_size, expected_file_sha256=file_sha256)
+                raise AssertionError("fresh-hash changed caller tensor accepted by complete table gate")
+            except ValueError as error:
+                assert "byte parity" in str(error)
             changed = bytearray(path.read_bytes())
             field = reader.fields["jev.model.profile_sha256"]
             value_offset = field.parts[field.data[0]].__array_interface__["data"][0] - reader.data.__array_interface__["data"][0]

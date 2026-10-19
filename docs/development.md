@@ -1519,6 +1519,12 @@ emission, not source authentication, tokenizer semantics or actual BitNet
 execution. The frozen synthetic writer control verifies the published file
 through the public policy API and rejects a fresh-hash one-byte provenance
 change. See the [policy emission checkpoint](handover.md#policy-emission-checkpoint-2026-10-19).
+That control also composes the existing public complete source/converted
+table gate on all 28 selected synthetic tensors, with post-conversion source
+recheck and a fresh-hash contradictory caller-operand refusal. These public
+checks add their own bounded reads; the conversion owner's two whole-file
+hashes are not a whole-test read count. See the
+[public streamed table checkpoint](handover.md#public-streamed-table-checkpoint-2026-10-19).
 
 `write_profile_model_context_metadata(profile, metadata_files=...,
 tokenizer_bytes=..., context_length=..., writer=...)` runs that preparation
