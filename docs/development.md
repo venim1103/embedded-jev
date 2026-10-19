@@ -1861,6 +1861,15 @@ array proof does not establish architecture, context/template, added-token
 normalization/types, a pre-tokenizer tag, complete tokenizer semantics or
 runtime approval. See the [tokenizer array file checkpoint](handover.md#tokenizer-array-file-checkpoint-2026-10-19).
 
+`write_profile_model_tokenizer_arrays(...)` prepares pinned BPE vocabulary
+and merges once, builds both bounded declarations and preflights both keys
+and writer methods before either write. It shares the individual emitters'
+limits and declaration-only receipts. This avoids partial writes from known
+second-field conflicts; it is not rollback protection against a writer
+method raising during emission. The optional BPE control uses this composer
+and the separate selected-array file verifier. See the [tokenizer subset
+composer checkpoint](handover.md#tokenizer-subset-composer-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

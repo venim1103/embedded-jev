@@ -12,7 +12,9 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [tokenizer array file checkpoint](#tokenizer-array-file-checkpoint-2026-10-19), followed by
+the [tokenizer subset composer checkpoint](#tokenizer-subset-composer-checkpoint-2026-10-19), followed by
+the [tokenizer-only proposal](#tokenizer-only-proposal-2026-10-19),
+the [tokenizer array file checkpoint](#tokenizer-array-file-checkpoint-2026-10-19),
 the [vocabulary emission checkpoint](#vocabulary-emission-checkpoint-2026-10-19),
 the [merge emission checkpoint](#merge-emission-checkpoint-2026-10-19),
 the [added-token checkpoint](#added-token-checkpoint-2026-10-19),
@@ -343,6 +345,70 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Tokenizer Subset Composer Checkpoint (2026-10-19)
+
+After `1f5e638`, `write_profile_model_tokenizer_arrays` reuses one fresh
+pinned BPE parse and both existing bounded declaration builders, then
+preflights vocabulary and merge keys/methods together before either write.
+Known conflicts on the second field cannot leave the first emitted. This
+is preflight, not rollback if a writer method raises during emission. It
+does not expand the individual emitters' bounds or claim complete tokenizer
+semantics, token types, a pre-tokenizer tag or runtime approval.
+
+**11 default cases passed in 0.17 s**: one parser invocation, source pin and
+row/merge refusals, malformed merges and writer conflicts on either field
+leave writer state unchanged. The actual cached-parser/writer BPE mode now
+uses the composer, checks individual/composed duplicate no-mutation refusal
+and retains exact typed file proof, unknown-fingerprint refusal, corruption,
+descriptor and 8 KiB cap controls: **1 passed in 0.40 s**. Existing 15 s
+child, two-byte synthetic anchor, output and one serial fault copy each
+below 64 KiB, and writer/spool/map/scratch cleanup remain. No failed check
+occurred in this increment.
+
+Required gate: **1093 passed, 99 skipped in 30.51 s**, Ruff/whitespace and
+three Python editor checks clean. No learned tokenizer/weight contents,
+downloads, builds, native/model jobs, real artifacts, refits or quality
+experiments ran. Only cached file presence/sizes and trusted installed
+library versions were checked for the separate proposal below. Synthetic
+prerequisites are checkpointed; do not infer complete tokenizer compatibility.
+
+## Tokenizer-Only Proposal (2026-10-19)
+
+**Not approved or run.** The next model-specific tokenizer compatibility
+evidence needs a separately authorized non-synthetic input diagnostic, not
+a guessed tag. Prerequisites now include default and actual synthetic parser,
+writer, pinned fingerprint refusal and selected file/fault controls above.
+
+One proposed offline diagnostic would read only `config.json`,
+`tokenizer_config.json`, `tokenizer.json`, `vocab.json` and `merges.txt` from
+the existing MiMo `2367e865d009c13ac81713a2878291d33ab28177` cache. Their
+stat sizes match the repository profile, total **30,069,292 bytes**; contents
+and hashes were deliberately not read in preparation. Installed cached
+libraries are Transformers **5.12.1** and tokenizers **0.22.2**. These are
+prerequisite observations, not source-byte or tokenizer verification.
+
+If separately approved, verify every allowlisted file against profile pins
+before copying only those files into disposable scratch. With network
+access disabled by offline library settings, load only trusted installed
+tokenizer implementations with `local_files_only=True` and
+`trust_remote_code=False`; never execute model-repository code. Compare the
+fixed pinned upstream fingerprint probe and standalone profile A-P IDs
+between native tokenizer and Transformers wrapper. Cap each fixed probe to
+4096 UTF-8 bytes/4096 IDs; no chat-template rendering or generated tokens.
+An unknown fingerprint, wrapper disagreement or resource breach is a
+reported result, not permission to guess/refit/promote or retry unchanged.
+
+Proposed one-shot budgets: input below 32 MiB, scratch below 32 MiB, retained
+summary at most 8 KiB and aggregate logical allowlisted input/copy/report
+below 64 MiB; child 15 s, serial stage 60 s, observed process RSS at most
+1 GiB and abort on observed swap growth. These are planned diagnostic
+guards, not measurements or target-device guarantees. Clean copied files,
+workers and maps after verifying only the small summary. No weights,
+downloads, GGUF/model conversion, native/model execution, candidate changes,
+refits, held-out scoring or quality experiments are included. Approval would
+authorize only this one tokenizer diagnostic, not another experiment or a
+runtime mapping. Do not read the learned tokenizer contents until approval.
 
 ## Tokenizer Array File Checkpoint (2026-10-19)
 

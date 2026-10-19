@@ -639,6 +639,23 @@ def write_profile_model_policy_metadata(profile, inventory: dict, manifest: dict
                             "runtime_approval": "not_granted_by_policy_metadata_emission"})
 
 
+def write_profile_model_tokenizer_arrays(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
+):
+    """Preflight both bounded source arrays before writing either, without mapping a complete tokenizer."""
+    prepared = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    vocabulary, vocabulary_bytes = _profile_tokenizer_vocabulary_record(prepared)
+    merges, merge_bytes = _profile_bpe_merge_record(prepared)
+    records = _write_profile_model_metadata_records(writer, [vocabulary, merges])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "vocabulary_content_bytes": vocabulary_bytes, "merge_content_bytes": merge_bytes,
+                            "metadata_scope": "tokenizer_vocabulary_merge_subset",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_tokenizer_array_emission"})
+
+
 def write_profile_model_tokenizer_vocabulary(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
 ):

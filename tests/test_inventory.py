@@ -1307,6 +1307,63 @@ def test_profile_source_metadata_emission_preflights_all_groups_before_mutation(
     assert all(tuple(writer.kv_data[0][record["name"]][1]) == record["values"] for record in receipt["records"])
 
 
+@pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "unassigned", "empty-merges", "bad-merge", "duplicate-vocabulary",
+                                    "duplicate-merges", "architecture", "split-writer", "missing-array"])
+def test_profile_tokenizer_array_emission_preflights_both_fields_with_one_parser(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import write_profile_model_tokenizer_arrays
+
+    count = _profile_tokenizer_preparation_fixture(b"{}")[0].geometry["vocab_size"]
+    tokens = ["a", "b", "c", "ab", "abc"] + [f"token{index}" for index in range(5, count)]
+    if defect == "unassigned":
+        tokens.pop()
+    vocabulary = {token: index for index, token in enumerate(tokens)}
+    tokenizer_bytes = json.dumps({"model": {"type": "BPE", "vocab": vocabulary,
+        "merges": [] if defect == "empty-merges" else [["a", "b"], ["ab", "missing" if defect == "bad-merge" else "c"]]}}).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    calls = []
+
+    def from_str(text):
+        calls.append(text)
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary))
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    writer = _profile_metadata_writer_fixture()
+    writer.add_array = lambda name, values: writer.kv_data[0].update({name: ("str_array", list(values))})
+    if defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    elif defect and defect.startswith("duplicate-"):
+        writer.kv_data[0]["tokenizer.ggml.tokens" if defect == "duplicate-vocabulary" else "tokenizer.ggml.merges"] = ("str_array", ["keep"])
+    elif defect == "architecture":
+        writer.arch = "qwen3"
+    elif defect == "split-writer":
+        writer.kv_data.append({})
+    elif defect == "missing-array":
+        writer.add_array = None
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256, "writer": writer}
+    if defect:
+        with pytest.raises(ValueError):
+            write_profile_model_tokenizer_arrays(profile, **arguments)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        assert len(calls) == (0 if defect in ("metadata-pin", "tokenizer-pin") else 1)
+        return
+    receipt = write_profile_model_tokenizer_arrays(profile, **arguments)
+    assert calls == [tokenizer_bytes.decode()]
+    assert writer.kv_data == [{"tokenizer.ggml.tokens": ("str_array", tokens), "tokenizer.ggml.merges": ("str_array", ["a b", "ab c"])}]
+    assert receipt["metadata_count"] == len(receipt["records"]) == 2
+    assert tuple(record["name"] for record in receipt["records"]) == ("tokenizer.ggml.tokens", "tokenizer.ggml.merges")
+    assert receipt["metadata_scope"] == "tokenizer_vocabulary_merge_subset" and receipt["merge_content_bytes"] == 7
+    assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
+    assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == receipt["gguf_token_type_verification"] == "not_checked"
+    with pytest.raises(TypeError):
+        receipt["records"][0]["values"] = ()
+
+
 @pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "unassigned", "empty-merges", "file-budget", "file-cap",
                                     "expected-size", "expected-cap", "file-hash", "seconds-bool", "seconds-nan", "preparation-deadline", "verification-deadline"])
 def test_profile_tokenizer_array_file_verification_prepares_fresh_bounded_declarations(monkeypatch, defect):

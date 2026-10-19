@@ -5547,7 +5547,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import gguf
 from embedded_jev.model_profile import parse_model_profile
-from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_vocabulary
+from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_vocabulary, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_arrays, write_profile_model_tokenizer_vocabulary
 
 fixture = json.loads(sys.stdin.read())
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
@@ -5645,32 +5645,20 @@ with TemporaryDirectory(prefix="jev-context-metadata-") as directory:
     writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
     try:
         if fixture["tokenizer_mode"] == "bpe":
-            emitted_vocabulary = write_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
+            emitted = write_profile_model_tokenizer_arrays(profile, metadata_files=metadata,
                 tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
-            assert emitted_vocabulary["metadata_scope"] == "tokenizer_vocabulary_subset" and emitted_vocabulary["metadata_count"] == 1
-            assert emitted_vocabulary["records"][0]["values"] == tuple(fixture["tokens"])
-            assert emitted_vocabulary["unassigned_profile_token_rows"] == 0
-            before = dict(writer.kv_data[0])
-            try:
-                write_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata,
-                    tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
-                raise AssertionError("duplicate vocabulary metadata was emitted")
-            except ValueError as error:
-                assert "conflicting" in str(error)
-            assert writer.kv_data[0] == before
-            merges = write_profile_model_bpe_merge_metadata(profile, metadata_files=metadata,
-                tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
-            assert merges["metadata_scope"] == "bpe_merge_subset" and merges["metadata_count"] == 1
-            assert merges["records"][0]["values"] == ("a b", "ab c")
-            assert merges["metadata_verification"] == "declared_records_emitted_not_file_verified"
-            before = dict(writer.kv_data[0])
-            try:
-                write_profile_model_bpe_merge_metadata(profile, metadata_files=metadata,
-                    tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
-                raise AssertionError("duplicate ranked merge metadata was emitted")
-            except ValueError as error:
-                assert "conflicting" in str(error)
-            assert writer.kv_data[0] == before
+            assert emitted["metadata_scope"] == "tokenizer_vocabulary_merge_subset" and emitted["metadata_count"] == 2
+            assert tuple(record["values"] for record in emitted["records"]) == (tuple(fixture["tokens"]), ("a b", "ab c"))
+            assert emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
+            assert emitted["unassigned_profile_token_rows"] == 0
+            for emit in (write_profile_model_tokenizer_vocabulary, write_profile_model_bpe_merge_metadata, write_profile_model_tokenizer_arrays):
+                before = dict(writer.kv_data[0])
+                try:
+                    emit(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
+                    raise AssertionError("duplicate tokenizer subset metadata was emitted")
+                except ValueError as error:
+                    assert "conflicting" in str(error)
+                assert writer.kv_data[0] == before
         receipt = write_profile_model_context_metadata(profile, metadata_files=metadata,
             tokenizer_bytes=tokenizer_bytes, context_length=256, writer=writer)
         assert receipt["source_metadata_verification"] == "profile_pinned_caller_bytes"
