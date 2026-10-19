@@ -4856,6 +4856,103 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
             assert receipt["converted_sha256"] == hashlib.sha256(memoryview(raw_converted)).hexdigest()
             assert receipt["converted_file_verification"] == "caller_sha256_and_reader_range_match"
             assert receipt["source_file_verification"] == receipt["gguf_reader_verification"] == "not_checked"
+            if entry["type"] == "BF16":
+                chunked = prism_codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                    **keywords, maximum_chunk_bytes=7 * raw_source.shape[1] * 2)
+                assert chunked["converted_sha256"] == receipt["converted_sha256"]
+                assert chunked["converted_bytes"] == raw_converted.nbytes
+                assert chunked["gguf_policy_version"] == 2 and chunked["gguf_file_cap_bytes"] == 24 * 1024**3
+                assert chunked["operand_cap_bytes"] == 2 * 1024**3
+                assert chunked["gguf_reader_verification"] == "selected_header_record_and_mapped_range_match"
+                assert chunked["source_file_verification"] == chunked["gguf_tensor_table_verification"] == "not_checked"
+                assert chunked["runtime_approval"] == "not_granted_by_matrix_file_verification"
+                if tensor.name == next(iter(matrix_operands)):
+                    ceiling_receipt = prism_codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                        **{**keywords, "maximum_file_bytes": 24 * 1024**3, "maximum_bytes": 2 * 1024**3})
+                    assert ceiling_receipt["converted_sha256"] == chunked["converted_sha256"]
+                    for defect in ("file-pin", "file-size", "copied-view", "shape", "offset", "closed-reader", "source-fresh-pin", "stale-header", "stale-table"):
+                        changed_keywords = keywords.copy()
+                        original_tensors = reader.tensors
+                        original_filename = reader.data.filename
+                        original_pread = prism_codec.os.pread
+                        closed_reader = None
+                        saved_byte = None
+                        if defect == "file-pin":
+                            changed_keywords["expected_file_sha256"] = "0" * 64
+                        elif defect == "file-size":
+                            wrong_size_path = path.with_suffix(".wrong-size")
+                            wrong_size_path.write_bytes(b"x")
+                            reader.data.filename = wrong_size_path
+                            def never_read(*arguments):
+                                raise AssertionError("wrong-size file reached positional read")
+                            prism_codec.os.pread = never_read
+                        elif defect == "source-fresh-pin":
+                            changed_source = raw_source.copy()
+                            changed_source.flat[0] ^= 1
+                            changed_keywords.update(source_values=changed_source,
+                                expected_source_sha256=hashlib.sha256(memoryview(changed_source)).hexdigest())
+                        elif defect == "closed-reader":
+                            closed_reader = gguf.GGUFReader(path)
+                            closed_reader.data._mmap.close()
+                            changed_keywords["reader"] = closed_reader
+                        elif defect in ("stale-header", "stale-table"):
+                            changed_offset = 0 if defect == "stale-header" else tensor.field.offset + 8
+                            with path.open("r+b") as output:
+                                output.seek(changed_offset)
+                                saved_byte = output.read(1)
+                                output.seek(changed_offset)
+                                output.write(bytes([saved_byte[0] ^ 1]))
+                            changed_keywords["expected_file_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+                        else:
+                            changed_tensor = tensor._replace(data=tensor.data.copy()) if defect == "copied-view" else tensor._replace(
+                                shape=tensor.shape + 1) if defect == "shape" else tensor._replace(data_offset=tensor.data_offset + 1)
+                            reader.tensors = [changed_tensor if item.name == tensor.name else item for item in reader.tensors]
+                        try:
+                            try:
+                                prism_codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                                    **changed_keywords)
+                                raise AssertionError("invalid v2 matrix binding accepted: " + defect)
+                            except ValueError as error:
+                                expected_error = {"file-pin": "file identity", "file-size": "file identity", "source-fresh-pin": "byte parity",
+                                    "copied-view": "mapped range", "shape": "mapped range", "offset": "mapped range",
+                                    "closed-reader": "read-only", "stale-header": "header differs", "stale-table": "tensor table differs"}[defect]
+                                assert expected_error in str(error), str(error)
+                        finally:
+                            reader.tensors = original_tensors
+                            reader.data.filename = original_filename
+                            prism_codec.os.pread = original_pread
+                            if defect == "file-size":
+                                wrong_size_path.unlink()
+                            if saved_byte is not None:
+                                with path.open("r+b") as output:
+                                    output.seek(changed_offset)
+                                    output.write(saved_byte)
+                    original_chunks = prism_codec.iter_profile_bf16_matrix_chunks
+                    for defect in ("source-change", "file-restored"):
+                        def changed_chunks(*arguments, **options):
+                            yield from original_chunks(*arguments, **options)
+                            if defect == "source-change":
+                                raw_source.flat[0] ^= 1
+                            else:
+                                with path.open("r+b") as output:
+                                    output.seek(tensor.data_offset)
+                                    value = output.read(1)
+                                    output.seek(tensor.data_offset)
+                                    output.write(bytes([value[0] ^ 1]))
+                                    output.seek(tensor.data_offset)
+                                    output.write(value)
+                        prism_codec.iter_profile_bf16_matrix_chunks = changed_chunks
+                        try:
+                            try:
+                                prism_codec.verify_profile_gguf_matrix_v2(profile, fixture["inventory"], fixture["manifest"], payload,
+                                    **keywords)
+                                raise AssertionError("mid-verification v2 mutation accepted: " + defect)
+                            except ValueError as error:
+                                assert ("source matrix changed" if defect == "source-change" else "file changed") in str(error), str(error)
+                        finally:
+                            prism_codec.iter_profile_bf16_matrix_chunks = original_chunks
+                            if defect == "source-change":
+                                raw_source.flat[0] ^= 1
             for defect in ("file-pin", "file-budget" if vector else "operand-budget", "copied-view", "shape"):
                 changed = keywords.copy()
                 original_tensors = reader.tensors
@@ -4884,10 +4981,13 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
                 output.write(bytes([saved[0] ^ 1]))
             changed = {**keywords, "expected_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
             try:
-                verifier(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
-                raise AssertionError("changed BF16 file payload accepted")
-            except ValueError as error:
-                assert "byte parity" in str(error)
+                byte_verifiers = (verifier, prism_codec.verify_profile_gguf_matrix_v2) if entry["type"] == "BF16" else (verifier,)
+                for byte_verifier in byte_verifiers:
+                    try:
+                        byte_verifier(profile, fixture["inventory"], fixture["manifest"], payload, **changed)
+                        raise AssertionError("changed BF16 file payload accepted")
+                    except ValueError as error:
+                        assert "byte parity" in str(error)
             finally:
                 with path.open("r+b") as output:
                     output.seek(tensor.data_offset)

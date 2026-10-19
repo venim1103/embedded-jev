@@ -1718,6 +1718,21 @@ It authenticates bytes only, not GGUF structure, selected tensors or metadata.
 Legacy native/source ceilings and GGUF verification limits remain unchanged.
 See the [GGUF descriptor checkpoint](handover.md#gguf-descriptor-checkpoint-2026-10-19).
 
+`verify_profile_gguf_matrix_v2(...)` separately verifies one declared BF16
+matrix against a caller-owned read-only `GGUFReader` and borrowed source
+array. File and selected-operand budgets default to 16 MiB; explicit ceilings
+are 24 GiB and 2 GiB. Chunks default to 64 KiB with a 1 MiB cap, and individual
+positional reads never exceed 64 KiB. The selected GGUF header/table region
+must fit 1 MiB. It authenticates the retained file twice, checks source array
+hashes before/after, and compares transformed chunks with exact selected
+mapped/file bytes. Wrong file size fails before hashing. Finish borrowed
+mapping users before closing their owners; these checks are not an atomic
+snapshot or protection against concurrent truncation of mapped pages.
+The immutable v2 receipt identifies only the selected header/record/range;
+source-file provenance, the complete tensor table and runtime approval remain
+unchecked. No native/model-owner v1 policy is widened. See the
+[GGUF BF16 checkpoint](handover.md#gguf-bf16-checkpoint-2026-10-19).
+
 `temporary_profile_bf16_matrix_payload_v2(...)` explicitly selects an at-most-
 2 GiB raw payload policy, but retains the 16 MiB default caller budget. It
 shares the legacy chunked writes, hashes, identity checks, deadlines and

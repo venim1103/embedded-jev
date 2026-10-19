@@ -1482,6 +1482,60 @@ def test_profile_converted_matrix_reorders_exact_head_indices(value_heads, suffi
             verify_profile_converted_matrix(profile, report, manifest, blocks, **arguments)
 
 
+@pytest.mark.parametrize("defect", ["size", "file-cap", "default-file-budget", "boolean-file-budget", "digest", "source-digest",
+                                    "deadline", "boolean-deadline", "operand-cap", "boolean-operand-budget", "operand-budget",
+                                    "chunk-cap", "boolean-chunk-budget", "row-budget", "frozen", "dtype", "shape", "layout"])
+def test_profile_gguf_matrix_v2_refuses_invalid_inputs_before_reader_import(monkeypatch, defect):
+    import sys
+
+    from embedded_jev.prism_codec import verify_profile_gguf_matrix_v2
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture("down")
+    source = np.zeros((64, 1024), dtype="<u2")
+    arguments = {"reader": object(), "source_name": "model.layers.1.self_attn.k_proj.weight", "source_values": source,
+                 "expected_source_sha256": hashlib.sha256(memoryview(source)).hexdigest(),
+                 "expected_file_bytes": 1, "expected_file_sha256": "0" * 64}
+    if defect == "size":
+        arguments["expected_file_bytes"] = True
+    elif defect == "file-cap":
+        arguments["maximum_file_bytes"] = 24 * 1024**3 + 1
+    elif defect == "default-file-budget":
+        arguments["expected_file_bytes"] = 16 * 1024**2 + 1
+    elif defect == "boolean-file-budget":
+        arguments["maximum_file_bytes"] = True
+    elif defect == "digest":
+        arguments["expected_file_sha256"] = "invalid"
+    elif defect == "source-digest":
+        arguments["expected_source_sha256"] = "0" * 64
+    elif defect == "deadline":
+        arguments["maximum_seconds"] = float("nan")
+    elif defect == "boolean-deadline":
+        arguments["maximum_seconds"] = True
+    elif defect == "operand-cap":
+        arguments["maximum_bytes"] = 2 * 1024**3 + 1
+    elif defect == "boolean-operand-budget":
+        arguments["maximum_bytes"] = True
+    elif defect == "operand-budget":
+        arguments["maximum_bytes"] = 1
+    elif defect == "chunk-cap":
+        arguments["maximum_chunk_bytes"] = 1024**2 + 1
+    elif defect == "boolean-chunk-budget":
+        arguments["maximum_chunk_bytes"] = True
+    elif defect == "row-budget":
+        arguments["maximum_chunk_bytes"] = 2047
+    elif defect == "frozen":
+        arguments["source_name"] = manifest["tensor"]
+    elif defect == "dtype":
+        arguments["source_values"] = source.astype(np.float32)
+    elif defect == "shape":
+        arguments["source_values"] = source[:-1]
+    elif defect == "layout":
+        arguments["source_values"] = np.asfortranarray(source)
+    monkeypatch.setitem(sys.modules, "gguf", None)
+    with pytest.raises(ValueError):
+        verify_profile_gguf_matrix_v2(profile, report, manifest, blocks, **arguments)
+
+
 @pytest.mark.parametrize("defect", ["zero-budget", "boolean-budget", "large-budget", "row-budget", "frozen", "vector",
                                     "convolution", "dtype", "endian", "shape", "layout", "array", "infinity", "nan", "late-nonfinite"])
 def test_profile_bf16_matrix_chunks_refuse_unsupported_or_nonfinite_values(monkeypatch, defect):

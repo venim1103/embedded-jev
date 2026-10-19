@@ -1191,6 +1191,160 @@ def verify_profile_gguf_matrix(
     )
 
 
+def verify_profile_gguf_matrix_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
+    expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Verify one borrowed BF16 matrix range without copying the whole operand."""
+    from embedded_jev.model_profile import SHA256
+    from embedded_jev.streamed_text import bounded_gguf_descriptor_record_v2
+
+    if (
+        type(expected_file_bytes) is not int or type(maximum_file_bytes) is not int
+        or not 0 < expected_file_bytes <= maximum_file_bytes <= 24 * 1024**3
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_bytes) is not int or not 0 < maximum_bytes <= 2 * 1024**3
+        or type(maximum_chunk_bytes) is not int or not 0 < maximum_chunk_bytes <= 1024**2
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+    ):
+        raise ValueError("invalid v2 GGUF matrix file identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
+    if (
+        entry is None or entry["type"] != "BF16" or entry["source_dtype"] != "BF16"
+        or len(entry["source_shape"]) != 2 or not isinstance(source_values, np.ndarray)
+        or source_values.dtype != np.dtype("<u2") or source_values.shape != tuple(entry["source_shape"])
+        or not source_values.flags.c_contiguous or source_values.nbytes > maximum_bytes
+        or source_values.shape[1] * 2 > maximum_chunk_bytes
+        or not isinstance(expected_source_sha256, str) or SHA256.fullmatch(expected_source_sha256) is None
+        or isinstance(source_values, np.memmap) and (source_values._mmap is None or source_values._mmap.closed)
+    ):
+        raise ValueError("v2 GGUF source matrix layout, identity or byte budget mismatch")
+    source_bytes = memoryview(source_values).cast("B")
+
+    def check_deadline():
+        if time.monotonic() > deadline:
+            raise ValueError("v2 GGUF matrix verification deadline exceeded")
+
+    def source_digest():
+        digest = hashlib.sha256()
+        for position in range(0, len(source_bytes), 65536):
+            check_deadline()
+            digest.update(source_bytes[position:position + 65536])
+        check_deadline()
+        return digest.hexdigest()
+
+    if source_digest() != expected_source_sha256:
+        raise ValueError("v2 GGUF source matrix identity mismatch")
+    import gguf
+
+    size = source_values.nbytes
+    rows, columns = source_values.shape
+    if (
+        type(reader) is not gguf.GGUFReader or reader.endianess != gguf.GGUFEndian.LITTLE
+        or not isinstance(reader.data, np.memmap) or reader.data.mode != "r" or reader.data.offset != 0
+        or reader.data.dtype != np.uint8 or reader.data.ndim != 1 or reader.data.size != expected_file_bytes
+        or reader.data.flags.writeable or reader.data._mmap is None or reader.data._mmap.closed
+        or not 1 <= len(reader.tensors) <= 427 or not 3 <= len(reader.fields) <= 259
+        or not 24 <= reader.data_offset <= min(expected_file_bytes, 1024**2)
+    ):
+        raise ValueError("v2 GGUF matrix requires a bounded read-only little-endian reader")
+    matches = [item for item in reader.tensors if item.name == entry["name"]]
+    if len(matches) != 1:
+        raise ValueError("v2 GGUF matrix name is missing or duplicated")
+    tensor = matches[0]
+    offset = int(tensor.data_offset)
+    alignment_field = reader.fields.get("general.alignment")
+    alignment = 32 if alignment_field is None else alignment_field.contents()
+    table_end = max(item.field.offset + sum(part.nbytes for part in item.field.parts) for item in reader.tensors)
+    if (
+        tensor.tensor_type != gguf.GGMLQuantizationType.BF16 or list(tensor.shape) != [columns, rows]
+        or tensor.n_bytes != size or tensor.n_elements != rows * columns
+        or tensor.data.dtype != np.uint8 or tensor.data.shape != (rows, columns * 2)
+        or not tensor.data.flags.c_contiguous or tensor.data.flags.writeable
+        or not np.shares_memory(reader.data, tensor.data)
+        or offset < reader.data_offset or offset + size > expected_file_bytes
+        or tensor.data.ctypes.data - reader.data.ctypes.data != offset
+        or type(alignment) is not int or alignment != reader.alignment
+        or alignment <= 0 or alignment > 1024**2 or alignment & (alignment - 1) or offset % alignment
+        or (table_end + alignment - 1) // alignment * alignment != reader.data_offset
+    ):
+        raise ValueError("v2 GGUF matrix type, geometry or mapped range mismatch")
+    name = entry["name"].encode("utf-8")
+    information = (struct.pack("<Q", len(name)) + name + struct.pack("<IQQ", 2, columns, rows)
+                   + struct.pack("<IQ", int(gguf.GGMLQuantizationType.BF16), offset - reader.data_offset))
+    field_offset = int(tensor.field.offset)
+    if not 24 <= field_offset < field_offset + len(information) <= reader.data_offset:
+        raise ValueError("v2 GGUF matrix tensor table range mismatch")
+    path = Path(reader.data.filename)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        def identity(value):
+            return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+        file_stat = os.fstat(descriptor)
+        if file_stat.st_size != expected_file_bytes:
+            raise ValueError("v2 GGUF matrix file identity mismatch")
+        before = identity(file_stat)
+        record = bounded_gguf_descriptor_record_v2(descriptor, maximum_bytes=maximum_file_bytes, deadline=deadline)
+        if record["bytes"] != expected_file_bytes or record["sha256"] != expected_file_sha256:
+            raise ValueError("v2 GGUF matrix file identity mismatch")
+        check_deadline()
+        if os.pread(descriptor, 24, 0) != struct.pack("<4sIQQ", b"GGUF", 3, len(reader.tensors), len(reader.fields) - 3):
+            raise ValueError("v2 GGUF matrix header differs from reader")
+        if os.pread(descriptor, len(information), field_offset) != information:
+            raise ValueError("v2 GGUF matrix tensor table differs from reader")
+        mapped = memoryview(tensor.data).cast("B")
+        converted_digest = hashlib.sha256()
+        consumed = 0
+        for first_row, chunk in iter_profile_bf16_matrix_chunks(
+            profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
+            maximum_chunk_bytes=maximum_chunk_bytes,
+        ):
+            if first_row * columns * 2 != consumed:
+                raise ValueError("v2 GGUF matrix chunk range mismatch")
+            expected = memoryview(chunk).cast("B")
+            for position in range(0, len(expected), 65536):
+                check_deadline()
+                count = min(65536, len(expected) - position)
+                raw = os.pread(descriptor, count, offset + consumed + position)
+                if raw != mapped[consumed + position:consumed + position + count]:
+                    raise ValueError("v2 GGUF matrix mapping differs from file range")
+                if raw != expected[position:position + count]:
+                    raise ValueError("v2 GGUF matrix byte parity mismatch")
+                converted_digest.update(raw)
+            consumed += len(expected)
+        if consumed != size or source_digest() != expected_source_sha256:
+            raise ValueError("v2 GGUF source matrix changed during verification")
+        after_record = bounded_gguf_descriptor_record_v2(descriptor, maximum_bytes=maximum_file_bytes, deadline=deadline)
+        if (
+            after_record != record or identity(os.fstat(descriptor)) != before
+            or identity(os.stat(path, follow_symlinks=False)) != before
+        ):
+            raise ValueError("v2 GGUF matrix file changed during verification")
+        check_deadline()
+    finally:
+        os.close(descriptor)
+    return MappingProxyType({
+        "profile_id": profile.profile_id, "profile_sha256": profile.sha256, "source_name": source_name,
+        "tensor_name": entry["name"], "source_sha256": expected_source_sha256,
+        "converted_sha256": converted_digest.hexdigest(), "converted_bytes": size,
+        "operand_byte_verification": "exact_bf16_bytes_match_chunked_transform",
+        "source_file_verification": "not_checked", "gguf_tensor_table_verification": "not_checked",
+        "gguf_reader_verification": "selected_header_record_and_mapped_range_match",
+        "converted_file_verification": "caller_sha256_and_reader_range_match",
+        "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
+        "converted_tensor_offset": offset, "gguf_policy_version": 2,
+        "gguf_file_cap_bytes": 24 * 1024**3, "operand_cap_bytes": 2 * 1024**3,
+        "maximum_chunk_bytes": maximum_chunk_bytes,
+        "runtime_approval": "not_granted_by_matrix_file_verification",
+    })
+
+
 def verify_profile_gguf_convolution(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
     source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,

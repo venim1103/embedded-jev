@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [GGUF descriptor checkpoint](#gguf-descriptor-checkpoint-2026-10-19), followed by
+the [GGUF BF16 checkpoint](#gguf-bf16-checkpoint-2026-10-19), followed by
+the [GGUF descriptor checkpoint](#gguf-descriptor-checkpoint-2026-10-19),
 the [larger GGUF proposal](#larger-gguf-proposal-2026-10-19) and the
 [source metadata composer checkpoint](#source-metadata-composer-checkpoint-2026-10-19),
 [streamed metadata checkpoint](#streamed-metadata-checkpoint-2026-10-19),
@@ -332,6 +333,40 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## GGUF BF16 Checkpoint (2026-10-19)
+
+After `c96c968`, `verify_profile_gguf_matrix_v2` adds a separate selected-BF16
+gate without changing legacy APIs. File/operand budgets still default to
+16 MiB; caller-declared ceilings are 24 GiB/2 GiB. It uses the existing
+identity/V-row/V-head/V-column chunk transforms, 64 KiB default chunks and
+positional reads, 1 MiB chunk/header caps, a retained regular descriptor,
+exact selected header/table/mapped-range checks, two whole-file hashes and
+source-array entry/exit hashes. File size is checked before hashing; restored
+file writes are caught by retained and path identity checks. Borrowed source
+arrays are not source-file provenance or atomic snapshots, and mappings must
+remain alive; no concurrent-truncation protection is claimed.
+
+The 18 default pre-import refusals pass in **0.46 s**. The existing pinned
+synthetic writer now verifies all **16 BF16 matrices** through both APIs and
+compares exact independent converter hashes. It additionally refuses wrong
+pins, wrong size before any `pread`, copied/closed mappings, bad shape/offset,
+fresh-hash changed source/output bytes, stale header/table bytes, source
+mutation and a file write-and-restore during verification. Exact declared
+ceilings are exercised on the same small file, not by large allocation.
+Focused pinned runs passed in **6.18, 6.89, 6.65 and 6.50 s** as controls were
+added; every existing child deadline remains **15 s**. No failed checks.
+
+Required gate: **954 passed, 96 skipped in 24.38 s**, Ruff/whitespace clean,
+and no editor errors in the three changed Python files. The optional run was
+only the frozen mixed synthetic writer case, not native/runtime execution.
+Actual source/output stay below 16 MiB; no allocation-scaling, larger-output,
+device-memory or full-model claim follows. Source-file provenance and the
+complete tensor table remain `not_checked`; runtime approval is not granted.
+No downloads, learned inputs, builds or real artifacts ran; owned scratch was
+cleaned and user editor settings remain untouched. Next: bounded larger
+synthetic file/offset and allocation controls, within the approved 33 MiB
+output/256 MiB aggregate scratch budget, then separate typed metadata support.
 
 ## GGUF Descriptor Checkpoint (2026-10-19)
 
