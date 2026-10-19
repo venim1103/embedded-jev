@@ -1507,6 +1507,19 @@ real cached parser, including freshly pinned special-ID, lowercasing and
 special-label contradictions. See the
 [standalone token checkpoint](handover.md#standalone-token-checkpoint-2026-10-19).
 
+`write_profile_model_policy_metadata(profile, inventory, manifest, pq2_blocks,
+writer=...)` emits seven profile/source/converter/execution-policy strings
+plus the 17 architecture records expected by `verify_profile_gguf_policy_metadata`.
+Both use one declaration builder. The writer supplies `general.architecture`
+itself; this emitter does not overwrite it. All target keys and required
+methods are preflighted together before mutation. Use this instead of the
+architecture-only emitter when the public policy gate is required; emitting
+both would conflict on geometry keys. The immutable receipt records declared
+emission, not source authentication, tokenizer semantics or actual BitNet
+execution. The frozen synthetic writer control verifies the published file
+through the public policy API and rejects a fresh-hash one-byte provenance
+change. See the [policy emission checkpoint](handover.md#policy-emission-checkpoint-2026-10-19).
+
 `write_profile_model_context_metadata(profile, metadata_files=...,
 tokenizer_bytes=..., context_length=..., writer=...)` runs that preparation
 directly on source bytes rather than accepting a caller-made receipt, then

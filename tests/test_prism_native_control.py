@@ -4568,9 +4568,9 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         path = Path(directory) / "matrices.gguf"
         written_operands = matrix_operands.copy()
         writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
-        architecture_receipt = None
+        metadata_receipt = None
         if fixture["include_frozen_source"]:
-            architecture_receipt = prism_codec.write_profile_model_architecture_metadata(
+            metadata_receipt = prism_codec.write_profile_model_policy_metadata(
                 profile, fixture["inventory"], fixture["manifest"], payload, writer=writer)
         import embedded_jev.streamed_text as streamed_text
 
@@ -4759,8 +4759,12 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         if fixture["include_frozen_source"]:
             assert {tensor.name for tensor in reader.tensors} == {entry["name"] for entry in plan["tensors"]}
             assert hashlib.sha256(memoryview(payload)).hexdigest() == fixture["manifest"]["payload_sha256"]
-            for record in architecture_receipt["records"]:
+            for record in metadata_receipt["records"]:
                 field = reader.fields[record["name"]]
+                if record["kind"] == "str":
+                    assert field.types == [gguf.GGUFValueType.STRING]
+                    assert b"".join(field.parts[index].tobytes() for index in field.data) == record["values"][0].encode()
+                    continue
                 dtype = {"u32": "<u4", "f32": "<f4", "i32_array": "<i4"}[record["kind"]]
                 expected_types = {"u32": [gguf.GGUFValueType.UINT32], "f32": [gguf.GGUFValueType.FLOAT32],
                                   "i32_array": [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32]}[record["kind"]]
@@ -4768,6 +4772,28 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
                 actual = np.concatenate([field.parts[index] for index in field.data])
                 assert actual.dtype == np.dtype(dtype)
                 assert actual.tobytes() == np.asarray(record["values"], dtype=dtype).tobytes()
+            policy = prism_codec.verify_profile_gguf_policy_metadata(profile, fixture["inventory"], fixture["manifest"], payload,
+                reader=reader, expected_file_bytes=path.stat().st_size, expected_file_sha256=file_sha256)
+            assert policy["policy_metadata_verification"] == "selected_typed_policy_records_match_declarations_and_file"
+            assert policy["model_metadata_verification"] == "selected_policy_records_only"
+            assert policy["tokenizer_semantics_verification"] == "not_checked"
+            changed = bytearray(path.read_bytes())
+            field = reader.fields["jev.model.profile_sha256"]
+            value_offset = field.parts[field.data[0]].__array_interface__["data"][0] - reader.data.__array_interface__["data"][0]
+            changed[value_offset] = ord("0") if changed[value_offset] != ord("0") else ord("1")
+            fault_path = Path(directory) / "policy-fault.gguf"
+            fault_path.write_bytes(changed)
+            fault_reader = gguf.GGUFReader(fault_path)
+            try:
+                try:
+                    prism_codec.verify_profile_gguf_policy_metadata(profile, fixture["inventory"], fixture["manifest"], payload,
+                        reader=fault_reader, expected_file_bytes=len(changed), expected_file_sha256=hashlib.sha256(changed).hexdigest())
+                    raise AssertionError("fresh-hash changed policy declaration accepted")
+                except ValueError as error:
+                    assert str(error) == "policy metadata declaration byte mismatch: jev.model.profile_sha256"
+            finally:
+                fault_reader.data._mmap.close()
+                fault_path.unlink()
         for tensor in reader.tensors:
             source_name, raw_source, raw_converted = written_operands[tensor.name]
             entry = next(item for item in plan["tensors"] if item["name"] == tensor.name)

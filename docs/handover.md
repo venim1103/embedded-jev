@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [template emission checkpoint](#template-emission-checkpoint-2026-10-19), followed by the
+the [policy emission checkpoint](#policy-emission-checkpoint-2026-10-19), followed by the
+[template emission checkpoint](#template-emission-checkpoint-2026-10-19),
 [template preparation checkpoint](#template-preparation-checkpoint-2026-10-19),
 [standalone token checkpoint](#standalone-token-checkpoint-2026-10-19),
 [vocabulary preparation checkpoint](#vocabulary-preparation-checkpoint-2026-10-19),
@@ -326,6 +327,45 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Policy Emission Checkpoint (2026-10-19)
+
+After `8b55380`, added `write_profile_model_policy_metadata`. The public policy
+file verifier and this emitter share their exact declaration builder, retaining
+the verifier's prior types, byte/range/hash checks, bounds and deadlines. The
+emitter writes seven profile/source/converter/execution-policy strings plus
+the 17 architecture records. The trusted writer owns `general.architecture`;
+the emitter does not duplicate it. All 24 emitted target keys/protocol methods
+are preflighted together before mutation. Architecture-only emission remains
+separate and cannot be combined with this emitter on the same keys.
+
+Evidence:
+
+- Immediate policy/sibling-emitter/public-input family: **43 passed,
+  709 deselected in 0.74 s**. Six new cases check exact policy/geometry records
+  and no mutation on policy or geometry duplicates, missing string method,
+  wrong architecture and split writer. Immutable receipts do not grant source
+  authentication, tokenizer verification or execution approval.
+- Existing frozen-source synthetic writer now emits the complete policy
+  declaration set before publishing its 28 selected tensors. It independently
+  checks all typed field bytes and invokes `verify_profile_gguf_policy_metadata`
+  on the output. A disposable copy with one changed profile-SHA byte and a
+  fresh whole-file hash refuses with the exact declaration-byte mismatch.
+  The changed copy's reader mapping closes before unlink; the source and
+  frozen payload are unchanged. Pinned focused result: **1 passed,
+  5 deselected in 4.87 s**, under the unchanged **15 s** child timeout.
+- Required source gate: **904 passed, 96 skipped in 30.93 s**, Ruff and
+  whitespace clean. Editor error checks for all three changed Python files
+  are clean. Other unchanged optional controls were not rerun.
+
+No failed checks, learned inputs, downloads, native builds, model execution,
+refits, candidates or quality experiments occurred. The public verifier reports
+only selected policy records and leaves tokenizer semantics/runtime approval
+unchecked. This does not turn a policy string into actual BitNet dispatch or
+complete tokenizer/model acceptance. Next: assess the public tensor-table gate
+on the same bounded output before claiming that interface integration; preserve
+all existing source/lifetime/resource and approval boundaries. See the
+[API contract](development.md#profile-gated-complete-model-policy).
 
 ## Template Emission Checkpoint (2026-10-19)
 

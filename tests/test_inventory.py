@@ -1074,6 +1074,42 @@ def test_profile_tokenizer_vocabulary_is_pinned_bounded_and_not_gguf_semantics(m
         receipt["tokens"] = ()
 
 
+@pytest.mark.parametrize("defect", [None, "duplicate-policy", "duplicate-geometry", "missing-string", "architecture", "split-writer"])
+def test_profile_policy_metadata_emission_preflights_complete_declarations(defect):
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture()
+    writer = _profile_metadata_writer_fixture()
+    if defect == "duplicate-policy":
+        writer.kv_data[0]["jev.model.profile_sha256"] = ("str", ["keep"])
+    elif defect == "duplicate-geometry":
+        writer.kv_data[0]["qwen35.block_count"] = ("u32", [1])
+    elif defect == "missing-string":
+        writer.add_string = None
+    elif defect == "architecture":
+        writer.arch = "qwen3"
+    elif defect == "split-writer":
+        writer.kv_data.append({})
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    if defect:
+        with pytest.raises(ValueError, match="conflicting"):
+            prism_codec.write_profile_model_policy_metadata(profile, report, manifest, blocks, writer=writer)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        return
+    receipt = prism_codec.write_profile_model_policy_metadata(profile, report, manifest, blocks, writer=writer)
+    assert receipt["metadata_count"] == len(writer.kv_data[0]) == 24
+    assert writer.kv_data[0]["jev.model.profile_sha256"] == ("str", [profile.sha256])
+    assert writer.kv_data[0]["jev.bitnet.source_tensor_sha256"] == ("str", [manifest["source_tensor_sha256"]])
+    assert writer.kv_data[0]["jev.bitnet.execution"] == ("str", ["group128-a8-fp32-nearest-even-identity-v1"])
+    assert writer.kv_data[0]["qwen35.block_count"] == ("u32", [2])
+    assert "general.architecture" not in writer.kv_data[0]
+    assert receipt["source_file_verification"] == receipt["tokenizer_verification"] == "not_checked"
+    assert receipt["runtime_approval"] == "not_granted_by_policy_metadata_emission"
+    assert all(tuple(writer.kv_data[0][record["name"]][1]) == record["values"] for record in receipt["records"])
+    with pytest.raises(ValueError, match="conflicting"):
+        prism_codec.write_profile_model_policy_metadata(profile, report, manifest, blocks, writer=writer)
+
+
 def _profile_metadata_writer_fixture():
     class Writer:
         arch = "qwen35"

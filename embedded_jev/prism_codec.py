@@ -484,6 +484,38 @@ def write_profile_model_architecture_metadata(profile, inventory: dict, manifest
                             "runtime_approval": "not_granted_by_metadata_emission"})
 
 
+def _profile_model_policy_metadata_declarations(profile, specification):
+    records = [
+        {"name": name, "kind": "string", "values": [value]} for name, value in {
+            "general.architecture": "qwen35", "jev.model.profile_id": profile.profile_id,
+            "jev.model.profile_sha256": profile.sha256, "jev.model.source_revision": profile.revision,
+            "jev.model.converter_revision": PRISM_SOURCE_REVISION, "jev.bitnet.source_tensor_sha256": specification["source_tensor_sha256"],
+            "jev.bitnet.model": "profile-qwen35-single-projection-v2", "jev.bitnet.execution": "group128-a8-fp32-nearest-even-identity-v1",
+        }.items()
+    ]
+    records.extend({"name": "qwen35." + name, "kind": "u32", "values": [value]} for name, value in {
+        "block_count": specification["layers"], "embedding_length": specification["hidden"],
+        "feed_forward_length": specification["intermediate"],
+    }.items())
+    records.extend(specification["metadata"])
+    return records
+
+
+def write_profile_model_policy_metadata(profile, inventory: dict, manifest: dict, pq2_blocks, *, writer):
+    """Emit policy declarations expected by the public verifier, not execution approval."""
+    specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
+    records = [{**record, "kind": "str" if record["kind"] == "string" else record["kind"]}
+               for record in _profile_model_policy_metadata_declarations(profile, specification)
+               if record["name"] != "general.architecture"]
+    frozen_records = _write_profile_model_metadata_records(writer, records)
+    return MappingProxyType({"profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                            "source_revision": profile.revision, "converter_revision": PRISM_SOURCE_REVISION,
+                            "metadata_count": len(frozen_records), "records": frozen_records,
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "tokenizer_verification": "not_checked", "source_file_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_policy_metadata_emission"})
+
+
 def write_profile_model_context_metadata(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
 ):
@@ -1924,18 +1956,7 @@ def verify_profile_gguf_policy_metadata(
         or not 24 <= reader.data_offset <= min(expected_file_bytes, MODEL_METADATA_BYTES_V2)
     ):
         raise ValueError("policy metadata reader layout or budget mismatch")
-    declarations = [
-        {"name": name, "kind": "string", "values": [value]} for name, value in {
-            "general.architecture": "qwen35", "jev.model.profile_id": profile.profile_id,
-            "jev.model.profile_sha256": profile.sha256, "jev.model.source_revision": profile.revision,
-            "jev.model.converter_revision": PRISM_SOURCE_REVISION, "jev.bitnet.source_tensor_sha256": specification["source_tensor_sha256"],
-            "jev.bitnet.model": "profile-qwen35-single-projection-v2", "jev.bitnet.execution": "group128-a8-fp32-nearest-even-identity-v1",
-        }.items()
-    ]
-    declarations.extend({"name": "qwen35." + name, "kind": "u32", "values": [value]} for name, value in {
-        "block_count": specification["layers"], "embedding_length": specification["hidden"], "feed_forward_length": specification["intermediate"],
-    }.items())
-    declarations.extend(specification["metadata"])
+    declarations = _profile_model_policy_metadata_declarations(profile, specification)
     table_offset = min(int(tensor.field.offset) for tensor in reader.tensors)
     if not 24 <= table_offset <= reader.data_offset:
         raise ValueError("policy metadata tensor table boundary mismatch")
