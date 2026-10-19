@@ -474,7 +474,7 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32, metadata_output=None):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -492,6 +492,8 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     record["tokenization"]["label_token_ids"] = dict(zip("ABCDEFGHIJKLMNOP", [11, 17, 23, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19], strict=True))
     config = json.loads(metadata["config.json"])
     config.update(geometry)
+    if metadata_output is not None:
+        config["max_position_embeddings"] = 512
     metadata["config.json"] = json.dumps(config, sort_keys=True).encode()
     shapes = {
         "model.embed_tokens.weight": (vocab_size, hidden), "lm_head.weight": (vocab_size, hidden), "model.norm.weight": (hidden,),
@@ -552,7 +554,29 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
         "shape": [rows, columns], "group_size": 128, "transform": "identity", "source_tensor_sha256": "f" * 64,
         "payload_bytes": blocks.nbytes, "payload_sha256": hashlib.sha256(memoryview(blocks)).hexdigest(),
     }
+    if metadata_output is not None:
+        metadata_output.update(metadata)
     return profile, report, manifest, blocks
+
+
+@pytest.mark.parametrize("source_shards", [1, 2])
+def test_profile_prefill_metadata_capture_retains_actual_pins_and_context(source_shards):
+    from embedded_jev.model_profile import verify_profile_metadata
+    from embedded_jev.prism_codec import prepare_profile_model_context_metadata, prepare_profile_model_template_metadata
+
+    metadata = {}
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(source_shards=source_shards, metadata_output=metadata)
+    verify_profile_metadata(profile, metadata)
+    assert report["source"]["profile_sha256"] == manifest["profile_sha256"] == profile.sha256
+    receipt = prepare_profile_model_context_metadata(profile, metadata_files=metadata, tokenizer_bytes=b"{}", context_length=256)
+    assert receipt["source_context_length"] == 512
+    template = prepare_profile_model_template_metadata(profile, metadata_files=metadata,
+        tokenizer_bytes=b"{}", context_length=256, template_source="source")
+    assert template["template"].encode() == metadata[profile.tokenization["template_file"]]
+    assert hashlib.sha256(memoryview(blocks)).hexdigest() == manifest["payload_sha256"]
+    metadata["config.json"] += b" "
+    with pytest.raises(ValueError, match="metadata identity"):
+        prepare_profile_model_context_metadata(profile, metadata_files=metadata, tokenizer_bytes=b"{}", context_length=256)
 
 
 @pytest.mark.parametrize("source_shards", [1, 2])

@@ -1525,6 +1525,12 @@ recheck and a fresh-hash contradictory caller-operand refusal. These public
 checks add their own bounded reads; the conversion owner's two whole-file
 hashes are not a whole-test read count. See the
 [public streamed table checkpoint](handover.md#public-streamed-table-checkpoint-2026-10-19).
+The same frozen control now captures its actual fixture metadata at creation,
+pins an explicit source context only on that opt-in path, and emits checked
+context/source-template fields alongside policy and all 28 tensors. Exact
+field bytes and public policy/source-table proofs pass together; inert `{}`
+tokenizer bytes still provide identity only. See the
+[streamed metadata checkpoint](handover.md#streamed-metadata-checkpoint-2026-10-19).
 
 `write_profile_model_context_metadata(profile, metadata_files=...,
 tokenizer_bytes=..., context_length=..., writer=...)` runs that preparation

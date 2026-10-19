@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [public streamed table checkpoint](#public-streamed-table-checkpoint-2026-10-19), followed by the
+the [streamed metadata checkpoint](#streamed-metadata-checkpoint-2026-10-19), followed by the
+[public streamed table checkpoint](#public-streamed-table-checkpoint-2026-10-19),
 [policy emission checkpoint](#policy-emission-checkpoint-2026-10-19),
 [template emission checkpoint](#template-emission-checkpoint-2026-10-19),
 [template preparation checkpoint](#template-preparation-checkpoint-2026-10-19),
@@ -328,6 +329,44 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Streamed Metadata Checkpoint (2026-10-19)
+
+After `71176d9`, the internal prefill fixture supports an optional metadata
+capture dictionary. Only that opt-in path declares and pins source
+`max_position_embeddings=512`; the default return remains the same four-tuple.
+Actual metadata bytes are captured after their file pins/inventory are built,
+not reconstructed from geometry. The frozen-source streamed-writer child now
+receives those exact bytes, emits checked context 256 and explicit source
+template text, and reads back their exact GGUF UINT32/STRING bytes. All 28
+tensors, complete selected source/converted table proof and typed policy
+verification remain in the same bounded control.
+
+Evidence:
+
+- Immediate capture/geometry/context family: **42 passed, 712 deselected in
+  0.55 s**. The two new cases check one/two-shard metadata pins, context/template
+  preparation, source/manifest/payload identity and stale-metadata refusal.
+- Pinned full synthetic writer control: **1 passed, 5 deselected in 6.00 s**,
+  keeping the 15 s child deadline, 16 MiB file and 64 MiB public operand bounds.
+- An explicit `/opt/venv/bin/python` runtime check confirms the default fixture
+  profile SHA remains exactly
+  `db61cea82984dae832a547b5a933adc5410658e670ebd8a20d4b209adbcb15b3`.
+  Pylance finds all **32** direct helper call sites compatible. This is not an
+  inference about the editor's selected interpreter.
+- Required source gate: **906 passed, 96 skipped in 22.30 s**, Ruff and
+  whitespace clean. Editor error checks for both changed Python files are
+  clean. Unchanged optional controls were not rerun.
+
+No failed checks, new learned inputs, downloads, native builds, model execution,
+refits, candidates or quality experiments occurred. The inert `{}` tokenizer
+fixture is still byte identity, not vocabulary/BPE compatibility, and no source
+template was rendered. Individual field emitters are now integrated on the
+tensor fixture, but complete-loader/runtime acceptance remains separate. Next:
+a source-bound metadata composer should preflight policy/context/template
+records together before any writer mutation, instead of relying on three
+independent calls that can leave earlier fields after a later preflight failure.
+See the [API contract](development.md#profile-gated-complete-model-policy).
 
 ## Public Streamed Table Checkpoint (2026-10-19)
 

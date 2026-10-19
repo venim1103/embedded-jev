@@ -4145,11 +4145,14 @@ def test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors(vector_dtype, sou
     assert subprocess.check_output(
         ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
     ).strip() == PRISM_REVISION
-    profile, inventory, manifest, blocks = _prefill_model_policy_fixture("down", vector_dtype=vector_dtype, conv_dtype=vector_dtype)
+    source_metadata = {}
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture("down", vector_dtype=vector_dtype, conv_dtype=vector_dtype,
+        metadata_output=source_metadata if include_frozen_source else None)
     plan = profile_model_conversion_plan(profile, inventory, manifest, blocks)
     fixture = _profile_parity_fixture(profile, inventory, manifest, blocks)
     fixture = json.dumps({**json.loads(fixture), "source_policy_version": source_policy_version,
-                          "mixed_source": mixed_source, "include_frozen_source": include_frozen_source})
+                          "mixed_source": mixed_source, "include_frozen_source": include_frozen_source,
+                          "source_metadata": {name: data.hex() for name, data in source_metadata.items()}})
     code = """
 from __future__ import annotations
 import ast
@@ -4572,6 +4575,13 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         if fixture["include_frozen_source"]:
             metadata_receipt = prism_codec.write_profile_model_policy_metadata(
                 profile, fixture["inventory"], fixture["manifest"], payload, writer=writer)
+            pinned_metadata = {name: bytes.fromhex(data) for name, data in fixture["source_metadata"].items()}
+            context_receipt = prism_codec.write_profile_model_context_metadata(profile, metadata_files=pinned_metadata,
+                tokenizer_bytes=b"{}", context_length=256, writer=writer)
+            template_receipt = prism_codec.write_profile_model_template_metadata(profile, metadata_files=pinned_metadata,
+                tokenizer_bytes=b"{}", context_length=256, template_source="source", writer=writer)
+            assert context_receipt["source_context_length"] == 512
+            assert context_receipt["tokenizer_semantic_verification"] == template_receipt["template_render_verification"] == "not_checked"
         import embedded_jev.streamed_text as streamed_text
 
         source_hash_descriptors = []
@@ -4759,6 +4769,12 @@ if next(item["source_dtype"] for item in plan["tensors"] if item["name"] == "out
         if fixture["include_frozen_source"]:
             assert {tensor.name for tensor in reader.tensors} == {entry["name"] for entry in plan["tensors"]}
             assert hashlib.sha256(memoryview(payload)).hexdigest() == fixture["manifest"]["payload_sha256"]
+            context_field = reader.fields["qwen35.context_length"]
+            assert context_field.types == [gguf.GGUFValueType.UINT32]
+            assert b"".join(context_field.parts[index].tobytes() for index in context_field.data) == (256).to_bytes(4, "little")
+            template_field = reader.fields["tokenizer.chat_template"]
+            assert template_field.types == [gguf.GGUFValueType.STRING]
+            assert b"".join(template_field.parts[index].tobytes() for index in template_field.data) == pinned_metadata[profile.tokenization["template_file"]]
             for record in metadata_receipt["records"]:
                 field = reader.fields[record["name"]]
                 if record["kind"] == "str":
