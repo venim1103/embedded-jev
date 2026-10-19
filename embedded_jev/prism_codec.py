@@ -1064,11 +1064,28 @@ def mapped_profile_safetensors_bf16_shard_v2(
     )
 
 
+def mapped_profile_safetensors_conversion_shard_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_shard: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_seconds: float = 30,
+):
+    """Own serial unfrozen matrices and bounded BF16/F32 auxiliary source operands."""
+    from embedded_jev.streamed_text import bounded_source_descriptor_record_v2
+
+    return _mapped_profile_safetensors_bf16_shard(
+        profile, inventory, manifest, pq2_blocks, source_path=source_path, source_shard=source_shard,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
+        file_ceiling=6 * 1024**3, operand_ceiling=2 * 1024**3,
+        descriptor_record=bounded_source_descriptor_record_v2, policy_version=2, allow_auxiliary=True,
+    )
+
+
 @contextmanager
 def _mapped_profile_safetensors_bf16_shard(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, source_path, source_shard,
     expected_file_bytes, expected_file_sha256, maximum_file_bytes, maximum_seconds,
-    file_ceiling, operand_ceiling, descriptor_record, policy_version,
+    file_ceiling, operand_ceiling, descriptor_record, policy_version, allow_auxiliary=False,
 ):
     from embedded_jev.inventory import _json_object, parse_safetensors_header
     from embedded_jev.model_profile import SHA256
@@ -1096,6 +1113,8 @@ def _mapped_profile_safetensors_bf16_shard(
     policy_receipt = {} if policy_version == 1 else {"source_policy_version": policy_version,
                                                    "source_file_cap_bytes": file_ceiling,
                                                    "source_operand_cap_bytes": operand_ceiling}
+    if allow_auxiliary:
+        policy_receipt.update(source_operand_policy="bf16_matrices_and_bf16_f32_auxiliaries", source_auxiliary_cap_bytes=1 << 20)
 
     def identity(value):
         return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
@@ -1146,16 +1165,21 @@ def _mapped_profile_safetensors_bf16_shard(
             ):
                 raise ValueError("invalid mapped source identity or budget")
             entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
-            if entry is None or entry["type"] != "BF16" or entry["source_dtype"] != "BF16" or len(entry["source_shape"]) != 2:
+            matrix_entry = entry is not None and entry["type"] == "BF16" and entry["source_dtype"] == "BF16" and len(entry["source_shape"]) == 2
+            auxiliary_entry = (allow_auxiliary and entry is not None and entry["type"] == "F32"
+                               and entry["arithmetic_dtype"] == "F32" and entry["source_dtype"] in ("BF16", "F32")
+                               and (len(entry["source_shape"]) == 1 or (len(entry["source_shape"]) == 3 and source_name.endswith("conv1d.weight"))))
+            if not matrix_entry and not auxiliary_entry:
                 raise ValueError("mapped source requires an unfrozen BF16 matrix")
             if source_shards.get(source_name) != source_shard:
                 raise ValueError("mapped source matrix belongs to another shard")
             shape = tuple(entry["source_shape"])
-            storage_bytes = shape[0] * shape[1] * 2
-            if storage_bytes > maximum_bytes:
+            dtype = np.dtype("<f4" if entry["source_dtype"] == "F32" else "<u2")
+            storage_bytes = int(np.prod(shape)) * dtype.itemsize
+            if storage_bytes > maximum_bytes or (auxiliary_entry and storage_bytes > 1 << 20):
                 raise ValueError("mapped source file pin or operand budget mismatch")
             selected = headers.get(source_name)
-            if selected is None or selected.dtype != "BF16" or selected.shape != shape or selected.storage_bytes != storage_bytes:
+            if selected is None or selected.dtype != entry["source_dtype"] or selected.shape != shape or selected.storage_bytes != storage_bytes:
                 raise ValueError("mapped source header geometry or dtype mismatch")
             offset = len(prefix) + offsets[source_name]["data_offsets"][0]
             mapped = None
@@ -1171,10 +1195,12 @@ def _mapped_profile_safetensors_bf16_shard(
                     position += len(chunk)
                 if digest.hexdigest() != expected_source_sha256:
                     raise ValueError("mapped source tensor identity mismatch")
-                mapped = np.memmap(source, mode="r", dtype="<u2", offset=offset, shape=shape)
+                mapped = np.memmap(source, mode="r", dtype=dtype, offset=offset, shape=shape)
                 active.append(mapped)
                 check_identity()
-                yield mapped, MappingProxyType({**policy_receipt, "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+                layout_receipt = {} if not allow_auxiliary else {"source_dtype": entry["source_dtype"], "source_shape": shape,
+                                                               "source_operand_kind": "auxiliary" if auxiliary_entry else "matrix"}
+                yield mapped, MappingProxyType({**policy_receipt, **layout_receipt, "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
                                                "source_name": source_name, "source_sha256": expected_source_sha256,
                                                "source_file_sha256": expected_file_sha256, "source_file_bytes": expected_file_bytes,
                                                "source_file_identity": before, "source_header_sha256": pin.header_sha256,

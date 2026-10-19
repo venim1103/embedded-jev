@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [v2 resource checkpoint](#v2-resource-checkpoint-2026-10-19), followed by the
+the [v2 mixed source checkpoint](#v2-mixed-source-checkpoint-2026-10-19), followed by the
+[v2 resource checkpoint](#v2-resource-checkpoint-2026-10-19),
 [v2 writer checkpoint](#v2-writer-checkpoint-2026-10-19),
 [v2 payload checkpoint](#v2-payload-checkpoint-2026-10-19),
 [v2 shard checkpoint](#v2-shard-checkpoint-2026-10-19) and
@@ -315,6 +316,40 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## V2 Mixed Source Checkpoint (2026-10-19)
+
+After `33cc013`, added explicit `mapped_profile_safetensors_conversion_shard_v2`
+for serial BF16 matrices plus declared BF16/F32 one-dimensional vectors and
+three-dimensional convolution kernels. Auxiliary raw ranges cap at **1 MiB**;
+existing v2 file/matrix ceilings, 16 MiB defaults, deadlines, single-child
+ownership and two full-file hashes are preserved. Both matrix-only APIs stay
+matrix-only, with unchanged receipts. The mixed owner adds policy/auxiliary
+cap and child dtype/shape/kind receipt fields. Read-only BF16/F32 mappings use
+the retained descriptor; frozen replacements still refuse. Raw ownership
+does not grant arithmetic, finiteness, runtime or model approval.
+
+BF16/F32 positives map vectors, convolution and a matrix serially with exact
+raw hashes, immutable layouts, overlap refusal, cleanup and exactly two
+whole-file hashes. Injected oversized auxiliary geometry refuses before
+mapping at the tighter 1 MiB boundary; no large operand is created. The
+existing 23-case matrix lifetime/allocation family also runs through the mixed
+owner, including source mutation, deadline, body failure and 32 MiB adjacent
+composition controls. Initial focused result: **117 passed, 1 failed in 9.67 s**.
+The failure was the old vector-rejection oracle: the mixed owner admits the
+vector, then correctly rejects the unrelated matrix digest. Its new case now
+requires exactly `mapped source tensor identity mismatch`; legacy matrix-only
+expectations are untouched. Final focused slice: **118 passed in 9.43 s**.
+
+Required gate: **782 passed, 90 optional skips in 25.09 s**, Ruff/whitespace/
+editor clean. Cached pinned BF16/v1, F32 and BF16/v2 controls: **3 passed in
+8.90 s**. Pylance confirms all **3 private-owner call sites** remain compatible
+after its optional auxiliary flag. No new dependencies, learned inputs,
+native builds/runtime jobs, artifacts or broader quality work. Scratch is
+disposable and cleaned. Next: exercise mixed-source auxiliary arithmetic and
+writer publication with the existing pinned synthetic converter fixtures;
+complete metadata/tokenizer/frozen integration and real-model approval remain
+separate.
 
 ## V2 Resource Checkpoint (2026-10-19)
 

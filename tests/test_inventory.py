@@ -1454,7 +1454,75 @@ def test_profile_safetensors_operand_matches_pinned_zero_file_ranges(tmp_path, m
             actual_path.unlink()
 
 
-@pytest.mark.parametrize("consumer", ["mapping", "payload", "shared", "shared-v2"])
+@pytest.mark.parametrize("source_dtype", ["BF16", "F32"])
+def test_profile_conversion_shard_v2_maps_auxiliaries_and_matrices_serially(tmp_path, monkeypatch, source_dtype):
+    from embedded_jev import prism_codec, streamed_text
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(pin_zero_source=True,
+        vector_dtype=source_dtype, conv_dtype=source_dtype)
+    plan = prism_codec.profile_model_conversion_plan(profile, report, manifest, blocks)
+    monkeypatch.setattr(prism_codec, "profile_model_conversion_plan", lambda *arguments, **keywords: plan)
+    entries, payload_bytes = {}, 0
+    for item in sorted(report["tensors"], key=lambda item: item["name"]):
+        size = int(np.prod(item["shape"])) * (4 if item["dtype"] == "F32" else 2)
+        entries[item["name"]] = {"dtype": item["dtype"], "shape": item["shape"], "data_offsets": [payload_bytes, payload_bytes + size]}
+        payload_bytes += size
+    header, file_bytes = _header(entries, payload_bytes)
+    path = tmp_path / profile.packaging["shards"][0]
+    with path.open("xb") as output:
+        output.write(header)
+        output.truncate(file_bytes)
+    hashes = []
+    original_record = streamed_text.bounded_source_descriptor_record_v2
+
+    def record(descriptor, **keywords):
+        hashes.append(descriptor)
+        return original_record(descriptor, **keywords)
+
+    monkeypatch.setattr(streamed_text, "bounded_source_descriptor_record_v2", record)
+    try:
+        with prism_codec.mapped_profile_safetensors_conversion_shard_v2(profile, report, manifest, blocks,
+                 source_path=path, source_shard=path.name, expected_file_bytes=file_bytes,
+                 expected_file_sha256=profile.files[path.name].sha256) as (operand, shard_receipt):
+            assert shard_receipt["source_auxiliary_cap_bytes"] == 1 << 20
+            for source_name in ("model.norm.weight", "model.layers.0.linear_attn.conv1d.weight", "model.layers.1.self_attn.k_proj.weight"):
+                entry = entries[source_name]
+                storage = entry["data_offsets"][1] - entry["data_offsets"][0]
+                source_sha256 = hashlib.sha256(bytes(storage)).hexdigest()
+                with operand(source_name, source_sha256, maximum_bytes=storage) as (values, receipt):
+                    assert values.shape == tuple(entry["shape"]) and values.dtype == np.dtype("<f4" if entry["dtype"] == "F32" else "<u2")
+                    assert not values.flags.writeable and not values.flags.owndata
+                    assert receipt["source_dtype"] == entry["dtype"] and receipt["source_shape"] == values.shape
+                    assert receipt["source_operand_kind"] == ("matrix" if len(values.shape) == 2 else "auxiliary")
+                    assert hashlib.sha256(memoryview(values)).hexdigest() == source_sha256
+                    with pytest.raises(ValueError, match="already has a live matrix"):
+                        with operand(source_name, source_sha256):
+                            pytest.fail("overlapping conversion source was mapped")
+                assert values._mmap.closed and len(hashes) == 1
+            with pytest.raises(ValueError, match="requires an unfrozen BF16 matrix"):
+                with operand(manifest["tensor"], "f" * 64):
+                    pytest.fail("conversion mapping admitted the frozen replacement")
+            vector_entry = next(item for item in plan["tensors"] if item["source_name"] == "model.norm.weight")
+            original_shape = vector_entry["source_shape"]
+            vector_entry["source_shape"] = [(1 << 20) // (4 if source_dtype == "F32" else 2) + 1]
+
+            def never_map(*arguments, **keywords):
+                pytest.fail("oversized auxiliary reached mapping")
+
+            try:
+                with monkeypatch.context() as bounded:
+                    bounded.setattr(prism_codec.np, "memmap", never_map)
+                    with pytest.raises(ValueError, match="file pin or operand budget mismatch"):
+                        with operand("model.norm.weight", "0" * 64, maximum_bytes=2 * 1024**3):
+                            pytest.fail("conversion mapping admitted an oversized auxiliary")
+            finally:
+                vector_entry["source_shape"] = original_shape
+        assert len(hashes) == 2 and hashes[0] == hashes[1]
+    finally:
+        path.unlink()
+
+
+@pytest.mark.parametrize("consumer", ["mapping", "payload", "shared", "shared-v2", "conversion-v2"])
 @pytest.mark.parametrize("defect", [
     None, "allocation", "peak-scaling", "source-pin", "file-pin", "file-size", "operand-budget", "boolean-budget", "file-budget",
     "deadline-budget", "frozen", "vector", "missing", "symlink", "fifo", "before-yield", "changed", "restored",
@@ -1513,7 +1581,7 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
     elif defect == "boolean-budget":
         arguments["maximum_bytes"] = True
     elif defect == "file-budget":
-        arguments["maximum_file_bytes"] = (6 * 1024**3 if consumer == "shared-v2" else 16 * 1024**2) + 1
+        arguments["maximum_file_bytes"] = (6 * 1024**3 if consumer in ("shared-v2", "conversion-v2") else 16 * 1024**2) + 1
     elif defect == "deadline-budget":
         arguments["maximum_seconds"] = float("nan")
     elif defect in ("frozen", "vector", "missing"):
@@ -1532,21 +1600,23 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
     def shared_matrix():
         file_arguments = {key: value for key, value in arguments.items() if key not in ("source_name", "expected_source_sha256", "maximum_bytes")}
         owner = prism_codec.mapped_profile_safetensors_bf16_shard_v2 if consumer == "shared-v2" else prism_codec.mapped_profile_safetensors_bf16_shard
+        if consumer == "conversion-v2":
+            owner = prism_codec.mapped_profile_safetensors_conversion_shard_v2
         with owner(profile, inventory, manifest, blocks, source_shard=path.name, **file_arguments) as (matrix, shard_receipt):
-            if consumer == "shared-v2":
+            if consumer in ("shared-v2", "conversion-v2"):
                 assert shard_receipt["source_policy_version"] == 2
                 assert shard_receipt["source_file_cap_bytes"] == 6 * 1024**3
                 assert shard_receipt["source_operand_cap_bytes"] == 2 * 1024**3
             with matrix(arguments["source_name"], arguments["expected_source_sha256"],
                      maximum_bytes=arguments.get("maximum_bytes", 16 * 1024**2)) as result:
-                if consumer == "shared-v2":
+                if consumer in ("shared-v2", "conversion-v2"):
                     assert result[1]["source_policy_version"] == 2
                 yield result
 
     def ownership():
         if consumer == "payload":
             return prism_codec.temporary_profile_mapped_bf16_payload(profile, inventory, manifest, blocks, **arguments, directory=tmp_path)
-        if consumer in ("shared", "shared-v2"):
+        if consumer in ("shared", "shared-v2", "conversion-v2"):
             return shared_matrix()
         return prism_codec.mapped_profile_safetensors_bf16_matrix(profile, inventory, manifest, blocks, **arguments)
 
@@ -1643,6 +1713,8 @@ def test_profile_mapped_bf16_source_bounds_lifetime_and_allocation(tmp_path, mon
                 assert isinstance(error, RuntimeError) and str(error) == "mapped consumer failed"
             elif defect == "symlink":
                 assert isinstance(error, OSError) and error.errno == errno.ELOOP
+            elif defect == "vector" and consumer == "conversion-v2":
+                assert isinstance(error, ValueError) and str(error) == "mapped source tensor identity mismatch"
             else:
                 expected_message = (
                     "tensor identity mismatch" if defect == "source-pin" else

@@ -1585,6 +1585,22 @@ source/GGUF fixture stays below 16 MiB and the per-child deadline remains
 30 seconds. This is separate from the 32 MiB default allocation/cleanup
 fixture. See the [v2 writer checkpoint](handover.md#v2-writer-checkpoint-2026-10-19).
 
+`mapped_profile_safetensors_conversion_shard_v2(...)` explicitly extends v2
+shared ownership to unfrozen BF16 matrices and declared BF16/F32 vectors and
+convolution kernels. Auxiliary raw ranges have a tighter **1 MiB** ceiling;
+the existing 6 GiB file/2 GiB matrix caps, 16 MiB caller defaults and single
+serial child lifetime remain. New receipts add `source_operand_policy`,
+`source_auxiliary_cap_bytes`, and per-child dtype/shape/kind. Source BF16 is
+mapped as little-endian uint16 and F32 as little-endian float32; both are
+read-only and descriptor-owned. The existing matrix-only APIs and receipts
+are unchanged. Frozen replacement operands and unsupported arithmetic/dtypes
+still refuse. All source/header/range checks and parent/child failure cleanup
+are shared; exactly two whole-file hashes cover serial mixed operands.
+This verifies raw provenance, not finiteness or conversion arithmetic:
+retain the separate vector/convolution numerical gates. Borrowed aliases
+must finish before child exit; concurrent truncation is not supported.
+See the [v2 mixed source checkpoint](handover.md#v2-mixed-source-checkpoint-2026-10-19).
+
 `mapped_profile_safetensors_bf16_shard_v2(...)` explicitly selects the separate
 6 GiB file/2 GiB selected-matrix policy and v2 descriptor hasher. Its file and
 child budget defaults remain 16 MiB; larger extents require explicit caller
