@@ -368,6 +368,37 @@ def prepare_profile_model_tokenizer_vocabulary(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):
     """Extract bounded vocabulary with the trusted parser, not a GGUF tokenizer conversion."""
+    prepared, _ = _prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    return prepared
+
+
+def prepare_profile_model_tokenizer_contract(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+):
+    """Check declared token IDs and standalone labels, not rendered-prompt boundaries."""
+    prepared, tokenizer = _prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    special_ids = {token_id for token_id, token in tokenizer.get_added_tokens_decoder().items() if token.special}
+    for token, token_id in profile.tokenization["special_token_ids"].items():
+        if tokenizer.token_to_id(token) != token_id or tokenizer.encode(token, add_special_tokens=False).ids != [token_id]:
+            raise ValueError("declared special tokenizer contract mismatch")
+    for label, token_id in profile.tokenization["label_token_ids"].items():
+        if (token_id in special_ids or tokenizer.token_to_id(label) != token_id
+                or tokenizer.encode(label, add_special_tokens=False).ids != [token_id]):
+            raise ValueError("standalone label tokenizer contract mismatch")
+    return MappingProxyType({**prepared,
+                            "special_token_ids": MappingProxyType(dict(profile.tokenization["special_token_ids"])),
+                            "label_token_ids": MappingProxyType(dict(profile.tokenization["label_token_ids"])),
+                            "special_token_verification": "declared_ids_and_standalone_encoding",
+                            "label_token_verification": "standalone_single_non_special_ids",
+                            "prompt_label_boundary_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_token_contract_preparation"})
+
+
+def _prepare_profile_model_tokenizer_vocabulary(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+):
     from embedded_jev.inventory import _json_object
 
     prepared = prepare_profile_model_context_metadata(profile, metadata_files=metadata_files,
@@ -395,7 +426,7 @@ def prepare_profile_model_tokenizer_vocabulary(
                             "tokenizer_semantic_verification": "not_checked",
                             "special_token_verification": "not_checked", "label_token_verification": "not_checked",
                             "gguf_tokenizer_verification": "not_checked",
-                            "runtime_approval": "not_granted_by_vocabulary_preparation"})
+                            "runtime_approval": "not_granted_by_vocabulary_preparation"}), tokenizer
 
 
 def write_profile_model_architecture_metadata(profile, inventory: dict, manifest: dict, pq2_blocks, *, writer):

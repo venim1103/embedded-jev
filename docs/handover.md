@@ -12,7 +12,8 @@ larger-file work with periodic local checkpoints. Starting `a9f82a1` matches
 resume had already edited the explicit v2 descriptor hasher and tests, and its
 focused terminal command completed successfully. Those edits were inspected
 and preserved rather than repeated. The required source gate now passes; read
-the [vocabulary preparation checkpoint](#vocabulary-preparation-checkpoint-2026-10-19), followed by the
+the [standalone token checkpoint](#standalone-token-checkpoint-2026-10-19), followed by the
+[vocabulary preparation checkpoint](#vocabulary-preparation-checkpoint-2026-10-19),
 [context emission checkpoint](#context-emission-checkpoint-2026-10-19),
 [metadata preparation checkpoint](#metadata-preparation-checkpoint-2026-10-19),
 [architecture metadata checkpoint](#architecture-metadata-checkpoint-2026-10-19),
@@ -323,6 +324,50 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Standalone Token Checkpoint (2026-10-19)
+
+After `abbd3b7`, added `prepare_profile_model_tokenizer_contract`. A private
+builder lets vocabulary-only and contract preparation share the same pinned
+source checks and one trusted parser instance without exposing that mutable
+engine publicly. Vocabulary-only receipts are unchanged. Contract preparation
+checks declared control-token IDs and standalone encodings, and all A-P IDs
+and single-token encodings with `add_special_tokens=False`. Labels may not
+have the parser's special-token flag; profile-declared controls need not have
+that flag. Returned ID maps are immutable. Explicit markers leave rendered
+prompt label boundaries, full tokenizer semantics, GGUF mapping, templates,
+weights and runtime approval unchecked.
+
+Evidence:
+
+- Focused vocabulary/contract/context/architecture family: **62 passed,
+  642 deselected in 0.52 s**. The six new default cases use a parser double
+  to check one parse, ID and encoding mismatches, special-label refusal and
+  nested receipt immutability.
+- Pinned metadata-only control now uses explicit `identity`, `vocabulary`
+  and `contract` modes. Actual cached-parser contract mode: **1 passed,
+  2 deselected in 0.36 s**. Declared controls and all A-P labels pass, while
+  fresh-profile-pin changed special IDs, a lowercasing normalizer and a label
+  marked special each refuse. Existing exact context-byte checks remain.
+- The two changed non-contract modes separately passed: **2 passed,
+  1 deselected in 0.58 s**. Each child keeps the 15 s deadline and owned
+  tensor-free output smaller than 64 KiB. No rendered chat prompt or model
+  execution occurs.
+- Required source gate: **856 passed, 96 skipped in 24.47 s**, Ruff and
+  whitespace clean. Editor error checks are clean; optional-import warnings
+  recorded in the preceding checkpoint remain environment prerequisites.
+  Pylance finds both direct vocabulary call sites compatible; no direct
+  callers exist for the parameterized pytest function, whose three dynamic
+  modes were actually exercised.
+
+No checks failed in this increment. No learned inputs, downloads, native
+builds, model conversions, refits, candidates or quality jobs ran. Standalone
+labels do not replace the existing `probe_label_boundary` requirement that
+each label extend the actual rendered prefix by exactly one token. Next:
+prepare explicit source-versus-separately-pinned-GGUF template selection
+without rendering template code or guessing which template belongs in a
+converted artifact. Full-model/runtime/quality work remains separately
+approved. See the [API contract](development.md#profile-gated-complete-model-policy).
 
 ## Vocabulary Preparation Checkpoint (2026-10-19)
 

@@ -858,6 +858,69 @@ def test_profile_model_streaming_resource_plan_v2_refuses_invalid_budgets_before
         prism_codec.profile_model_streaming_resource_plan_v2(None, {}, {}, None, **budgets)
 
 
+def _profile_tokenizer_preparation_fixture(tokenizer_bytes):
+    metadata, _, record = _packaging_fixture(text_only=True)
+    config = json.loads(metadata["config.json"])
+    config["max_position_embeddings"] = 512
+    metadata["config.json"] = json.dumps(config).encode()
+    record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
+    record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
+    return parse_model_profile(json.dumps(record).encode()), metadata
+
+
+@pytest.mark.parametrize("defect", [None, "special-id", "special-encoding", "label-id", "label-encoding", "label-special"])
+def test_profile_tokenizer_contract_is_standalone_and_not_a_prompt_boundary(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_contract
+
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    vocabulary = {f"token{index}": index for index in range(profile.geometry["vocab_size"])}
+    for token, token_id in {**profile.tokenization["special_token_ids"], **profile.tokenization["label_token_ids"]}.items():
+        del vocabulary[f"token{token_id}"]
+        vocabulary[token] = token_id
+    calls = []
+
+    def token_to_id(token):
+        if defect == "special-id" and token == "<think>" or defect == "label-id" and token == "A":
+            return None
+        return vocabulary.get(token)
+
+    def encode(token, *, add_special_tokens):
+        assert add_special_tokens is False
+        token_ids = [vocabulary[token]]
+        if defect == "special-encoding" and token == "<think>" or defect == "label-encoding" and token == "A":
+            token_ids *= 2
+        return SimpleNamespace(ids=token_ids)
+
+    def from_str(text):
+        calls.append(text)
+        added = {vocabulary["A"]: SimpleNamespace(special=True)} if defect == "label-special" else {}
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary), token_to_id=token_to_id,
+                               encode=encode, get_added_tokens_decoder=lambda: added)
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    if defect:
+        with pytest.raises(ValueError, match="special tokenizer" if defect.startswith("special") else "label tokenizer"):
+            prepare_profile_model_tokenizer_contract(profile, metadata_files=metadata,
+                tokenizer_bytes=tokenizer_bytes, context_length=256)
+        assert calls == [tokenizer_bytes.decode()]
+        return
+    receipt = prepare_profile_model_tokenizer_contract(profile, metadata_files=metadata,
+        tokenizer_bytes=tokenizer_bytes, context_length=256)
+    assert calls == [tokenizer_bytes.decode()]
+    assert receipt["label_token_ids"] == profile.tokenization["label_token_ids"]
+    assert receipt["special_token_ids"] == profile.tokenization["special_token_ids"]
+    assert receipt["special_token_verification"] == "declared_ids_and_standalone_encoding"
+    assert receipt["label_token_verification"] == "standalone_single_non_special_ids"
+    assert receipt["prompt_label_boundary_verification"] == receipt["tokenizer_semantic_verification"] == "not_checked"
+    assert receipt["gguf_tokenizer_verification"] == receipt["gguf_template_verification"] == "not_checked"
+    with pytest.raises(TypeError):
+        receipt["label_token_ids"]["A"] = 3
+
+
 @pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "model-kind", "parser", "empty", "duplicate-id", "gap", "boolean-id", "capacity"])
 def test_profile_tokenizer_vocabulary_is_pinned_bounded_and_not_gguf_semantics(monkeypatch, defect):
     import sys
@@ -865,14 +928,8 @@ def test_profile_tokenizer_vocabulary_is_pinned_bounded_and_not_gguf_semantics(m
 
     from embedded_jev.prism_codec import prepare_profile_model_tokenizer_vocabulary
 
-    metadata, _, record = _packaging_fixture(text_only=True)
-    config = json.loads(metadata["config.json"])
-    config["max_position_embeddings"] = 512
-    metadata["config.json"] = json.dumps(config).encode()
-    record["files"]["config.json"] = {"bytes": len(metadata["config.json"]), "sha256": hashlib.sha256(metadata["config.json"]).hexdigest()}
     tokenizer_bytes = json.dumps({"model": {"type": "WordLevel" if defect == "model-kind" else "BPE"}}).encode()
-    record["files"]["tokenizer.json"] = {"bytes": len(tokenizer_bytes), "sha256": hashlib.sha256(tokenizer_bytes).hexdigest()}
-    profile = parse_model_profile(json.dumps(record).encode())
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
     vocabulary = {"B": 1, "A": 0}
     if defect == "metadata-pin":
         metadata["config.json"] += b" "

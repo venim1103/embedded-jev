@@ -1479,6 +1479,20 @@ metadata control, including a fresh-pin invalid BPE merge refusal. This does
 not emit vocabulary or merge metadata. See the
 [vocabulary preparation checkpoint](handover.md#vocabulary-preparation-checkpoint-2026-10-19).
 
+`prepare_profile_model_tokenizer_contract(...)` shares one verified parser
+instance with vocabulary extraction, then checks declared control-token IDs
+and standalone encodings, plus all A-P label IDs and single-token encodings
+with `add_special_tokens=False`. Labels must not be parser-marked special
+tokens; declared controls need not carry that parser flag. Immutable ID maps
+and narrow verification markers are returned. This is not a rendered-prompt
+label-boundary check, calibrated confidence, full tokenizer semantics or GGUF
+compatibility. Use the existing `probe_label_boundary` separately for actual
+rendered-prompt continuation evidence. Default doubles cover ID/encoding and
+special-label refusals; the pinned metadata control's `contract` mode uses the
+real cached parser, including freshly pinned special-ID, lowercasing and
+special-label contradictions. See the
+[standalone token checkpoint](handover.md#standalone-token-checkpoint-2026-10-19).
+
 `write_profile_model_context_metadata(profile, metadata_files=...,
 tokenizer_bytes=..., context_length=..., writer=...)` runs that preparation
 directly on source bytes rather than accepting a caller-made receipt, then
