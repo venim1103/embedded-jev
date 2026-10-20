@@ -21,7 +21,8 @@ one-shot approvals remain consumed.
 
 **New separate approval:** after `d0c133a`, the user approved the
 [full-scale synthetic row proposal](#full-scale-synthetic-row-proposal-2026-10-20).
-Read the [v2 row preparation checkpoint](#v2-row-preparation-checkpoint-2026-10-20)
+Read the [v2 row file checkpoint](#v2-row-file-checkpoint-2026-10-20), then the
+[v2 row preparation checkpoint](#v2-row-preparation-checkpoint-2026-10-20)
 for implemented evidence. Learned-input approvals remain consumed; this new
 approval does not authorize model, native or quality work.
 
@@ -388,6 +389,52 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## V2 Row File Checkpoint (2026-10-20)
+
+After `88197d4`, new `write_profile_model_fast_tokenizer_rows_v2` freshly prepares
+the explicitly budgeted v2 policy, then reuses the joint two-key preflight and
+typed record builder. `verify_profile_gguf_fast_tokenizer_rows_v3` separately
+prepares v2 rows and opts into private **record policy 2** for the same retained
+two-record proof. New explicit ceilings are 16 MiB file, 8 MiB selected records
+and 8 MiB header; defaults stay 256 KiB file, 8 KiB selected records and 1 MiB
+header. V2 row/content defaults and explicit ceilings are unchanged. The
+cooperative proof deadline defaults to 30 s, ceiling 180 s; actual optional
+children remain independently supervised by the approved 60 s guard.
+
+The generic retained helper's original default record policy still caps records
+at 128 KiB and numeric parts at 4101 (default 32). Only explicit private record
+policy 2 permits 8 MiB and 262149 parts. Strict version validation rejects bool
+or unknown policies. No old wrapper passes the new opt-in. Public v3 receipts
+identify `tokenizer_row_file_policy_version=3`; retained-file storage policy
+remains v2, full-tokenizer/pre-tag status remains unchecked and runtime approval
+is denied. Nine resolved helper usage locations were checked; editor diagnostics
+are clean. No native parser/ABI change.
+
+Writer preflight **21 passed in 0.16 s**; wrapper routing/budget/deadline controls
+**32 passed in 0.18 s**. Six direct private-ceiling/version cases plus actual
+`fast-v2-proof` **7 passed in 6.39 s**. The latter checks **8193 rows**, two unused
+rows, actual normalization/rewrite, paired typed readback, two same-descriptor
+hashes and 65,536-byte maximum read. Default selected budget and old hard record/
+numeric ceilings refuse. Eight serial fresh-hash contradictions, stale SHA,
+copied part, restored write after final hash, closed map, FD baselines and
+unchanged bytes pass their refusal/cleanup assertions.
+
+Output **171,232 bytes**, packet **427,980 bytes**, logical scratch **770,444
+bytes**; observed RSS **405,553,152 bytes**, process/host swap zero, observed host
+available minimum **18,690,039,808 bytes**. Parent scratch cleans. Total approved
+large-control sequence budget consumed conservatively **9.86 s of 600 s**,
+including the previous declaration test. This is intermediate-size evidence:
+larger file/header ranges and actual 248,320 rows have not yet run.
+
+Old three capacity modes plus writer/wrapper/ceiling cases **62 passed in
+7.08 s**. Root gate **1309 passed, 122 skipped in 29.86 s**, Ruff/whitespace/editor
+clean. Two edit attempts failed atomic context matching; absence of partial
+edits was checked before corrected patches. No executable failure or weakened
+guard in this increment. No learned inputs, download, native build/CTest, model
+execution/conversion, retained candidate, refit or quality job. Next approved
+step is full-size synthetic row/file/header evidence, split into bounded serial
+worker phases so the aggregate corruption checks do not enlarge any child limit.
 
 ## V2 Row Preparation Checkpoint (2026-10-20)
 

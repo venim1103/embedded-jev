@@ -6622,7 +6622,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-rows"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-rows", "fast-v2-proof"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6630,11 +6630,11 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
 
     from test_inventory import _packaging_fixture
 
-    row_version = 2 if tokenizer_mode == "fast-v2-rows" else 1
-    fast_capacity = tokenizer_mode in ("fast-rows-proof-capacity", "fast-v2-rows")
-    fast_proof = tokenizer_mode in ("fast-rows-proof", "fast-rows-proof-capacity")
-    fast_emission = tokenizer_mode in ("fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity")
-    fast_rows = tokenizer_mode in ("fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-rows")
+    row_version = 2 if tokenizer_mode in ("fast-v2-rows", "fast-v2-proof") else 1
+    fast_capacity = tokenizer_mode in ("fast-rows-proof-capacity", "fast-v2-rows", "fast-v2-proof")
+    fast_proof = tokenizer_mode in ("fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-proof")
+    fast_emission = tokenizer_mode in ("fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-proof")
+    fast_rows = tokenizer_mode in ("fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-rows", "fast-v2-proof")
     if fast_rows:
         tokenizer_mode = "types"
     capacity = fast_capacity or tokenizer_mode in ("row-proof-capacity", "rows-merges-proof-capacity")
@@ -6768,7 +6768,7 @@ if fixture["fast_rows"]:
     from types import SimpleNamespace
     from tokenizers import Tokenizer
     from transformers import PreTrainedTokenizerFast
-    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows, prepare_profile_model_tokenizer_rows_v2, write_profile_model_fast_tokenizer_rows
+    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows, prepare_profile_model_tokenizer_rows_v2, write_profile_model_fast_tokenizer_rows, write_profile_model_fast_tokenizer_rows_v2
 
     @contextmanager
     def library_diagnostics():
@@ -6843,15 +6843,15 @@ if fixture["fast_rows"]:
         assert root.is_dir() and not list(root.iterdir())
         path, fault_path = root / "fast-rows.gguf", root / "fault.gguf"
         writer = gguf.GGUFWriter(path, "qwen35")
-        arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
-                     "row_policy": "pinned_prism_fast_rows_v1", "writer": writer}
+        arguments = {**row_arguments, "writer": writer}
+        emit_rows = write_profile_model_fast_tokenizer_rows_v2 if fixture["row_version"] == 2 else write_profile_model_fast_tokenizer_rows
         try:
             with library_diagnostics():
-                emitted = write_profile_model_fast_tokenizer_rows(profile, **arguments)
+                emitted = emit_rows(profile, **arguments)
                 assert emitted["metadata_count"] == 2 and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
                 snapshot = [dict(mapping) for mapping in writer.kv_data]
                 try:
-                    write_profile_model_fast_tokenizer_rows(profile, **arguments)
+                    emit_rows(profile, **arguments)
                     raise AssertionError("fast rows overwrote existing metadata")
                 except ValueError as error:
                     assert "conflicting" in str(error)
@@ -6885,34 +6885,45 @@ if fixture["fast_rows"]:
             if fixture["fast_proof"]:
                 from embedded_jev import prism_codec, streamed_text
 
-                proof_arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
-                    "row_policy": "pinned_prism_fast_rows_v1", "expected_file_bytes": len(original),
+                proof_arguments = {**row_arguments, "expected_file_bytes": len(original),
                     "expected_file_sha256": hashlib.sha256(original).hexdigest()}
+                verifier = prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3 if fixture["row_version"] == 2 else prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2
 
                 def prove_rows(actual_reader, **changes):
                     with library_diagnostics():
-                        return prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2(profile, reader=actual_reader,
+                        return verifier(profile, reader=actual_reader,
                             **{**proof_arguments, **changes})
 
                 if fixture["capacity"]:
                     import time
 
-                    assert len(rows) == 4096 and len(original) > 8192
+                    assert len(rows) == (8193 if fixture["row_version"] == 2 else 4096) and len(original) > 8192
                     try:
                         prove_rows(reader)
                         raise AssertionError("default fast-row record budget grew implicitly")
                     except ValueError as error:
                         assert "records exceed byte budget" in str(error)
-                    proof_arguments["maximum_metadata_bytes"] = 128 * 1024
+                    proof_arguments["maximum_metadata_bytes"] = 8 * 1024**2 if fixture["row_version"] == 2 else 128 * 1024
                     try:
                         prism_codec._verify_profile_gguf_metadata_records(profile, reader=reader,
                             expected_file_bytes=len(original), expected_file_sha256=proof_arguments["expected_file_sha256"],
                             maximum_file_bytes=256 * 1024, deadline=time.monotonic() + 15, model_owner=None, descriptor=None,
                             policy_version=2, file_cap=256 * 1024, header_cap=1024**2,
-                            declarations=[dict(record) for record in emitted["records"]], maximum_metadata_bytes=128 * 1024)
+                            declarations=[dict(record) for record in emitted["records"]], maximum_metadata_bytes=proof_arguments["maximum_metadata_bytes"])
                         raise AssertionError("old numeric-array part cap changed for fast rows")
                     except ValueError as error:
-                        assert "field type or range mismatch: tokenizer.ggml.token_type" in str(error)
+                        assert ("invalid selected metadata record budget" if fixture["row_version"] == 2 else
+                            "field type or range mismatch: tokenizer.ggml.token_type") in str(error)
+                    if fixture["row_version"] == 2:
+                        try:
+                            prism_codec._verify_profile_gguf_metadata_records(profile, reader=reader,
+                                expected_file_bytes=len(original), expected_file_sha256=proof_arguments["expected_file_sha256"],
+                                maximum_file_bytes=256 * 1024, deadline=time.monotonic() + 15, model_owner=None, descriptor=None,
+                                policy_version=2, file_cap=256 * 1024, header_cap=1024**2, declarations=[],
+                                maximum_numeric_array_parts=5 + len(rows))
+                            raise AssertionError("old numeric part ceiling increased implicitly")
+                        except ValueError as error:
+                            assert "invalid selected numeric-array part budget" in str(error)
                     summary["old_numeric_part_default_preserved"] = True
 
                 hashes, reads = [], []

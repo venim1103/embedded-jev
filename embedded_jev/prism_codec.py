@@ -914,6 +914,22 @@ def write_profile_model_fast_tokenizer_rows(
                             "runtime_approval": "not_granted_by_fast_token_rows_emission"})
 
 
+def write_profile_model_fast_tokenizer_rows_v2(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str, writer,
+    maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+):
+    """Emit explicitly budgeted v2 rows after joint preflight, not learned-input or runtime approval."""
+    prepared = prepare_profile_model_tokenizer_rows_v2(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows,
+        maximum_token_content_bytes=maximum_token_content_bytes)
+    records = _write_profile_model_metadata_records(writer, _profile_fast_tokenizer_row_records(prepared))
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "metadata_scope": "padded_transformed_token_rows_subset",
+                            "metadata_emission": "padded_transformed_strings_and_types_emitted",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "runtime_approval": "not_granted_by_fast_token_rows_emission"})
+
+
 def _profile_fast_tokenizer_row_records(prepared):
     encodings = {"NORMAL": 1, "CONTROL": 3, "USER_DEFINED": 4, "UNUSED": 5}
     return [
@@ -2747,6 +2763,48 @@ def verify_profile_gguf_source_metadata_v2(
                             "runtime_approval": "not_granted_by_source_metadata_verification"})
 
 
+def verify_profile_gguf_fast_tokenizer_rows_v3(
+    profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 256 * 1024,
+    maximum_seconds: float = 30, maximum_metadata_bytes: int = 8192, maximum_header_bytes: int = 1024**2,
+    maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+):
+    """Verify explicitly budgeted v2 rows on one retained file, not complete tokenizer or runtime acceptance."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 180
+        or type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= 8 * 1024**2
+        or type(maximum_header_bytes) is not int or not 0 < maximum_header_bytes <= 8 * 1024**2
+    ):
+        raise ValueError("invalid v3 fast-row file identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    prepared = prepare_profile_model_tokenizer_rows_v2(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows,
+        maximum_token_content_bytes=maximum_token_content_bytes)
+    if time.monotonic() > deadline:
+        raise ValueError("fast-row preparation deadline exceeded")
+    verified = dict(_verify_profile_gguf_metadata_records(profile, reader=reader,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, deadline=deadline, model_owner=None, descriptor=None,
+        policy_version=2, file_cap=16 * 1024**2, header_cap=maximum_header_bytes,
+        declarations=_profile_fast_tokenizer_row_records(prepared), maximum_metadata_bytes=maximum_metadata_bytes,
+        maximum_numeric_array_parts=5 + profile.geometry["vocab_size"], record_policy_version=2))
+    if time.monotonic() > deadline:
+        raise ValueError("fast-row verification deadline exceeded")
+    verified.pop("policy_metadata_verification", None)
+    return MappingProxyType({**prepared, **verified, "tokenizer_row_file_policy_version": 3,
+                            "selected_metadata_cap_bytes": maximum_metadata_bytes,
+                            "metadata_scope": "padded_transformed_token_rows_subset",
+                            "source_row_verification": "selected_pinned_fast_wrapper_declarations_match_file",
+                            "gguf_token_type_verification": "selected_padded_transformed_type_rows_match_file",
+                            "metadata_verification": "selected_typed_fast_rows_match_file",
+                            "runtime_approval": "not_granted_by_fast_token_rows_file_verification"})
+
+
 def verify_profile_gguf_fast_tokenizer_rows_v2(
     profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 256 * 1024,
@@ -2998,7 +3056,7 @@ def _verify_profile_gguf_policy_metadata(
 def _verify_profile_gguf_metadata_records(
     profile, *, reader, expected_file_bytes, expected_file_sha256, maximum_file_bytes, deadline,
     model_owner, descriptor, policy_version, file_cap, header_cap, declarations, expected_tensor_count=None,
-    maximum_metadata_bytes=8192, maximum_numeric_array_parts=32,
+    maximum_metadata_bytes=8192, maximum_numeric_array_parts=32, record_policy_version=1,
 ):
     import sys
 
@@ -3006,9 +3064,13 @@ def _verify_profile_gguf_metadata_records(
 
     from embedded_jev.streamed_text import bounded_native_descriptor_record, bounded_native_file_record, bounded_gguf_descriptor_record_v2
 
-    if type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= 128 * 1024:
+    if type(record_policy_version) is not int or record_policy_version not in (1, 2):
+        raise ValueError("invalid selected record policy version")
+    metadata_cap = 8 * 1024**2 if record_policy_version == 2 else 128 * 1024
+    numeric_cap = 262149 if record_policy_version == 2 else 4101
+    if type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= metadata_cap:
         raise ValueError("invalid selected metadata record budget")
-    if type(maximum_numeric_array_parts) is not int or not 0 < maximum_numeric_array_parts <= 4101:
+    if type(maximum_numeric_array_parts) is not int or not 0 < maximum_numeric_array_parts <= numeric_cap:
         raise ValueError("invalid selected numeric-array part budget")
     if (
         type(reader) is not gguf.GGUFReader or sys.byteorder != "little"

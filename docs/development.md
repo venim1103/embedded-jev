@@ -2989,6 +2989,22 @@ growth; stdin/output/cleanup constraints remain unchanged. The old 15 s/1 GiB
 controls stay separately runnable. See the handover's approved full-scale
 synthetic proposal for all resource ceilings and remaining implementation work.
 
+`write_profile_model_fast_tokenizer_rows_v2` uses the same explicit v2 row and
+content opt-ins with joint paired preflight. Its receipt is emitted, not file
+verified. `verify_profile_gguf_fast_tokenizer_rows_v3` freshly prepares v2 rows
+and verifies both retained records. Its defaults remain 256 KiB file, 8 KiB
+selected records and 1 MiB header; explicit maxima are 16 MiB, 8 MiB and 8 MiB
+respectively. Only this wrapper opts into private record policy 2 and the larger
+numeric-part ceiling. All older private/public defaults and hard ceilings remain
+unchanged. Receipt field `tokenizer_row_file_policy_version=3` is separate from
+the retained storage policy version. Neither receipt establishes full tokenizer,
+pre-tag, learned-input, model or runtime approval.
+
+Use optional `fast-v2-proof` for the independently selected 8193-row actual
+emission/readback/file proof, including eight fresh-hash faults and lifecycle
+refusals. It still fits the original 256 KiB file ceiling, so it is not evidence
+that a multi-MiB file/header has been checked.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

@@ -1368,11 +1368,12 @@ def test_profile_fast_rows_v2_refuse_invalid_opt_ins_before_parser_access(monkey
         prism_codec.prepare_profile_model_tokenizer_rows_v2(SimpleNamespace(geometry={"vocab_size": capacity}), **arguments)
 
 
-@pytest.mark.parametrize("fast_rows", [False, True])
+@pytest.mark.parametrize("row_mode", ["rows", "fast", "fast-v2"])
 @pytest.mark.parametrize("defect", [None, "tokens-conflict", "types-conflict", "architecture", "split", "method", "preparation"])
-def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypatch, defect, fast_rows):
+def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypatch, defect, row_mode):
     from embedded_jev import prism_codec
 
+    fast_rows, version = row_mode != "rows", 2 if row_mode == "fast-v2" else 1
     writer = _profile_metadata_writer_fixture()
     if defect in ("tokens-conflict", "types-conflict"):
         writer.kv_data[0]["tokenizer.ggml.tokens" if defect == "tokens-conflict" else "tokenizer.ggml.token_type"] = ("existing", [7])
@@ -1395,16 +1396,20 @@ def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypat
 
     def prepare(actual_profile, **kwargs):
         assert actual_profile is profile
-        assert kwargs["row_policy" if fast_rows else "token_type_policy"] == ("pinned_prism_fast_rows_v1" if fast_rows else "pinned_prism_no_transform_v1")
+        assert kwargs["row_policy" if fast_rows else "token_type_policy"] == (f"pinned_prism_fast_rows_v{version}" if fast_rows else "pinned_prism_no_transform_v1")
+        if version == 2:
+            assert kwargs["maximum_vocabulary_rows"] == 4096 and kwargs["maximum_token_content_bytes"] == 65536
         calls.append(kwargs)
         if defect == "preparation":
             raise ValueError("source token-type preparation refused")
         return prepared
 
-    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows" if fast_rows else "prepare_profile_model_token_type_metadata", prepare)
-    emit = prism_codec.write_profile_model_fast_tokenizer_rows if fast_rows else prism_codec.write_profile_model_tokenizer_rows
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows_v2" if version == 2 else
+        "prepare_profile_model_tokenizer_rows" if fast_rows else "prepare_profile_model_token_type_metadata", prepare)
+    emit = (prism_codec.write_profile_model_fast_tokenizer_rows_v2 if version == 2 else
+        prism_codec.write_profile_model_fast_tokenizer_rows if fast_rows else prism_codec.write_profile_model_tokenizer_rows)
     arguments = {"metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256,
-                 "row_policy" if fast_rows else "token_type_policy": "pinned_prism_fast_rows_v1" if fast_rows else "pinned_prism_no_transform_v1",
+                 "row_policy" if fast_rows else "token_type_policy": f"pinned_prism_fast_rows_v{version}" if fast_rows else "pinned_prism_no_transform_v1",
                  "writer": writer}
     before = json.dumps(writer.kv_data, sort_keys=True)
     if defect:
@@ -1487,20 +1492,21 @@ def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monke
         receipt["records"][2]["values"][0] = "other"
 
 
-@pytest.mark.parametrize("row_mode", ["rows", "merges", "fast"])
+@pytest.mark.parametrize("row_mode", ["rows", "merges", "fast", "fast-v2"])
 @pytest.mark.parametrize("defect", [None, "file-budget", "file-size", "hash", "seconds", "record-budget", "preparation", "verification"])
 def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_private_opt_in(monkeypatch, defect, row_mode):
     from types import SimpleNamespace
 
     from embedded_jev import prism_codec
 
-    include_merges, fast_rows = row_mode == "merges", row_mode == "fast"
+    include_merges, fast_rows = row_mode == "merges", row_mode in ("fast", "fast-v2")
+    version = 2 if row_mode == "fast-v2" else 1
     profile = SimpleNamespace(geometry={"vocab_size": 3})
     calls = []
 
     def prepare(actual_profile, **kwargs):
         assert actual_profile is profile
-        assert kwargs["row_policy" if fast_rows else "token_type_policy"] == ("pinned_prism_fast_rows_v1" if fast_rows else "pinned_prism_no_transform_v1")
+        assert kwargs["row_policy" if fast_rows else "token_type_policy"] == (f"pinned_prism_fast_rows_v{version}" if fast_rows else "pinned_prism_no_transform_v1")
         calls.append("prepare")
         return {"tokens": ("base", "control", "user"),
             "source_token_type_records": ({"token_type": "NORMAL"}, {"token_type": "CONTROL"}, {"token_type": "USER_DEFINED"}),
@@ -1513,7 +1519,8 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
 
     def verify(actual_profile, **kwargs):
         assert actual_profile is profile and kwargs["maximum_numeric_array_parts"] == 8
-        assert kwargs["maximum_metadata_bytes"] == 8192 and kwargs["file_cap"] == 256 * 1024
+        assert kwargs["maximum_metadata_bytes"] == 8192 and kwargs["file_cap"] == (16 * 1024**2 if version == 2 else 256 * 1024)
+        assert kwargs.get("record_policy_version", 1) == version
         assert kwargs["model_owner"] is kwargs["descriptor"] is None
         assert kwargs["policy_version"] == 2 and kwargs["declarations"][1]["values"] == (1, 5 if fast_rows else 3, 4)
         assert len(kwargs["declarations"]) == (3 if include_merges else 2)
@@ -1524,15 +1531,17 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
 
     monkeypatch.setattr(prism_codec, "prepare_profile_model_token_type_metadata", prepare)
     monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows", prepare)
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows_v2", prepare)
     monkeypatch.setattr(prism_codec, "prepare_profile_model_bpe_metadata", prepare_merges)
     monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
-    verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2 if fast_rows else
+    verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3 if version == 2 else
+                prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2 if fast_rows else
                 prism_codec.verify_profile_gguf_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.verify_profile_gguf_tokenizer_rows_v2)
     arguments = {"reader": object(), "metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256,
-                 "row_policy" if fast_rows else "token_type_policy": "pinned_prism_fast_rows_v1" if fast_rows else "pinned_prism_no_transform_v1",
+                 "row_policy" if fast_rows else "token_type_policy": f"pinned_prism_fast_rows_v{version}" if fast_rows else "pinned_prism_no_transform_v1",
                  "expected_file_bytes": 100, "expected_file_sha256": "1" * 64}
     if defect == "file-budget":
-        arguments["maximum_file_bytes"] = 256 * 1024 + 1
+        arguments["maximum_file_bytes"] = (16 * 1024**2 if version == 2 else 256 * 1024) + 1
     elif defect == "file-size":
         arguments["expected_file_bytes"] = True
     elif defect == "hash":
@@ -1540,7 +1549,7 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     elif defect == "seconds":
         arguments["maximum_seconds"] = float("nan")
     elif defect == "record-budget":
-        arguments["maximum_metadata_bytes"] = 128 * 1024 + 1
+        arguments["maximum_metadata_bytes"] = (8 * 1024**2 if version == 2 else 128 * 1024) + 1
     elif defect in ("preparation", "verification"):
         clock = iter([5, 40] if defect == "preparation" else [5, 6, 7, 40] if include_merges else [5, 6, 40])
         monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
@@ -1556,6 +1565,31 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
         "selected_typed_token_rows_and_merges_match_file" if include_merges else "selected_typed_token_rows_match_file")
     assert receipt["runtime_approval"] == ("not_granted_by_fast_token_rows_file_verification" if fast_rows else
         "not_granted_by_token_rows_and_merges_file_verification" if include_merges else "not_granted_by_token_row_file_verification")
+
+
+@pytest.mark.parametrize("version,metadata_bytes,numeric_parts,message", [
+    (1, 128 * 1024 + 1, 32, "metadata record budget"),
+    (1, 8192, 4102, "numeric-array part budget"),
+    (2, 8 * 1024**2 + 1, 32, "metadata record budget"),
+    (2, 8192, 262150, "numeric-array part budget"),
+    (True, 8192, 32, "record policy version"),
+    (3, 8192, 32, "record policy version"),
+])
+def test_profile_selected_record_policy_keeps_old_ceilings_and_strict_new_opt_in(monkeypatch, version, metadata_bytes, numeric_parts, message):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    monkeypatch.setitem(sys.modules, "gguf", SimpleNamespace())
+    arguments = {"reader": object(), "expected_file_bytes": 100, "expected_file_sha256": "1" * 64,
+        "maximum_file_bytes": 256 * 1024, "deadline": 30, "model_owner": None, "descriptor": None,
+        "policy_version": 2, "file_cap": 256 * 1024, "header_cap": 1024**2, "declarations": [],
+        "maximum_metadata_bytes": metadata_bytes, "maximum_numeric_array_parts": numeric_parts}
+    if version != 1 or type(version) is bool:
+        arguments["record_policy_version"] = version
+    with pytest.raises(ValueError, match=message):
+        prism_codec._verify_profile_gguf_metadata_records(object(), **arguments)
 
 
 def test_profile_token_rows_and_merges_share_a_deadline_across_both_preparations(monkeypatch):
