@@ -5600,7 +5600,7 @@ def test_tokenizer_v2_reserve_refuses_before_process_creation(monkeypatch):
         _run_tokenizer_only_guard_v2(sys.executable, "", b"{}", env=os.environ)
 
 
-def _tokenizer_only_diagnostic_code():
+def _tokenizer_source_copy_code():
     return r'''
 import ast
 import hashlib
@@ -5617,17 +5617,43 @@ from embedded_jev.model_profile import parse_model_profile
 from embedded_jev.streamed_text import bounded_source_descriptor_record_v2
 
 fixture = json.loads(sys.stdin.buffer.read(65537))
-deadline = time.monotonic() + 15
+row_mode = fixture["operation"] in ("rows-copy", "rows-emission", "rows-proof")
+deadline = time.monotonic() + (60 if row_mode else 15)
 profile = parse_model_profile(bytes.fromhex(fixture["profile_hex"]))
 source, scratch = Path(fixture["source"]), Path(fixture["scratch"])
-names = ("config.json", "tokenizer_config.json", "tokenizer.json", "vocab.json", "merges.txt")
+names = (tuple(profile.packaging["metadata_files"]) + ("tokenizer.json", "vocab.json", "merges.txt") if row_mode else
+    ("config.json", "tokenizer_config.json", "tokenizer.json", "vocab.json", "merges.txt"))
 total = sum(profile.files[name].bytes for name in names)
-assert 0 < total < 32 * 1024**2 and 2 * total + 8192 < 64 * 1024**2
-assert scratch.is_dir() and not list(scratch.iterdir())
+assert len(set(names)) == len(names) and 0 < total < 32 * 1024**2
+assert (2 * total + 2 * 16 * 1024**2 + 8192 < 128 * 1024**2 if row_mode else 2 * total + 8192 < 64 * 1024**2)
+assert scratch.is_dir() and (row_mode and fixture["operation"] != "rows-copy" or not list(scratch.iterdir()))
+
+if row_mode:
+    source_root, copy_root = source.resolve(), scratch.resolve()
+    source_paths = {(source / name).resolve(strict=True) for name in names}
+    copy_paths = {scratch / name for name in names}
+    models_root = Path.home() / ".cache/huggingface/embedded-jev/models"
+    output_path = Path(fixture["output"]) / "rows.gguf" if fixture.get("output") else None
+
+    def row_audit(event, args):
+        if event in ("socket.connect", "socket.connect_ex", "socket.getaddrinfo", "socket.sendto", "socket.bind"):
+            raise RuntimeError("network prohibited in tokenizer row diagnostic")
+        if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
+            path = Path(os.fsdecode(args[0])).absolute()
+            writing = args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)
+            if (path.is_relative_to(source_root) or path.is_relative_to(models_root)) and (path not in source_paths or writing):
+                raise RuntimeError("model-data file access prohibited in tokenizer row diagnostic")
+            if path.is_relative_to(copy_root) and path not in copy_paths:
+                raise RuntimeError("unlisted tokenizer copy access prohibited")
+            if path.suffix == ".safetensors" or path.suffix == ".gguf" and path != output_path:
+                raise RuntimeError("weight or unlisted GGUF access prohibited")
+
+    sys.addaudithook(row_audit)
 
 def identity(value):
     return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
 
+source_identities = {}
 for name in names:
     pin = profile.files[name]
     path = (source / name).resolve(strict=True)
@@ -5635,19 +5661,29 @@ for name in names:
     try:
         before = os.fstat(descriptor)
         assert stat.S_ISREG(before.st_mode) and before.st_size == pin.bytes
+        source_identities[name] = identity(before)
         record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=pin.bytes, deadline=deadline)
         assert record["bytes"] == pin.bytes and record["sha256"] == pin.sha256
-        copied, digest = 0, hashlib.sha256()
-        with (scratch / name).open("xb") as destination:
-            while copied < pin.bytes:
-                assert time.monotonic() < deadline
-                chunk = os.pread(descriptor, min(65536, pin.bytes - copied), copied)
-                assert chunk
-                destination.write(chunk)
-                digest.update(chunk)
-                copied += len(chunk)
-            os.fchmod(destination.fileno(), 0o400)
-        assert copied == pin.bytes and digest.hexdigest() == pin.sha256
+        if not row_mode or fixture["operation"] == "rows-copy":
+            copied, digest = 0, hashlib.sha256()
+            with (scratch / name).open("xb") as destination:
+                while copied < pin.bytes:
+                    assert time.monotonic() < deadline
+                    chunk = os.pread(descriptor, min(65536, pin.bytes - copied), copied)
+                    assert chunk
+                    destination.write(chunk)
+                    digest.update(chunk)
+                    copied += len(chunk)
+                os.fchmod(destination.fileno(), 0o400)
+            assert copied == pin.bytes and digest.hexdigest() == pin.sha256
+        else:
+            copied_descriptor = os.open(scratch / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                record = bounded_source_descriptor_record_v2(copied_descriptor, maximum_bytes=pin.bytes, deadline=deadline)
+                assert record["bytes"] == pin.bytes and record["sha256"] == pin.sha256
+                assert stat.S_ISREG(os.fstat(copied_descriptor).st_mode) and not os.fstat(copied_descriptor).st_mode & 0o222
+            finally:
+                os.close(copied_descriptor)
         assert identity(os.fstat(descriptor)) == identity(before) == identity(os.stat(path, follow_symlinks=False))
     finally:
         os.close(descriptor)
@@ -5655,10 +5691,20 @@ assert sum(path.stat().st_size for path in scratch.iterdir()) == total
 
 def finish_report(report):
     for name in names:
+        if row_mode:
+            descriptor = os.open((source / name).resolve(strict=True), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=profile.files[name].bytes, deadline=deadline)
+                assert record["bytes"] == profile.files[name].bytes and record["sha256"] == profile.files[name].sha256
+                assert identity(os.fstat(descriptor)) == source_identities[name] == identity(os.stat(source / name))
+            finally:
+                os.close(descriptor)
         descriptor = os.open(scratch / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
             record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=profile.files[name].bytes, deadline=deadline)
             assert record["bytes"] == profile.files[name].bytes and record["sha256"] == profile.files[name].sha256
+            if row_mode:
+                assert stat.S_ISREG(os.fstat(descriptor).st_mode) and not os.fstat(descriptor).st_mode & 0o222
         finally:
             os.close(descriptor)
     assert set(path.name for path in scratch.iterdir()) == set(names) and time.monotonic() < deadline
@@ -5669,7 +5715,7 @@ def finish_report(report):
         "process_high_water_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
         "runtime_approval": "not_granted_by_tokenizer_only_diagnostic"})
     encoded = json.dumps(report, sort_keys=True)
-    assert len(encoded.encode()) <= 8192 and report["process_high_water_bytes"] <= 1024**3
+    assert len(encoded.encode()) <= 8192 and report["process_high_water_bytes"] <= (2 * 1024**3 if row_mode else 1024**3)
     print(encoded)
 
 def deny_network(event, args):
@@ -5677,6 +5723,11 @@ def deny_network(event, args):
         raise RuntimeError("network prohibited in tokenizer-only diagnostic")
 
 sys.addaudithook(deny_network)
+'''
+
+
+def _tokenizer_only_diagnostic_code():
+    return _tokenizer_source_copy_code() + r'''
 from tokenizers import Tokenizer
 
 native = Tokenizer.from_file(str(scratch / "tokenizer.json"))
@@ -5735,6 +5786,52 @@ finish_report({"diagnostic": "tokenizer_fingerprint",
     "native_tag": native_tag, "wrapper_tag": wrapper_tag, "fingerprint_parity": native_ids == wrapper_ids,
     "native_label_matches": native_matches, "wrapper_label_matches": wrapper_matches, "label_parity_count": label_parity})
 '''
+
+
+@pytest.mark.parametrize("defect", [None, "pin", "extra-read", "source-write", "network", "copy-tamper"])
+def test_pinned_profile_tokenizer_rows_copy_control(defect):
+    import hashlib
+    from tempfile import TemporaryDirectory
+
+    from test_inventory import _packaging_fixture
+
+    _, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
+    metadata, _, record = _packaging_fixture()
+    vocabulary = {f"token{index}": index for index in range(record["geometry"]["vocab_size"])}
+    files = {**metadata, "tokenizer.json": json.dumps({"model": {"type": "BPE", "vocab": vocabulary, "merges": []}}).encode(),
+        "vocab.json": json.dumps(vocabulary).encode(), "merges.txt": b"#version: 0.2\n"}
+    record["files"].update({name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for name, data in files.items()})
+    with TemporaryDirectory(prefix="jev-row-copy-") as directory:
+        root = Path(directory)
+        source, scratch = root / "source", root / "inputs"
+        source.mkdir()
+        scratch.mkdir()
+        for name, data in files.items():
+            (source / name).write_bytes(data)
+        if defect == "pin":
+            (source / "merges.txt").write_bytes(b"!" + files["merges.txt"][1:])
+        extra = "\n(source / 'unlisted.bin').read_bytes()\n" if defect == "extra-read" else (
+            "\n(source / 'config.json').write_bytes(b'unsafe')\n" if defect == "source-write" else "\n")
+        if defect == "network":
+            extra = "\nimport socket\nsocket.getaddrinfo('127.0.0.1', 80)\n"
+        elif defect == "copy-tamper":
+            extra = "\npath = scratch / 'config.json'\npath.chmod(0o600)\npath.write_bytes(b'bad')\npath.chmod(0o400)\n"
+        code = _tokenizer_source_copy_code() + extra + "finish_report({'diagnostic': 'tokenizer_row_copy'})\n"
+        payload = json.dumps({"profile_hex": json.dumps(record).encode().hex(), "source": str(source), "scratch": str(scratch),
+            "operation": "rows-copy"}).encode()
+        result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
+        if defect is None:
+            assert result["returncode"] == 0, result["stderr"]
+            report = json.loads(result["stdout"])
+            assert report["input_files"] == len(files) == 10 and report["input_bytes"] == sum(map(len, files.values()))
+            assert report["input_bytes"] == report["scratch_bytes"] and not report["transformers_loaded"]
+        else:
+            assert result["returncode"] != 0
+            assert ("AssertionError" if defect in ("pin", "copy-tamper") else
+                "network prohibited" if defect == "network" else "file access prohibited") in result["stderr"]
+        assert result["observed_process_swap_bytes"] == 0 and result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
+    assert not root.exists()
 
 
 @pytest.mark.parametrize("mode", ["synthetic", "approved", "synthetic-inventory", "approved-inventory"])
@@ -5809,12 +5906,282 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
     print(json.dumps(report, sort_keys=True))
 
 
+def _tokenizer_rows_diagnostic_environment(mode):
+    if mode not in ("synthetic", "approved"):
+        raise ValueError("unknown tokenizer row diagnostic mode")
+    source, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
+    if not source or not interpreter or mode == "approved" and os.environ.get("MIMO_TOKENIZER_ROWS_APPROVED") != "1":
+        pytest.skip("requires pinned cached libraries; learned rows need their own one-shot approval")
+    return Path(source), interpreter
+
+
+def _tokenizer_rows_diagnostic_code():
+    return _tokenizer_source_copy_code() + r'''
+from contextlib import contextmanager
+
+@contextmanager
+def library_diagnostics():
+    saved = os.dup(1)
+    try:
+        sys.stdout.flush()
+        os.dup2(2, 1)
+        yield
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
+
+def run_rows():
+    operation = fixture["operation"]
+    if operation == "rows-copy":
+        return {"status": "matched", "phase": operation}
+    import gguf
+    from embedded_jev import prism_codec, streamed_text
+
+    arguments = dict(metadata_files={name: (scratch / name).read_bytes() for name in profile.packaging["metadata_files"]},
+        tokenizer_bytes=(scratch / "tokenizer.json").read_bytes(), context_length=256,
+        row_policy="pinned_prism_fast_rows_v2", maximum_vocabulary_rows=profile.geometry["vocab_size"],
+        maximum_token_content_bytes=4 * 1024**2)
+    root = Path(fixture["output"])
+    path = root / "rows.gguf"
+    descriptors = len(os.listdir("/proc/self/fd"))
+    if operation == "rows-emission":
+        import numpy as np
+        import transformers
+        from transformers import AutoTokenizer
+
+        assert root.is_dir() and not list(root.iterdir())
+        with library_diagnostics():
+            prepared = prism_codec.prepare_profile_model_tokenizer_rows_v2(profile, **arguments)
+            wrapper = AutoTokenizer.from_pretrained(str(scratch), local_files_only=True, trust_remote_code=False, use_fast=True)
+        assert wrapper.is_fast
+        namespace = {"gguf": gguf, "logger": SimpleNamespace(info=lambda *args: None)}
+        exec(compile(ast.parse(fixture["row_source"] + "\n" + fixture["special_source"]), "<pinned-row-reference>", "exec"), namespace)
+        owner = SimpleNamespace(hparams={"vocab_size": profile.geometry["vocab_size"]}, dir_model=str(scratch),
+            get_vocab_base_pre=lambda tokenizer: "unverified-not-emitted",
+            does_token_look_special=lambda token: namespace["does_token_look_special"](None, token))
+
+        def from_pretrained(directory, *args, **kwargs):
+            assert directory == str(scratch)
+            return wrapper
+
+        previous = transformers.AutoTokenizer.from_pretrained
+        try:
+            transformers.AutoTokenizer.from_pretrained = from_pretrained
+            with library_diagnostics():
+                rows, kinds, tag = namespace["get_vocab_base"](owner)
+        finally:
+            transformers.AutoTokenizer.from_pretrained = previous
+        assert rows == list(prepared["tokens"]) and tag == "unverified-not-emitted"
+        assert kinds == [gguf.TokenType[row["token_type"]] for row in prepared["token_row_records"]]
+        assert prepared["output_token_content_bytes"] + 12 * len(rows) + 4096 < 16 * 1024**2
+        writer = gguf.GGUFWriter(path, "qwen35")
+        try:
+            with library_diagnostics():
+                emitted = prism_codec.write_profile_model_fast_tokenizer_rows_v2(profile, writer=writer, **arguments)
+            assert emitted["metadata_count"] == 2 and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
+            writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
+            writer.write_header_to_file()
+            writer.write_kv_data_to_file()
+            writer.write_tensors_to_file()
+        finally:
+            writer.close()
+        assert 0 < path.stat().st_size < 16 * 1024**2
+        reader = gguf.GGUFReader(path)
+        try:
+            strings, types = reader.fields["tokenizer.ggml.tokens"], reader.fields["tokenizer.ggml.token_type"]
+            assert tuple(strings.types) == (gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING)
+            assert tuple(types.types) == (gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32)
+            assert [strings.parts[index].tobytes().decode() for index in strings.data] == rows
+            assert [int(types.parts[index][0]) for index in types.data] == kinds
+            assert len(reader.tensors) == 1 and not {"tokenizer.ggml.pre", "tokenizer.ggml.model"}.intersection(reader.fields)
+        finally:
+            reader.data._mmap.close()
+        report = dict(status="matched", phase=operation, token_rows=len(rows), unused_rows=prepared["unassigned_profile_token_rows"],
+            normalized_rows=prepared["normalized_row_count"], rewritten_rows=prepared["space_rewritten_row_count"],
+            source_content_bytes=prepared["source_token_content_bytes"], output_content_bytes=prepared["output_token_content_bytes"],
+            output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    else:
+        assert operation == "rows-proof"
+        identity = fixture["identity"]
+        assert 0 < path.stat().st_size == identity["expected_file_bytes"] < 16 * 1024**2
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == identity["expected_file_sha256"]
+        hashes, reads = [], []
+        hasher, pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
+
+        def record_hash(descriptor, **kwargs):
+            hashes.append(descriptor)
+            return hasher(descriptor, **kwargs)
+
+        def record_read(descriptor, size, offset):
+            reads.append(size)
+            return pread(descriptor, size, offset)
+
+        reader = gguf.GGUFReader(path)
+        try:
+            streamed_text.bounded_gguf_descriptor_record_v2, os.pread = record_hash, record_read
+            with library_diagnostics():
+                receipt = prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3(profile, reader=reader,
+                    maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=8 * 1024**2,
+                    maximum_header_bytes=8 * 1024**2, **arguments, **identity)
+            assert receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type")
+            assert receipt["metadata_verification"] == "selected_typed_fast_rows_match_file"
+            assert receipt["source_row_verification"] == "selected_pinned_fast_wrapper_declarations_match_file"
+            assert receipt["model_file_access"] == "retained_reader_filename_descriptor"
+            assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+        finally:
+            streamed_text.bounded_gguf_descriptor_record_v2, os.pread = hasher, pread
+            reader.data._mmap.close()
+        assert len(hashes) == 2 and hashes[0] == hashes[1] and reads and max(reads) <= 65536
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == identity["expected_file_sha256"]
+        report = dict(status="matched", phase=operation, token_rows=len(receipt["tokens"]),
+            unused_rows=receipt["unassigned_profile_token_rows"], output_file_bytes=path.stat().st_size,
+            output_file_sha256=identity["expected_file_sha256"], retained_file_hashes=len(hashes), maximum_read=max(reads))
+    assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in root.iterdir()) == {"rows.gguf"}
+    report["logical_source_copy_scratch_bytes"] = 2 * total + path.stat().st_size + 16 * 1024**2 + 8192
+    assert report["logical_source_copy_scratch_bytes"] < 128 * 1024**2
+    return report
+
+try:
+    report = run_rows()
+except Exception as error:
+    trace = error.__traceback__
+    while trace.tb_next is not None:
+        trace = trace.tb_next
+    report = {"status": "refused", "phase": fixture["operation"], "refusal_type": type(error).__name__,
+        "refusal_function": trace.tb_frame.f_code.co_name, "refusal_line": trace.tb_lineno}
+finish_report(report)
+'''
+
+
+@pytest.mark.parametrize("mode", ["synthetic", "approved"])
+def test_pinned_profile_tokenizer_rows_diagnostic(mode):
+    import ast
+    import hashlib
+    from tempfile import TemporaryDirectory
+    import time
+
+    source, interpreter = _tokenizer_rows_diagnostic_environment(mode)
+    started = time.monotonic()
+    assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    bodies = {}
+    for name in ("conversion/base.py", "gguf-py/gguf/constants.py"):
+        pinned = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:{name}"])
+        assert 0 < len(pinned) <= 1024**2 and (source / name).read_bytes() == pinned
+        bodies[name] = ast.parse(pinned)
+    owner = next(node for node in bodies["conversion/base.py"].body if isinstance(node, ast.ClassDef) and node.name == "TextModel")
+    row_source = ast.unparse(next(node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == "get_vocab_base"))
+    special_source = ast.unparse(next(node for node in owner.body
+        if isinstance(node, ast.FunctionDef) and node.name == "does_token_look_special"))
+    code = _tokenizer_rows_diagnostic_code()
+    ast.parse(code)
+    with TemporaryDirectory(prefix="jev-tokenizer-rows-") as directory:
+        root = Path(directory)
+        inputs, output = root / "inputs", root / "output"
+        inputs.mkdir()
+        output.mkdir()
+        if mode == "synthetic":
+            from test_inventory import _packaging_fixture
+
+            metadata, _, record = _packaging_fixture()
+            config = json.loads(metadata["config.json"])
+            config["text_config"]["max_position_embeddings"] = 512
+            tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
+            tokens[0], tokens[1], tokens[5], tokens[12] = "<pad>", "USER", "<|control|>", chr(0x2581) + "user"
+            added = [{"id": index, "content": tokens[index], "single_word": False, "lstrip": False, "rstrip": False,
+                "normalized": index != 1, "special": index in (0, 5)} for index in (0, 1, 5, 12)]
+            vocabulary = {token: index for index, token in enumerate(tokens) if index not in (20, 31)}
+            files = {**metadata, "config.json": json.dumps(config).encode(),
+                "tokenizer_config.json": b'{"tokenizer_class":"PreTrainedTokenizerFast","clean_up_tokenization_spaces":false}',
+                "tokenizer.json": json.dumps({"version": "1.0", "added_tokens": added,
+                    "decoder": {"type": "Replace", "pattern": {"String": "USER"}, "content": "user-normalized"},
+                    "model": {"type": "BPE", "vocab": vocabulary, "merges": [], "dropout": None, "unk_token": None,
+                        "continuing_subword_prefix": None, "end_of_word_suffix": None, "fuse_unk": False,
+                        "byte_fallback": False, "ignore_merges": False}}).encode(),
+                "vocab.json": json.dumps(vocabulary).encode(), "merges.txt": b"#version: 0.2\n"}
+            record["files"].update({name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for name, data in files.items()})
+            local = root / "source"
+            local.mkdir()
+            for name, data in files.items():
+                (local / name).write_bytes(data)
+            profile_bytes = json.dumps(record).encode()
+        else:
+            local = Path(os.environ["MIMO_LOCAL_DIR"])
+            assert local.resolve() == (Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177").resolve()
+            profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
+            record = json.loads(profile_bytes)
+        names = tuple(record["packaging"]["metadata_files"]) + ("tokenizer.json", "vocab.json", "merges.txt")
+        original_stats = {name: (local / name).stat() for name in names}
+        fixture = {"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(inputs), "output": str(output),
+            "row_source": row_source, "special_source": special_source}
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+            "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
+            "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
+        reports = []
+        baseline_swap = None
+        for operation in ("rows-copy", "rows-emission", "rows-proof"):
+            phase_started = time.monotonic()
+            payload = json.dumps({**fixture, "operation": operation}).encode()
+            result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env=env)
+            assert result["returncode"] == 0, result["stderr"]
+            report = json.loads(result["stdout"])
+            print(json.dumps({**result, "tokenizer_rows_diagnostic": mode}))
+            assert report["status"] == "matched", report
+            assert time.monotonic() - phase_started < 180 and time.monotonic() - started < 600
+            assert report["input_files"] == 10 and report["input_bytes"] == report["scratch_bytes"] < 32 * 1024**2
+            assert report["transformers"] == "5.12.1" and report["tokenizers"] == "0.22.2"
+            assert result["observed_process_swap_bytes"] == 0 and result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
+            baseline_swap = result["host_swap_baseline_bytes"] if baseline_swap is None else baseline_swap
+            assert result["host_swap_baseline_bytes"] == baseline_swap and result["observed_host_available_minimum_bytes"] >= 2 * 1024**3
+            for name in names:
+                actual, original = (local / name).stat(), original_stats[name]
+                assert (actual.st_dev, actual.st_ino, actual.st_size, actual.st_mtime_ns, actual.st_ctime_ns) == (
+                    original.st_dev, original.st_ino, original.st_size, original.st_mtime_ns, original.st_ctime_ns)
+            if operation == "rows-copy":
+                assert not report["transformers_loaded"]
+            else:
+                assert report["token_rows"] == record["geometry"]["vocab_size"]
+                assert report["unused_rows"] == (2 if mode == "synthetic" else 243)
+                if operation == "rows-emission":
+                    fixture["identity"] = {"expected_file_bytes": report["output_file_bytes"], "expected_file_sha256": report["output_file_sha256"]}
+                    if mode == "synthetic":
+                        assert report["normalized_rows"] == report["rewritten_rows"] == 1
+                else:
+                    assert report["retained_file_hashes"] == 2 and report["maximum_read"] <= 65536
+                assert report["output_file_sha256"] == fixture["identity"]["expected_file_sha256"]
+                assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
+            reports.append(report)
+        assert len(reports) == 3
+    assert not root.exists()
+
+
+@pytest.mark.parametrize("wrong_flag", [None, "MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED"])
+def test_tokenizer_rows_diagnostic_approval_refuses_before_source_access(monkeypatch, wrong_flag):
+    monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
+    monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
+    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED"):
+        monkeypatch.delenv(name, raising=False)
+    if wrong_flag:
+        monkeypatch.setenv(wrong_flag, "1")
+    monkeypatch.setattr(Path, "read_bytes", lambda *args, **kwargs: pytest.fail("row approval guard read a source file"))
+    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: pytest.fail("row approval guard launched a process"))
+    with pytest.raises(pytest.skip.Exception):
+        _tokenizer_rows_diagnostic_environment("approved")
+
+
+def test_tokenizer_rows_diagnostic_refuses_unknown_mode():
+    with pytest.raises(ValueError, match="unknown tokenizer row diagnostic mode"):
+        _tokenizer_rows_diagnostic_environment("other-profile")
+
+
 @pytest.mark.parametrize("mode,wrong_flag", [("approved-inventory", "MIMO_TOKENIZER_ONLY_APPROVED"),
-                                           ("approved", "MIMO_TOKENIZER_INVENTORY_APPROVED")])
+                                           ("approved", "MIMO_TOKENIZER_INVENTORY_APPROVED"),
+                                           ("approved-inventory", "MIMO_TOKENIZER_ROWS_APPROVED"),
+                                           ("approved", "MIMO_TOKENIZER_ROWS_APPROVED")])
 def test_tokenizer_only_diagnostic_approvals_do_not_cross_modes(monkeypatch, mode, wrong_flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
     monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
-    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED"):
+    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv(wrong_flag, "1")
     monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: pytest.fail("cross-mode approval reached source access"))

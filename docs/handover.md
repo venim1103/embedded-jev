@@ -28,10 +28,12 @@ Read the [full-size retained row checkpoint](#full-size-retained-row-checkpoint-
 for implemented evidence. Learned-input approvals remain consumed; this new
 approval does not authorize model, native or quality work.
 
-**Pending, not authorized:** the [learned row proof proposal](#learned-row-proof-proposal-2026-10-20)
-follows the completed synthetic slice. Only cache presence/stat sizes were
-checked; no learned contents were reopened. Do not execute it without a new
-explicit one-shot approval.
+**New one-shot approved after `3b35272`:** the user selected **Approve One Learned
+Row Proof** for the [learned row proof proposal](#learned-row-proof-proposal-2026-10-20).
+The [runner checkpoint](#learned-row-runner-checkpoint-2026-10-20) completes its
+synthetic/safety prerequisite gate. This approval is active, **not yet consumed**;
+no learned contents were reopened during preparation. Both older approvals
+remain consumed and cannot enable the new mode.
 
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
@@ -397,9 +399,60 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Learned Row Runner Checkpoint (2026-10-20)
+
+After `3b35272` and the user's distinct one-shot approval, the new optional
+`test_pinned_profile_tokenizer_rows_diagnostic[synthetic|approved]` checks
+`MIMO_TOKENIZER_ROWS_APPROVED=1` before any learned source/process access.
+Eight default approval controls pass **0.02 s**: absent/old flags cannot enable
+new rows, unknown modes refuse, and the new flag cannot enable either consumed
+diagnostic. Reused pinned-copy/report code is extracted as a shared prefix;
+the original five-file/15 s/1 GiB paths remain independent. Both old synthetic
+fingerprint/inventory modes **2 passed in 3.51 s** after extraction.
+
+The new row path permits the full seven-file metadata set plus three tokenizer
+files; reuses the 60 s/2 GiB/reserve/swap supervisor; verifies pins before copy,
+read-only copies before each later phase, and original/copy hashes after each
+phase. It checks original source stat identity across all three children.
+Additional audited model-data rules reject network attempts, unlisted accesses
+under source/model-cache/input paths, source writes, any safetensors open and
+unlisted GGUF opens. These audited Python checks plus trusted local-only code
+and disabled model imports are **not an OS/native sandbox**. Parent cleanup
+remains active even on worker failure; failures retain only sanitized class/
+function/line, not learned token strings. No implicit retry is implemented.
+
+Synthetic pin/extra-file/source-write controls and old modes initially **6
+passed in 4.10 s**. Added network-refusal/copy-tamper controls plus all eight
+approval controls and old compatibility **16 passed in 4.37 s**. The end-to-end
+runner uses three serial children: verify/copy, pinned reference plus joint
+row emission/exact typed readback, then fresh v3 retained proof. Source data
+travels by bounded paths, not a hex packet. Exact pinned row code uses a real
+trusted local-only wrapper; its factory is explicitly injected to prevent
+implicit loading and its pre-tag hook stays unverified/not emitted.
+
+First end-to-end synthetic check failed **0.16 s** at AST selection, before a
+worker/learned read: the special-token predicate was sought in constants instead
+of `TextModel`. Corrected to the already proven owner's method, the **same
+synthetic check 1 passed in 6.16 s**: ten files **5623 bytes**, 32 rows/two holes,
+one real normalization and one space rewrite, output **864 bytes**, two same-FD
+hashes and maximum read **864 bytes**. Logical source/copy/file plus reserved
+16 MiB spool/report **16,797,518 bytes**. Maximum observed worker RSS
+**334,852,096 bytes**, all swap zero, minimum observed host available
+**18,663,665,664 bytes**; all scratch removed. Expected sparse-vocabulary library
+warnings remain bounded stderr, never JSON stdout. No model file was opened.
+
+Required gate **with all three learned opt-ins explicitly unset**:
+**1318 passed, 133 skipped in 25.71 s**, Ruff/editor/whitespace clean. This is
+the required gate **before any new learned read**. No newly approved learned
+invocation has run; approval is still active and unconsumed at this checkpoint.
+Next is exactly one approved invocation through the new flag and exact MiMo
+cache, within the proposal's distinct bounds, not another synthetic/full-model
+job or reuse of either consumed one-shot.
+
 ## Learned Row Proof Proposal (2026-10-20)
 
-Prepared after `4d63277`; **not authorized or run**. The approved full-scale
+Prepared after `4d63277`; **separately approved after `3b35272`**, not yet run at
+the runner checkpoint above. The approved full-scale
 synthetic slice is complete. Proposed next step is **one additional offline
 cached-MiMo tokenizer-only row/file comparison**, not another fingerprint or
 missing-ID diagnostic and not full tokenizer/model conversion. Both earlier
@@ -471,7 +524,8 @@ These are observed resource guards, not hard host/device guarantees.
 No weights/headers, download, native build/parser expansion, full-model
 conversion/execution, retained candidate, refit, held-out/quality/device job,
 other-profile input, or automatic tokenizer-policy/runtime promotion is included.
-This proposal needs a **separate explicit one-shot approval** before execution.
+This proposal required a **separate explicit one-shot approval** before execution;
+the user subsequently supplied that approval, not permission for another run.
 
 ## Full-Size Retained Row Checkpoint (2026-10-20)
 

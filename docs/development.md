@@ -3032,6 +3032,30 @@ The whole fault control also retains a 180 s assertion and measured 175.32 s;
 do not lengthen deadlines or rerun it unchanged for reassurance. These are
 synthetic selected-metadata proofs, not learned tokenizer or runtime approval.
 
+The optional `test_pinned_profile_tokenizer_rows_diagnostic[synthetic]` runs
+three serial guarded workers on ten tiny source files: verified read-only copy,
+trusted local-only wrapper versus exact pinned row method plus paired emission/
+typed readback, then fresh v3 retained proof. `[approved]` is a separate one-shot
+MiMo mode requiring **new explicit approval** and `MIMO_TOKENIZER_ROWS_APPROVED=1`
+plus the exact documented MiMo cache in `MIMO_LOCAL_DIR`. The old fingerprint/
+inventory flags cannot enable it, or vice versa. A flag alone is not permission
+to rerun it. No learned fault controls, fingerprints/label probes, template
+rendering, merge emission or model/pre-tokenizer tag are part of this check.
+
+All ten allowlisted metadata/tokenizer files are pinned before copy and original/
+copy bytes rechecked after each phase, with source stat identity across workers.
+Audited Python checks reject network, unlisted model-data access and source
+writes; these plus trusted installed code/local-only loading are not an OS/native
+sandbox. The parent owns all cleanup. New one-shot bounds: source/copy <=32 MiB
+each, output/spool <=16 MiB each, logical source+copy+output+reserved spool/report
+<=128 MiB, path-only stdin <=64 KiB and summary/stdout+stderr <=8 KiB per worker.
+Keep 60 s child/180 s stage/600 s sequence, 2 GiB observed RSS/host reserve and
+swap-growth abort. Limits and one-shot accounting are separate from earlier
+diagnostics. A refusal is sanitized and reported, never automatically rerun;
+the synthetic safety controls and required root gate must pass before any new
+learned read. No learned rows or artifacts are retained. See the
+[runner checkpoint](handover.md#learned-row-runner-checkpoint-2026-10-20).
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`
