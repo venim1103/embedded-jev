@@ -21,7 +21,8 @@ one-shot approvals remain consumed.
 
 **New separate approval:** after `d0c133a`, the user approved the
 [full-scale synthetic row proposal](#full-scale-synthetic-row-proposal-2026-10-20).
-Read the [full-size row emission checkpoint](#full-size-row-emission-checkpoint-2026-10-20), then the
+Read the [full-size retained row checkpoint](#full-size-retained-row-checkpoint-2026-10-20), then the
+[full-size row emission checkpoint](#full-size-row-emission-checkpoint-2026-10-20), then the
 [v2 row file checkpoint](#v2-row-file-checkpoint-2026-10-20), then the
 [v2 row preparation checkpoint](#v2-row-preparation-checkpoint-2026-10-20)
 for implemented evidence. Learned-input approvals remain consumed; this new
@@ -390,6 +391,63 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Full-Size Retained Row Checkpoint (2026-10-20)
+
+After `4aeca34`, optional `fast-v2-full-proof` supervises two serial workers:
+the existing emission/reference control and a fresh v3 retained proof of its
+actual **4,719,328-byte synthetic file**. The parent checks the emitted digest
+before proof; the proof child checks it before/after and verifies every mapped
+string/type part against fresh v2 source declarations. All **248,320 rows**,
+**243 tail placeholders**, transformed rows, enum types and two selected records
+agree. The default **256 KiB** file cap still refuses without opt-in. Two hashes
+use the **same retained descriptor**, every positional read is **<=65,536 bytes**,
+FD counts return to baseline, and both source bytes/file digest survive intact.
+The first focused control **1 passed in 25.32 s** across both workers. Proof RSS
+**1,052,893,184 bytes**, emission RSS **1,251,872,768 bytes**, swap zero; minimum
+observed host available **17,705,627,648 bytes** across these workers.
+
+Optional `fast-v2-full-faults` adds **17 serial proof/refusal children** after
+emission: one positive proof, default **1 MiB header** and **8 KiB selected-record**
+refusals, stale hash, copied numeric part, closed mapping, restored write after
+the final hash, and **ten fresh-hash mutations**. Those mutations cover first,
+normalized, space-rewritten, first padded and final padded strings; first,
+normalized, first padded and final padded numeric types; and the numeric array
+element kind. Each fault starts from the original file, recomputes its own
+digest, refuses against fresh source preparation, closes its map and deletes
+the sole fault copy. All phases preserve the original bytes/FD baseline. The
+restored-write control reaches two same-FD hashes and refuses despite restoring
+the original bytes. The 1 MiB header refusal uses a real header beyond that
+bound, not an inferred file-size proxy. Old private numeric/record ceilings
+remain covered by the separately runnable intermediate/unit controls.
+
+**1 passed in 175.32 s** for emission plus all 17 phases, within the existing
+**180 s outer assertion** and separately enforced **60 s child** limits. This
+aggregate leaves only a narrow timing margin; it is not a performance claim or
+permission to extend a deadline. Proof/refusal RSS maximum **1,062,813,696 bytes**,
+emission RSS **1,243,963,392 bytes**, process/host swap zero, observed host
+available minimum **17,662,275,584 bytes** across all workers. Packet/file/logical
+scratch stay at the previous measured **11,951,985 / 4,719,328 / 21,390,641 bytes**;
+only one fault exists at a time and the parent removes all scratch on exit.
+Each phase has its own guard, original digest check, FD cleanup and 180 s stage
+assertion. The outer control's 180 s assertion was not increased.
+
+Old identity/contract, v1 4096-row proof and v2 8193-row proof compatibility
+**4 passed in 10.32 s**. Root gate **1312 passed, 125 skipped in 23.86 s**, Ruff,
+editor and whitespace clean. The two new full-size optional modes are included
+in the skip count unless explicitly selected. Conservative large-control
+accounting is **251.53 s of the approved 600 s**, including all failed and
+compatibility commands previously recorded. No unchanged successful large
+control or gate was repeated for reassurance. One patch-context rejection was
+atomic and repaired before executing the same new fault control.
+
+This closes the approved **full-scale synthetic row** proof slice, not a complete
+tokenizer implementation: merges/pre-tokenizer identity, tensor-table/model
+compatibility, native execution and quality remain separate. No learned inputs,
+native build/CTest, download, model conversion/execution, refit or candidate were
+used. Both earlier learned one-shot approvals remain consumed. Any next learned
+source read needs a fresh bounded proposal and explicit approval; synthetic
+success does not grant it.
 
 ## Full-Size Row Emission Checkpoint (2026-10-20)
 

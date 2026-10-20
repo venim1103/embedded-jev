@@ -3019,6 +3019,19 @@ the approved v2 guard and parent packet/scratch budgets. This mode deliberately
 has no full-size retained proof/corruption loop; intermediate proof evidence is
 not promoted to full-size file verification. No artifact is retained.
 
+Optional `fast-v2-full-proof` runs emission/reference and full-size v3 retained
+proof in **separate serial 60 s guarded children**, sharing one parent-owned
+bounded packet/file and the independently checked emitted digest. It verifies
+all 248,320 synthetic rows/types and 243 placeholders, two same-FD hashes,
+<=65,536-byte positional reads, old default file-cap refusal and FD/byte cleanup.
+`fast-v2-full-faults` adds default-header/default-record, stale-hash, copied-map,
+closed-map, restored-write and ten fresh-hash string/type/kind controls, one
+fault copy/reader per phase. Each worker keeps 2 GiB RSS/host reserve and swap
+guards; source packet <=16 MiB, files <=16 MiB each, logical scratch <=64 MiB.
+The whole fault control also retains a 180 s assertion and measured 175.32 s;
+do not lengthen deadlines or rerun it unchanged for reassurance. These are
+synthetic selected-metadata proofs, not learned tokenizer or runtime approval.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

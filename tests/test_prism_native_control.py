@@ -6622,7 +6622,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-rows", "fast-v2-proof", "fast-v2-full-emission"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-rows", "fast-v2-proof", "fast-v2-full-emission", "fast-v2-full-proof", "fast-v2-full-faults"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6630,7 +6630,11 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
 
     from test_inventory import _packaging_fixture
 
-    full_scale = tokenizer_mode == "fast-v2-full-emission"
+    full_faults = tokenizer_mode == "fast-v2-full-faults"
+    full_proof = tokenizer_mode in ("fast-v2-full-proof", "fast-v2-full-faults")
+    full_scale = tokenizer_mode in ("fast-v2-full-emission", "fast-v2-full-proof", "fast-v2-full-faults")
+    if full_proof:
+        tokenizer_mode = "fast-v2-full-emission"
     row_version = 2 if tokenizer_mode in ("fast-v2-rows", "fast-v2-proof", "fast-v2-full-emission") else 1
     fast_capacity = tokenizer_mode in ("fast-rows-proof-capacity", "fast-v2-rows", "fast-v2-proof", "fast-v2-full-emission")
     fast_proof = tokenizer_mode in ("fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-proof")
@@ -6741,7 +6745,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
                "combined_proof": combined_proof, "fast_rows": fast_rows, "fast_emission": fast_emission, "fast_proof": fast_proof,
                "row_version": row_version, "full_scale": full_scale,
                "external_template": external_template.hex() if external_template is not None else None}
-    code = """
+    fixture_setup = """
 import hashlib
 import json
 import sys
@@ -6751,7 +6755,8 @@ import gguf
 from embedded_jev.model_profile import parse_model_profile
 from embedded_jev.prism_codec import prepare_profile_model_added_token_metadata, prepare_profile_model_bpe_metadata, prepare_profile_model_tokenizer_contract, prepare_profile_model_tokenizer_inventory, prepare_profile_model_tokenizer_vocabulary, prepare_profile_model_unused_token_rows, verify_profile_gguf_tokenizer_arrays_v2, write_profile_model_bpe_merge_metadata, write_profile_model_context_metadata, write_profile_model_template_metadata, write_profile_model_tokenizer_arrays, write_profile_model_tokenizer_vocabulary
 
-fixture = json.loads(sys.stdin.read())
+request = json.loads(sys.stdin.read())
+fixture = request
 packet_bytes = 0
 if "fixture_path" in fixture:
     packet_path = Path(fixture["fixture_path"])
@@ -6764,6 +6769,8 @@ tokenizer_bytes = bytes.fromhex(fixture["tokenizer"])
 external_template = bytes.fromhex(fixture["external_template"]) if fixture["external_template"] is not None else None
 template_source = "gguf_embedded" if external_template is not None else "source"
 expected_template = external_template if external_template is not None else metadata[profile.tokenization["template_file"]]
+"""
+    code = fixture_setup + """
 if fixture["fast_rows"]:
     import ast
     import os
@@ -7035,6 +7042,8 @@ if fixture["fast_rows"]:
                 assert "reader layout" in str(error)
             assert len(os.listdir("/proc/self/fd")) == closed_descriptor_count
         assert path.read_bytes() == original
+        if fixture["full_scale"]:
+            summary["output_file_sha256"] = hashlib.sha256(original).hexdigest()
         summary.update(output_file_bytes=len(original), logical_scratch_peak_bytes=packet_bytes + 2 * len(original),
                    readback_faults=len(offsets), fixture_packet_bytes=packet_bytes)
     print(json.dumps(summary))
@@ -7626,6 +7635,7 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
         from contextlib import ExitStack
         from tempfile import TemporaryDirectory
 
+        proof_results = []
         with ExitStack() as stack:
             if tokenizer_mode in ("typed-rows", "row-proof") or fast_emission or capacity:
                 scratch = Path(stack.enter_context(TemporaryDirectory(prefix="jev-token-rows-")))
@@ -7643,6 +7653,154 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
                 env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
                      **({"USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"} if fast_rows else {}),
                      "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
+            if full_proof:
+                assert result["returncode"] == 0, result["stderr"]
+                emission = json.loads(result["stdout"])
+                identity = {"expected_file_bytes": emission["output_file_bytes"], "expected_file_sha256": emission["output_file_sha256"]}
+                output_path = output_root / "fast-rows.gguf"
+                assert output_path.stat().st_size == identity["expected_file_bytes"] < 16 * 1024**2
+                assert hashlib.sha256(output_path.read_bytes()).hexdigest() == identity["expected_file_sha256"]
+                proof_code = fixture_setup + "\nidentity = " + repr(identity) + "\n" + """
+import os
+from embedded_jev import prism_codec, streamed_text
+
+path = Path(fixture["scratch"]) / "fast-rows.gguf"
+phase = request["proof_phase"]
+fault_path = path.with_name("fault.gguf")
+original = path.read_bytes()
+assert len(original) == identity["expected_file_bytes"] and hashlib.sha256(original).hexdigest() == identity["expected_file_sha256"]
+arguments = dict(metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256,
+    row_policy="pinned_prism_fast_rows_v2", maximum_vocabulary_rows=248320,
+    maximum_token_content_bytes=4 * 1024**2, **identity)
+limits = dict(maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=8 * 1024**2, maximum_header_bytes=8 * 1024**2)
+expected_error = None
+if phase == "default-header":
+    del limits["maximum_header_bytes"]
+    expected_error = "reader layout or budget mismatch"
+elif phase == "default-records":
+    del limits["maximum_metadata_bytes"]
+    expected_error = "records exceed byte budget"
+elif phase == "stale-hash":
+    arguments["expected_file_sha256"] = "0" * 64
+    expected_error = "file identity mismatch"
+elif phase.startswith("fault-"):
+    offset = request["fault_offset"]
+    assert type(offset) is int and 24 <= offset < len(original)
+    changed = bytearray(original)
+    changed[offset] ^= 1
+    fault_path.write_bytes(changed)
+    assert len(changed) < 16 * 1024**2
+    assert packet_bytes + sum(entry.stat().st_size for entry in path.parent.iterdir()) < 64 * 1024**2
+    arguments["expected_file_sha256"] = hashlib.sha256(changed).hexdigest()
+    assert arguments["expected_file_sha256"] != identity["expected_file_sha256"]
+    expected_error = "policy metadata"
+elif phase in ("copied-map", "closed-map", "restored-write"):
+    expected_error = {"copied-map": "field mapping mismatch", "closed-map": "reader layout or budget mismatch",
+        "restored-write": "changed during verification"}[phase]
+else:
+    assert phase == "positive"
+closed_descriptors = len(os.listdir("/proc/self/fd"))
+reader = gguf.GGUFReader(fault_path if phase.startswith("fault-") else path)
+hashes, reads = [], []
+hasher, pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
+summary = dict(phase=phase)
+
+def record_hash(descriptor, **kwargs):
+    hashes.append(descriptor)
+    result = hasher(descriptor, **kwargs)
+    if phase == "restored-write" and len(hashes) == 2:
+        with path.open("r+b") as output:
+            output.seek(len(original) - 1)
+            output.write(bytes([original[-1] ^ 1]))
+            output.seek(len(original) - 1)
+            output.write(original[-1:])
+    return result
+
+def record_read(descriptor, size, offset):
+    reads.append(size)
+    return pread(descriptor, size, offset)
+
+try:
+    assert reader.data_offset > 1024**2
+    if phase == "positive":
+        try:
+            prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3(profile, reader=reader, **arguments)
+            raise AssertionError("default file ceiling increased implicitly")
+        except ValueError as error:
+            assert "invalid v3 fast-row file identity or budget" in str(error)
+    elif phase == "copied-map":
+        field = reader.fields["tokenizer.ggml.token_type"]
+        index = field.data[0]
+        field.parts[index] = field.parts[index].copy()
+    elif phase == "closed-map":
+        reader.data._mmap.close()
+    try:
+        streamed_text.bounded_gguf_descriptor_record_v2, os.pread = record_hash, record_read
+        try:
+            receipt = prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3(profile, reader=reader, **limits, **arguments)
+        except ValueError as error:
+            assert expected_error is not None and expected_error in str(error), str(error)
+            summary["refusal"] = str(error)
+        else:
+            assert expected_error is None, "full-size refusal control was accepted: " + phase
+    finally:
+        streamed_text.bounded_gguf_descriptor_record_v2, os.pread = hasher, pread
+    if phase in ("positive", "restored-write"):
+        assert len(hashes) == 2 and hashes[0] == hashes[1] and reads and max(reads) <= 65536
+    if phase == "positive":
+        assert receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type")
+        assert receipt["metadata_verification"] == "selected_typed_fast_rows_match_file"
+        assert receipt["source_row_verification"] == "selected_pinned_fast_wrapper_declarations_match_file"
+        assert receipt["model_file_access"] == "retained_reader_filename_descriptor"
+        assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+        assert len(receipt["tokens"]) == 248320 and receipt["unassigned_profile_token_rows"] == 243
+        strings, types = reader.fields["tokenizer.ggml.tokens"], reader.fields["tokenizer.ggml.token_type"]
+        offsets = {}
+        for name, field, indexes in (("string", strings, (0, 1, 12, 248077, 248319)), ("type", types, (0, 1, 248077, 248319))):
+            for index in indexes:
+                offsets[name + "-" + str(index)] = int(field.parts[field.data[index]].ctypes.data - reader.data.ctypes.data)
+        offsets["array-kind"] = int(types.parts[3].ctypes.data - reader.data.ctypes.data)
+        summary.update(token_rows=len(receipt["tokens"]), unused_rows=receipt["unassigned_profile_token_rows"],
+            default_file_cap_preserved=True, fault_offsets=offsets)
+    assert not {"tokenizer.ggml.pre", "tokenizer.ggml.model"}.intersection(reader.fields)
+finally:
+    reader.data._mmap.close()
+    fault_path.unlink(missing_ok=True)
+assert len(os.listdir("/proc/self/fd")) == closed_descriptors
+assert path.stat().st_size == identity["expected_file_bytes"]
+assert hashlib.sha256(path.read_bytes()).hexdigest() == identity["expected_file_sha256"]
+print(json.dumps(dict(summary, retained_file_hashes=len(hashes), maximum_read=max(reads, default=0), output_file_bytes=identity["expected_file_bytes"])))
+"""
+                phases = ["positive"]
+                if full_faults:
+                    phases += ["default-header", "default-records", "stale-hash", "copied-map", "closed-map", "restored-write"]
+                offsets = {}
+                for phase in phases:
+                    phase_started = time.monotonic()
+                    phase_payload = json.dumps({"fixture_path": str(packet_path), "row_version": 2, "proof_phase": phase,
+                        **({"fault_offset": offsets[phase[6:]]} if phase.startswith("fault-") else {})}).encode()
+                    proof_result = guard(interpreter, proof_code, phase_payload,
+                        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
+                             "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+                             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
+                    assert proof_result["returncode"] == 0, (phase, proof_result["stderr"])
+                    assert time.monotonic() - phase_started < 180
+                    proof_summary = json.loads(proof_result["stdout"])
+                    assert proof_summary["phase"] == phase and proof_summary["output_file_bytes"] == identity["expected_file_bytes"]
+                    if phase == "positive":
+                        assert proof_summary["retained_file_hashes"] == 2 and proof_summary["maximum_read"] == 65536
+                        assert proof_summary["token_rows"] == 248320 and proof_summary["unused_rows"] == 243
+                        assert proof_summary["default_file_cap_preserved"] is True
+                        offsets = proof_summary["fault_offsets"]
+                        assert len(offsets) == 10
+                        if full_faults:
+                            phases.extend("fault-" + name for name in offsets)
+                    else:
+                        assert proof_summary["refusal"] and proof_summary["maximum_read"] <= 65536
+                    assert proof_result["host_swap_baseline_bytes"] == result["host_swap_baseline_bytes"]
+                    assert proof_result["observed_host_available_minimum_bytes"] >= 2 * 1024**3
+                    proof_results.append(proof_result)
+                assert len(proof_results) == (17 if full_faults else 1)
         assert result["returncode"] == 0, result["stderr"]
         summary = json.loads(result["stdout"])
         assert {name: summary[name] for name in ("context_length", "source_context_length")} == {"context_length": 256, "source_context_length": 512}
@@ -7676,6 +7834,8 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
                 assert summary["independent_subset_proofs"] == (0 if combined_proof else 2)
                 assert summary["combined_proof_records"] == (3 if combined_proof else 0)
             assert not Path(fixture["scratch"]).exists()
+        for proof_result in proof_results:
+            print(json.dumps({**proof_result, "full_size_retained_proof": True}))
         print(json.dumps({**result, "synthetic_token_type_reference": True,
                           "metadata_emission": "fast_rows_read_back" if fast_emission else "paired_rows_read_back" if tokenizer_mode in ("typed-rows", "row-proof") else "not_performed"}))
         return
