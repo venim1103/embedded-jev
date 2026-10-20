@@ -953,19 +953,32 @@ def write_profile_model_fast_tokenizer_rows_v2(
 
 def _prepare_profile_fast_tokenizer_rows_and_merges(
     profile, *, metadata_files, tokenizer_bytes, context_length, row_policy, maximum_vocabulary_rows, maximum_token_content_bytes,
+    merge_policy_version=1, merge_policy=None, maximum_merge_rows=4096, maximum_merge_content_bytes=64 * 1024,
 ):
     from embedded_jev.inventory import _json_object
 
+    if (type(merge_policy_version) is not int or merge_policy_version not in (1, 2)
+            or (merge_policy is not None if merge_policy_version == 1 else merge_policy != "pinned_prism_ranked_source_merges_v2")
+            or type(maximum_merge_rows) is not int or not 0 < maximum_merge_rows <= (4096 if merge_policy_version == 1 else 262144)
+            or type(maximum_merge_content_bytes) is not int or not 0 < maximum_merge_content_bytes <= (64 * 1024 if merge_policy_version == 1 else 4 * 1024**2)):
+        raise ValueError("invalid source-merge policy or budget")
     prepared = prepare_profile_model_tokenizer_rows_v2(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
         context_length=context_length, row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows,
         maximum_token_content_bytes=maximum_token_content_bytes)
     document = _json_object(tokenizer_bytes, "tokenizer.json", max_bytes=MODEL_METADATA_BYTES_V2)
-    if not isinstance(document["model"].get("merges"), list) or not 0 < len(document["model"]["merges"]) <= 4096:
+    if not isinstance(document["model"].get("merges"), list) or not 0 < len(document["model"]["merges"]) <= maximum_merge_rows:
         raise ValueError("unsupported bounded BPE merge count")
     declarations = _profile_model_bpe_declarations(document,
         tuple(row["source_token"] for row in prepared["token_row_records"]))
-    merges, merge_bytes = _profile_bpe_merge_record(declarations)
-    return MappingProxyType({**prepared, **declarations}), merges, merge_bytes
+    if merge_policy_version == 1:
+        merges, merge_bytes = _profile_bpe_merge_record(declarations)
+        limits = {}
+    else:
+        merges, merge_bytes = _profile_bpe_merge_record_v2(declarations, maximum_merge_rows=maximum_merge_rows,
+            maximum_merge_content_bytes=maximum_merge_content_bytes)
+        limits = {"bpe_merge_policy_version": 2, "bpe_merge_policy": merge_policy,
+                  "maximum_merge_rows": maximum_merge_rows, "maximum_merge_content_bytes": maximum_merge_content_bytes}
+    return MappingProxyType({**prepared, **declarations, **limits}), merges, merge_bytes
 
 
 def write_profile_model_fast_tokenizer_rows_and_merges_v2(
@@ -976,6 +989,24 @@ def write_profile_model_fast_tokenizer_rows_and_merges_v2(
     prepared, merges, merge_bytes = _prepare_profile_fast_tokenizer_rows_and_merges(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy,
         maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes)
+    return _write_profile_fast_tokenizer_rows_and_merges(prepared, merges, merge_bytes, writer)
+
+
+def write_profile_model_fast_tokenizer_rows_and_merges_v3(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str, merge_policy: str, writer,
+    maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+    maximum_merge_rows: int = 4096, maximum_merge_content_bytes: int = 64 * 1024,
+):
+    """Emit explicit larger ranked-source merges with v2 rows, not tokenizer or learned-input approval."""
+    prepared, merges, merge_bytes = _prepare_profile_fast_tokenizer_rows_and_merges(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
+        merge_policy_version=2, merge_policy=merge_policy, maximum_merge_rows=maximum_merge_rows,
+        maximum_merge_content_bytes=maximum_merge_content_bytes)
+    return _write_profile_fast_tokenizer_rows_and_merges(prepared, merges, merge_bytes, writer)
+
+
+def _write_profile_fast_tokenizer_rows_and_merges(prepared, merges, merge_bytes, writer):
     records = _write_profile_model_metadata_records(writer, [*_profile_fast_tokenizer_row_records(prepared), merges])
     return MappingProxyType({**prepared, "records": records, "metadata_count": len(records), "merge_content_bytes": merge_bytes,
                             "metadata_scope": "padded_transformed_rows_and_merges_subset",
@@ -1106,8 +1137,19 @@ def write_profile_model_bpe_merge_metadata(
 
 
 def _profile_bpe_merge_record(prepared):
+    return _profile_bpe_merge_record_values(prepared, maximum_merge_rows=4096, maximum_merge_content_bytes=64 * 1024)
+
+
+def _profile_bpe_merge_record_v2(prepared, *, maximum_merge_rows=4096, maximum_merge_content_bytes=64 * 1024):
+    if (type(maximum_merge_rows) is not int or not 0 < maximum_merge_rows <= 262144
+            or type(maximum_merge_content_bytes) is not int or not 0 < maximum_merge_content_bytes <= 4 * 1024**2):
+        raise ValueError("invalid larger BPE merge budget")
+    return _profile_bpe_merge_record_values(prepared, maximum_merge_rows=maximum_merge_rows, maximum_merge_content_bytes=maximum_merge_content_bytes)
+
+
+def _profile_bpe_merge_record_values(prepared, *, maximum_merge_rows, maximum_merge_content_bytes):
     pairs = prepared["bpe_merge_pairs"]
-    if not 0 < len(pairs) <= 4096:
+    if not 0 < len(pairs) <= maximum_merge_rows:
         raise ValueError("unsupported bounded BPE merge count")
     values = []
     content_bytes = 0
@@ -1117,7 +1159,7 @@ def _profile_bpe_merge_record(prepared):
             raise ValueError("unsupported BPE merge string or content budget")
         encoded_bytes = len(value.encode("utf-8"))
         content_bytes += encoded_bytes
-        if encoded_bytes > 4096 or content_bytes > 64 * 1024:
+        if encoded_bytes > 4096 or content_bytes > maximum_merge_content_bytes:
             raise ValueError("unsupported BPE merge content budget")
         values.append(value)
     return {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": tuple(values)}, content_bytes
@@ -2845,27 +2887,53 @@ def verify_profile_gguf_fast_tokenizer_rows_and_merges_v3(
         maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes, include_merges=True)
 
 
+def verify_profile_gguf_fast_tokenizer_rows_and_merges_v4(
+    profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str, merge_policy: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 256 * 1024,
+    maximum_seconds: float = 30, maximum_metadata_bytes: int = 8192, maximum_header_bytes: int = 1024**2,
+    maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+    maximum_merge_rows: int = 4096, maximum_merge_content_bytes: int = 64 * 1024,
+):
+    """Bind explicitly larger source merges and v2 rows to one retained file, not tokenizer/runtime approval."""
+    return _verify_profile_gguf_fast_tokenizer_records_v3(profile, reader=reader, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes,
+        maximum_seconds=maximum_seconds, maximum_metadata_bytes=maximum_metadata_bytes, maximum_header_bytes=maximum_header_bytes,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes, include_merges=True,
+        file_policy_version=4, merge_policy=merge_policy, maximum_merge_rows=maximum_merge_rows,
+        maximum_merge_content_bytes=maximum_merge_content_bytes)
+
+
 def _verify_profile_gguf_fast_tokenizer_records_v3(
     profile, *, reader, metadata_files, tokenizer_bytes, context_length, row_policy, expected_file_bytes, expected_file_sha256,
     maximum_file_bytes, maximum_seconds, maximum_metadata_bytes, maximum_header_bytes, maximum_vocabulary_rows,
-    maximum_token_content_bytes, include_merges,
+    maximum_token_content_bytes, include_merges, file_policy_version=3,
+    merge_policy=None, maximum_merge_rows=4096, maximum_merge_content_bytes=64 * 1024,
 ):
     from embedded_jev.model_profile import SHA256
 
+    if type(file_policy_version) is not int or file_policy_version not in (3, 4) or file_policy_version == 4 and not include_merges:
+        raise ValueError("invalid fast-row retained-file policy version")
+    record_cap = (16 if file_policy_version == 4 else 8) * 1024**2
     if (
         type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 16 * 1024**2
         or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
         or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 180
-        or type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= 8 * 1024**2
-        or type(maximum_header_bytes) is not int or not 0 < maximum_header_bytes <= 8 * 1024**2
+        or type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= record_cap
+        or type(maximum_header_bytes) is not int or not 0 < maximum_header_bytes <= record_cap
     ):
         raise ValueError("invalid v3 fast-row file identity or budget")
     deadline = time.monotonic() + maximum_seconds
     arguments = dict(metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes, context_length=context_length,
         row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes)
     if include_merges:
-        prepared, merges, merge_bytes = _prepare_profile_fast_tokenizer_rows_and_merges(profile, **arguments)
+        if file_policy_version == 4:
+            prepared, merges, merge_bytes = _prepare_profile_fast_tokenizer_rows_and_merges(profile, **arguments,
+                merge_policy_version=2, merge_policy=merge_policy, maximum_merge_rows=maximum_merge_rows,
+                maximum_merge_content_bytes=maximum_merge_content_bytes)
+        else:
+            prepared, merges, merge_bytes = _prepare_profile_fast_tokenizer_rows_and_merges(profile, **arguments)
     else:
         prepared = prepare_profile_model_tokenizer_rows_v2(profile, **arguments)
     if time.monotonic() > deadline:
@@ -2875,11 +2943,11 @@ def _verify_profile_gguf_fast_tokenizer_records_v3(
         maximum_file_bytes=maximum_file_bytes, deadline=deadline, model_owner=None, descriptor=None,
         policy_version=2, file_cap=16 * 1024**2, header_cap=maximum_header_bytes,
         declarations=[*_profile_fast_tokenizer_row_records(prepared), *([merges] if include_merges else [])], maximum_metadata_bytes=maximum_metadata_bytes,
-        maximum_numeric_array_parts=5 + profile.geometry["vocab_size"], record_policy_version=2))
+        maximum_numeric_array_parts=5 + profile.geometry["vocab_size"], record_policy_version=3 if file_policy_version == 4 else 2))
     if time.monotonic() > deadline:
         raise ValueError("fast-row verification deadline exceeded")
     verified.pop("policy_metadata_verification", None)
-    return MappingProxyType({**prepared, **verified, "tokenizer_row_file_policy_version": 3,
+    return MappingProxyType({**prepared, **verified, "tokenizer_row_file_policy_version": file_policy_version,
                             "selected_metadata_cap_bytes": maximum_metadata_bytes,
                             **({"merge_content_bytes": merge_bytes} if include_merges else {}),
                             "metadata_scope": "padded_transformed_rows_and_merges_subset" if include_merges else "padded_transformed_token_rows_subset",
@@ -3148,10 +3216,10 @@ def _verify_profile_gguf_metadata_records(
 
     from embedded_jev.streamed_text import bounded_native_descriptor_record, bounded_native_file_record, bounded_gguf_descriptor_record_v2
 
-    if type(record_policy_version) is not int or record_policy_version not in (1, 2):
+    if type(record_policy_version) is not int or record_policy_version not in (1, 2, 3):
         raise ValueError("invalid selected record policy version")
-    metadata_cap = 8 * 1024**2 if record_policy_version == 2 else 128 * 1024
-    numeric_cap = 262149 if record_policy_version == 2 else 4101
+    metadata_cap = 16 * 1024**2 if record_policy_version == 3 else 8 * 1024**2 if record_policy_version == 2 else 128 * 1024
+    numeric_cap = 262149 if record_policy_version in (2, 3) else 4101
     if type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= metadata_cap:
         raise ValueError("invalid selected metadata record budget")
     if type(maximum_numeric_array_parts) is not int or not 0 < maximum_numeric_array_parts <= numeric_cap:

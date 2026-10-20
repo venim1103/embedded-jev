@@ -39,9 +39,11 @@ authorizes another learned read or a runtime/model experiment.
 adds joint three-record composition/proof without widening any merge limit.
 It did not repeat the learned result or establish a complete tokenizer.
 
-**Pending, not approved:** the [larger synthetic merge proposal](#larger-synthetic-merge-proposal-2026-10-20)
-would separately version merge-count/content and selected-record/header limits.
-Only generated-data sizing was performed; no implementation or learned read.
+**New separate approval after `542ae46`:** the user selected **Approve Larger
+Synthetic Merges** for the [larger synthetic merge proposal](#larger-synthetic-merge-proposal-2026-10-20).
+The [larger merge policy checkpoint](#larger-merge-policy-checkpoint-2026-10-20)
+implements separate opt-ins and verifies 8193 rows/4097 pairs. Full-size merge
+controls remain next; all three learned approvals remain consumed.
 
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
@@ -407,14 +409,84 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Larger Merge Policy Checkpoint (2026-10-20)
+
+After `542ae46`, the user explicitly selected **Approve Larger Synthetic
+Merges**. This increment implements that synthetic capacity contract, not
+permission to reread learned inputs. Full-size merge execution remains next.
+
+`write_profile_model_fast_tokenizer_rows_and_merges_v3` requires exact
+`merge_policy="pinned_prism_ranked_source_merges_v2"`; default merge count/content
+remain **4096/64 KiB**, strict explicit ceilings **262144/4 MiB**. Row source and
+output content each retain their independent **4 MiB** ceiling. Unknown policy,
+boolean/float/nonpositive/over-ceiling budgets refuse before source preparation.
+Old public writer and private encoder remain fixed at 4096/64 KiB; all paths
+retain the 4096-byte per-string bound and original ranked source-pair checks.
+All three selected keys still preflight before any writer mutation.
+
+`verify_profile_gguf_fast_tokenizer_rows_and_merges_v4` freshly prepares the new
+joint declarations under one retained-file deadline; explicit header/selected
+record ceilings are **16 MiB**, with unchanged 1 MiB/8 KiB defaults and 16 MiB
+file hard ceiling. New private record policy **3** allows 16 MiB records while
+keeping numeric-array parts <=262149; policies 1/2 retain 128 KiB/8 MiB caps.
+Old row-only/joint v3 APIs retain their 8 MiB ceilings. No complete tokenizer,
+pre-tokenizer/model tag, tensor-layout or runtime approval follows.
+
+Focused writer/old budget controls **68 passed in 0.31 s**; retained routing,
+record-policy and preflight controls **95 passed in 0.28 s**. Pylance signature
+validation initially flagged a mixed-type keyword dictionary at the version
+dispatch, despite passing runtime tests. Explicit versioned calls repair that
+static ambiguity; the same slice **54 passed in 0.18 s**, and both shared
+function signature checks are compatible. Syntax/editor checks are clean.
+
+New opt-in `[synthetic-merges-intermediate]` of
+`test_pinned_profile_tokenizer_rows_diagnostic` uses actual cached trusted
+parser/writer and exact pinned row-method comparison, **8193 rows/two tail pads,
+4097 original valid ranked pairs**, normalization/space rewrite, three typed
+records and one two-byte BF16 anchor. First expanded check **1 passed in 8.43 s**.
+The reused runner initially retained its old 128 MiB assertion; it now applies
+the separately approved **64 MiB** pre-copy reservation and measured logical
+cap only to new merge-version-2 modes. Old learned/row modes remain 128 MiB.
+The substantively tightened check **1 passed in 11.56 s**:
+
+| Measured Quantity | Bytes |
+| --- | --- |
+| Ten synthetic source files / read-only copies, each | 366350 |
+| Source / output row content | 61074 / 61101 |
+| Ranked merge content | 40970 |
+| Disposable three-record file | 233472 |
+| Logical source+copy+file+reserved 16 MiB spool+8 KiB report | 17751580 |
+| Maximum observed worker RSS | 373948416 |
+| Minimum observed host available memory | 16900820992 |
+
+Two hashes use the same retained descriptor, pread <=65536; fresh-hash merge
+byte and rank contradictions refuse, original bytes restore, maps/FDs close,
+and parent-owned source/copies/output are removed. Process and host swap stay
+zero. Serial children remain <=60 s, each stage <=180 s and sequence <=600 s;
+no deadline, tolerance or assertion was relaxed. Tiny exact-cap/header tests
+and copy safety controls **15 passed in 1.77 s**, including new 64 MiB pre-copy
+refusal with nonexistent source, proving refusal before source access/copy.
+Conservatively charge both expanded checks and that entire safety command:
+new synthetic merge sequence **21.76 s of 600 s** consumed so far.
+
+Old row-only and two-merge actual synthetic compatibility **2 passed in 13.25 s**.
+Required gate with all learned approval flags unset **1382 passed, 136 skipped
+in 29.80 s**, Ruff and whitespace clean. Optional native/full-model controls
+were skipped, not inferred from this gate. No learned file, weight/shard header,
+download, install, native build/CTest, model execution, candidate/refit or quality
+job occurred. All three learned approvals remain consumed. Next: separately
+partition full-size generated 248320-row/243-pad/245760-pair emission/proof/fault
+stages inside the approved new 600 s sequence and unchanged 64 MiB logical cap.
+
 ## Larger Synthetic Merge Proposal (2026-10-20)
 
-Prepared after `1f45fb5`; **not approved, implemented or exercised**. The current
+Prepared after `1f45fb5`, initially not approved, implemented or exercised;
+**separately approved after `542ae46`**, with initial implementation recorded in
+the [policy checkpoint](#larger-merge-policy-checkpoint-2026-10-20). The prior
 fast-row/merge composer/proof keeps 4096 merges/64 KiB content and selected
-records/header <=8 MiB, with no learned proof of that three-record path. All
-three learned one-shots remain consumed. Proposed next increment is **synthetic
-only**, with separately versioned explicit merge and retained-record opt-ins,
-not another learned read or full tokenizer/model conversion.
+records/header <=8 MiB. There is no learned proof of either three-record path.
+All three learned one-shots remain consumed. This increment is **synthetic
+only**, not another learned read or full tokenizer/model conversion.
 
 New-version defaults remain 4096 merges/64 KiB; proposed explicit ceilings
 **262,144 ranked pairs / 4 MiB merge content**, independently of existing source
@@ -473,9 +545,9 @@ measure and refuse before exceeding any bound; added/control markers will change
 the exact sizes. Reuse existing cached source/interpreter; no install/download,
 new environment, native/parser build, learned input/weight/header, model
 conversion/execution, retained candidate, refit, held-out/quality/device job or
-automatic policy promotion. Ask for **separate explicit synthetic-capacity
-approval** before implementing or exercising this expansion. A future learned
-comparison would still require its own new bounded approval.
+automatic policy promotion. The separate explicit synthetic-capacity approval
+was given after `542ae46`; a future learned comparison would still require its
+own new bounded approval.
 
 ## Fast Rows And Merges Checkpoint (2026-10-20)
 

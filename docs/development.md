@@ -3084,6 +3084,36 @@ byte and rank contradictions. It never selects learned input; the consumed
 merge/header/file/content allowance is implicit. See the
 [fast composition checkpoint](handover.md#fast-rows-and-merges-checkpoint-2026-10-20).
 
+Separately versioned larger synthetic capacity uses
+`write_profile_model_fast_tokenizer_rows_and_merges_v3(...)` with required exact
+`merge_policy="pinned_prism_ranked_source_merges_v2"`. Its defaults remain
+`maximum_merge_rows=4096`, `maximum_merge_content_bytes=65536`; strict integer
+opt-ins allow at most **262144 pairs / 4 MiB merge content**, independently of
+v2 row source/output content caps. Each encoded merge still fits 4096 UTF-8
+bytes. Old writer/private encoder hard ceilings stay 4096/64 KiB, not just their
+defaults. Original source membership/join/order/duplicate/subword checks and
+joint three-key no-mutation preflight remain unchanged.
+
+`verify_profile_gguf_fast_tokenizer_rows_and_merges_v4(...)` requires the same
+policy and merge budgets, retaining fresh source preparation, a shared deadline,
+one retained descriptor/two hashes/pread <=65536. Explicit selected-record/header
+allowances are <=16 MiB, defaulting to 8 KiB/1 MiB; file cap stays 16 MiB. Private
+record policy 3 permits 16 MiB selected records without increasing numeric part
+limits. Policies 1/2 and old row-only/joint v3 file APIs preserve their hard caps.
+
+Optional row diagnostic `[synthetic-merges-intermediate]` exercises 8193 rows/
+4097 valid pairs through these versions, including typed readback and fresh-hash
+byte/rank contradictions. New merge-version-2 fixture modes enforce **64 MiB**
+logical source+copy+output+reserved spool/report, including a conservative
+pre-copy reservation. Sources/copies <=32 MiB each, file/spool <=16 MiB each,
+path-only stdin <=64 KiB, combined output <=8 KiB, serial 60 s children/180 s
+stages/600 s sequence, observed RSS <=2 GiB, host reserve >=2 GiB and swap-growth
+abort remain required. Existing row/learned modes keep their independent limits;
+the consumed learned mode remains row-only. Larger synthetic capacity was
+explicitly approved, but no learned/native/model acceptance is implied. See the
+[larger merge policy checkpoint](handover.md#larger-merge-policy-checkpoint-2026-10-20)
+for current implementation and evidence, distinct from full-size pending work.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

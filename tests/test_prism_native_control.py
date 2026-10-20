@@ -5625,7 +5625,8 @@ names = (tuple(profile.packaging["metadata_files"]) + ("tokenizer.json", "vocab.
     ("config.json", "tokenizer_config.json", "tokenizer.json", "vocab.json", "merges.txt"))
 total = sum(profile.files[name].bytes for name in names)
 assert len(set(names)) == len(names) and 0 < total < 32 * 1024**2
-assert (2 * total + 2 * 16 * 1024**2 + 8192 < 128 * 1024**2 if row_mode else 2 * total + 8192 < 64 * 1024**2)
+row_scratch_cap = (64 if fixture.get("merge_version") == 2 else 128) * 1024**2
+assert (2 * total + 2 * 16 * 1024**2 + 8192 < row_scratch_cap if row_mode else 2 * total + 8192 < 64 * 1024**2)
 assert scratch.is_dir() and (row_mode and fixture["operation"] != "rows-copy" or not list(scratch.iterdir()))
 
 if row_mode:
@@ -5788,7 +5789,7 @@ finish_report({"diagnostic": "tokenizer_fingerprint",
 '''
 
 
-@pytest.mark.parametrize("defect", [None, "pin", "extra-read", "source-write", "network", "copy-tamper"])
+@pytest.mark.parametrize("defect", [None, "pin", "extra-read", "source-write", "network", "copy-tamper", "scratch-budget"])
 def test_pinned_profile_tokenizer_rows_copy_control(defect):
     import hashlib
     from tempfile import TemporaryDirectory
@@ -5816,9 +5817,11 @@ def test_pinned_profile_tokenizer_rows_copy_control(defect):
             extra = "\nimport socket\nsocket.getaddrinfo('127.0.0.1', 80)\n"
         elif defect == "copy-tamper":
             extra = "\npath = scratch / 'config.json'\npath.chmod(0o600)\npath.write_bytes(b'bad')\npath.chmod(0o400)\n"
+        if defect == "scratch-budget":
+            record["files"]["tokenizer.json"]["bytes"] = 16 * 1024**2
         code = _tokenizer_source_copy_code() + extra + "finish_report({'diagnostic': 'tokenizer_row_copy'})\n"
-        payload = json.dumps({"profile_hex": json.dumps(record).encode().hex(), "source": str(source), "scratch": str(scratch),
-            "operation": "rows-copy"}).encode()
+        payload = json.dumps({"profile_hex": json.dumps(record).encode().hex(), "source": "/not-read" if defect == "scratch-budget" else str(source),
+            "scratch": str(scratch), "merge_version": 2 if defect == "scratch-budget" else 1, "operation": "rows-copy"}).encode()
         result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
         if defect is None:
@@ -5828,8 +5831,10 @@ def test_pinned_profile_tokenizer_rows_copy_control(defect):
             assert report["input_bytes"] == report["scratch_bytes"] and not report["transformers_loaded"]
         else:
             assert result["returncode"] != 0
-            assert ("AssertionError" if defect in ("pin", "copy-tamper") else
+            assert ("AssertionError" if defect in ("pin", "copy-tamper", "scratch-budget") else
                 "network prohibited" if defect == "network" else "file access prohibited") in result["stderr"]
+            if defect == "scratch-budget":
+                assert not list(scratch.iterdir())
         assert result["observed_process_swap_bytes"] == 0 and result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
     assert not root.exists()
 
@@ -5946,6 +5951,10 @@ def run_rows():
     root = Path(fixture["output"])
     path = root / "rows.gguf"
     include_merges = fixture.get("include_merges", False)
+    expanded_merges = fixture.get("merge_version", 1) == 2
+    merge_arguments = dict(merge_policy="pinned_prism_ranked_source_merges_v2", maximum_merge_rows=fixture["merge_rows"],
+        maximum_merge_content_bytes=4 * 1024**2) if expanded_merges else {}
+    merge_values = tuple(" ".join(pair) for pair in json.loads(arguments["tokenizer_bytes"])["model"]["merges"]) if include_merges else ()
     descriptors = len(os.listdir("/proc/self/fd"))
     if operation == "rows-emission":
         import numpy as np
@@ -5980,8 +5989,9 @@ def run_rows():
         writer = gguf.GGUFWriter(path, "qwen35")
         try:
             with library_diagnostics():
-                emitter = prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.write_profile_model_fast_tokenizer_rows_v2
-                emitted = emitter(profile, writer=writer, **arguments)
+                emitter = (prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v3 if expanded_merges else
+                    prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.write_profile_model_fast_tokenizer_rows_v2)
+                emitted = emitter(profile, writer=writer, **arguments, **merge_arguments)
             assert emitted["metadata_count"] == (3 if include_merges else 2) and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
             writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
             writer.write_header_to_file()
@@ -6000,7 +6010,7 @@ def run_rows():
             if include_merges:
                 merges = reader.fields["tokenizer.ggml.merges"]
                 assert tuple(merges.types) == (gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING)
-                assert [merges.parts[index].tobytes().decode() for index in merges.data] == ["a b", "ab c"]
+                assert [merges.parts[index].tobytes().decode() for index in merges.data] == list(merge_values)
             assert len(reader.tensors) == 1 and not {"tokenizer.ggml.pre", "tokenizer.ggml.model"}.intersection(reader.fields)
         finally:
             reader.data._mmap.close()
@@ -6008,7 +6018,7 @@ def run_rows():
             normalized_rows=prepared["normalized_row_count"], rewritten_rows=prepared["space_rewritten_row_count"],
             source_content_bytes=prepared["source_token_content_bytes"], output_content_bytes=prepared["output_token_content_bytes"],
             output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-            metadata_records=3 if include_merges else 2)
+            metadata_records=3 if include_merges else 2, merge_rows=len(merge_values), merge_content_bytes=emitted.get("merge_content_bytes", 0))
     else:
         assert operation == "rows-proof"
         identity = fixture["identity"]
@@ -6029,15 +6039,22 @@ def run_rows():
         try:
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = record_hash, record_read
             with library_diagnostics():
-                verifier = prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v3 if include_merges else prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3
+                verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v4 if expanded_merges else
+                    prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v3 if include_merges else prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3)
                 receipt = verifier(profile, reader=reader,
-                    maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=8 * 1024**2,
-                    maximum_header_bytes=8 * 1024**2, **arguments, **identity)
+                    maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=(16 if expanded_merges else 8) * 1024**2,
+                    maximum_header_bytes=(16 if expanded_merges else 8) * 1024**2, **arguments, **merge_arguments, **identity)
             assert receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type") + (("tokenizer.ggml.merges",) if include_merges else ())
             assert receipt["metadata_verification"] == ("selected_typed_fast_rows_and_merges_match_file" if include_merges else "selected_typed_fast_rows_match_file")
             assert receipt["source_row_verification"] == "selected_pinned_fast_wrapper_declarations_match_file"
             assert receipt["model_file_access"] == "retained_reader_filename_descriptor"
             assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+            if expanded_merges:
+                assert receipt["tokenizer_row_file_policy_version"] == 4 and receipt["bpe_merge_policy_version"] == 2
+                assert receipt["bpe_merge_count"] == fixture["merge_rows"] > 4096
+            if include_merges:
+                field = reader.fields["tokenizer.ggml.merges"]
+                merge_offsets = [int(field.parts[field.data[index]].ctypes.data - reader.data.ctypes.data) for index in (0, 1)]
         finally:
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = hasher, pread
             reader.data._mmap.close()
@@ -6046,22 +6063,22 @@ def run_rows():
         contradictions = 0
         if include_merges:
             original = path.read_bytes()
-            start = original.index(b"a b")
+            start = merge_offsets[0]
             for defect in ("byte", "rank"):
                 changed = bytearray(original)
                 if defect == "byte":
                     changed[start] ^= 1
                 else:
-                    end = start + 3
-                    changed[start - 8:end + 12] = struct.pack("<Q", 4) + b"ab c" + struct.pack("<Q", 3) + b"a b"
+                    first, second = (value.encode() for value in merge_values[:2])
+                    changed[start - 8:merge_offsets[1] + len(second)] = struct.pack("<Q", len(second)) + second + struct.pack("<Q", len(first)) + first
                 try:
                     path.write_bytes(changed)
                     fault = gguf.GGUFReader(path)
                     try:
                         with library_diagnostics():
                             try:
-                                verifier(profile, reader=fault, maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=8 * 1024**2,
-                                    maximum_header_bytes=8 * 1024**2, **arguments,
+                                verifier(profile, reader=fault, maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=(16 if expanded_merges else 8) * 1024**2,
+                                    maximum_header_bytes=(16 if expanded_merges else 8) * 1024**2, **arguments, **merge_arguments,
                                     expected_file_bytes=len(changed), expected_file_sha256=hashlib.sha256(changed).hexdigest())
                                 raise AssertionError("fresh-hash source merge contradiction accepted")
                             except ValueError as error:
@@ -6074,10 +6091,11 @@ def run_rows():
         report = dict(status="matched", phase=operation, token_rows=len(receipt["tokens"]),
             unused_rows=receipt["unassigned_profile_token_rows"], output_file_bytes=path.stat().st_size,
             output_file_sha256=identity["expected_file_sha256"], retained_file_hashes=len(hashes), maximum_read=max(reads),
-            metadata_records=3 if include_merges else 2, merge_contradictions=contradictions)
+            metadata_records=3 if include_merges else 2, merge_contradictions=contradictions, merge_rows=len(merge_values))
     assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in root.iterdir()) == {"rows.gguf"}
     report["logical_source_copy_scratch_bytes"] = 2 * total + path.stat().st_size + 16 * 1024**2 + 8192
-    assert report["logical_source_copy_scratch_bytes"] < 128 * 1024**2
+    assert report["logical_source_copy_scratch_bytes"] < row_scratch_cap
+    report["logical_scratch_cap_bytes"] = row_scratch_cap
     return report
 
 try:
@@ -6092,7 +6110,7 @@ finish_report(report)
 '''
 
 
-@pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "approved"])
+@pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "synthetic-merges-intermediate", "approved"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6100,7 +6118,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import time
 
     source, interpreter = _tokenizer_rows_diagnostic_environment("synthetic" if mode.startswith("synthetic") else mode)
-    include_merges = mode == "synthetic-merges"
+    expanded_merges = mode == "synthetic-merges-intermediate"
+    include_merges = mode in ("synthetic-merges", "synthetic-merges-intermediate")
     started = time.monotonic()
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     bodies = {}
@@ -6125,19 +6144,28 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             metadata, _, record = _packaging_fixture()
             config = json.loads(metadata["config.json"])
             config["text_config"]["max_position_embeddings"] = 512
-            tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
+            if expanded_merges:
+                record["geometry"]["vocab_size"] = config["text_config"]["vocab_size"] = 8193
+                prefixes = [f"A{index:03d}" for index in range(120)]
+                suffixes = [f"B{index:04d}" for index in range(2048)]
+                pairs = [(prefix, suffix) for prefix in prefixes for suffix in suffixes][:4097]
+                filler_count = 8191 - len(prefixes) - len(suffixes) - len(pairs)
+                tokens = [f"t{index:06d}" for index in range(filler_count)] + prefixes + suffixes + [prefix + suffix for prefix, suffix in pairs]
+                assert len(tokens) == len(set(tokens)) == 8191
+            else:
+                tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
             tokens[0], tokens[1], tokens[5], tokens[12] = "<pad>", "USER", "<|control|>", chr(0x2581) + "user"
-            if include_merges:
+            if include_merges and not expanded_merges:
                 tokens[2:5] = ["a", "b", "ab"]
                 tokens[6:8] = ["c", "abc"]
             added = [{"id": index, "content": tokens[index], "single_word": False, "lstrip": False, "rstrip": False,
                 "normalized": index != 1, "special": index in (0, 5)} for index in (0, 1, 5, 12)]
-            vocabulary = {token: index for index, token in enumerate(tokens) if index not in (20, 31)}
+            vocabulary = {token: index for index, token in enumerate(tokens) if expanded_merges or index not in (20, 31)}
             files = {**metadata, "config.json": json.dumps(config).encode(),
                 "tokenizer_config.json": b'{"tokenizer_class":"PreTrainedTokenizerFast","clean_up_tokenization_spaces":false}',
                 "tokenizer.json": json.dumps({"version": "1.0", "added_tokens": added,
                     "decoder": {"type": "Replace", "pattern": {"String": "USER"}, "content": "user-normalized"},
-                    "model": {"type": "BPE", "vocab": vocabulary, "merges": [["a", "b"], ["ab", "c"]] if include_merges else [], "dropout": None, "unk_token": None,
+                    "model": {"type": "BPE", "vocab": vocabulary, "merges": pairs if expanded_merges else [["a", "b"], ["ab", "c"]] if include_merges else [], "dropout": None, "unk_token": None,
                         "continuing_subword_prefix": None, "end_of_word_suffix": None, "fuse_unk": False,
                         "byte_fallback": False, "ignore_merges": False}}).encode(),
                 "vocab.json": json.dumps(vocabulary).encode(), "merges.txt": b"#version: 0.2\n"}
@@ -6155,7 +6183,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         names = tuple(record["packaging"]["metadata_files"]) + ("tokenizer.json", "vocab.json", "merges.txt")
         original_stats = {name: (local / name).stat() for name in names}
         fixture = {"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(inputs), "output": str(output),
-            "row_source": row_source, "special_source": special_source, "include_merges": include_merges}
+            "row_source": row_source, "special_source": special_source, "include_merges": include_merges,
+            "merge_version": 2 if expanded_merges else 1, "merge_rows": len(pairs) if expanded_merges else 2 if include_merges else 0}
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
@@ -6185,6 +6214,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 assert report["token_rows"] == record["geometry"]["vocab_size"]
                 assert report["unused_rows"] == (2 if mode.startswith("synthetic") else 243)
                 assert report["metadata_records"] == (3 if include_merges else 2)
+                assert report["merge_rows"] == fixture["merge_rows"]
+                assert report["logical_scratch_cap_bytes"] == (64 if expanded_merges else 128) * 1024**2
                 if operation == "rows-emission":
                     fixture["identity"] = {"expected_file_bytes": report["output_file_bytes"], "expected_file_sha256": report["output_file_sha256"]}
                     if mode.startswith("synthetic"):

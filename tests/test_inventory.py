@@ -1428,15 +1428,16 @@ def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypat
         receipt["records"][1]["values"][0] = 5
 
 
-@pytest.mark.parametrize("fast_rows", [False, True])
+@pytest.mark.parametrize("row_mode", ["source", "fast-v2", "fast-v3"])
 @pytest.mark.parametrize("defect", [None, "tokens-conflict", "types-conflict", "merges-conflict", "empty-merges", "bad-merge",
                                     "metadata-pin", "tokenizer-pin", "unassigned", "architecture", "split", "method", "policy"])
-def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monkeypatch, defect, fast_rows):
+def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monkeypatch, defect, row_mode):
     import sys
     from types import SimpleNamespace
 
-    from embedded_jev.prism_codec import write_profile_model_fast_tokenizer_rows_and_merges_v2, write_profile_model_tokenizer_rows_and_merges
+    from embedded_jev.prism_codec import write_profile_model_fast_tokenizer_rows_and_merges_v2, write_profile_model_fast_tokenizer_rows_and_merges_v3, write_profile_model_tokenizer_rows_and_merges
 
+    fast_rows = row_mode != "source"
     count = _profile_tokenizer_preparation_fixture(b"{}")[0].geometry["vocab_size"]
     tokens = ["a", "b", "c", "ab", "abc", "<|special|>"] + [f"token{index}" for index in range(6, count)]
     if defect == "unassigned":
@@ -1482,7 +1483,10 @@ def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monke
     arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
                  "row_policy" if fast_rows else "token_type_policy": "other" if defect == "policy" else
                      "pinned_prism_fast_rows_v2" if fast_rows else "pinned_prism_no_transform_v1", "writer": writer}
-    emit = write_profile_model_fast_tokenizer_rows_and_merges_v2 if fast_rows else write_profile_model_tokenizer_rows_and_merges
+    emit = (write_profile_model_fast_tokenizer_rows_and_merges_v3 if row_mode == "fast-v3" else
+        write_profile_model_fast_tokenizer_rows_and_merges_v2 if fast_rows else write_profile_model_tokenizer_rows_and_merges)
+    if row_mode == "fast-v3":
+        arguments["merge_policy"] = "pinned_prism_ranked_source_merges_v2"
     before = json.dumps(writer.kv_data, sort_keys=True)
     if defect and not (fast_rows and defect == "unassigned"):
         with pytest.raises(ValueError):
@@ -1508,19 +1512,88 @@ def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monke
     assert receipt["metadata_emission"] == ("padded_transformed_strings_types_and_merges_emitted" if fast_rows else "token_strings_types_and_merges_emitted")
     assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+    if row_mode == "fast-v3":
+        assert receipt["bpe_merge_policy_version"] == 2 and receipt["maximum_merge_rows"] == 4096
+        assert receipt["maximum_merge_content_bytes"] == 65536
     with pytest.raises(TypeError):
         receipt["records"][2]["values"][0] = "other"
 
 
-@pytest.mark.parametrize("row_mode", ["rows", "merges", "fast", "fast-v2", "fast-v2-merges"])
+@pytest.mark.parametrize("changes", [
+    {"merge_policy": "other"}, {"maximum_merge_rows": True}, {"maximum_merge_rows": 0},
+    {"maximum_merge_rows": 262145}, {"maximum_merge_rows": 1.5}, {"maximum_merge_content_bytes": True},
+    {"maximum_merge_content_bytes": 0}, {"maximum_merge_content_bytes": 4 * 1024**2 + 1}, {"maximum_merge_content_bytes": 1.5},
+])
+def test_profile_fast_merge_v3_invalid_opt_ins_refuse_before_preparation(monkeypatch, changes):
+    from embedded_jev import prism_codec
+
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows_v2", lambda *args, **kwargs:
+        pytest.fail("invalid merge opt-in reached source preparation"))
+    arguments = dict(metadata_files={}, tokenizer_bytes=b"{}", context_length=256, row_policy="pinned_prism_fast_rows_v2",
+        merge_policy="pinned_prism_ranked_source_merges_v2", writer=_profile_metadata_writer_fixture())
+    with pytest.raises(ValueError, match="invalid source-merge policy or budget"):
+        prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v3(object(), **{**arguments, **changes})
+
+
+@pytest.mark.parametrize("case", ["count", "content", "string"])
+def test_profile_explicit_merge_encoder_keeps_old_limits_and_per_string_bound(case):
+    from embedded_jev import prism_codec
+
+    if case == "count":
+        pairs = tuple((f"a{index:04d}", f"b{index:04d}") for index in range(4097))
+        budgets = {"maximum_merge_rows": 4097}
+    else:
+        pairs = tuple((f"a{index:04d}" + "x" * (4090 if case == "string" else 4089), "b") for index in range(17))
+        budgets = {"maximum_merge_content_bytes": 4 * 1024**2}
+    prepared = {"bpe_merge_pairs": pairs}
+    with pytest.raises(ValueError, match="BPE merge"):
+        prism_codec._profile_bpe_merge_record(prepared)
+    if case == "string":
+        with pytest.raises(ValueError, match="BPE merge string"):
+            prism_codec._profile_bpe_merge_record_v2(prepared, **budgets)
+    else:
+        record, content = prism_codec._profile_bpe_merge_record_v2(prepared, **budgets)
+        assert record["values"] == tuple(" ".join(pair) for pair in pairs)
+        assert content == sum(len(value.encode()) for value in record["values"])
+
+
+@pytest.mark.parametrize("budgets", [(4096, 65536), (262144, 4 * 1024**2)])
+def test_profile_larger_merge_encoder_accepts_exact_declared_budget_ceilings(budgets):
+    from embedded_jev.prism_codec import _profile_bpe_merge_record_v2
+
+    record, content = _profile_bpe_merge_record_v2({"bpe_merge_pairs": (("a", "b"),)},
+        maximum_merge_rows=budgets[0], maximum_merge_content_bytes=budgets[1])
+    assert record["values"] == ("a b",) and content == 3
+
+
+@pytest.mark.parametrize("mode", ["rows-v3", "merges-v3", "merges-v4"])
+@pytest.mark.parametrize("budget", [8 * 1024**2 + 1, 16 * 1024**2 + 1])
+def test_profile_fast_retained_header_ceiling_is_versioned_before_preparation(monkeypatch, mode, budget):
+    from embedded_jev import prism_codec
+
+    def prepare(*args, **kwargs):
+        raise ValueError("reached fresh preparation")
+
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", prepare)
+    verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3 if mode == "rows-v3" else
+        prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v3 if mode == "merges-v3" else
+        prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v4)
+    arguments = {"merge_policy": "pinned_prism_ranked_source_merges_v2"} if mode == "merges-v4" else {}
+    with pytest.raises(ValueError, match="reached fresh preparation" if mode == "merges-v4" and budget < 16 * 1024**2 else "budget"):
+        verifier(object(), reader=object(), metadata_files={}, tokenizer_bytes=b"{}", context_length=256,
+            row_policy="pinned_prism_fast_rows_v2", expected_file_bytes=100, expected_file_sha256="1" * 64,
+            maximum_header_bytes=budget, **arguments)
+
+
+@pytest.mark.parametrize("row_mode", ["rows", "merges", "fast", "fast-v2", "fast-v2-merges", "fast-v3-merges"])
 @pytest.mark.parametrize("defect", [None, "file-budget", "file-size", "hash", "seconds", "record-budget", "preparation", "verification"])
 def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_private_opt_in(monkeypatch, defect, row_mode):
     from types import SimpleNamespace
 
     from embedded_jev import prism_codec
 
-    include_merges, fast_rows = row_mode in ("merges", "fast-v2-merges"), row_mode in ("fast", "fast-v2", "fast-v2-merges")
-    version = 2 if row_mode in ("fast-v2", "fast-v2-merges") else 1
+    include_merges, fast_rows = row_mode in ("merges", "fast-v2-merges", "fast-v3-merges"), row_mode in ("fast", "fast-v2", "fast-v2-merges", "fast-v3-merges")
+    version = 2 if row_mode in ("fast-v2", "fast-v2-merges", "fast-v3-merges") else 1
     profile = SimpleNamespace(geometry={"vocab_size": 3})
     calls = []
 
@@ -1540,7 +1613,7 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     def verify(actual_profile, **kwargs):
         assert actual_profile is profile and kwargs["maximum_numeric_array_parts"] == 8
         assert kwargs["maximum_metadata_bytes"] == 8192 and kwargs["file_cap"] == (16 * 1024**2 if version == 2 else 256 * 1024)
-        assert kwargs.get("record_policy_version", 1) == version
+        assert kwargs.get("record_policy_version", 1) == (3 if row_mode == "fast-v3-merges" else version)
         assert kwargs["model_owner"] is kwargs["descriptor"] is None
         assert kwargs["policy_version"] == 2 and kwargs["declarations"][1]["values"] == (1, 5 if fast_rows else 3, 4)
         assert len(kwargs["declarations"]) == (3 if include_merges else 2)
@@ -1550,6 +1623,9 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
         return {"metadata_names": tuple(row["name"] for row in kwargs["declarations"])}
 
     def prepare_fast_merges(actual_profile, **kwargs):
+        if row_mode == "fast-v3-merges":
+            assert kwargs["merge_policy_version"] == 2 and kwargs["merge_policy"] == "pinned_prism_ranked_source_merges_v2"
+            assert kwargs["maximum_merge_rows"] == 4096 and kwargs["maximum_merge_content_bytes"] == 65536
         prepared, merges = prepare(actual_profile, **kwargs), prepare_merges(actual_profile, **kwargs)
         return {**prepared, **merges}, {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("base user",)}, 9
 
@@ -1559,13 +1635,16 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     monkeypatch.setattr(prism_codec, "prepare_profile_model_bpe_metadata", prepare_merges)
     monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", prepare_fast_merges)
     monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
-    verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v3 if row_mode == "fast-v2-merges" else
+    verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v4 if row_mode == "fast-v3-merges" else
+                prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v3 if row_mode == "fast-v2-merges" else
                 prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3 if version == 2 else
                 prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2 if fast_rows else
                 prism_codec.verify_profile_gguf_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.verify_profile_gguf_tokenizer_rows_v2)
     arguments = {"reader": object(), "metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256,
                  "row_policy" if fast_rows else "token_type_policy": f"pinned_prism_fast_rows_v{version}" if fast_rows else "pinned_prism_no_transform_v1",
                  "expected_file_bytes": 100, "expected_file_sha256": "1" * 64}
+    if row_mode == "fast-v3-merges":
+        arguments["merge_policy"] = "pinned_prism_ranked_source_merges_v2"
     if defect == "file-budget":
         arguments["maximum_file_bytes"] = (16 * 1024**2 if version == 2 else 256 * 1024) + 1
     elif defect == "file-size":
@@ -1575,7 +1654,7 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     elif defect == "seconds":
         arguments["maximum_seconds"] = float("nan")
     elif defect == "record-budget":
-        arguments["maximum_metadata_bytes"] = (8 * 1024**2 if version == 2 else 128 * 1024) + 1
+        arguments["maximum_metadata_bytes"] = ((16 if row_mode == "fast-v3-merges" else 8) * 1024**2 if version == 2 else 128 * 1024) + 1
     elif defect in ("preparation", "verification"):
         clock = iter([5, 40] if defect == "preparation" else [5, 6, 7, 40] if row_mode == "merges" else [5, 6, 40])
         monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
@@ -1583,15 +1662,15 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     if defect:
         with pytest.raises(ValueError):
             verifier(profile, **arguments)
-        assert calls == (["prepare", "merges"] if defect == "preparation" and row_mode == "fast-v2-merges" else
+        assert calls == (["prepare", "merges"] if defect == "preparation" and row_mode in ("fast-v2-merges", "fast-v3-merges") else
             ["prepare"] if defect == "preparation" else expected_calls if defect == "verification" else [])
         return
     receipt = verifier(profile, **arguments)
     assert calls == expected_calls
-    assert receipt["metadata_verification"] == ("selected_typed_fast_rows_and_merges_match_file" if row_mode == "fast-v2-merges" else
+    assert receipt["metadata_verification"] == ("selected_typed_fast_rows_and_merges_match_file" if row_mode in ("fast-v2-merges", "fast-v3-merges") else
         "selected_typed_fast_rows_match_file" if fast_rows else
         "selected_typed_token_rows_and_merges_match_file" if include_merges else "selected_typed_token_rows_match_file")
-    assert receipt["runtime_approval"] == ("not_granted_by_fast_rows_and_merges_file_verification" if row_mode == "fast-v2-merges" else
+    assert receipt["runtime_approval"] == ("not_granted_by_fast_rows_and_merges_file_verification" if row_mode in ("fast-v2-merges", "fast-v3-merges") else
         "not_granted_by_fast_token_rows_file_verification" if fast_rows else
         "not_granted_by_token_rows_and_merges_file_verification" if include_merges else "not_granted_by_token_row_file_verification")
 
@@ -1601,8 +1680,10 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     (1, 8192, 4102, "numeric-array part budget"),
     (2, 8 * 1024**2 + 1, 32, "metadata record budget"),
     (2, 8192, 262150, "numeric-array part budget"),
+    (3, 16 * 1024**2 + 1, 32, "metadata record budget"),
+    (3, 8192, 262150, "numeric-array part budget"),
     (True, 8192, 32, "record policy version"),
-    (3, 8192, 32, "record policy version"),
+    (4, 8192, 32, "record policy version"),
 ])
 def test_profile_selected_record_policy_keeps_old_ceilings_and_strict_new_opt_in(monkeypatch, version, metadata_bytes, numeric_parts, message):
     import sys
