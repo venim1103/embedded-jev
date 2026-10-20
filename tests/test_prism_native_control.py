@@ -6583,7 +6583,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6591,15 +6591,16 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
 
     from test_inventory import _packaging_fixture
 
-    fast_proof = tokenizer_mode == "fast-rows-proof"
-    fast_emission = tokenizer_mode in ("fast-rows-emission", "fast-rows-proof")
-    fast_rows = tokenizer_mode in ("fast-rows", "fast-rows-emission", "fast-rows-proof")
+    fast_capacity = tokenizer_mode == "fast-rows-proof-capacity"
+    fast_proof = tokenizer_mode in ("fast-rows-proof", "fast-rows-proof-capacity")
+    fast_emission = tokenizer_mode in ("fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity")
+    fast_rows = tokenizer_mode in ("fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity")
     if fast_rows:
         tokenizer_mode = "types"
-    capacity = tokenizer_mode in ("row-proof-capacity", "rows-merges-proof-capacity")
+    capacity = fast_capacity or tokenizer_mode in ("row-proof-capacity", "rows-merges-proof-capacity")
     combined_proof = tokenizer_mode in ("rows-merges-proof", "rows-merges-proof-capacity")
     include_merges = tokenizer_mode in ("rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity")
-    if capacity or include_merges:
+    if (capacity and not fast_rows) or include_merges:
         tokenizer_mode = "row-proof"
     started = time.monotonic()
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
@@ -6684,7 +6685,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
             "decoder": {"type": "Replace", "pattern": {"String": "USER"}, "content": "user-normalized"} if fast_rows else None,
             "normalizer": {"type": "Lowercase"} if tokenizer_mode in ("bpe", "added") else None, "model": {
             "type": "BPE", "vocab": {token: index for index, token in enumerate(tokens)
-                if (tokenizer_mode != "inventory" or index not in (1, 5)) and (not fast_rows or index not in (20, 31))},
+                if (tokenizer_mode != "inventory" or index not in (1, 5)) and (not fast_rows or index not in (20, len(tokens) - 1))},
             "merges": [["a", "b"], ["ab", "c"]] if tokenizer_mode == "bpe" else [["a", "b"]] if include_merges else [],
             "dropout": None, "unk_token": None, "continuing_subword_prefix": None,
             "end_of_word_suffix": None, "fuse_unk": False, "byte_fallback": False, "ignore_merges": False,
@@ -6767,8 +6768,8 @@ if fixture["fast_rows"]:
     assert kinds == [gguf.TokenType[row["token_type"]] for row in records]
     assert rows[1] == "user-normalized" and records[1]["transforms"] == ("encode_decode",)
     assert rows[12] == " user" and records[12]["transforms"] == ("user_defined_space",)
-    assert [rows[index] for index in (20, 31)] == ["[PAD20]", "[PAD31]"]
-    assert [kinds[index] for index in (20, 31)] == [gguf.TokenType.UNUSED] * 2
+    assert [rows[index] for index in (20, len(rows) - 1)] == ["[PAD20]", "[PAD" + str(len(rows) - 1) + "]"]
+    assert [kinds[index] for index in (20, len(rows) - 1)] == [gguf.TokenType.UNUSED] * 2
     assert records[4]["token_type"] == "NORMAL" and records[5]["token"] == chr(0x2581) + "control"
     assert prepared["normalized_row_count"] == prepared["space_rewritten_row_count"] == 1
     assert tag == "synthetic-unverified-tag" and prepared["metadata_emission"] == "not_performed"
@@ -6831,6 +6832,27 @@ if fixture["fast_rows"]:
                     with library_diagnostics():
                         return prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2(profile, reader=actual_reader,
                             **{**proof_arguments, **changes})
+
+                if fixture["capacity"]:
+                    import time
+
+                    assert len(rows) == 4096 and len(original) > 8192
+                    try:
+                        prove_rows(reader)
+                        raise AssertionError("default fast-row record budget grew implicitly")
+                    except ValueError as error:
+                        assert "records exceed byte budget" in str(error)
+                    proof_arguments["maximum_metadata_bytes"] = 128 * 1024
+                    try:
+                        prism_codec._verify_profile_gguf_metadata_records(profile, reader=reader,
+                            expected_file_bytes=len(original), expected_file_sha256=proof_arguments["expected_file_sha256"],
+                            maximum_file_bytes=256 * 1024, deadline=time.monotonic() + 15, model_owner=None, descriptor=None,
+                            policy_version=2, file_cap=256 * 1024, header_cap=1024**2,
+                            declarations=[dict(record) for record in emitted["records"]], maximum_metadata_bytes=128 * 1024)
+                        raise AssertionError("old numeric-array part cap changed for fast rows")
+                    except ValueError as error:
+                        assert "field type or range mismatch: tokenizer.ggml.token_type" in str(error)
+                    summary["old_numeric_part_default_preserved"] = True
 
                 hashes, reads = [], []
                 hasher, pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
@@ -6901,11 +6923,14 @@ if fixture["fast_rows"]:
             offsets = [int(strings.parts[strings.data[index]].ctypes.data - reader.data.ctypes.data) for index in (1, 20)]
             offsets += [int(types.parts[types.data[20]].ctypes.data - reader.data.ctypes.data),
                         int(types.parts[3].ctypes.data - reader.data.ctypes.data)]
+            if fixture["capacity"]:
+                offsets += [int(strings.parts[strings.data[index]].ctypes.data - reader.data.ctypes.data) for index in (0, len(rows) - 1)]
+                offsets += [int(types.parts[types.data[index]].ctypes.data - reader.data.ctypes.data) for index in (0, len(rows) - 1)]
             for offset in offsets:
                 changed = bytearray(original)
                 changed[offset] ^= 1
                 fault_path.write_bytes(changed)
-                assert fault_path.stat().st_size < 256 * 1024 and sum(entry.stat().st_size for entry in root.iterdir()) < 8 * 1024**2
+                assert fault_path.stat().st_size < 256 * 1024 and packet_bytes + sum(entry.stat().st_size for entry in root.iterdir()) < 8 * 1024**2
                 fault = gguf.GGUFReader(fault_path)
                 try:
                     try:
@@ -6932,7 +6957,8 @@ if fixture["fast_rows"]:
                 assert "reader layout" in str(error)
             assert len(os.listdir("/proc/self/fd")) == closed_descriptor_count
         assert path.read_bytes() == original
-        summary.update(output_file_bytes=len(original), logical_scratch_peak_bytes=2 * len(original), readback_faults=4)
+        summary.update(output_file_bytes=len(original), logical_scratch_peak_bytes=packet_bytes + 2 * len(original),
+                   readback_faults=len(offsets), fixture_packet_bytes=packet_bytes)
     print(json.dumps(summary))
     sys.exit(0)
 if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
@@ -7543,13 +7569,16 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
         assert {name: summary[name] for name in ("context_length", "source_context_length")} == {"context_length": 256, "source_context_length": 512}
         assert time.monotonic() - started < 60
         if fast_rows:
-            assert summary["token_rows"] == 32 and summary["unused_rows"] == 2
+            assert summary["token_rows"] == (4096 if capacity else 32) and summary["unused_rows"] == 2
             assert summary["normalized_rows"] == summary["rewritten_rows"] == 1
             if fast_emission:
                 assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
-                assert summary["readback_faults"] == 4 and not Path(fixture["scratch"]).exists()
+                assert summary["readback_faults"] == (8 if capacity else 4) and not Path(fixture["scratch"]).exists()
+                assert (summary["fixture_packet_bytes"] > 65536) is capacity
                 if fast_proof:
                     assert summary["retained_file_hashes"] == 2 and summary["maximum_read"] <= 65536
+                    if capacity:
+                        assert summary["old_numeric_part_default_preserved"] is True
         if tokenizer_mode in ("typed-rows", "row-proof"):
             assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
             assert summary["readback_faults"] == 3 + (2 if capacity else 0) + (1 if include_merges else 0)

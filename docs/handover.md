@@ -9,6 +9,7 @@ original conversation. Read this first, then follow the links for detail.
 **Resumed by user, 2026-10-20:** Continue autonomously with periodic tested local
 commits until stopped or genuinely blocked. Starting `36b2d69` matches
 `origin/main`; only untouched user editor settings are untracked. Read the
+[fast row capacity checkpoint](#fast-row-capacity-checkpoint-2026-10-20), then the
 [fast row file checkpoint](#fast-row-file-checkpoint-2026-10-20), then the
 [fast row declaration checkpoint](#fast-row-declaration-checkpoint-2026-10-20),
 then the [rows and merges proof checkpoint](#rows-and-merges-proof-checkpoint-2026-10-20),
@@ -382,6 +383,41 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Fast Row Capacity Checkpoint (2026-10-20)
+
+After `ae6d515`, the independently selectable `fast-rows-proof-capacity` tests
+the approved **4096-row** ceiling without changing production code or limits.
+It reuses the pinned offline fast-wrapper reference and real paired writer/file
+proof, retaining one interior missing ID and one tail missing ID, actual
+decoder normalization, USER_DEFINED space rewriting and control/base cases.
+Every output string and type agrees. Default 8 KiB records refuse, explicit
+128 KiB records pass; the private parser's original 32-part numeric default
+still refuses, while only the fast-proof wrapper selects `5+4096` parts.
+
+Eight serial fresh-hash faults cover normalized and padded strings, unused type,
+INT32-to-UINT32 tag, and first/last strings/types. All refuse typed readback and
+source-prepared proof. Stale SHA, copied numeric part, restored write after final
+hash, closed mapping, live/final FD baselines and unchanged original bytes remain
+checked. Parent packet transport is reused rather than enlarging stdin; packet,
+output and one fault copy all count toward scratch and are cleaned by the parent.
+
+Result **1 passed in 10.45 s**, **85,216-byte output**, **219,014-byte packet**,
+**389,446-byte logical scratch peak**, observed child RSS **371,294,208 bytes**,
+process/host swap zero; two hashes on the same descriptor and maximum read
+**65,536 bytes**. Child 15 s, stage 60 s, RSS 1 GiB, summary 8 KiB, file/fault
+256 KiB and scratch 8 MiB guards remain unchanged. No hard host/device guarantee.
+All seventeen independently selectable toy modes **17 passed in 54.73 s**
+aggregate; that is not a larger per-child timeout. Required root gate
+**1251 passed, 120 skipped in 25.43 s**, Ruff/whitespace/editor clean. No failed
+check in this increment, native build/CTest, learned read, download, model job,
+candidate, refit or quality experiment.
+
+The approved bounded padding/transform declaration, paired emission and retained
+proof slice is complete. Larger row/content/record policies and full-scale
+synthetic tests require separate approval; both learned one-shots remain consumed.
+Complete tokenizer semantics, pre-tag/model-wrapper parity, model conversion and
+runtime/quality acceptance are still distinct open work.
+
 ## Fast Row File Checkpoint (2026-10-20)
 
 After declaration commit `ed84f23`, the separately approved synthetic policy now
@@ -488,8 +524,8 @@ separate; learned-input approvals remain consumed.
 ## Synthetic Row Policy Proposal (2026-10-20)
 
 Prepared after `6576f81`; **historical proposal, subsequently separately approved**
-after `fccc6bf`. The declaration checkpoint above records implemented evidence;
-emission/file proof remain the next approved increment.
+after `fccc6bf`. The declaration, file and capacity checkpoints above record
+completed bounded evidence; larger policies are not authorized by this proposal.
 The exact pinned `TextModel.get_vocab_base` source was read statically, without
 model/tokenizer inputs. It fills missing IDs with `[PADi]`/UNUSED, applies
 encode-without-special-tokens/decode to added rows whose `normalized` flag is

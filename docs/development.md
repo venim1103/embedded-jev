@@ -2966,6 +2966,14 @@ granted. Use `fast-rows-emission` for zero-tensor actual typed readback and
 `fast-rows-proof` for the separate retained proof with a two-byte BF16 anchor;
 both keep source transforms/padding, corruption refusals and parent cleanup.
 
+`fast-rows-proof-capacity` independently checks all 4096 rows with one interior
+and one tail unused ID, normalization and USER_DEFINED rewriting. It requires
+explicit 128 KiB selected records and verifies that default 8 KiB records and
+the private 32-part numeric default still refuse. Eight fresh-hash corruptions
+include transformed/padded and first/last strings/types. The parent-owned packet
+file keeps stdin below 64 KiB and counts toward the existing 8 MiB scratch cap.
+It does not authorize a larger vocabulary or learned-input diagnostic.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`
