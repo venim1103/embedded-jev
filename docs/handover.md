@@ -6,6 +6,14 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Paused by user, 2026-10-20:** Pause after the current checkpoint. The
+[full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
+positive synthetic emission/readback/retained proof; no full-size merge fault
+suite has started. All owned scratch is removed and no test worker remains.
+User editor settings stay untouched. Resume only on an explicit user request;
+the earlier autonomy instruction, existing approvals and terminal notifications
+do not resume paused implementation. All three learned approvals remain consumed.
+
 **Resumed by user, 2026-10-20:** Continue autonomously with periodic tested local
 commits until stopped or genuinely blocked. Starting `36b2d69` matches
 `origin/main`; only untouched user editor settings are untracked. Read the
@@ -35,15 +43,16 @@ its **single completed invocation** after the [runner checkpoint](#learned-row-r
 This approval and both older learned approvals are now **consumed**. No flag
 authorizes another learned read or a runtime/model experiment.
 
-**Current synthetic follow-up:** the [fast rows and merges checkpoint](#fast-rows-and-merges-checkpoint-2026-10-20)
+**Earlier synthetic follow-up:** the [fast rows and merges checkpoint](#fast-rows-and-merges-checkpoint-2026-10-20)
 adds joint three-record composition/proof without widening any merge limit.
 It did not repeat the learned result or establish a complete tokenizer.
 
 **New separate approval after `542ae46`:** the user selected **Approve Larger
 Synthetic Merges** for the [larger synthetic merge proposal](#larger-synthetic-merge-proposal-2026-10-20).
 The [larger merge policy checkpoint](#larger-merge-policy-checkpoint-2026-10-20)
-implements separate opt-ins and verifies 8193 rows/4097 pairs. Full-size merge
-controls remain next; all three learned approvals remain consumed.
+implements separate opt-ins and verifies 8193 rows/4097 pairs. The
+[full-size checkpoint](#full-size-merge-checkpoint-2026-10-20) adds positive
+248320-row/245760-pair evidence; full-size faults remain deferred while paused.
 
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
@@ -408,6 +417,65 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Full-Size Merge Checkpoint (2026-10-20)
+
+After `57c8ff3`, approved synthetic-only follow-up adds optional
+`test_pinned_profile_tokenizer_rows_diagnostic[synthetic-merges-full]`.
+Generated data contains **248077 unique source rows, 243 tail placeholders,
+248320 output rows and 245760 valid original ranked pairs**. This is not an
+estimate of learned MiMo merges. Old/intermediate modes retain their independent
+sizes, faults, defaults and resource assertions.
+
+Three serial guarded children copy ten pinned synthetic inputs, emit three
+selected records with a two-byte BF16 anchor and verify them against fresh
+source preparation on one retained file. Exact cached source revision and
+trusted parser/writer are checked. Every row string/type matches the extracted
+pinned method, with one actual normalization and one space rewrite; original
+merge spelling/order matches typed file readback. No model/pre-tokenizer tag
+is emitted. New writer v3/verifier v4 and private record policy 3 are exercised.
+
+Focused control **1 passed in 42.27 s** using cached `PRISM_SOURCE_DIR` and
+`PRISM_CONVERTER_PYTHON`, all three learned flags unset, `PYTHONDONTWRITEBYTECODE=1`
+and `python -m pytest -q -s -p no:cacheprovider --tb=short` on that single case.
+
+| Measured Quantity | Bytes |
+| --- | --- |
+| Ten synthetic source files / read-only copies, each | 14853033 |
+| Source / output row content | 2223602 / 2226284 |
+| Ranked merge content | 2457600 |
+| Disposable three-record file | 9630112 |
+| Logical source+copy+file+reserved 16 MiB spool+8 KiB report | 56121586 |
+| Maximum observed emission / proof worker RSS | 1753526272 / 1582297088 |
+| Minimum observed host available memory | 16552996864 |
+
+File SHA-256 `cf8fab2999cf27c020f74da345bae5c75ee650e07b309abaca64aae9b96fa2dd`;
+two hashes use the same retained descriptor, positional reads <=65536 bytes.
+All source/copy bytes and original source stat identities are rechecked across
+phases, maps/FDs close and parent-owned scratch is removed. Logical scratch
+stays below **64 MiB**, observed worker RSS below **2 GiB**, host reserve above
+**2 GiB**, process/host swap zero, each child <=60 s and stage <=180 s. The
+approved new merge sequence has conservatively consumed **64.03 s of 600 s**,
+including the prior 21.76 s intermediate/safety checks. No bound was relaxed.
+
+This first full-size control deliberately contains **no corruption/refusal
+cases**; they must be separate bounded workers rather than added to this
+positive child's deadline. Intermediate fresh-hash byte/rank refusals and unit
+default/header/count/content checks are separate evidence, not full-size faults.
+No complete tokenizer, native runtime, tensor-layout or representative quality
+acceptance follows from the positive selected subset proof.
+
+The user then requested a pause at a good checkpoint. A gate invocation was
+interrupted with `outcome_unknown`, no recorded result and no live test worker;
+the completed checkpoint gate with all learned flags unset reports **1382 passed,
+137 skipped in 24.97 s**, Ruff and whitespace clean. The full-size positive
+control was not repeated. Optional native/model controls remain skipped. No
+learned input, weight/shard header, install/download, native build/CTest, model
+execution, candidate/refit, held-out/quality/device work or fault suite ran.
+All three learned approvals stay consumed. **Paused now**; after an explicit
+resume, the next slice is partitioned full-size default/refusal and first/last
+merge byte/rank/type/map/descriptor controls within the remaining approved
+synthetic budget, without another learned read or a deadline increase.
 
 ## Larger Merge Policy Checkpoint (2026-10-20)
 

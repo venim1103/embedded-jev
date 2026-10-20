@@ -6064,7 +6064,7 @@ def run_rows():
         if include_merges:
             original = path.read_bytes()
             start = merge_offsets[0]
-            for defect in ("byte", "rank"):
+            for defect in fixture.get("merge_faults", ("byte", "rank")):
                 changed = bytearray(original)
                 if defect == "byte":
                     changed[start] ^= 1
@@ -6110,7 +6110,7 @@ finish_report(report)
 '''
 
 
-@pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "synthetic-merges-intermediate", "approved"])
+@pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full", "approved"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6118,8 +6118,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import time
 
     source, interpreter = _tokenizer_rows_diagnostic_environment("synthetic" if mode.startswith("synthetic") else mode)
-    expanded_merges = mode == "synthetic-merges-intermediate"
-    include_merges = mode in ("synthetic-merges", "synthetic-merges-intermediate")
+    full_scale = mode == "synthetic-merges-full"
+    expanded_merges = mode in ("synthetic-merges-intermediate", "synthetic-merges-full")
+    include_merges = mode in ("synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full")
     started = time.monotonic()
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     bodies = {}
@@ -6145,13 +6146,14 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             config = json.loads(metadata["config.json"])
             config["text_config"]["max_position_embeddings"] = 512
             if expanded_merges:
-                record["geometry"]["vocab_size"] = config["text_config"]["vocab_size"] = 8193
+                record["geometry"]["vocab_size"] = config["text_config"]["vocab_size"] = 248320 if full_scale else 8193
                 prefixes = [f"A{index:03d}" for index in range(120)]
                 suffixes = [f"B{index:04d}" for index in range(2048)]
-                pairs = [(prefix, suffix) for prefix in prefixes for suffix in suffixes][:4097]
-                filler_count = 8191 - len(prefixes) - len(suffixes) - len(pairs)
+                pairs = [(prefix, suffix) for prefix in prefixes for suffix in suffixes][:(245760 if full_scale else 4097)]
+                source_rows = 248077 if full_scale else 8191
+                filler_count = source_rows - len(prefixes) - len(suffixes) - len(pairs)
                 tokens = [f"t{index:06d}" for index in range(filler_count)] + prefixes + suffixes + [prefix + suffix for prefix, suffix in pairs]
-                assert len(tokens) == len(set(tokens)) == 8191
+                assert len(tokens) == len(set(tokens)) == source_rows
             else:
                 tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
             tokens[0], tokens[1], tokens[5], tokens[12] = "<pad>", "USER", "<|control|>", chr(0x2581) + "user"
@@ -6184,7 +6186,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         original_stats = {name: (local / name).stat() for name in names}
         fixture = {"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(inputs), "output": str(output),
             "row_source": row_source, "special_source": special_source, "include_merges": include_merges,
-            "merge_version": 2 if expanded_merges else 1, "merge_rows": len(pairs) if expanded_merges else 2 if include_merges else 0}
+            "merge_version": 2 if expanded_merges else 1, "merge_rows": len(pairs) if expanded_merges else 2 if include_merges else 0,
+            "merge_faults": [] if full_scale or not include_merges else ["byte", "rank"]}
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
@@ -6212,7 +6215,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 assert not report["transformers_loaded"]
             else:
                 assert report["token_rows"] == record["geometry"]["vocab_size"]
-                assert report["unused_rows"] == (2 if mode.startswith("synthetic") else 243)
+                assert report["unused_rows"] == (243 if full_scale or mode == "approved" else 2)
                 assert report["metadata_records"] == (3 if include_merges else 2)
                 assert report["merge_rows"] == fixture["merge_rows"]
                 assert report["logical_scratch_cap_bytes"] == (64 if expanded_merges else 128) * 1024**2
@@ -6222,7 +6225,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                         assert report["normalized_rows"] == report["rewritten_rows"] == 1
                 else:
                     assert report["retained_file_hashes"] == 2 and report["maximum_read"] <= 65536
-                    assert report["merge_contradictions"] == (2 if include_merges else 0)
+                    assert report["merge_contradictions"] == len(fixture["merge_faults"])
                 assert report["output_file_sha256"] == fixture["identity"]["expected_file_sha256"]
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
             reports.append(report)

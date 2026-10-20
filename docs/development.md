@@ -3103,7 +3103,9 @@ limits. Policies 1/2 and old row-only/joint v3 file APIs preserve their hard cap
 
 Optional row diagnostic `[synthetic-merges-intermediate]` exercises 8193 rows/
 4097 valid pairs through these versions, including typed readback and fresh-hash
-byte/rank contradictions. New merge-version-2 fixture modes enforce **64 MiB**
+byte/rank contradictions. `[synthetic-merges-full]` uses 248320 rows, 243 tail
+pads and 245760 generated valid pairs, with positive emission/readback/retained
+proof only; faults must use separate bounded workers. New merge-version-2 fixture modes enforce **64 MiB**
 logical source+copy+output+reserved spool/report, including a conservative
 pre-copy reservation. Sources/copies <=32 MiB each, file/spool <=16 MiB each,
 path-only stdin <=64 KiB, combined output <=8 KiB, serial 60 s children/180 s
@@ -3112,7 +3114,8 @@ abort remain required. Existing row/learned modes keep their independent limits;
 the consumed learned mode remains row-only. Larger synthetic capacity was
 explicitly approved, but no learned/native/model acceptance is implied. See the
 [larger merge policy checkpoint](handover.md#larger-merge-policy-checkpoint-2026-10-20)
-for current implementation and evidence, distinct from full-size pending work.
+and [full-size checkpoint](handover.md#full-size-merge-checkpoint-2026-10-20)
+for implementation/evidence and the currently paused full-size fault follow-up.
 
 ### Offline Selected Metadata Control
 
