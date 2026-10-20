@@ -28,6 +28,11 @@ Read the [full-size retained row checkpoint](#full-size-retained-row-checkpoint-
 for implemented evidence. Learned-input approvals remain consumed; this new
 approval does not authorize model, native or quality work.
 
+**Pending, not authorized:** the [learned row proof proposal](#learned-row-proof-proposal-2026-10-20)
+follows the completed synthetic slice. Only cache presence/stat sizes were
+checked; no learned contents were reopened. Do not execute it without a new
+explicit one-shot approval.
+
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
 completes that work after `91111b6`; no next implementation slice has started.
@@ -391,6 +396,82 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Learned Row Proof Proposal (2026-10-20)
+
+Prepared after `4d63277`; **not authorized or run**. The approved full-scale
+synthetic slice is complete. Proposed next step is **one additional offline
+cached-MiMo tokenizer-only row/file comparison**, not another fingerprint or
+missing-ID diagnostic and not full tokenizer/model conversion. Both earlier
+learned one-shots remain consumed.
+
+Read only the MiMo revision `2367e865d009c13ac81713a2878291d33ab28177`, profile
+`mimo-2367e865` (SHA-256 `1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`)
+from its existing cache. The strict row API requires the profile's **complete
+seven-file metadata set**; unlike the old five-file diagnostics, this proposal
+therefore allows exactly **ten nonweight files**:
+
+- `config.json`, `model.safetensors.index.json`, `tokenizer_config.json`.
+- `processor_config.json`, `preprocessor_config.json`, `video_preprocessor_config.json`, `chat_template.jinja`.
+- `tokenizer.json`, `vocab.json`, `merges.txt`.
+
+**Prerequisite observation only:** all ten were stat-checked and match declared
+sizes, total **30,144,444 bytes**. No cached learned contents/hashes were read.
+This includes the 19,989,325-byte tokenizer JSON; index data is metadata, not
+permission to open any shard/header. Trusted cached Transformers 5.12.1,
+tokenizers 0.22.2 and exact Prism source pin have already executed in the
+synthetic controls. No install/download/duplicate environment is needed.
+
+If approved, first implement a distinct `MIMO_TOKENIZER_ROWS_APPROVED=1` opt-in
+with synthetic-only copy/pin/safety/cleanup and cross-approval refusal controls,
+and pass the required source gate **before any learned read**. Neither old flag
+may enable it; it must not enable either consumed mode. Verify every allowlisted
+input against the repository profile before copying, check identities/stat
+through copying, make disposable copies read-only, and rehash source/copy bytes
+after the diagnostic. Parent owns cleanup on success, error or termination.
+
+In **one invocation**, use only trusted installed tokenizer code, strict source
+pins, offline flags and an audit network/file allowlist. No `trust_remote_code`,
+custom repository Python or model/processor execution. Compare all v2 prepared
+strings/types to the exact pinned converter's row method using a real local-only
+trusted tokenizer wrapper, source normalization flags and explicit tail padding.
+Stub the pre-tag hook as unverified; do not rerun fingerprints/labels or emit a
+pre-tokenizer/model tag. The native tokenizer may construct its full source BPE
+tables from tokenizer JSON; do not prepare/emit/expand merge metadata semantics
+or their existing caps. Do not render/compile the template or process media.
+
+Emit only paired strings/types and one two-byte synthetic anchor into a disposable
+tokenizer-only GGUF, check exact readback, then v3 retained-file proof against
+fresh declarations and the actual digest in a separate supervised child. Report
+counts, equality/refusal, file identities/sizes, same-FD hashes/read bounds,
+resource measurements and cleanup, **not token strings or copied artifacts**.
+The previous synthetic fault suite is not a reason to run learned corruption
+experiments or repeat the old probes. Any mismatch/strict refusal is a result,
+not permission to adjust the policy or automatically rerun the learned source.
+
+**Proposed new one-shot bounds:** original nonweight inputs and disposable copies
+each <=32 MiB; output GGUF and writer spool each <=16 MiB; no fault artifact.
+Aggregate logical source+copy+output+spool+report <=**128 MiB**, instead of
+silently stretching the old 64 MiB five-file/synthetic limit. For example the
+measured input sizes counted twice plus two 16 MiB allowances total
+**93,843,320 bytes**, below 128 MiB, before the separately bounded small report.
+Use path-only stdin <=64 KiB, summary/combined stdout+stderr <=8 KiB and no hex
+input packet containing all source contents. Keep v2/v3 row/content/record/header
+and per-string/encode limits unchanged (262144 / 4 MiB independently / 8 MiB /
+8 MiB / 4096 bytes / 4096 source IDs); no old APIs or global ceilings change.
+
+Serial workers only, **60 s child / 180 s stage / 600 s one-shot sequence**,
+observed RSS <=**2 GiB**, host available reserve >=**2 GiB**, abort observed
+process/host swap growth. This is a new proposal, not reuse of the consumed
+251.53 s synthetic sequence or older 15 s diagnostics. Kill/reap/close/clean on
+failure; retain only a small summary. No unchanged retry after failure. Missing
+inputs or resource refusal require reporting, not a download or limit relaxation.
+These are observed resource guards, not hard host/device guarantees.
+
+No weights/headers, download, native build/parser expansion, full-model
+conversion/execution, retained candidate, refit, held-out/quality/device job,
+other-profile input, or automatic tokenizer-policy/runtime promotion is included.
+This proposal needs a **separate explicit one-shot approval** before execution.
 
 ## Full-Size Retained Row Checkpoint (2026-10-20)
 
