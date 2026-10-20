@@ -2908,6 +2908,18 @@ typed readback and independent row and vocabulary/merge subset file proofs.
 Those are separate receipts, not an atomic three-record or complete tokenizer
 proof. The same bounded scratch/process guards apply.
 
+`verify_profile_gguf_tokenizer_rows_and_merges_v2(...)` instead proves all three
+selected records through one retained-file operation, using fresh source
+preparations and one shared deadline. Arguments and budgets match the paired-row
+proof: 256 KiB file ceiling, 4096 source rows, default 8 KiB selected records and
+explicit opt-in at most 128 KiB. It grants no complete tokenizer, pre-tag, tensor
+or native runtime acceptance and is not an atomic source/output snapshot.
+Use `rows-merges-proof` for the tiny actual-file control or
+`rows-merges-proof-capacity` for 4096 rows with explicit record-budget opt-in.
+The capacity case includes last-row string/type faults and merge corruption;
+all six contradictions must fail even with freshly matching file hashes. The
+parent-owned packet transport and all resource/cleanup guards stay unchanged.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

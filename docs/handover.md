@@ -9,7 +9,8 @@ original conversation. Read this first, then follow the links for detail.
 **Resumed by user, 2026-10-20:** Continue autonomously with periodic tested local
 commits until stopped or genuinely blocked. Starting `36b2d69` matches
 `origin/main`; only untouched user editor settings are untracked. Read the
-[rows and merges checkpoint](#rows-and-merges-checkpoint-2026-10-20) first.
+[rows and merges proof checkpoint](#rows-and-merges-proof-checkpoint-2026-10-20),
+then the [emission checkpoint](#rows-and-merges-checkpoint-2026-10-20).
 The pauses below are historical. Existing resource, learned-input, native and
 other-profile execution boundaries remain in force; both learned-tokenizer
 one-shot approvals remain consumed.
@@ -377,6 +378,45 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Rows And Merges Proof Checkpoint (2026-10-20)
+
+After `878eff3`, `verify_profile_gguf_tokenizer_rows_and_merges_v2` freshly
+prepares the existing no-transform token rows and ranked BPE declarations,
+then checks all three typed records through one retained-file parser operation.
+Two hashes share one descriptor; the existing read-only mapped-part, exact
+record coverage, path/stat/restored-write and 64 KiB read guards remain intact.
+One deadline includes both preparations and file verification. Limits remain
+256 KiB per file, 4096 source rows, 8 KiB selected records by default with
+explicit opt-in at most 128 KiB. Only the new wrapper uses the existing bounded
+numeric-part opt-in; the parser's default 32 is untouched. Old wrappers are
+unchanged. The receipt still denies full tokenizer/pre-tag/runtime acceptance.
+
+**Evidence:** old/new wrapper routing/budget/deadline cases **16 passed in
+0.15 s**; a further deadline-after-BPE case refuses before file access. Pinned
+32-row `rows-merges-proof` **1 passed in 0.37 s**: file 928 bytes, scratch
+1856 bytes, observed child RSS 49,840,128 bytes, process/host swap zero.
+New `rows-merges-proof-capacity` plus the deadline control **2 passed in 1.37 s**:
+4096 rows, file **85,248 bytes**, packet **218,798 bytes**, logical scratch
+**389,294 bytes**, observed child RSS **83,902,464 bytes**, process/host swap
+zero. Exactly two hashes on one descriptor and maximum read 65,536 bytes.
+Six fresh-hash faults cover first/last strings, first/last types, INT32-to-UINT32
+tag and merge content. The combined proof refuses all; the separate old row
+proof correctly makes no merge claim. Bad SHA, copied parts, final-hash restored
+writes, closed maps, descriptor baselines and restored bytes also pass. Parents
+clean packet/GGUF scratch under the unchanged 15 s child/60 s stage, 8 MiB
+scratch, 1 GiB observed RSS/no swap growth and 8 KiB summary caps.
+
+All thirteen toy modes and adjacent source/proof controls **43 passed in
+4.86 s**. Required root gate **1215 passed, 116 skipped in 21.73 s**, Ruff and
+whitespace clean; editor/syntax checks clean, one resolved new public call
+compatible. Dynamic worker calls ran in the focused tests. No failures, native
+build/CTest, learned input, download, model execution/conversion, refit or quality
+experiment. This is selected-record file evidence, not atomic source/output
+authentication, tensor proof, complete tokenizer or native model acceptance.
+Next meaningful tokenizer work must explicitly address padding, source-required
+transforms and real vocabulary scale; these policies/learned reads must not be
+silently inferred from the current no-transform synthetic subset.
 
 ## Rows And Merges Checkpoint (2026-10-20)
 

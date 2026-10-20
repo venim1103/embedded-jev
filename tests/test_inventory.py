@@ -1334,8 +1334,9 @@ def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monke
         receipt["records"][2]["values"][0] = "other"
 
 
+@pytest.mark.parametrize("include_merges", [False, True])
 @pytest.mark.parametrize("defect", [None, "file-budget", "file-size", "hash", "seconds", "record-budget", "preparation", "verification"])
-def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_private_opt_in(monkeypatch, defect):
+def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_private_opt_in(monkeypatch, defect, include_merges):
     from types import SimpleNamespace
 
     from embedded_jev import prism_codec
@@ -1349,16 +1350,26 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
         return {"tokens": ("base", "control", "user"), "source_token_type_records": (
             {"token_type": "NORMAL"}, {"token_type": "CONTROL"}, {"token_type": "USER_DEFINED"})}
 
+    def prepare_merges(actual_profile, **kwargs):
+        assert actual_profile is profile and "token_type_policy" not in kwargs
+        calls.append("merges")
+        return {"bpe_merge_pairs": (("base", "user"),)}
+
     def verify(actual_profile, **kwargs):
         assert actual_profile is profile and kwargs["maximum_numeric_array_parts"] == 8
         assert kwargs["maximum_metadata_bytes"] == 8192 and kwargs["file_cap"] == 256 * 1024
         assert kwargs["model_owner"] is kwargs["descriptor"] is None
         assert kwargs["policy_version"] == 2 and kwargs["declarations"][1]["values"] == (1, 3, 4)
+        assert len(kwargs["declarations"]) == (3 if include_merges else 2)
+        if include_merges:
+            assert kwargs["declarations"][2] == {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("base user",)}
         calls.append("verify")
-        return {"metadata_names": ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type")}
+        return {"metadata_names": tuple(row["name"] for row in kwargs["declarations"])}
 
     monkeypatch.setattr(prism_codec, "prepare_profile_model_token_type_metadata", prepare)
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_bpe_metadata", prepare_merges)
     monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
+    verifier = prism_codec.verify_profile_gguf_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.verify_profile_gguf_tokenizer_rows_v2
     arguments = {"reader": object(), "metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256,
                  "token_type_policy": "pinned_prism_no_transform_v1", "expected_file_bytes": 100, "expected_file_sha256": "1" * 64}
     if defect == "file-budget":
@@ -1372,17 +1383,48 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     elif defect == "record-budget":
         arguments["maximum_metadata_bytes"] = 128 * 1024 + 1
     elif defect in ("preparation", "verification"):
-        clock = iter([5, 40] if defect == "preparation" else [5, 6, 40])
+        clock = iter([5, 40] if defect == "preparation" else [5, 6, 7, 40] if include_merges else [5, 6, 40])
         monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    expected_calls = ["prepare", "merges", "verify"] if include_merges else ["prepare", "verify"]
     if defect:
         with pytest.raises(ValueError):
-            prism_codec.verify_profile_gguf_tokenizer_rows_v2(profile, **arguments)
-        assert calls == (["prepare"] if defect == "preparation" else ["prepare", "verify"] if defect == "verification" else [])
+            verifier(profile, **arguments)
+        assert calls == (["prepare"] if defect == "preparation" else expected_calls if defect == "verification" else [])
         return
-    receipt = prism_codec.verify_profile_gguf_tokenizer_rows_v2(profile, **arguments)
-    assert calls == ["prepare", "verify"]
-    assert receipt["metadata_verification"] == "selected_typed_token_rows_match_file"
-    assert receipt["runtime_approval"] == "not_granted_by_token_row_file_verification"
+    receipt = verifier(profile, **arguments)
+    assert calls == expected_calls
+    assert receipt["metadata_verification"] == ("selected_typed_token_rows_and_merges_match_file" if include_merges else "selected_typed_token_rows_match_file")
+    assert receipt["runtime_approval"] == ("not_granted_by_token_rows_and_merges_file_verification" if include_merges else "not_granted_by_token_row_file_verification")
+
+
+def test_profile_token_rows_and_merges_share_a_deadline_across_both_preparations(monkeypatch):
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    calls = []
+    clock = iter([5, 6, 40])
+    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+
+    def prepare(*args, **kwargs):
+        calls.append("rows")
+        return {}
+
+    def prepare_merges(*args, **kwargs):
+        calls.append("merges")
+        return {"bpe_merge_pairs": (("a", "b"),)}
+
+    def refuse_file_access(*args, **kwargs):
+        raise AssertionError("expired source preparation reached file verification")
+
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_token_type_metadata", prepare)
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_bpe_metadata", prepare_merges)
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", refuse_file_access)
+    with pytest.raises(ValueError, match="preparation deadline"):
+        prism_codec.verify_profile_gguf_tokenizer_rows_and_merges_v2(SimpleNamespace(geometry={"vocab_size": 3}),
+            reader=object(), metadata_files={}, tokenizer_bytes=b"{}", context_length=256,
+            token_type_policy="pinned_prism_no_transform_v1", expected_file_bytes=100, expected_file_sha256="1" * 64)
+    assert calls == ["rows", "merges"]
 
 
 @pytest.mark.parametrize("defect", [None, "special-id", "special-encoding", "label-id", "label-encoding", "label-special"])

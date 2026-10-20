@@ -2649,6 +2649,49 @@ def verify_profile_gguf_tokenizer_rows_v2(
                             "runtime_approval": "not_granted_by_token_row_file_verification"})
 
 
+def verify_profile_gguf_tokenizer_rows_and_merges_v2(
+    profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, token_type_policy: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 256 * 1024,
+    maximum_seconds: float = 30, maximum_metadata_bytes: int = 8192,
+):
+    """Prove fresh no-transform rows/types and ranked merges together on one retained file."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 256 * 1024
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= 128 * 1024
+    ):
+        raise ValueError("invalid token-row/merge file identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    prepared = prepare_profile_model_token_type_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, token_type_policy=token_type_policy)
+    if time.monotonic() > deadline:
+        raise ValueError("token-row/merge preparation deadline exceeded")
+    bpe = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    merges, merge_bytes = _profile_bpe_merge_record(bpe)
+    if time.monotonic() > deadline:
+        raise ValueError("token-row/merge preparation deadline exceeded")
+    verified = dict(_verify_profile_gguf_metadata_records(profile, reader=reader,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, deadline=deadline, model_owner=None, descriptor=None,
+        policy_version=2, file_cap=256 * 1024, header_cap=1024**2,
+        declarations=[*_profile_tokenizer_row_records(prepared), merges], maximum_metadata_bytes=maximum_metadata_bytes,
+        maximum_numeric_array_parts=5 + profile.geometry["vocab_size"]))
+    if time.monotonic() > deadline:
+        raise ValueError("token-row/merge verification deadline exceeded")
+    verified.pop("policy_metadata_verification", None)
+    return MappingProxyType({**bpe, **prepared, **verified, "metadata_scope": "source_token_rows_and_merges_subset",
+                            "merge_content_bytes": merge_bytes,
+                            "source_token_type_verification": "selected_pinned_no_transform_declarations_match_file",
+                            "gguf_token_type_verification": "selected_pinned_no_transform_type_rows_match_file",
+                            "metadata_verification": "selected_typed_token_rows_and_merges_match_file",
+                            "runtime_approval": "not_granted_by_token_rows_and_merges_file_verification"})
+
+
 def verify_profile_gguf_tokenizer_arrays_v2(
     profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
