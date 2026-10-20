@@ -3005,6 +3005,20 @@ emission/readback/file proof, including eight fresh-hash faults and lifecycle
 refusals. It still fits the original 256 KiB file ceiling, so it is not evidence
 that a multi-MiB file/header has been checked.
 
+V2 row preparation explicitly permits tokenizer JSON within the existing 32 MiB
+**aggregate** source-input cap, using the strict JSON helper's existing bounded
+opt-in. Public context/vocabulary/added-token APIs, v1 rows and the helper's
+global/default 1 MiB limit are unchanged. Duplicate keys and nonfinite JSON
+still refuse before trusted tokenizer construction. This is not permission to
+read learned files. V2 receipt field `tokenizer_json_cap_bytes` states the limit.
+
+Optional `fast-v2-full-emission` compares and emits all 248,320 **synthetic** rows,
+including 243 tail placeholders and actual normalization/space rewriting, then
+checks exact typed readback of a multi-MiB GGUF with a two-byte anchor. It uses
+the approved v2 guard and parent packet/scratch budgets. This mode deliberately
+has no full-size retained proof/corruption loop; intermediate proof evidence is
+not promoted to full-size file verification. No artifact is retained.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

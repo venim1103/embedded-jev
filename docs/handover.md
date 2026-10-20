@@ -21,7 +21,8 @@ one-shot approvals remain consumed.
 
 **New separate approval:** after `d0c133a`, the user approved the
 [full-scale synthetic row proposal](#full-scale-synthetic-row-proposal-2026-10-20).
-Read the [v2 row file checkpoint](#v2-row-file-checkpoint-2026-10-20), then the
+Read the [full-size row emission checkpoint](#full-size-row-emission-checkpoint-2026-10-20), then the
+[v2 row file checkpoint](#v2-row-file-checkpoint-2026-10-20), then the
 [v2 row preparation checkpoint](#v2-row-preparation-checkpoint-2026-10-20)
 for implemented evidence. Learned-input approvals remain consumed; this new
 approval does not authorize model, native or quality work.
@@ -389,6 +390,49 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Full-Size Row Emission Checkpoint (2026-10-20)
+
+After `277e88c`, optional `fast-v2-full-emission` uses a **synthetic 248,320-row**
+profile, seven-ASCII-byte base labels and **243 tail placeholders**, not learned
+tokenizer files. It checks every transformed string/type against the exact
+pinned method using actual trusted fast-tokenizer objects, then joint emission
+and exact typed readback. One normalization and one USER_DEFINED space rewrite
+remain real; controls/base cases remain distinct. A two-byte BF16 anchor is
+included for later independently bounded proof phases. This control performs
+**no full-size retained-file proof or corruption loop**; the existing 8193-row
+and v1 fault controls remain independently runnable.
+
+**Failure and repair:** first full-size run failed in **2.44 s**, before
+`Tokenizer.from_str`, at the shared JSON helper's existing **1 MiB** default.
+This was not a resource refusal. The already approved v2 32 MiB aggregate input
+allowance now reaches that helper through its existing explicit `max_bytes`
+argument in v2-only context/vocabulary/added-row parsing. The public context API,
+v1 row APIs and inventory helper's default stay 1 MiB; no global ceiling changed.
+The context implementation was extracted into one private core, with unchanged
+public signature/receipt. V2 reports `tokenizer_json_cap_bytes=32 MiB`; the
+aggregate metadata-plus-tokenizer cap still applies, so this is not 32 MiB per
+input on top of that total. Added-row content remains capped at 64 KiB.
+
+Three new synthetic tests above 1 MiB verify old refusal, new bounded success,
+and duplicate/nonfinite rejection before trusted parser construction; with
+shared row semantics/content controls **45 passed in 0.26 s**. After this
+substantive repair, the same full-size emission check **1 passed in 17.69 s**.
+Source content **1,736,547 bytes**, output content **1,739,229 bytes**, output file
+**4,719,328 bytes**, parent packet **11,951,985 bytes**, conservative logical
+scratch including a reserved fault copy **21,390,641 bytes**. Actual fault copies
+were not created in this emission-only phase. Observed RSS **1,251,635,200
+bytes**, process/host swap zero, host available minimum **17,528,266,752 bytes**.
+Parent cleans all scratch; no retained artifact or hard host/device guarantee.
+
+Old context/contract and old/new intermediate proof compatibility **4 passed in
+10.58 s**. Root gate **1312 passed, 123 skipped in 23.72 s**, Ruff/whitespace/editor
+clean. Conservative approved large-control time accounting is **40.57 s of
+600 s**, including the failed run and the whole compatibility command. No
+learned read, download, native build/CTest, model job, candidate/refit or quality
+experiment. Next approved slice is full-size retained proof, explicit file/header
+default refusals and serial fresh-hash faults under separate 60 s children,
+180 s stages, 600 s total, 2 GiB RSS/host reserve and unchanged swap guards.
 
 ## V2 Row File Checkpoint (2026-10-20)
 

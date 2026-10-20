@@ -328,6 +328,13 @@ def prepare_profile_model_context_metadata(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):
     """Verify caller metadata bytes and bound context; do not infer tokenizer compatibility."""
+    return _prepare_profile_model_context_metadata(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, maximum_tokenizer_json_bytes=1024**2)
+
+
+def _prepare_profile_model_context_metadata(
+    profile, *, metadata_files, tokenizer_bytes, context_length, maximum_tokenizer_json_bytes,
+):
     from embedded_jev.inventory import _json_object
     from embedded_jev.model_profile import profile_text_config, verify_profile_metadata
 
@@ -342,7 +349,7 @@ def prepare_profile_model_context_metadata(
     if (tokenizer_pin.bytes > MODEL_METADATA_BYTES_V2 or len(tokenizer_bytes) != tokenizer_pin.bytes
             or hashlib.sha256(tokenizer_bytes).hexdigest() != tokenizer_pin.sha256):
         raise ValueError("tokenizer input identity differs from profile")
-    _json_object(tokenizer_bytes, "tokenizer.json")
+    _json_object(tokenizer_bytes, "tokenizer.json", max_bytes=maximum_tokenizer_json_bytes)
     config = _json_object(metadata["config.json"], "config.json")
     text = profile_text_config(profile, config)
     source_context = text.get("max_position_embeddings")
@@ -496,10 +503,10 @@ def prepare_profile_model_added_token_metadata(
                             "runtime_approval": "not_granted_by_added_token_preparation"})
 
 
-def _profile_added_token_records(tokenizer_bytes, tokenizer, tokens):
+def _profile_added_token_records(tokenizer_bytes, tokenizer, tokens, *, maximum_tokenizer_json_bytes=1024**2):
     from embedded_jev.inventory import _json_object
 
-    rows = _json_object(tokenizer_bytes, "tokenizer.json").get("added_tokens", [])
+    rows = _json_object(tokenizer_bytes, "tokenizer.json", max_bytes=maximum_tokenizer_json_bytes).get("added_tokens", [])
     flags = ("single_word", "lstrip", "rstrip", "normalized", "special")
     if not isinstance(rows, list) or len(rows) > 4096:
         raise ValueError("added tokenizer declarations exceed supported row budget")
@@ -584,7 +591,8 @@ def prepare_profile_model_tokenizer_rows(
     if row_policy != "pinned_prism_fast_rows_v1" or not 0 < profile.geometry["vocab_size"] <= 4096:
         raise ValueError("unsupported bounded tokenizer row policy")
     return _prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
-        context_length=context_length, row_policy=row_policy, maximum_token_content_bytes=64 * 1024)
+        context_length=context_length, row_policy=row_policy, maximum_token_content_bytes=64 * 1024,
+        maximum_tokenizer_json_bytes=1024**2)
 
 
 def prepare_profile_model_tokenizer_rows_v2(
@@ -600,17 +608,19 @@ def prepare_profile_model_tokenizer_rows_v2(
     ):
         raise ValueError("unsupported v2 tokenizer row policy or budget")
     prepared = _prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
-        context_length=context_length, row_policy=row_policy, maximum_token_content_bytes=maximum_token_content_bytes)
+        context_length=context_length, row_policy=row_policy, maximum_token_content_bytes=maximum_token_content_bytes,
+        maximum_tokenizer_json_bytes=MODEL_METADATA_BYTES_V2)
     return MappingProxyType({**prepared, "tokenizer_row_policy_version": 2,
                             "maximum_vocabulary_rows": maximum_vocabulary_rows,
-                            "maximum_token_content_bytes": maximum_token_content_bytes})
+                            "maximum_token_content_bytes": maximum_token_content_bytes,
+                            "tokenizer_json_cap_bytes": MODEL_METADATA_BYTES_V2})
 
 
 def _prepare_profile_model_tokenizer_rows(
-    profile, *, metadata_files, tokenizer_bytes, context_length, row_policy, maximum_token_content_bytes,
+    profile, *, metadata_files, tokenizer_bytes, context_length, row_policy, maximum_token_content_bytes, maximum_tokenizer_json_bytes,
 ):
     prepared, tokenizer, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
-        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, maximum_tokenizer_json_bytes=maximum_tokenizer_json_bytes)
     inventory = _profile_tokenizer_id_inventory(profile, vocabulary)
     source_bytes = 0
     for token in vocabulary:
@@ -619,7 +629,7 @@ def _prepare_profile_model_tokenizer_rows(
         if not 0 < len(encoded) <= 4096 or source_bytes > maximum_token_content_bytes or "\0" in token:
             raise ValueError("source tokenizer rows exceed string/content budget")
     reverse = {token_id: token for token, token_id in vocabulary.items()}
-    added_records, _ = _profile_added_token_records(tokenizer_bytes, tokenizer, reverse)
+    added_records, _ = _profile_added_token_records(tokenizer_bytes, tokenizer, reverse, maximum_tokenizer_json_bytes=maximum_tokenizer_json_bytes)
     added = {row["token_id"]: row for row in added_records}
     wrapper = None
     records, seen = [], set()
@@ -748,12 +758,17 @@ def _profile_tokenizer_id_inventory(profile, vocabulary):
 
 def _parse_profile_model_tokenizer_vocabulary(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+    maximum_tokenizer_json_bytes=1024**2,
 ):
     from embedded_jev.inventory import _json_object
 
-    prepared = prepare_profile_model_context_metadata(profile, metadata_files=metadata_files,
-        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
-    document = _json_object(tokenizer_bytes, "tokenizer.json")
+    if maximum_tokenizer_json_bytes == 1024**2:
+        prepared = prepare_profile_model_context_metadata(profile, metadata_files=metadata_files,
+            tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    else:
+        prepared = _prepare_profile_model_context_metadata(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+            context_length=context_length, maximum_tokenizer_json_bytes=maximum_tokenizer_json_bytes)
+    document = _json_object(tokenizer_bytes, "tokenizer.json", max_bytes=maximum_tokenizer_json_bytes)
     if not isinstance(document.get("model"), dict) or document["model"].get("type") != "BPE":
         raise ValueError("unsupported source tokenizer model for vocabulary preparation")
     from tokenizers import Tokenizer

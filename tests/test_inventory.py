@@ -1592,6 +1592,38 @@ def test_profile_selected_record_policy_keeps_old_ceilings_and_strict_new_opt_in
         prism_codec._verify_profile_gguf_metadata_records(object(), **arguments)
 
 
+@pytest.mark.parametrize("defect", [None, "duplicate", "nonfinite"])
+def test_profile_fast_rows_v2_json_allowance_is_local_and_strict(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    document = (b'{"model":{"type":"BPE"},"model":{}}' if defect == "duplicate" else
+                b'{"model":{"type":"BPE"},"value":NaN}' if defect == "nonfinite" else b'{"model":{"type":"BPE"}}')
+    tokenizer_bytes = document + b" " * (1024**2)
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    parsed = []
+
+    def parse(text):
+        parsed.append(len(text))
+        return SimpleNamespace(get_vocab=lambda **kwargs: {"base": 0}, get_added_tokens_decoder=lambda: {})
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=parse)))
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256}
+    with pytest.raises(InventoryError, match="metadata file exceeds allowed bounds"):
+        prism_codec.prepare_profile_model_tokenizer_rows(profile, row_policy="pinned_prism_fast_rows_v1", **arguments)
+    assert not parsed
+    if defect:
+        with pytest.raises(InventoryError):
+            prism_codec.prepare_profile_model_tokenizer_rows_v2(profile, row_policy="pinned_prism_fast_rows_v2", **arguments)
+        assert not parsed
+    else:
+        receipt = prism_codec.prepare_profile_model_tokenizer_rows_v2(profile, row_policy="pinned_prism_fast_rows_v2", **arguments)
+        assert parsed == [len(tokenizer_bytes)] and len(receipt["token_row_records"]) == 32
+        assert receipt["tokenizer_json_cap_bytes"] == 32 * 1024**2
+
+
 def test_profile_token_rows_and_merges_share_a_deadline_across_both_preparations(monkeypatch):
     from types import SimpleNamespace
 
