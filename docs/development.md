@@ -2974,6 +2974,21 @@ include transformed/padded and first/last strings/types. The parent-owned packet
 file keeps stdin below 64 KiB and counts toward the existing 8 MiB scratch cap.
 It does not authorize a larger vocabulary or learned-input diagnostic.
 
+The separate `prepare_profile_model_tokenizer_rows_v2(...,
+row_policy="pinned_prism_fast_rows_v2", maximum_vocabulary_rows=4096,
+maximum_token_content_bytes=65536)` permits explicit ceilings of 262,144 rows
+and 4 MiB source/output content each. Old APIs remain capped and reject these
+new keywords. Added-row content, per-token size and per-encode ID limits remain
+unchanged. This preparer emits nothing; its larger row policy is not a larger
+GGUF file-proof policy or learned-input approval.
+
+The optional `fast-v2-rows` parameter checks 8193 actual synthetic declarations
+with the pinned method and no GGUF. Its separate v2 guard enforces 60 s child,
+2 GiB observed RSS, at least 2 GiB host available memory and no observed swap
+growth; stdin/output/cleanup constraints remain unchanged. The old 15 s/1 GiB
+controls stay separately runnable. See the handover's approved full-scale
+synthetic proposal for all resource ceilings and remaining implementation work.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

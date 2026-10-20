@@ -19,10 +19,11 @@ The pauses below are historical. Existing resource, learned-input, native and
 other-profile execution boundaries remain in force; both learned-tokenizer
 one-shot approvals remain consumed.
 
-**Next approval boundary:** the bounded 4096-row fast-policy slice is committed
-as `353d2e8`. The [full-scale synthetic row proposal](#full-scale-synthetic-row-proposal-2026-10-20)
-is prepared but **not approved or implemented**. Autonomous work does not
-authorize raising its limits or reusing consumed learned-input approvals.
+**New separate approval:** after `d0c133a`, the user approved the
+[full-scale synthetic row proposal](#full-scale-synthetic-row-proposal-2026-10-20).
+Read the [v2 row preparation checkpoint](#v2-row-preparation-checkpoint-2026-10-20)
+for implemented evidence. Learned-input approvals remain consumed; this new
+approval does not authorize model, native or quality work.
 
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
@@ -388,9 +389,53 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## V2 Row Preparation Checkpoint (2026-10-20)
+
+After `d0c133a`, the user selected **Approve Full-Scale Synthetic Policy** under
+the exact proposed budgets below. New `prepare_profile_model_tokenizer_rows_v2`
+requires `row_policy="pinned_prism_fast_rows_v2"`; row/content limits default to
+4096/64 KiB, with explicit ceilings 262,144/4 MiB. Source and output content are
+charged independently. It reuses one private row core; v1's fixed 4096/64 KiB
+precheck and public signature/receipt remain unchanged. Added-token content still
+has its existing separate 64 KiB cap. New receipts identify version and explicit
+budgets, still no emission, complete tokenizer or runtime approval.
+
+New test-only `_run_tokenizer_only_guard_v2` uses the approved 60 s child,
+2 GiB observed RSS and 2 GiB host available-memory reserve. Old public guard
+keeps 15 s/1 GiB and unchanged receipt shape. Shared monitoring still rejects
+output overflow, observed process/host swap growth, closed-pipe deadline hangs
+and RSS excess, then kills/reaps/closes. V2 checks host reserve before process
+creation and throughout monitoring and reports observed minimum available bytes.
+Old guard's nine resolved usage locations were checked before extraction.
+
+New/old provenance, content and pre-parser opt-in controls **51 passed in
+0.24 s**; guard/low-reserve controls **13 passed in 0.50 s**. First focused
+collection failed in **0.09 s** due an over-indented test decorator/function
+header; no worker ran. A local two-line indentation repair preceded the same
+successful 51-case check. No guard/semantic bound was relaxed.
+
+Optional `fast-v2-rows` declares **8193 rows** using actual trusted cached
+tokenizers and exact pinned-method comparison, with two unused rows and actual
+normalization/rewrite. Result **1 passed in 3.47 s**, source content **72,629
+bytes**, output **72,654 bytes**, parent packet **427,982 bytes**; no GGUF/spool.
+Observed RSS **343,326,720 bytes**, process/host swap zero, observed host available
+minimum **18,041,274,368 bytes**. Old keyword/capacity refusals pass and parent
+scratch cleans. This is not full 248,320-row or file evidence. The approved
+large-control sequence has consumed 3.47 s of its 600 s aggregate budget.
+
+Original four fast-policy optional modes plus unit/guard compatibility
+**68 passed in 16.05 s**. Root gate **1288 passed, 121 skipped in 35.94 s**,
+Ruff/whitespace/editor diagnostics clean. No native build/CTest, learned read,
+download, model conversion/execution, retained candidate, refit or quality job.
+Next approved increment is separate v2 paired emission and larger retained proof,
+then measured synthetic full-size controls under the approved budgets. Old
+parsers/encoders and their independent limits must not be silently widened.
+
 ## Full-Scale Synthetic Row Proposal (2026-10-20)
 
-Prepared after `353d2e8`; **not approved or implemented**. The current separate
+Prepared after `353d2e8`; **historical proposal, separately approved after
+`d0c133a`**. The v2 preparation checkpoint above records the first implementation;
+larger emission/file proof and full-size controls remain next work. The original
 declaration, paired writer and retained proof are tested only through 4096 rows.
 Actual MiMo has 248,320 profile rows; the earlier consumed inventory diagnostic
 found 248,077 source IDs with 243 missing tail rows. These historical counts do

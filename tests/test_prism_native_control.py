@@ -5476,16 +5476,36 @@ print(json.dumps({"cases": cases, "elapsed_seconds": elapsed, "before": before, 
 
 
 def _run_tokenizer_only_guard(interpreter, code, payload, *, env, maximum_seconds=15, maximum_rss_bytes=1024**3):
+    if not 0 < maximum_seconds <= 15 or not 0 < maximum_rss_bytes <= 1024**3 or len(payload) > 65536:
+        raise ValueError("invalid tokenizer diagnostic guard budget")
+    return _run_tokenizer_guard(interpreter, code, payload, env=env, maximum_seconds=maximum_seconds,
+        maximum_rss_bytes=maximum_rss_bytes, minimum_available_bytes=0)
+
+
+def _run_tokenizer_only_guard_v2(interpreter, code, payload, *, env, maximum_seconds=60, maximum_rss_bytes=2 * 1024**3):
+    if (type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 60
+            or type(maximum_rss_bytes) is not int or not 0 < maximum_rss_bytes <= 2 * 1024**3 or len(payload) > 65536):
+        raise ValueError("invalid v2 tokenizer diagnostic guard budget")
+    return _run_tokenizer_guard(interpreter, code, payload, env=env, maximum_seconds=maximum_seconds,
+        maximum_rss_bytes=maximum_rss_bytes, minimum_available_bytes=2 * 1024**3)
+
+
+def _run_tokenizer_guard(interpreter, code, payload, *, env, maximum_seconds, maximum_rss_bytes, minimum_available_bytes):
     import selectors
     import signal
     import time
 
-    if not 0 < maximum_seconds <= 15 or not 0 < maximum_rss_bytes <= 1024**3 or len(payload) > 65536:
-        raise ValueError("invalid tokenizer diagnostic guard budget")
+    minimum_host_available = None
 
     def host_swap():
+        nonlocal minimum_host_available
+
         values = {name: int(value.split()[0]) * 1024 for name, value in
                   (line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())}
+        available = values.get("MemAvailable", 0)
+        minimum_host_available = available if minimum_host_available is None else min(minimum_host_available, available)
+        if minimum_available_bytes and available < minimum_available_bytes:
+            raise ValueError("tokenizer diagnostic host available-memory reserve exceeded")
         return values["SwapTotal"] - values["SwapFree"]
 
     baseline_swap = host_swap()
@@ -5527,7 +5547,8 @@ def _run_tokenizer_only_guard(interpreter, code, payload, *, env, maximum_second
             raise ValueError("tokenizer diagnostic final deadline or swap budget exceeded")
         return {"returncode": returncode, **{name: bytes(value).decode("utf-8", errors="replace") for name, value in output.items()},
                 "observed_rss_bytes": peak_rss, "observed_process_swap_bytes": peak_swap,
-                "host_swap_baseline_bytes": baseline_swap, "observed_host_swap_bytes": peak_host_swap}
+            "host_swap_baseline_bytes": baseline_swap, "observed_host_swap_bytes": peak_host_swap,
+            **({"observed_host_available_minimum_bytes": minimum_host_available} if minimum_available_bytes else {})}
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
@@ -5537,8 +5558,9 @@ def _run_tokenizer_only_guard(interpreter, code, payload, *, env, maximum_second
             pipe.close()
 
 
+@pytest.mark.parametrize("version", [1, 2])
 @pytest.mark.parametrize("mode", ["success", "output", "deadline", "closed-pipes", "rss", "budget"])
-def test_tokenizer_only_guard_controls_are_synthetic_and_bounded(mode):
+def test_tokenizer_only_guard_controls_are_synthetic_and_bounded(mode, version):
     import sys
 
     before = len(list(Path("/proc/self/fd").iterdir()))
@@ -5548,17 +5570,34 @@ def test_tokenizer_only_guard_controls_are_synthetic_and_bounded(mode):
     arguments = {"env": os.environ, "maximum_seconds": 0.1 if mode in ("deadline", "closed-pipes") else 15,
                  "maximum_rss_bytes": 1 if mode == "rss" else 1024**3}
     if mode == "budget":
-        arguments["maximum_seconds"] = 16
+        arguments["maximum_seconds"] = 61 if version == 2 else 16
+    guard = _run_tokenizer_only_guard_v2 if version == 2 else _run_tokenizer_only_guard
     code = "import sys\nsys.stdin.buffer.read()\n" + body
     if mode == "success":
-        report = _run_tokenizer_only_guard(sys.executable, code, b"{}", **arguments)
+        report = guard(sys.executable, code, b"{}", **arguments)
         assert report["returncode"] == 0 and report["stdout"] == "ready\n"
         assert report["observed_process_swap_bytes"] == 0
+        if version == 2:
+            assert report["observed_host_available_minimum_bytes"] >= 2 * 1024**3
     else:
         match = {"output": "output budget", "deadline": "deadline", "closed-pipes": "deadline", "rss": "RSS or swap", "budget": "invalid"}[mode]
         with pytest.raises(ValueError, match=match):
-            _run_tokenizer_only_guard(sys.executable, code, b"{}", **arguments)
+            guard(sys.executable, code, b"{}", **arguments)
     assert len(list(Path("/proc/self/fd").iterdir())) == before
+
+
+def test_tokenizer_v2_reserve_refuses_before_process_creation(monkeypatch):
+    import sys
+
+    def refuse_process(*args, **kwargs):
+        raise AssertionError("low-memory v2 guard launched a process")
+
+    original = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda path, *args, **kwargs:
+        "MemAvailable: 1048576 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n" if str(path) == "/proc/meminfo" else original(path, *args, **kwargs))
+    monkeypatch.setattr(subprocess, "Popen", refuse_process)
+    with pytest.raises(ValueError, match="available-memory reserve"):
+        _run_tokenizer_only_guard_v2(sys.executable, "", b"{}", env=os.environ)
 
 
 def _tokenizer_only_diagnostic_code():
@@ -6583,7 +6622,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-rows"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6591,10 +6630,11 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
 
     from test_inventory import _packaging_fixture
 
-    fast_capacity = tokenizer_mode == "fast-rows-proof-capacity"
+    row_version = 2 if tokenizer_mode == "fast-v2-rows" else 1
+    fast_capacity = tokenizer_mode in ("fast-rows-proof-capacity", "fast-v2-rows")
     fast_proof = tokenizer_mode in ("fast-rows-proof", "fast-rows-proof-capacity")
     fast_emission = tokenizer_mode in ("fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity")
-    fast_rows = tokenizer_mode in ("fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity")
+    fast_rows = tokenizer_mode in ("fast-rows", "fast-rows-emission", "fast-rows-proof", "fast-rows-proof-capacity", "fast-v2-rows")
     if fast_rows:
         tokenizer_mode = "types"
     capacity = fast_capacity or tokenizer_mode in ("row-proof-capacity", "rows-merges-proof-capacity")
@@ -6634,7 +6674,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         from test_inventory import _prefill_model_policy_fixture
 
         metadata = {}
-        profile, inventory, manifest, blocks = _prefill_model_policy_fixture(target="o", vocab_size=4096, metadata_output=metadata)
+        profile, inventory, manifest, blocks = _prefill_model_policy_fixture(target="o", vocab_size=8193 if row_version == 2 else 4096, metadata_output=metadata)
         record = json.loads(_profile_parity_fixture(profile, inventory, manifest, blocks))["profile"]
     config = json.loads(metadata["config.json"])
     config["max_position_embeddings"] = 512
@@ -6696,6 +6736,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
                "fingerprint_source": fingerprint_source, "unused_source": unused_source,
                "special_source": special_source, "capacity": capacity, "include_merges": include_merges,
                "combined_proof": combined_proof, "fast_rows": fast_rows, "fast_emission": fast_emission, "fast_proof": fast_proof,
+               "row_version": row_version,
                "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
@@ -6727,7 +6768,7 @@ if fixture["fast_rows"]:
     from types import SimpleNamespace
     from tokenizers import Tokenizer
     from transformers import PreTrainedTokenizerFast
-    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows, write_profile_model_fast_tokenizer_rows
+    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows, prepare_profile_model_tokenizer_rows_v2, write_profile_model_fast_tokenizer_rows
 
     @contextmanager
     def library_diagnostics():
@@ -6741,9 +6782,13 @@ if fixture["fast_rows"]:
             os.dup2(saved_stdout, 1)
             os.close(saved_stdout)
 
+    prepare_rows = prepare_profile_model_tokenizer_rows_v2 if fixture["row_version"] == 2 else prepare_profile_model_tokenizer_rows
+    row_arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+        "row_policy": "pinned_prism_fast_rows_v" + str(fixture["row_version"])}
+    if fixture["row_version"] == 2:
+        row_arguments.update(maximum_vocabulary_rows=8193, maximum_token_content_bytes=4 * 1024**2)
     with library_diagnostics():
-        prepared = prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
-            context_length=256, row_policy="pinned_prism_fast_rows_v1")
+        prepared = prepare_rows(profile, **row_arguments)
         wrapper = PreTrainedTokenizerFast(tokenizer_object=Tokenizer.from_str(tokenizer_bytes.decode()), clean_up_tokenization_spaces=False)
 
     def from_pretrained(directory):
@@ -6776,6 +6821,22 @@ if fixture["fast_rows"]:
     assert prepared["gguf_tokenizer_verification"] == prepared["pre_tokenizer_tag_verification"] == "not_checked"
     summary = {"context_length": prepared["context_length"], "source_context_length": prepared["source_context_length"],
         "token_rows": len(rows), "unused_rows": prepared["unassigned_profile_token_rows"], "normalized_rows": 1, "rewritten_rows": 1}
+    if fixture["row_version"] == 2:
+        assert prepared["tokenizer_row_policy_version"] == 2 and prepared["maximum_vocabulary_rows"] == 8193
+        try:
+            prepare_profile_model_tokenizer_rows(profile, **{**row_arguments, "row_policy": "pinned_prism_fast_rows_v1",
+                "maximum_vocabulary_rows": 8193})
+            raise AssertionError("old fast row API acquired larger keywords")
+        except TypeError:
+            pass
+        try:
+            prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
+                context_length=256, row_policy="pinned_prism_fast_rows_v1")
+            raise AssertionError("old fast row capacity grew implicitly")
+        except ValueError as error:
+            assert "unsupported bounded tokenizer row policy" in str(error)
+        summary.update(tokenizer_row_policy_version=2, source_content_bytes=prepared["source_token_content_bytes"],
+            output_content_bytes=prepared["output_token_content_bytes"], fixture_packet_bytes=packet_bytes)
     if fixture["fast_emission"]:
         assert int(gguf.TokenType.UNUSED) == 5
         root = Path(fixture["scratch"])
@@ -7549,7 +7610,7 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
         from tempfile import TemporaryDirectory
 
         with ExitStack() as stack:
-            if tokenizer_mode in ("typed-rows", "row-proof") or fast_emission:
+            if tokenizer_mode in ("typed-rows", "row-proof") or fast_emission or capacity:
                 scratch = Path(stack.enter_context(TemporaryDirectory(prefix="jev-token-rows-")))
                 output_root = scratch / "output"
                 output_root.mkdir()
@@ -7560,17 +7621,22 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
                 assert 0 < len(payload) < 1024**2
                 packet_path.write_bytes(payload)
                 payload = json.dumps({"fixture_path": str(packet_path)}).encode()
-            result = _run_tokenizer_only_guard(interpreter, code, payload,
+            guard = _run_tokenizer_only_guard_v2 if row_version == 2 else _run_tokenizer_only_guard
+            result = guard(interpreter, code, payload,
                 env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
                      **({"USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"} if fast_rows else {}),
                      "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
         assert result["returncode"] == 0, result["stderr"]
         summary = json.loads(result["stdout"])
         assert {name: summary[name] for name in ("context_length", "source_context_length")} == {"context_length": 256, "source_context_length": 512}
-        assert time.monotonic() - started < 60
+        assert time.monotonic() - started < (180 if row_version == 2 else 60)
         if fast_rows:
-            assert summary["token_rows"] == (4096 if capacity else 32) and summary["unused_rows"] == 2
+            assert summary["token_rows"] == (8193 if row_version == 2 else 4096 if capacity else 32) and summary["unused_rows"] == 2
             assert summary["normalized_rows"] == summary["rewritten_rows"] == 1
+            if row_version == 2:
+                assert summary["tokenizer_row_policy_version"] == 2 and 65536 < summary["fixture_packet_bytes"] < 1024**2
+                assert 65536 < summary["source_content_bytes"] < 4 * 1024**2 and summary["output_content_bytes"] < 4 * 1024**2
+                assert result["observed_host_available_minimum_bytes"] >= 2 * 1024**3 and not Path(fixture["scratch"]).exists()
             if fast_emission:
                 assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
                 assert summary["readback_faults"] == (8 if capacity else 4) and not Path(fixture["scratch"]).exists()

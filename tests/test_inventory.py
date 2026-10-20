@@ -1222,14 +1222,17 @@ def test_profile_source_token_types_are_declarations_without_transforms(monkeypa
         records[0]["token_type"] = "CONTROL"
 
 
+@pytest.mark.parametrize("version", [1, 2])
 @pytest.mark.parametrize("defect", [None, "normalized-control", "policy", "metadata-pin", "tokenizer-pin", "duplicate-id", "padding-collision",
                                     "encode-bool", "encode-range", "encode-budget", "normalization", "output-empty", "output-nul",
                                     "output-type", "output-budget", "output-collision", "output-padding-collision"])
-def test_profile_explicit_fast_rows_keep_padding_and_transform_provenance(monkeypatch, defect):
+def test_profile_explicit_fast_rows_keep_padding_and_transform_provenance(monkeypatch, defect, version):
     import sys
     from types import SimpleNamespace
 
-    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows, prepare_profile_model_tokenizer_vocabulary
+    from embedded_jev import prism_codec
+
+    prepare_rows = prism_codec.prepare_profile_model_tokenizer_rows_v2 if version == 2 else prism_codec.prepare_profile_model_tokenizer_rows
 
     vocabulary = {"base": 0, "USER": 1, "\u2581user": 2, "<|marker|>": 4, "<|base|>": 5}
     if defect == "duplicate-id":
@@ -1272,14 +1275,14 @@ def test_profile_explicit_fast_rows_keep_padding_and_transform_provenance(monkey
     elif defect == "tokenizer-pin":
         tokenizer_bytes += b" "
     arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
-                 "row_policy": "other" if defect == "policy" else "pinned_prism_fast_rows_v1"}
+                 "row_policy": "other" if defect == "policy" else f"pinned_prism_fast_rows_v{version}"}
     if defect not in (None, "normalized-control"):
         with pytest.raises(ValueError):
-            prepare_profile_model_tokenizer_rows(profile, **arguments)
+            prepare_rows(profile, **arguments)
         if defect in ("policy", "metadata-pin", "tokenizer-pin", "duplicate-id"):
             assert not calls
         return
-    receipt = prepare_profile_model_tokenizer_rows(profile, **arguments)
+    receipt = prepare_rows(profile, **arguments)
     rows = receipt["token_row_records"]
     assert calls == ["wrapper", "encode", "decode"]
     assert len(rows) == profile.geometry["vocab_size"] == 32
@@ -1295,11 +1298,12 @@ def test_profile_explicit_fast_rows_keep_padding_and_transform_provenance(monkey
     with pytest.raises(TypeError):
         rows[1]["token"] = "other"
     with pytest.raises(ValueError, match="vocabulary IDs"):
-        prepare_profile_model_tokenizer_vocabulary(profile, **{key: value for key, value in arguments.items() if key != "row_policy"})
+        prism_codec.prepare_profile_model_tokenizer_vocabulary(profile, **{key: value for key, value in arguments.items() if key != "row_policy"})
 
 
+@pytest.mark.parametrize("expanded", [False, True])
 @pytest.mark.parametrize("side,count", [("source", 16), ("source", 17), ("output", 16), ("output", 17)])
-def test_profile_fast_rows_enforce_independent_source_and_output_content_budgets(monkeypatch, side, count):
+def test_profile_fast_rows_enforce_independent_source_and_output_content_budgets(monkeypatch, side, count, expanded):
     import sys
     from types import SimpleNamespace
 
@@ -1324,17 +1328,44 @@ def test_profile_fast_rows_enforce_independent_source_and_output_content_budgets
             return f"{token_ids[0]:04d}" + "x" * 4092
 
     monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(PreTrainedTokenizerFast=Fast))
+    prepare_rows = prism_codec.prepare_profile_model_tokenizer_rows_v2 if expanded else prism_codec.prepare_profile_model_tokenizer_rows
     arguments = {"metadata_files": {}, "tokenizer_bytes": json.dumps({"added_tokens": added}).encode(),
-                 "context_length": 256, "row_policy": "pinned_prism_fast_rows_v1"}
+                 "context_length": 256, "row_policy": "pinned_prism_fast_rows_v2" if expanded else "pinned_prism_fast_rows_v1"}
+    if expanded:
+        arguments["maximum_token_content_bytes"] = 17 * 4096
     profile = SimpleNamespace(geometry={"vocab_size": count})
-    if count == 17:
+    if count == 17 and not expanded:
         with pytest.raises(ValueError, match="content budget"):
-            prism_codec.prepare_profile_model_tokenizer_rows(profile, **arguments)
+            prepare_rows(profile, **arguments)
         assert len(decoded) == (17 if side == "output" else 0)
         return
-    receipt = prism_codec.prepare_profile_model_tokenizer_rows(profile, **arguments)
-    assert receipt["output_token_content_bytes"] == 65536 and len(decoded) == (16 if side == "output" else 0)
-    assert receipt["source_token_content_bytes"] == (65536 if side == "source" else 64)
+    receipt = prepare_rows(profile, **arguments)
+    assert receipt["output_token_content_bytes"] == count * 4096 and len(decoded) == (count if side == "output" else 0)
+    assert receipt["source_token_content_bytes"] == (count * 4096 if side == "source" else count * 4)
+    if expanded:
+        assert receipt["tokenizer_row_policy_version"] == 2 and receipt["maximum_token_content_bytes"] == 17 * 4096
+
+
+@pytest.mark.parametrize("defect", ["policy", "old-policy", "rows-default", "rows-bool", "rows-zero", "rows-over", "content-bool", "content-zero", "content-over"])
+def test_profile_fast_rows_v2_refuse_invalid_opt_ins_before_parser_access(monkeypatch, defect):
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    def refuse_parser(*args, **kwargs):
+        raise AssertionError("invalid v2 row budget reached parser")
+
+    monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", refuse_parser)
+    arguments = {"metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256, "row_policy": "pinned_prism_fast_rows_v2"}
+    capacity = 8193 if defect == "rows-default" else 32
+    if defect in ("policy", "old-policy"):
+        arguments["row_policy"] = "pinned_prism_fast_rows_v1" if defect == "old-policy" else "other"
+    elif defect.startswith("rows-") and defect != "rows-default":
+        arguments["maximum_vocabulary_rows"] = {"rows-bool": True, "rows-zero": 0, "rows-over": 262145}[defect]
+    elif defect.startswith("content-"):
+        arguments["maximum_token_content_bytes"] = {"content-bool": True, "content-zero": 0, "content-over": 4 * 1024**2 + 1}[defect]
+    with pytest.raises(ValueError, match="v2 tokenizer row policy or budget"):
+        prism_codec.prepare_profile_model_tokenizer_rows_v2(SimpleNamespace(geometry={"vocab_size": capacity}), **arguments)
 
 
 @pytest.mark.parametrize("fast_rows", [False, True])

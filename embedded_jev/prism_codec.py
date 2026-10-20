@@ -583,6 +583,32 @@ def prepare_profile_model_tokenizer_rows(
     """Declare bounded padded/transformed rows under an explicit fast-wrapper policy, not runtime parity."""
     if row_policy != "pinned_prism_fast_rows_v1" or not 0 < profile.geometry["vocab_size"] <= 4096:
         raise ValueError("unsupported bounded tokenizer row policy")
+    return _prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, maximum_token_content_bytes=64 * 1024)
+
+
+def prepare_profile_model_tokenizer_rows_v2(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+    maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+):
+    """Declare explicitly budgeted fast-wrapper rows without granting learned-input or runtime approval."""
+    if (
+        row_policy != "pinned_prism_fast_rows_v2"
+        or type(maximum_vocabulary_rows) is not int or not 0 < maximum_vocabulary_rows <= 262144
+        or not 0 < profile.geometry["vocab_size"] <= maximum_vocabulary_rows
+        or type(maximum_token_content_bytes) is not int or not 0 < maximum_token_content_bytes <= 4 * 1024**2
+    ):
+        raise ValueError("unsupported v2 tokenizer row policy or budget")
+    prepared = _prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, maximum_token_content_bytes=maximum_token_content_bytes)
+    return MappingProxyType({**prepared, "tokenizer_row_policy_version": 2,
+                            "maximum_vocabulary_rows": maximum_vocabulary_rows,
+                            "maximum_token_content_bytes": maximum_token_content_bytes})
+
+
+def _prepare_profile_model_tokenizer_rows(
+    profile, *, metadata_files, tokenizer_bytes, context_length, row_policy, maximum_token_content_bytes,
+):
     prepared, tokenizer, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length)
     inventory = _profile_tokenizer_id_inventory(profile, vocabulary)
@@ -590,7 +616,7 @@ def prepare_profile_model_tokenizer_rows(
     for token in vocabulary:
         encoded = token.encode("utf-8")
         source_bytes += len(encoded)
-        if not 0 < len(encoded) <= 4096 or source_bytes > 64 * 1024 or "\0" in token:
+        if not 0 < len(encoded) <= 4096 or source_bytes > maximum_token_content_bytes or "\0" in token:
             raise ValueError("source tokenizer rows exceed string/content budget")
     reverse = {token_id: token for token, token_id in vocabulary.items()}
     added_records, _ = _profile_added_token_records(tokenizer_bytes, tokenizer, reverse)
@@ -636,7 +662,7 @@ def prepare_profile_model_tokenizer_rows(
                     rewritten_count += 1
         encoded = token.encode("utf-8")
         output_bytes += len(encoded)
-        if not 0 < len(encoded) <= 4096 or output_bytes > 64 * 1024 or "\0" in token:
+        if not 0 < len(encoded) <= 4096 or output_bytes > maximum_token_content_bytes or "\0" in token:
             raise ValueError("transformed tokenizer rows exceed string/content budget")
         if token in seen:
             raise ValueError("transformed tokenizer row text collides")
