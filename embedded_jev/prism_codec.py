@@ -812,6 +812,23 @@ def _profile_tokenizer_row_records(prepared):
     ]
 
 
+def write_profile_model_tokenizer_rows_and_merges(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, token_type_policy: str, writer,
+):
+    """Jointly preflight bounded source rows, types and merges, not a complete tokenizer."""
+    prepared = prepare_profile_model_token_type_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, token_type_policy=token_type_policy)
+    bpe = prepare_profile_model_bpe_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    merges, merge_bytes = _profile_bpe_merge_record(bpe)
+    records = _write_profile_model_metadata_records(writer, [*_profile_tokenizer_row_records(prepared), merges])
+    return MappingProxyType({**bpe, **prepared, "records": records, "metadata_count": len(records),
+                            "merge_content_bytes": merge_bytes, "metadata_scope": "source_token_rows_and_merges_subset",
+                            "metadata_emission": "token_strings_types_and_merges_emitted",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "runtime_approval": "not_granted_by_token_rows_and_merges_emission"})
+
+
 def write_profile_model_tokenizer_arrays(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, writer,
     maximum_vocabulary_rows: int = 4096,

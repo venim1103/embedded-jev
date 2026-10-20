@@ -6583,7 +6583,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6592,7 +6592,8 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     from test_inventory import _packaging_fixture
 
     capacity = tokenizer_mode == "row-proof-capacity"
-    if capacity:
+    include_merges = tokenizer_mode == "rows-and-merges"
+    if capacity or include_merges:
         tokenizer_mode = "row-proof"
     started = time.monotonic()
     source_dir = os.environ.get("PRISM_SOURCE_DIR")
@@ -6664,11 +6665,13 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         added_tokens = [{"id": token_id, "content": tokens[token_id], "single_word": False, "lstrip": False,
                  "rstrip": False, "normalized": True, "special": token_id in (2, 5)}
                 for token_id in (1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12)]
+    if include_merges:
+        tokens[13:16] = ["a", "b", "ab"]
     if tokenizer_mode != "identity":
         tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": added_tokens,
             "normalizer": {"type": "Lowercase"} if tokenizer_mode in ("bpe", "added") else None, "model": {
             "type": "BPE", "vocab": {token: index for index, token in enumerate(tokens) if tokenizer_mode != "inventory" or index not in (1, 5)},
-            "merges": [["a", "b"], ["ab", "c"]] if tokenizer_mode == "bpe" else [],
+            "merges": [["a", "b"], ["ab", "c"]] if tokenizer_mode == "bpe" else [["a", "b"]] if include_merges else [],
             "dropout": None, "unk_token": None, "continuing_subword_prefix": None,
             "end_of_word_suffix": None, "fuse_unk": False, "byte_fallback": False, "ignore_merges": False,
         }}).encode()
@@ -6676,7 +6679,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     fixture = {"profile": record, "metadata": {name: data.hex() for name, data in metadata.items()},
                "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens,
                "fingerprint_source": fingerprint_source, "unused_source": unused_source,
-               "special_source": special_source, "capacity": capacity,
+               "special_source": special_source, "capacity": capacity, "include_merges": include_merges,
                "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
@@ -6705,7 +6708,7 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
     import ast
     from types import SimpleNamespace
     from tokenizers import Tokenizer
-    from embedded_jev.prism_codec import prepare_profile_model_token_type_metadata, write_profile_model_tokenizer_rows
+    from embedded_jev.prism_codec import prepare_profile_model_token_type_metadata, write_profile_model_tokenizer_rows, write_profile_model_tokenizer_rows_and_merges
 
     prepared = prepare_profile_model_token_type_metadata(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
         context_length=256, token_type_policy="pinned_prism_no_transform_v1")
@@ -6772,12 +6775,14 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
         writer = gguf.GGUFWriter(path, "qwen35")
         arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
                      "token_type_policy": "pinned_prism_no_transform_v1", "writer": writer}
+        emit = write_profile_model_tokenizer_rows_and_merges if fixture["include_merges"] else write_profile_model_tokenizer_rows
         try:
-            emitted = write_profile_model_tokenizer_rows(profile, **arguments)
-            assert emitted["metadata_count"] == 2 and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
+            emitted = emit(profile, **arguments)
+            assert emitted["metadata_count"] == (3 if fixture["include_merges"] else 2)
+            assert emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
             snapshot = [dict(mapping) for mapping in writer.kv_data]
             try:
-                write_profile_model_tokenizer_rows(profile, **arguments)
+                emit(profile, **arguments)
                 raise AssertionError("paired token rows overwrote existing metadata")
             except ValueError as error:
                 assert "conflicting" in str(error)
@@ -6802,7 +6807,14 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
                     [int(types.parts[index][0]) for index in types.data] != kinds):
                 raise ValueError("typed token-row readback mismatch")
             assert len(reader.tensors) == (1 if fixture["tokenizer_mode"] == "row-proof" else 0)
-            assert not {"tokenizer.ggml.pre", "tokenizer.ggml.model", "tokenizer.ggml.merges"}.intersection(reader.fields)
+            assert not {"tokenizer.ggml.pre", "tokenizer.ggml.model"}.intersection(reader.fields)
+            if fixture["include_merges"]:
+                merges = reader.fields["tokenizer.ggml.merges"]
+                if (list(merges.types) != [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING] or
+                        [merges.parts[index].tobytes().decode() for index in merges.data] != ["a b"]):
+                    raise ValueError("typed token-row readback mismatch")
+            else:
+                assert "tokenizer.ggml.merges" not in reader.fields
 
         reader = gguf.GGUFReader(path)
         try:
@@ -6823,7 +6835,8 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
                     except ValueError as error:
                         assert "records exceed byte budget" in str(error)
                     proof_arguments["maximum_metadata_bytes"] = 128 * 1024
-                declarations = [{"name": row["name"], "kind": row["kind"], "values": row["values"]} for row in emitted["records"]]
+                declarations = [{"name": row["name"], "kind": row["kind"], "values": row["values"]}
+                                for row in emitted["records"] if row["name"] != "tokenizer.ggml.merges"]
                 try:
                     prism_codec._verify_profile_gguf_metadata_records(profile, reader=reader,
                         expected_file_bytes=len(original), expected_file_sha256=proof_arguments["expected_file_sha256"],
@@ -6855,6 +6868,10 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
                 assert file_receipt["model_file_access"] == "retained_reader_filename_descriptor"
                 assert file_receipt["metadata_verification"] == "selected_typed_token_rows_match_file"
                 assert file_receipt["gguf_tokenizer_verification"] == file_receipt["pre_tokenizer_tag_verification"] == "not_checked"
+                if fixture["include_merges"]:
+                    array_receipt = verify_profile_gguf_tokenizer_arrays_v2(profile, reader=reader,
+                        **{key: value for key, value in proof_arguments.items() if key != "token_type_policy"})
+                    assert array_receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.merges")
                 assert len(os.listdir("/proc/self/fd")) == descriptor_count
                 try:
                     prism_codec.verify_profile_gguf_tokenizer_rows_v2(profile, reader=reader,
@@ -6905,6 +6922,11 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
             if fixture["capacity"]:
                 offsets.extend([int(strings.parts[strings.data[-1]].ctypes.data - reader.data.ctypes.data),
                                 int(types.parts[types.data[-1]].ctypes.data - reader.data.ctypes.data)])
+            merge_offset = None
+            if fixture["include_merges"]:
+                merges = reader.fields["tokenizer.ggml.merges"]
+                merge_offset = int(merges.parts[merges.data[0]].ctypes.data - reader.data.ctypes.data)
+                offsets.append(merge_offset)
             for offset in offsets:
                 changed = bytearray(original)
                 changed[offset] ^= 1
@@ -6918,9 +6940,15 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
                     except ValueError as error:
                         assert "readback mismatch" in str(error)
                     if fixture["tokenizer_mode"] == "row-proof":
+                        verifier = prism_codec.verify_profile_gguf_tokenizer_rows_v2
+                        fault_arguments = {**proof_arguments, "expected_file_sha256": hashlib.sha256(changed).hexdigest()}
+                        if offset == merge_offset:
+                            subset_receipt = verifier(profile, reader=fault, **fault_arguments)
+                            assert subset_receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type")
+                            verifier = verify_profile_gguf_tokenizer_arrays_v2
+                            del fault_arguments["token_type_policy"]
                         try:
-                            prism_codec.verify_profile_gguf_tokenizer_rows_v2(profile, reader=fault,
-                                **{**proof_arguments, "expected_file_sha256": hashlib.sha256(changed).hexdigest()})
+                            verifier(profile, reader=fault, **fault_arguments)
                             raise AssertionError("fresh-hash token-row contradiction accepted")
                         except ValueError as error:
                             assert "policy metadata" in str(error)
@@ -6942,6 +6970,8 @@ if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
                        readback_faults=len(offsets), token_rows=len(rows), fixture_packet_bytes=packet_bytes)
         if fixture["tokenizer_mode"] == "row-proof":
             summary.update(retained_file_hashes=len(hashes), maximum_read=max(reads), old_numeric_part_default_preserved=True)
+        if fixture["include_merges"]:
+            summary.update(merge_rows=1, metadata_records=emitted["metadata_count"], independent_subset_proofs=2)
     print(json.dumps(summary))
     sys.exit(0)
 if fixture["tokenizer_mode"] not in ("identity", "inventory"):
@@ -7276,11 +7306,13 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
         assert time.monotonic() - started < 60
         if tokenizer_mode in ("typed-rows", "row-proof"):
             assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
-            assert summary["readback_faults"] == (5 if capacity else 3)
+            assert summary["readback_faults"] == (5 if capacity else 4 if include_merges else 3)
             assert summary["token_rows"] == (4096 if capacity else 32)
             assert (summary["fixture_packet_bytes"] > 65536) is capacity
             if tokenizer_mode == "row-proof":
                 assert summary["retained_file_hashes"] == 2 and summary["maximum_read"] <= 65536
+            if include_merges:
+                assert summary["merge_rows"] == 1 and summary["metadata_records"] == 3 and summary["independent_subset_proofs"] == 2
             assert not Path(fixture["scratch"]).exists()
         print(json.dumps({**result, "synthetic_token_type_reference": True,
                           "metadata_emission": "paired_rows_read_back" if tokenizer_mode in ("typed-rows", "row-proof") else "not_performed"}))

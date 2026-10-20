@@ -1,10 +1,18 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-19. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-20. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
+
+**Resumed by user, 2026-10-20:** Continue autonomously with periodic tested local
+commits until stopped or genuinely blocked. Starting `36b2d69` matches
+`origin/main`; only untouched user editor settings are untracked. Read the
+[rows and merges checkpoint](#rows-and-merges-checkpoint-2026-10-20) first.
+The pauses below are historical. Existing resource, learned-input, native and
+other-profile execution boundaries remain in force; both learned-tokenizer
+one-shot approvals remain consumed.
 
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
@@ -369,6 +377,43 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Rows And Merges Checkpoint (2026-10-20)
+
+After user-pushed `36b2d69`, `write_profile_model_tokenizer_rows_and_merges`
+composes existing token strings/types and ranked BPE merges under the same
+explicit `pinned_prism_no_transform_v1` policy. Both existing preparers run
+before one three-key writer preflight. It deliberately performs two verified
+parses rather than refactoring established preparation paths. The existing
+4096-row, nonempty/NUL-free/per-string 4096-byte, aggregate token-content
+64 KiB, merge count 4096 and merge-content 64 KiB limits are unchanged.
+The third-key conflict and malformed/empty merges cannot partially write token
+rows. As before, preflight is not rollback after arbitrary writer exceptions.
+Receipts say emitted, not file-verified or runtime-approved; no tokenizer model,
+pre-tag, padding or normalization policy is added. Older writers are unchanged.
+
+**Evidence:** 13 new source/conflict/writer/immutability controls **13 passed in
+0.24 s**. New pinned synthetic `rows-and-merges` mode **1 passed in 0.46 s**;
+expanded merge-corruption control **1 passed in 0.37 s**. It uses 32 source rows,
+one merge and a two-byte BF16 table anchor; exact ARRAY/STRING, ARRAY/INT32 and
+ARRAY/STRING readback agrees with the pinned source reference. File **928
+bytes**, logical output-plus-one-fault peak **1856 bytes**, observed child RSS
+**49,827,840 bytes**, process and host swap zero; parent scratch cleaned.
+The old row proof and vocabulary/merge proof run independently on this file.
+A fresh-hash merge mutation correctly passes only the row subset proof and
+fails the merge-selecting proof. Four typed readback faults refuse. This is
+not a single combined or atomic three-record proof.
+
+All eleven toy modes plus adjacent paired/array/composed writer tests **42
+passed in 3.89 s**. Required root gate **1206 passed, 114 skipped in 22.88 s**,
+Ruff/whitespace clean; Pylance syntax clean and two resolved composer call sites
+compatible. No failed check occurred. Cached source is clean at the pinned
+Prism revision, controller/converter environments reused. No learned inputs,
+downloads, native builds/CTest, model execution/conversion, refits, quality
+experiments, push or branch creation occurred. Next local step: one bounded
+three-record retained-file proof using the existing parser, same 256 KiB file,
+8 KiB default/128 KiB explicit selected-record limits and unchanged numeric-part
+defaults. Full tokenizer/model acceptance remains separate.
 
 ## Paired Rows Capacity Checkpoint (2026-10-19)
 

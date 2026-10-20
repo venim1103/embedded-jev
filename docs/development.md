@@ -2896,6 +2896,18 @@ growth and 8 KiB summary limits are unchanged. The packet and output are removed
 even on guarded worker failure. This mode does not read learned inputs or run
 native/model code.
 
+`write_profile_model_tokenizer_rows_and_merges(..., token_type_policy=...,
+writer=...)` composes the existing rows/types and BPE-merge declarations through
+one three-key preflight. It retains the no-transform policy, 4096-row capacity,
+token-content and merge limits above. Two existing verified preparations run
+before mutation; conflicting merges or invalid merge data therefore leave the
+writer unchanged. Arbitrary writer exceptions still have no rollback guarantee.
+The receipt says emitted, not file-verified, and grants no tokenizer tag or
+runtime approval. Use the `rows-and-merges` optional test parameter for pinned
+typed readback and independent row and vocabulary/merge subset file proofs.
+Those are separate receipts, not an atomic three-record or complete tokenizer
+proof. The same bounded scratch/process guards apply.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

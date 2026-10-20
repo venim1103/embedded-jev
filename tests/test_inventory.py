@@ -1270,6 +1270,70 @@ def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypat
         receipt["records"][1]["values"][0] = 5
 
 
+@pytest.mark.parametrize("defect", [None, "tokens-conflict", "types-conflict", "merges-conflict", "empty-merges", "bad-merge",
+                                    "metadata-pin", "tokenizer-pin", "unassigned", "architecture", "split", "method", "policy"])
+def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import write_profile_model_tokenizer_rows_and_merges
+
+    count = _profile_tokenizer_preparation_fixture(b"{}")[0].geometry["vocab_size"]
+    tokens = ["a", "b", "c", "ab", "abc", "<|special|>"] + [f"token{index}" for index in range(6, count)]
+    if defect == "unassigned":
+        tokens.pop()
+    vocabulary = {token: index for index, token in enumerate(tokens)}
+    added = {"id": 5, "content": tokens[5], "single_word": False, "lstrip": False, "rstrip": False,
+             "normalized": True, "special": True}
+    tokenizer_bytes = json.dumps({"added_tokens": [added], "model": {"type": "BPE", "vocab": vocabulary,
+        "merges": [] if defect == "empty-merges" else [["a", "b"], ["ab", "missing" if defect == "bad-merge" else "c"]]}}).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    calls = []
+
+    def from_str(text):
+        calls.append(text)
+        return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary),
+                               get_added_tokens_decoder=lambda: {5: SimpleNamespace(**added)})
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    writer = _profile_metadata_writer_fixture()
+    if defect and defect.endswith("-conflict"):
+        key = {"tokens-conflict": "tokens", "types-conflict": "token_type", "merges-conflict": "merges"}[defect]
+        writer.kv_data[0]["tokenizer.ggml." + key] = ("existing", [7])
+    elif defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    elif defect == "architecture":
+        writer.arch = "other"
+    elif defect == "split":
+        writer.kv_data.append({})
+    elif defect == "method":
+        writer.add_array = None
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                 "token_type_policy": "other" if defect == "policy" else "pinned_prism_no_transform_v1", "writer": writer}
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    if defect:
+        with pytest.raises(ValueError):
+            write_profile_model_tokenizer_rows_and_merges(profile, **arguments)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        assert len(calls) == (0 if defect in ("metadata-pin", "tokenizer-pin", "policy") else 1 if defect == "unassigned" else 2)
+        return
+    receipt = write_profile_model_tokenizer_rows_and_merges(profile, **arguments)
+    assert calls == [tokenizer_bytes.decode()] * 2
+    assert receipt["metadata_count"] == len(receipt["records"]) == 3
+    assert tuple(record["name"] for record in receipt["records"]) == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges")
+    assert writer.kv_data[0]["tokenizer.ggml.tokens"][1] == tokens
+    assert writer.kv_data[0]["tokenizer.ggml.token_type"][1] == [3 if token_id == 5 else 1 for token_id in range(count)]
+    assert writer.kv_data[0]["tokenizer.ggml.merges"][1] == ["a b", "ab c"]
+    assert receipt["merge_content_bytes"] == 7 and receipt["metadata_scope"] == "source_token_rows_and_merges_subset"
+    assert receipt["metadata_emission"] == "token_strings_types_and_merges_emitted"
+    assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
+    assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+    with pytest.raises(TypeError):
+        receipt["records"][2]["values"][0] = "other"
+
+
 @pytest.mark.parametrize("defect", [None, "file-budget", "file-size", "hash", "seconds", "record-budget", "preparation", "verification"])
 def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_private_opt_in(monkeypatch, defect):
     from types import SimpleNamespace
