@@ -3056,6 +3056,16 @@ the synthetic safety controls and required root gate must pass before any new
 learned read. No learned rows or artifacts are retained. See the
 [runner checkpoint](handover.md#learned-row-runner-checkpoint-2026-10-20).
 
+The one separately approved learned invocation **completed once after `ff3255c`**:
+all 248,320 MiMo strings/types match the pinned row method with 243 placeholders,
+33 added-row encode/decode operations (not necessarily changed strings) and no
+space rewrites. Typed readback and fresh same-FD retained proof agree on a
+5,846,912-byte disposable tokenizer-only file. Inputs/copies/output were removed;
+no tag, merge or native/model acceptance is implied. The approval is **consumed**;
+do not rerun `[approved]` from the environment flag alone. See the
+[learned result](handover.md#learned-row-proof-checkpoint-2026-10-20) for exact
+identity, commands, measurements and boundaries.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

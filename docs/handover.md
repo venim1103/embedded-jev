@@ -30,10 +30,10 @@ approval does not authorize model, native or quality work.
 
 **New one-shot approved after `3b35272`:** the user selected **Approve One Learned
 Row Proof** for the [learned row proof proposal](#learned-row-proof-proposal-2026-10-20).
-The [runner checkpoint](#learned-row-runner-checkpoint-2026-10-20) completes its
-synthetic/safety prerequisite gate. This approval is active, **not yet consumed**;
-no learned contents were reopened during preparation. Both older approvals
-remain consumed and cannot enable the new mode.
+The [learned row checkpoint](#learned-row-proof-checkpoint-2026-10-20) records
+its **single completed invocation** after the [runner checkpoint](#learned-row-runner-checkpoint-2026-10-20).
+This approval and both older learned approvals are now **consumed**. No flag
+authorizes another learned read or a runtime/model experiment.
 
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
@@ -399,6 +399,73 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Learned Row Proof Checkpoint (2026-10-20)
+
+After `ff3255c` and the new explicit approval, exactly **one invocation** of
+`test_pinned_profile_tokenizer_rows_diagnostic[approved]` **1 passed in 30.92 s**.
+All three serial phases completed: verified/read-only ten-file copy; exact
+pinned row-method reference, paired emission and typed readback; fresh v3
+retained-file proof. This approval is **consumed**, as are the earlier two
+learned approvals. The learned source was not retried. The pre-read mandatory
+gate was **1318 passed, 133 skipped in 25.71 s**, Ruff/editor/whitespace clean;
+no source changed afterward, so that unchanged gate was not rerun.
+
+Historical executed command, **not permission to repeat the consumed run**:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 \
+PRISM_SOURCE_DIR="$HOME/.cache/huggingface/embedded-jev/native/prism-source" \
+PRISM_CONVERTER_PYTHON="$HOME/.cache/huggingface/embedded-jev/dense-venv/bin/python" \
+MIMO_LOCAL_DIR="$HOME/.cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177" \
+MIMO_TOKENIZER_ROWS_APPROVED=1 python -m pytest -q -s -p no:cacheprovider --tb=short \
+  'tests/test_prism_native_control.py::test_pinned_profile_tokenizer_rows_diagnostic[approved]'
+```
+
+Scope/identity: MiMo revision `2367e865d009c13ac81713a2878291d33ab28177`, profile
+SHA-256 `1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`,
+exact Prism pin and trusted Transformers **5.12.1**/tokenizers **0.22.2**. Only
+the ten approved nonweight files were read/copied, **30,144,444 bytes** each
+for source and copies. Original/copy hashes were rechecked after every phase,
+source device/inode/size/mtime/ctime remained unchanged across workers, copies
+were read-only, and all temporary inputs/output were cleaned by the parent.
+Copy-only worker did not import Transformers. No learned strings are retained.
+
+All **248,320** emitted strings/types agree with the exact pinned row method:
+**248,077 source rows**, **243 declared tail placeholders**, **33 added rows
+processed through encode/decode normalization**, **zero USER_DEFINED space
+rewrites**. The 33 count records operations, **not 33 proven text changes**.
+Source content **2,864,125 bytes**, transformed/padded content independently
+**2,866,798 bytes**; strict policy/collision/flag/ID limits did not refuse.
+The real trusted local-only wrapper supplied the pinned method; only its
+pre-tag hook was an explicit unverified stub. No pre-tokenizer/model tag was
+emitted or promoted, and neither previous fingerprint nor label probes ran.
+
+Disposable tokenizer-only GGUF with two selected records and one two-byte
+synthetic anchor: **5,846,912 bytes**, SHA-256
+`faf935b2e905f1f994abe52e77b5844fde12b8f83a820b0b6ebbeaa92d80e1e4`.
+Exact readback passed. Fresh v3 proof checked all mapped source-declared parts,
+two hashes of the same retained descriptor, positional reads **<=65,536 bytes**,
+FD cleanup and unchanged file identity. Digest/size agreed across emitter,
+parent and verifier. It was **not retained**, converted into a model or loaded
+by native code. Logical source+copy+output+reserved spool/report **82,921,208
+bytes**, below 128 MiB; no learned corruption/fault artifact was created.
+
+Observed RSS by phase **39,628,800 / 1,479,159,808 / 1,191,190,528 bytes**;
+process high water **52,953,088 / 1,478,365,184 / 1,190,518,784 bytes**. All
+observed process/host swap zero; host available minimum across phases
+**17,465,421,824 bytes**, above the 2 GiB reserve. Each child stayed within 60 s,
+each stage within 180 s, whole one-shot **30.92 s of 600 s**. Measurements are
+sampled/process evidence, not hard host or target-device guarantees.
+
+This is **learned source-pinned tokenizer-row/type storage and retained-file
+agreement**, not complete tokenizer semantics, merge/pre-tag/template/context
+compatibility, a complete tensor-table/model loader, arithmetic/runtime/quality
+or device acceptance. No shard/header/weight, download, native build/CTest,
+full-model conversion/execution, refit/candidate or quality experiment occurred.
+Next work must keep those boundaries separate; another learned read needs a new
+bounded approval. Static/synthetic prerequisites may continue only within the
+existing authorized scope.
+
 ## Learned Row Runner Checkpoint (2026-10-20)
 
 After `3b35272` and the user's distinct one-shot approval, the new optional
@@ -451,8 +518,9 @@ job or reuse of either consumed one-shot.
 
 ## Learned Row Proof Proposal (2026-10-20)
 
-Prepared after `4d63277`; **separately approved after `3b35272`**, not yet run at
-the runner checkpoint above. The approved full-scale
+Prepared after `4d63277`; **historical proposal, separately approved after
+`3b35272` and consumed once after `ff3255c`**; see the learned checkpoint above.
+The approved full-scale
 synthetic slice is complete. Proposed next step is **one additional offline
 cached-MiMo tokenizer-only row/file comparison**, not another fingerprint or
 missing-ID diagnostic and not full tokenizer/model conversion. Both earlier
