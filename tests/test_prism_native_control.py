@@ -6583,7 +6583,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows", "fast-rows-emission", "fast-rows-proof"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6591,7 +6591,9 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
 
     from test_inventory import _packaging_fixture
 
-    fast_rows = tokenizer_mode == "fast-rows"
+    fast_proof = tokenizer_mode == "fast-rows-proof"
+    fast_emission = tokenizer_mode in ("fast-rows-emission", "fast-rows-proof")
+    fast_rows = tokenizer_mode in ("fast-rows", "fast-rows-emission", "fast-rows-proof")
     if fast_rows:
         tokenizer_mode = "types"
     capacity = tokenizer_mode in ("row-proof-capacity", "rows-merges-proof-capacity")
@@ -6622,7 +6624,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
         if tokenizer_mode in ("types", "typed-rows", "row-proof"):
             special_source = ast.unparse(next(node for node in text_model.body if isinstance(node, ast.FunctionDef)
                                              and node.name == "does_token_look_special"))
-    if tokenizer_mode in ("typed-rows", "row-proof"):
+    if tokenizer_mode in ("typed-rows", "row-proof") or fast_rows:
         enum_path = "gguf-py/gguf/constants.py"
         pinned_enum = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:{enum_path}"])
         assert 0 < len(pinned_enum) <= 1024**2 and (source / enum_path).read_bytes() == pinned_enum
@@ -6692,7 +6694,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
                "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens,
                "fingerprint_source": fingerprint_source, "unused_source": unused_source,
                "special_source": special_source, "capacity": capacity, "include_merges": include_merges,
-               "combined_proof": combined_proof, "fast_rows": fast_rows,
+               "combined_proof": combined_proof, "fast_rows": fast_rows, "fast_emission": fast_emission, "fast_proof": fast_proof,
                "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
@@ -6720,22 +6722,28 @@ expected_template = external_template if external_template is not None else meta
 if fixture["fast_rows"]:
     import ast
     import os
+    from contextlib import contextmanager
     from types import SimpleNamespace
     from tokenizers import Tokenizer
     from transformers import PreTrainedTokenizerFast
-    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows
+    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows, write_profile_model_fast_tokenizer_rows
 
-    saved_stdout = os.dup(1)
-    try:
-        sys.stdout.flush()
-        os.dup2(2, 1)
+    @contextmanager
+    def library_diagnostics():
+        saved_stdout = os.dup(1)
+        try:
+            sys.stdout.flush()
+            os.dup2(2, 1)
+            yield
+        finally:
+            sys.stdout.flush()
+            os.dup2(saved_stdout, 1)
+            os.close(saved_stdout)
+
+    with library_diagnostics():
         prepared = prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
             context_length=256, row_policy="pinned_prism_fast_rows_v1")
         wrapper = PreTrainedTokenizerFast(tokenizer_object=Tokenizer.from_str(tokenizer_bytes.decode()), clean_up_tokenization_spaces=False)
-    finally:
-        sys.stdout.flush()
-        os.dup2(saved_stdout, 1)
-        os.close(saved_stdout)
 
     def from_pretrained(directory):
         assert directory == "synthetic-fast-rows-no-model"
@@ -6765,8 +6773,167 @@ if fixture["fast_rows"]:
     assert prepared["normalized_row_count"] == prepared["space_rewritten_row_count"] == 1
     assert tag == "synthetic-unverified-tag" and prepared["metadata_emission"] == "not_performed"
     assert prepared["gguf_tokenizer_verification"] == prepared["pre_tokenizer_tag_verification"] == "not_checked"
-    print(json.dumps({"context_length": prepared["context_length"], "source_context_length": prepared["source_context_length"],
-        "token_rows": len(rows), "unused_rows": prepared["unassigned_profile_token_rows"], "normalized_rows": 1, "rewritten_rows": 1}))
+    summary = {"context_length": prepared["context_length"], "source_context_length": prepared["source_context_length"],
+        "token_rows": len(rows), "unused_rows": prepared["unassigned_profile_token_rows"], "normalized_rows": 1, "rewritten_rows": 1}
+    if fixture["fast_emission"]:
+        assert int(gguf.TokenType.UNUSED) == 5
+        root = Path(fixture["scratch"])
+        assert root.is_dir() and not list(root.iterdir())
+        path, fault_path = root / "fast-rows.gguf", root / "fault.gguf"
+        writer = gguf.GGUFWriter(path, "qwen35")
+        arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                     "row_policy": "pinned_prism_fast_rows_v1", "writer": writer}
+        try:
+            with library_diagnostics():
+                emitted = write_profile_model_fast_tokenizer_rows(profile, **arguments)
+                assert emitted["metadata_count"] == 2 and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
+                snapshot = [dict(mapping) for mapping in writer.kv_data]
+                try:
+                    write_profile_model_fast_tokenizer_rows(profile, **arguments)
+                    raise AssertionError("fast rows overwrote existing metadata")
+                except ValueError as error:
+                    assert "conflicting" in str(error)
+                assert writer.kv_data == snapshot
+            if fixture["fast_proof"]:
+                import numpy as np
+
+                writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
+            writer.write_header_to_file()
+            writer.write_kv_data_to_file()
+            writer.write_tensors_to_file()
+        finally:
+            writer.close()
+        original = path.read_bytes()
+        assert len(original) < 256 * 1024
+
+        def check_fast_rows(reader):
+            strings, types = reader.fields["tokenizer.ggml.tokens"], reader.fields["tokenizer.ggml.token_type"]
+            if (list(strings.types) != [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING] or
+                    list(types.types) != [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32] or
+                    [strings.parts[index].tobytes().decode() for index in strings.data] != rows or
+                    [int(types.parts[index][0]) for index in types.data] != kinds):
+                raise ValueError("fast-row typed readback mismatch")
+            assert len(reader.tensors) == int(fixture["fast_proof"])
+            assert not {"tokenizer.ggml.pre", "tokenizer.ggml.model"}.intersection(reader.fields)
+
+        closed_descriptor_count = len(os.listdir("/proc/self/fd"))
+        reader = gguf.GGUFReader(path)
+        try:
+            check_fast_rows(reader)
+            if fixture["fast_proof"]:
+                from embedded_jev import prism_codec, streamed_text
+
+                proof_arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                    "row_policy": "pinned_prism_fast_rows_v1", "expected_file_bytes": len(original),
+                    "expected_file_sha256": hashlib.sha256(original).hexdigest()}
+
+                def prove_rows(actual_reader, **changes):
+                    with library_diagnostics():
+                        return prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2(profile, reader=actual_reader,
+                            **{**proof_arguments, **changes})
+
+                hashes, reads = [], []
+                hasher, pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
+
+                def record_hash(descriptor, **kwargs):
+                    hashes.append(descriptor)
+                    return hasher(descriptor, **kwargs)
+
+                def record_read(descriptor, size, offset):
+                    reads.append(size)
+                    return pread(descriptor, size, offset)
+
+                descriptor_count = len(os.listdir("/proc/self/fd"))
+                try:
+                    streamed_text.bounded_gguf_descriptor_record_v2, os.pread = record_hash, record_read
+                    file_receipt = prove_rows(reader)
+                finally:
+                    streamed_text.bounded_gguf_descriptor_record_v2, os.pread = hasher, pread
+                assert len(hashes) == 2 and hashes[0] == hashes[1] and reads and max(reads) <= 65536
+                assert file_receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type")
+                assert file_receipt["metadata_verification"] == "selected_typed_fast_rows_match_file"
+                assert file_receipt["source_row_verification"] == "selected_pinned_fast_wrapper_declarations_match_file"
+                assert file_receipt["model_file_access"] == "retained_reader_filename_descriptor"
+                assert file_receipt["gguf_tokenizer_verification"] == file_receipt["pre_tokenizer_tag_verification"] == "not_checked"
+                try:
+                    prove_rows(reader, expected_file_sha256="0" * 64)
+                    raise AssertionError("fast-row stale hash accepted")
+                except ValueError as error:
+                    assert "file identity mismatch" in str(error)
+                field = reader.fields["tokenizer.ggml.token_type"]
+                index = field.data[20]
+                part = field.parts[index]
+                try:
+                    field.parts[index] = part.copy()
+                    try:
+                        prove_rows(reader)
+                        raise AssertionError("copied fast-row type mapping accepted")
+                    except ValueError as error:
+                        assert "field mapping mismatch" in str(error)
+                finally:
+                    field.parts[index] = part
+                hash_calls = []
+
+                def restore_after_final_hash(descriptor, **kwargs):
+                    result = hasher(descriptor, **kwargs)
+                    hash_calls.append(descriptor)
+                    if len(hash_calls) == 2:
+                        with path.open("r+b") as output:
+                            output.seek(len(original) - 1)
+                            output.write(bytes([original[-1] ^ 1]))
+                            output.seek(len(original) - 1)
+                            output.write(original[-1:])
+                    return result
+
+                try:
+                    streamed_text.bounded_gguf_descriptor_record_v2 = restore_after_final_hash
+                    try:
+                        prove_rows(reader)
+                        raise AssertionError("restored write after fast-row final hash accepted")
+                    except ValueError as error:
+                        assert "changed" in str(error) or "identity" in str(error)
+                finally:
+                    streamed_text.bounded_gguf_descriptor_record_v2 = hasher
+                assert len(hash_calls) == 2 and hash_calls[0] == hash_calls[1]
+                assert len(os.listdir("/proc/self/fd")) == descriptor_count and path.read_bytes() == original
+                summary.update(retained_file_hashes=len(hashes), maximum_read=max(reads))
+            strings, types = reader.fields["tokenizer.ggml.tokens"], reader.fields["tokenizer.ggml.token_type"]
+            offsets = [int(strings.parts[strings.data[index]].ctypes.data - reader.data.ctypes.data) for index in (1, 20)]
+            offsets += [int(types.parts[types.data[20]].ctypes.data - reader.data.ctypes.data),
+                        int(types.parts[3].ctypes.data - reader.data.ctypes.data)]
+            for offset in offsets:
+                changed = bytearray(original)
+                changed[offset] ^= 1
+                fault_path.write_bytes(changed)
+                assert fault_path.stat().st_size < 256 * 1024 and sum(entry.stat().st_size for entry in root.iterdir()) < 8 * 1024**2
+                fault = gguf.GGUFReader(fault_path)
+                try:
+                    try:
+                        check_fast_rows(fault)
+                        raise AssertionError("changed fast-row text/type accepted")
+                    except ValueError as error:
+                        assert "readback mismatch" in str(error)
+                    if fixture["fast_proof"]:
+                        try:
+                            prove_rows(fault, expected_file_sha256=hashlib.sha256(changed).hexdigest())
+                            raise AssertionError("fresh-hash fast-row contradiction accepted")
+                        except ValueError as error:
+                            assert "policy metadata" in str(error)
+                finally:
+                    fault.data._mmap.close()
+                fault_path.unlink()
+        finally:
+            reader.data._mmap.close()
+        if fixture["fast_proof"]:
+            try:
+                prove_rows(reader)
+                raise AssertionError("closed fast-row mapping accepted")
+            except ValueError as error:
+                assert "reader layout" in str(error)
+            assert len(os.listdir("/proc/self/fd")) == closed_descriptor_count
+        assert path.read_bytes() == original
+        summary.update(output_file_bytes=len(original), logical_scratch_peak_bytes=2 * len(original), readback_faults=4)
+    print(json.dumps(summary))
     sys.exit(0)
 if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
     import ast
@@ -7356,7 +7523,7 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
         from tempfile import TemporaryDirectory
 
         with ExitStack() as stack:
-            if tokenizer_mode in ("typed-rows", "row-proof"):
+            if tokenizer_mode in ("typed-rows", "row-proof") or fast_emission:
                 scratch = Path(stack.enter_context(TemporaryDirectory(prefix="jev-token-rows-")))
                 output_root = scratch / "output"
                 output_root.mkdir()
@@ -7378,6 +7545,11 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
         if fast_rows:
             assert summary["token_rows"] == 32 and summary["unused_rows"] == 2
             assert summary["normalized_rows"] == summary["rewritten_rows"] == 1
+            if fast_emission:
+                assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
+                assert summary["readback_faults"] == 4 and not Path(fixture["scratch"]).exists()
+                if fast_proof:
+                    assert summary["retained_file_hashes"] == 2 and summary["maximum_read"] <= 65536
         if tokenizer_mode in ("typed-rows", "row-proof"):
             assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
             assert summary["readback_faults"] == 3 + (2 if capacity else 0) + (1 if include_merges else 0)
@@ -7391,7 +7563,7 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
                 assert summary["combined_proof_records"] == (3 if combined_proof else 0)
             assert not Path(fixture["scratch"]).exists()
         print(json.dumps({**result, "synthetic_token_type_reference": True,
-                          "metadata_emission": "paired_rows_read_back" if tokenizer_mode in ("typed-rows", "row-proof") else "not_performed"}))
+                          "metadata_emission": "fast_rows_read_back" if fast_emission else "paired_rows_read_back" if tokenizer_mode in ("typed-rows", "row-proof") else "not_performed"}))
         return
     result = subprocess.run([interpreter, "-c", code], check=False, capture_output=True, text=True,
         input=json.dumps(fixture), timeout=15,

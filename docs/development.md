@@ -2949,6 +2949,23 @@ vocabulary; construction diagnostics are routed to bounded stderr while stdout
 remains JSON. No learned files are read and no complete tokenizer/model parity
 is claimed.
 
+`write_profile_model_fast_tokenizer_rows` freshly prepares the same explicit
+policy and jointly preflights `tokenizer.ggml.tokens` (ARRAY/STRING) and
+`tokenizer.ggml.token_type` (ARRAY/INT32). UNUSED uses pinned enum 5; NORMAL,
+CONTROL and USER_DEFINED use 1, 3 and 4. Receipt status is emitted, not file
+verified, and does not promise rollback after arbitrary writer exceptions.
+
+`verify_profile_gguf_fast_tokenizer_rows_v2` independently prepares the source
+rows and proves both selected records on one retained file, including two hashes,
+read-only mapping and path/stat/deadline checks. The file ceiling is 256 KiB,
+selected records default to 8 KiB with explicit maximum 128 KiB, and only this
+new wrapper opts into `5+profile_capacity` numeric parts. Old defaults and
+no-transform APIs are unchanged. This is not a complete tokenizer, tensor-table,
+model-wrapper or atomic cross-file snapshot proof. Runtime approval is not
+granted. Use `fast-rows-emission` for zero-tensor actual typed readback and
+`fast-rows-proof` for the separate retained proof with a two-byte BF16 anchor;
+both keep source transforms/padding, corruption refusals and parent cleanup.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

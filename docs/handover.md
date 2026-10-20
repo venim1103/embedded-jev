@@ -9,6 +9,7 @@ original conversation. Read this first, then follow the links for detail.
 **Resumed by user, 2026-10-20:** Continue autonomously with periodic tested local
 commits until stopped or genuinely blocked. Starting `36b2d69` matches
 `origin/main`; only untouched user editor settings are untracked. Read the
+[fast row file checkpoint](#fast-row-file-checkpoint-2026-10-20), then the
 [fast row declaration checkpoint](#fast-row-declaration-checkpoint-2026-10-20),
 then the [rows and merges proof checkpoint](#rows-and-merges-proof-checkpoint-2026-10-20),
 then the [emission checkpoint](#rows-and-merges-checkpoint-2026-10-20) and the
@@ -380,6 +381,59 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Fast Row File Checkpoint (2026-10-20)
+
+After declaration commit `ed84f23`, the separately approved synthetic policy now
+has `write_profile_model_fast_tokenizer_rows` and
+`verify_profile_gguf_fast_tokenizer_rows_v2`. Both require explicit
+`row_policy="pinned_prism_fast_rows_v1"` and fresh source preparation. The writer
+preflights both keys together, then emits transformed/padded strings and INT32
+types; the exact pinned constants define UNUSED as **5**, alongside unchanged
+NORMAL=1/CONTROL=3/USER_DEFINED=4. Its receipt says emitted, not file verified;
+preflight does not promise rollback of arbitrary writer exceptions. Existing
+no-transform APIs and records remain separate and unchanged.
+
+The proof uses the existing retained-descriptor parser for those two selected
+records, one shared preparation/verification deadline, two hashes of the same
+descriptor, read-only mapped parts and final path/stat checks. Defaults remain
+8 KiB selected records; explicit maximum is 128 KiB. File ceiling is 256 KiB,
+capacity 4096, and the numeric-part opt-in is only this wrapper's `5+capacity`.
+The prior private 32-part default, native parser and tensor-boundary requirement
+are unchanged. Receipts preserve unchecked complete-tokenizer/pre-tag status and
+grant no runtime approval or atomic source/output snapshot claim.
+
+Focused paired writer cases **14 passed in 0.15 s**; old/new proof routing and
+budgets **24 passed in 0.18 s**. Real cached writer/reader `fast-rows-emission`
+**1 passed in 3.18 s**, output **800 bytes**, logical scratch **1600 bytes**,
+observed child RSS **335,269,888 bytes**, process/host swap zero. Exact source
+reference, transformed row and unused-row strings/types agree; four changed
+text/type/array-kind readbacks refuse. This file has no tensors.
+
+`fast-rows-proof` keeps the emission test separately runnable, adding one
+two-byte BF16 anchor solely for the existing parser boundary. It passes exact
+source declarations plus two same-descriptor hashes; stale hash, copied type
+mapping, restored write after final hash, four fresh-hash contradictions and
+closed mapping refuse. Descriptor counts return to live-reader and final
+pre-reader baselines; original file bytes remain identical; parent scratch
+cleans. Result **1 passed in 3.02 s**, output **896 bytes**, scratch **1792 bytes**,
+maximum read **896 bytes**, observed RSS **336,023,552 bytes**, process/host swap
+zero. Sampling is not a host/device resource guarantee.
+
+**Failure history:** first proof run failed in **3.07 s** only at the final test
+FD-count assertion: it compared a closed mapping against the still-live reader
+baseline. All preceding proof/refusal assertions passed. The test now captures
+the baseline before reader construction, while preserving live-reader leak
+checks; no production guard, bound or semantic assertion was relaxed.
+
+All sixteen actual toy modes plus focused writer/proof/declaration cases
+**75 passed in 19.52 s**. Required root gate **1251 passed, 119 skipped in
+92.12 s**, Ruff/whitespace and editor diagnostics clean. No native build/CTest,
+learned input, download, model conversion/execution, refit or quality experiment.
+Next approved slice is a bounded 4096-row fast-policy capacity control under
+the same file, record, output, scratch, deadline and swap guards. Actual learned
+vocabulary scale, tokenizer pre-tag/model-wrapper parity and broader runtime
+acceptance remain separately gated; both learned-input one-shots are consumed.
 
 ## Fast Row Declaration Checkpoint (2026-10-20)
 

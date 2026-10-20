@@ -874,6 +874,29 @@ def write_profile_model_policy_metadata(profile, inventory: dict, manifest: dict
                             "runtime_approval": "not_granted_by_policy_metadata_emission"})
 
 
+def write_profile_model_fast_tokenizer_rows(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str, writer,
+):
+    """Preflight padded/transformed rows under the explicit fast-wrapper policy, not runtime approval."""
+    prepared = prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy)
+    records = _write_profile_model_metadata_records(writer, _profile_fast_tokenizer_row_records(prepared))
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records),
+                            "metadata_scope": "padded_transformed_token_rows_subset",
+                            "metadata_emission": "padded_transformed_strings_and_types_emitted",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "runtime_approval": "not_granted_by_fast_token_rows_emission"})
+
+
+def _profile_fast_tokenizer_row_records(prepared):
+    encodings = {"NORMAL": 1, "CONTROL": 3, "USER_DEFINED": 4, "UNUSED": 5}
+    return [
+        {"name": "tokenizer.ggml.tokens", "kind": "str_array", "values": prepared["tokens"]},
+        {"name": "tokenizer.ggml.token_type", "kind": "i32_array",
+         "values": tuple(encodings[row["token_type"]] for row in prepared["token_row_records"])},
+    ]
+
+
 def write_profile_model_tokenizer_rows(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, token_type_policy: str, writer,
 ):
@@ -2696,6 +2719,42 @@ def verify_profile_gguf_source_metadata_v2(
                             "model_metadata_verification": "selected_policy_context_template_records_only",
                             "selected_template_file_verification": "exact_profile_pinned_utf8_bytes_match_output_record",
                             "runtime_approval": "not_granted_by_source_metadata_verification"})
+
+
+def verify_profile_gguf_fast_tokenizer_rows_v2(
+    profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 256 * 1024,
+    maximum_seconds: float = 30, maximum_metadata_bytes: int = 8192,
+):
+    """Prove explicitly padded/transformed fast-wrapper rows against one retained file."""
+    from embedded_jev.model_profile import SHA256
+
+    if (
+        type(maximum_file_bytes) is not int or not 0 < maximum_file_bytes <= 256 * 1024
+        or type(expected_file_bytes) is not int or not 0 < expected_file_bytes <= maximum_file_bytes
+        or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
+        or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
+        or type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= 128 * 1024
+    ):
+        raise ValueError("invalid fast-row file identity or budget")
+    deadline = time.monotonic() + maximum_seconds
+    prepared = prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy)
+    if time.monotonic() > deadline:
+        raise ValueError("fast-row preparation deadline exceeded")
+    verified = dict(_verify_profile_gguf_metadata_records(profile, reader=reader,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, deadline=deadline, model_owner=None, descriptor=None,
+        policy_version=2, file_cap=256 * 1024, header_cap=1024**2, declarations=_profile_fast_tokenizer_row_records(prepared),
+        maximum_metadata_bytes=maximum_metadata_bytes, maximum_numeric_array_parts=5 + profile.geometry["vocab_size"]))
+    if time.monotonic() > deadline:
+        raise ValueError("fast-row verification deadline exceeded")
+    verified.pop("policy_metadata_verification", None)
+    return MappingProxyType({**prepared, **verified, "metadata_scope": "padded_transformed_token_rows_subset",
+                            "source_row_verification": "selected_pinned_fast_wrapper_declarations_match_file",
+                            "gguf_token_type_verification": "selected_padded_transformed_type_rows_match_file",
+                            "metadata_verification": "selected_typed_fast_rows_match_file",
+                            "runtime_approval": "not_granted_by_fast_token_rows_file_verification"})
 
 
 def verify_profile_gguf_tokenizer_rows_v2(

@@ -1337,8 +1337,9 @@ def test_profile_fast_rows_enforce_independent_source_and_output_content_budgets
     assert receipt["source_token_content_bytes"] == (65536 if side == "source" else 64)
 
 
+@pytest.mark.parametrize("fast_rows", [False, True])
 @pytest.mark.parametrize("defect", [None, "tokens-conflict", "types-conflict", "architecture", "split", "method", "preparation"])
-def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypatch, defect):
+def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypatch, defect, fast_rows):
     from embedded_jev import prism_codec
 
     writer = _profile_metadata_writer_fixture()
@@ -1357,28 +1358,34 @@ def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypat
         {"token_id": 1, "token": "control", "token_type": "CONTROL"},
         {"token_id": 2, "token": "user", "token_type": "USER_DEFINED"}),
         "gguf_token_type_verification": "not_checked", "pre_tokenizer_tag_verification": "not_checked"}
+    if fast_rows:
+        prepared["tokens"] = ("base", "[PAD1]", "user")
+        prepared["token_row_records"] = ({"token_type": "NORMAL"}, {"token_type": "UNUSED"}, {"token_type": "USER_DEFINED"})
 
     def prepare(actual_profile, **kwargs):
-        assert actual_profile is profile and kwargs["token_type_policy"] == "pinned_prism_no_transform_v1"
+        assert actual_profile is profile
+        assert kwargs["row_policy" if fast_rows else "token_type_policy"] == ("pinned_prism_fast_rows_v1" if fast_rows else "pinned_prism_no_transform_v1")
         calls.append(kwargs)
         if defect == "preparation":
             raise ValueError("source token-type preparation refused")
         return prepared
 
-    monkeypatch.setattr(prism_codec, "prepare_profile_model_token_type_metadata", prepare)
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows" if fast_rows else "prepare_profile_model_token_type_metadata", prepare)
+    emit = prism_codec.write_profile_model_fast_tokenizer_rows if fast_rows else prism_codec.write_profile_model_tokenizer_rows
     arguments = {"metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256,
-                 "token_type_policy": "pinned_prism_no_transform_v1", "writer": writer}
+                 "row_policy" if fast_rows else "token_type_policy": "pinned_prism_fast_rows_v1" if fast_rows else "pinned_prism_no_transform_v1",
+                 "writer": writer}
     before = json.dumps(writer.kv_data, sort_keys=True)
     if defect:
         with pytest.raises(ValueError):
-            prism_codec.write_profile_model_tokenizer_rows(profile, **arguments)
+            emit(profile, **arguments)
         assert len(calls) == 1 and json.dumps(writer.kv_data, sort_keys=True) == before
         return
-    receipt = prism_codec.write_profile_model_tokenizer_rows(profile, **arguments)
+    receipt = emit(profile, **arguments)
     assert len(calls) == 1 and receipt["metadata_count"] == 2
-    assert writer.kv_data[0]["tokenizer.ggml.tokens"][1] == ["base", "control", "user"]
-    assert writer.kv_data[0]["tokenizer.ggml.token_type"][1] == [1, 3, 4]
-    assert receipt["metadata_emission"] == "paired_token_strings_and_types_emitted"
+    assert writer.kv_data[0]["tokenizer.ggml.tokens"][1] == list(prepared["tokens"])
+    assert writer.kv_data[0]["tokenizer.ggml.token_type"][1] == [1, 5 if fast_rows else 3, 4]
+    assert receipt["metadata_emission"] == ("padded_transformed_strings_and_types_emitted" if fast_rows else "paired_token_strings_and_types_emitted")
     assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
     assert receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
     with pytest.raises(TypeError):
@@ -1449,21 +1456,24 @@ def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monke
         receipt["records"][2]["values"][0] = "other"
 
 
-@pytest.mark.parametrize("include_merges", [False, True])
+@pytest.mark.parametrize("row_mode", ["rows", "merges", "fast"])
 @pytest.mark.parametrize("defect", [None, "file-budget", "file-size", "hash", "seconds", "record-budget", "preparation", "verification"])
-def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_private_opt_in(monkeypatch, defect, include_merges):
+def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_private_opt_in(monkeypatch, defect, row_mode):
     from types import SimpleNamespace
 
     from embedded_jev import prism_codec
 
+    include_merges, fast_rows = row_mode == "merges", row_mode == "fast"
     profile = SimpleNamespace(geometry={"vocab_size": 3})
     calls = []
 
     def prepare(actual_profile, **kwargs):
-        assert actual_profile is profile and kwargs["token_type_policy"] == "pinned_prism_no_transform_v1"
+        assert actual_profile is profile
+        assert kwargs["row_policy" if fast_rows else "token_type_policy"] == ("pinned_prism_fast_rows_v1" if fast_rows else "pinned_prism_no_transform_v1")
         calls.append("prepare")
-        return {"tokens": ("base", "control", "user"), "source_token_type_records": (
-            {"token_type": "NORMAL"}, {"token_type": "CONTROL"}, {"token_type": "USER_DEFINED"})}
+        return {"tokens": ("base", "control", "user"),
+            "source_token_type_records": ({"token_type": "NORMAL"}, {"token_type": "CONTROL"}, {"token_type": "USER_DEFINED"}),
+            "token_row_records": ({"token_type": "NORMAL"}, {"token_type": "UNUSED"}, {"token_type": "USER_DEFINED"})}
 
     def prepare_merges(actual_profile, **kwargs):
         assert actual_profile is profile and "token_type_policy" not in kwargs
@@ -1474,7 +1484,7 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
         assert actual_profile is profile and kwargs["maximum_numeric_array_parts"] == 8
         assert kwargs["maximum_metadata_bytes"] == 8192 and kwargs["file_cap"] == 256 * 1024
         assert kwargs["model_owner"] is kwargs["descriptor"] is None
-        assert kwargs["policy_version"] == 2 and kwargs["declarations"][1]["values"] == (1, 3, 4)
+        assert kwargs["policy_version"] == 2 and kwargs["declarations"][1]["values"] == (1, 5 if fast_rows else 3, 4)
         assert len(kwargs["declarations"]) == (3 if include_merges else 2)
         if include_merges:
             assert kwargs["declarations"][2] == {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("base user",)}
@@ -1482,11 +1492,14 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
         return {"metadata_names": tuple(row["name"] for row in kwargs["declarations"])}
 
     monkeypatch.setattr(prism_codec, "prepare_profile_model_token_type_metadata", prepare)
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows", prepare)
     monkeypatch.setattr(prism_codec, "prepare_profile_model_bpe_metadata", prepare_merges)
     monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
-    verifier = prism_codec.verify_profile_gguf_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.verify_profile_gguf_tokenizer_rows_v2
+    verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2 if fast_rows else
+                prism_codec.verify_profile_gguf_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.verify_profile_gguf_tokenizer_rows_v2)
     arguments = {"reader": object(), "metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256,
-                 "token_type_policy": "pinned_prism_no_transform_v1", "expected_file_bytes": 100, "expected_file_sha256": "1" * 64}
+                 "row_policy" if fast_rows else "token_type_policy": "pinned_prism_fast_rows_v1" if fast_rows else "pinned_prism_no_transform_v1",
+                 "expected_file_bytes": 100, "expected_file_sha256": "1" * 64}
     if defect == "file-budget":
         arguments["maximum_file_bytes"] = 256 * 1024 + 1
     elif defect == "file-size":
@@ -1508,8 +1521,10 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
         return
     receipt = verifier(profile, **arguments)
     assert calls == expected_calls
-    assert receipt["metadata_verification"] == ("selected_typed_token_rows_and_merges_match_file" if include_merges else "selected_typed_token_rows_match_file")
-    assert receipt["runtime_approval"] == ("not_granted_by_token_rows_and_merges_file_verification" if include_merges else "not_granted_by_token_row_file_verification")
+    assert receipt["metadata_verification"] == ("selected_typed_fast_rows_match_file" if fast_rows else
+        "selected_typed_token_rows_and_merges_match_file" if include_merges else "selected_typed_token_rows_match_file")
+    assert receipt["runtime_approval"] == ("not_granted_by_fast_token_rows_file_verification" if fast_rows else
+        "not_granted_by_token_rows_and_merges_file_verification" if include_merges else "not_granted_by_token_row_file_verification")
 
 
 def test_profile_token_rows_and_merges_share_a_deadline_across_both_preparations(monkeypatch):
