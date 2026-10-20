@@ -39,6 +39,10 @@ authorizes another learned read or a runtime/model experiment.
 adds joint three-record composition/proof without widening any merge limit.
 It did not repeat the learned result or establish a complete tokenizer.
 
+**Pending, not approved:** the [larger synthetic merge proposal](#larger-synthetic-merge-proposal-2026-10-20)
+would separately version merge-count/content and selected-record/header limits.
+Only generated-data sizing was performed; no implementation or learned read.
+
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
 completes that work after `91111b6`; no next implementation slice has started.
@@ -403,6 +407,76 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Larger Synthetic Merge Proposal (2026-10-20)
+
+Prepared after `1f45fb5`; **not approved, implemented or exercised**. The current
+fast-row/merge composer/proof keeps 4096 merges/64 KiB content and selected
+records/header <=8 MiB, with no learned proof of that three-record path. All
+three learned one-shots remain consumed. Proposed next increment is **synthetic
+only**, with separately versioned explicit merge and retained-record opt-ins,
+not another learned read or full tokenizer/model conversion.
+
+New-version defaults remain 4096 merges/64 KiB; proposed explicit ceilings
+**262,144 ranked pairs / 4 MiB merge content**, independently of existing source
+and transformed row content **4 MiB each**. Add separately versioned selected-
+record/header allowance **16 MiB**, preserving old v1/v2/v3/public/private
+defaults and hard ceilings, including current record policy versions 1/2.
+Keep row count <=262144, each source/output/merge string <=4096 UTF-8 bytes,
+each encode <=4096 source IDs, added rows <=4096/64 KiB, missing ranges <=4096,
+strict original-base-pair membership/join/rank/duplicate/subword-marker checks,
+and refusal of padding/transformed spellings as original source tokens.
+This expands capacity, not supported BPE representations or normalization rules.
+
+**Unchanged proposed resource limits:** immutable source inputs <=32 MiB, any
+disposable copy <=32 MiB, output/one serial fault/writer spool <=16 MiB each,
+logical aggregate source+copy+output+fault+reserved spool/report <=**64 MiB**.
+Use path-only stdin <=64 KiB, combined stdout+stderr/summary <=8 KiB per child;
+do not create a large hex input packet. Serial **60 s children / 180 s stages**,
+new optional sequence <=**600 s total**, observed RSS <=**2 GiB**, host reserve
+>=**2 GiB**, abort process/host swap growth; parent kills/reaps/closes/cleans on
+failure. Old 15 s and existing 60 s/180 s controls stay independent and unchanged.
+Any old 180 s whole-control assertion remains; a new multi-stage full suite
+must be partitioned explicitly within the new sequence budget, not lengthen old
+deadlines. Do not rerun an unchanged failure or relax a bound for green results.
+
+Start with a >4096-pair intermediate fixture (for example 8193 profile rows/
+4097 pairs), then synthetic 248320 profile rows/243 tail holes and a large valid
+ranked-pair set. Keep tiny normalization/space-rewrite/interior-hole controls.
+Verify exact cached code pins and trusted parser/writer, source-pair and emitted
+merge order, joint three-key no-mutation preflight, exact typed readback, fresh
+three-record retained proof, explicit default refusals, first/last merge byte/
+rank/type/fresh-hash contradictions, mapping/descriptor/hash lifetimes and byte/
+scratch cleanup. Test count/content/record/header budgets at boundaries without
+executing large fixtures in default tests. No model/pre-tokenizer tag or complete
+tokenizer/native/runtime/quality acceptance is implied.
+
+**Sizing-only preflight**, pure generated data under a 512 MiB address-space cap,
+no files written or learned inputs read: 149 seven-ASCII-byte filler tokens,
+120 four-byte prefixes, 2048 five-byte suffixes and their Cartesian-product
+joined tokens give **248077 unique source rows / 245760 unique valid pairs**.
+Add 243 eleven-byte tail placeholders for 248320 output rows. This is not an
+estimate of actual MiMo merges, whose contents were not reopened.
+
+| Sizing Quantity | Bytes |
+| --- | --- |
+| Source row content | 2223603 |
+| Output row content | 2226276 |
+| Merge content | 2457600 |
+| Source JSON generated with the standard parser/serializer | 9758906 |
+| Three selected records including encoded lengths/types | 9629935 |
+| Estimated file upper, including 4096 bytes of header/anchor allowance | 9634031 |
+| Estimated logical upper: two source sets with 128 KiB allowance each, two files, reserved 16 MiB spool and 8 KiB report | 55833426 |
+
+These are arithmetic/serialization estimates, **not actual trusted parser,
+writer, file proof, RSS or execution acceptance**. The implemented fixture must
+measure and refuse before exceeding any bound; added/control markers will change
+the exact sizes. Reuse existing cached source/interpreter; no install/download,
+new environment, native/parser build, learned input/weight/header, model
+conversion/execution, retained candidate, refit, held-out/quality/device job or
+automatic policy promotion. Ask for **separate explicit synthetic-capacity
+approval** before implementing or exercising this expansion. A future learned
+comparison would still require its own new bounded approval.
+
 ## Fast Rows And Merges Checkpoint (2026-10-20)
 
 After `e51469a`, code-only synthetic follow-up reuses the existing **4096-merge /
@@ -450,12 +524,16 @@ bytes**, process/host swap zero, observed host available minimum
 Old row-only synthetic diagnostic, BPE control, legacy three-record proof and
 8193-row v3 proof compatibility **4 passed in 12.38 s**. Required gate with all
 consumed learned flags unset **1339 passed, 134 skipped in 25.45 s**, Ruff,
-editor and whitespace clean. No learned contents were reopened; no large
-synthetic control, download, native build/CTest, model/conversion/quality job or
+editor and whitespace clean. No learned contents were reopened; no full-size
+248320-row control, download, native build/CTest, model/conversion/quality job or
 candidate/refit occurred. No deadline/assertion was relaxed. The earlier
 learned row-only proof remains historical evidence tied to `ff3255c`, not a
 learned proof of this new three-record path. Larger merge counts/content or
 another learned read require a separately bounded approval.
+
+Conservatively charging the whole 12.38 s compatibility command to the earlier
+full-scale synthetic row sequence brings its accounting to **263.91 s of 600 s**;
+the new larger-merge proposal is not authorized by that remaining budget.
 
 ## Learned Row Proof Checkpoint (2026-10-20)
 
