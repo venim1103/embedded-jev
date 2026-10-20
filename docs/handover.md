@@ -19,6 +19,11 @@ The pauses below are historical. Existing resource, learned-input, native and
 other-profile execution boundaries remain in force; both learned-tokenizer
 one-shot approvals remain consumed.
 
+**Next approval boundary:** the bounded 4096-row fast-policy slice is committed
+as `353d2e8`. The [full-scale synthetic row proposal](#full-scale-synthetic-row-proposal-2026-10-20)
+is prepared but **not approved or implemented**. Autonomous work does not
+authorize raising its limits or reusing consumed learned-input approvals.
+
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
 completes that work after `91111b6`; no next implementation slice has started.
@@ -382,6 +387,66 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Full-Scale Synthetic Row Proposal (2026-10-20)
+
+Prepared after `353d2e8`; **not approved or implemented**. The current separate
+declaration, paired writer and retained proof are tested only through 4096 rows.
+Actual MiMo has 248,320 profile rows; the earlier consumed inventory diagnostic
+found 248,077 source IDs with 243 missing tail rows. These historical counts do
+not authorize another learned read or a policy promotion.
+
+Next proposed increment is **synthetic-only**, separately versioned row
+preparation/emission/file proof, with explicit larger opt-ins. Preserve every
+current API's policy, defaults, hard ceilings and independent controls. Cover
+8193 rows first, then a synthetic 248,320-row profile with 243 tail placeholders,
+plus a small interior-hole/normalization/rewrite control. Verify the exact cached
+converter method, real trusted offline tokenizer objects, UNUSED=5, typed
+readback, source-bound selected-record proof, first/last and transformed/padded
+fresh-hash contradictions, descriptor/hash/mapping lifetimes, refusal and cleanup
+paths. Keep complete tokenizer, pre-tag, merge semantics and runtime claims out.
+No large fixture may implicitly execute during default tests.
+
+Proposed new-version ceilings only: 262,144 profile rows; source and transformed
+content **4 MiB each**; selected-record aggregate/header **8 MiB**; GGUF/fault
+**16 MiB each**; parent packet **16 MiB**; logical scratch **64 MiB** including
+packet, output, one serial fault, spools and other retained files. Source input
+aggregate stays 32 MiB, each token 4096 UTF-8 bytes, each encode 4096 source IDs,
+added rows/merges 4096, missing intervals 4096, positional reads 65,536 bytes,
+summary/stdout+stderr 8 KiB and stdin 64 KiB. Larger numeric-part and row encoders
+must be opt-ins confined to the new version, never increases to old defaults.
+
+Run large-memory jobs serially using the already cached interpreter/libraries
+and pinned source. Proposed **60 s child / 180 s stage**, at most **600 s total**
+for the optional large control sequence, observed RSS **2 GiB**, at least 2 GiB
+host available-memory reserve, abort any observed process/host swap growth.
+Parent owns scratch and kills/reaps/cleans on refusal/failure; retain only a
+small summary and failure history. No deadline/limit relaxation or unchanged
+retry after a resource failure. These new budgets require approval; existing
+15 s/60 s/1 GiB controls remain independently runnable and unchanged.
+
+**Sizing-only preflight, not actual writer/RSS/runtime evidence:** a pure standard
+library calculation under a 512 MiB address-space cap created no files and read
+no learned inputs. Synthetic seven-ASCII-byte row labels, empty merges, and
+tail placeholders give the following estimates. Output upper estimates allow
+4096 bytes for nonselected headers/anchor; packet estimates include a 128 KiB
+allowance for profile/source metadata and small added-row controls.
+
+| Synthetic Rows | Tail Holes | Source JSON Bytes | Output Content Bytes | Selected Record Bytes | Estimated File Upper Bytes | Estimated Packet Upper Bytes | Estimated Scratch Upper Bytes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 8193 | 2 | 138226 | 57355 | 155765 | 159861 | 497680 | 817402 |
+| 248320 | 243 | 4602442 | 1739212 | 4719146 | 4723242 | 12068477 | 21514961 |
+
+The larger source content estimate is 1,736,539 bytes (output independently
+1,739,212). Estimates are not acceptance evidence or a resource guarantee; the
+actual new fixture must measure sizes and refuse before exceeding budgets.
+Cached source is clean at `842b1880415d6f508f03b789e5ce70194def7bfd`; existing dense
+environment reports Transformers 5.12.1, tokenizers 0.22.2 and NumPy 2.2.6. No
+installation, duplicate checkout or download is needed. No native build/parser
+expansion, learned tokenizer/weight read, model conversion/execution, new retained
+candidate, refit, held-out scoring, quality or device experiment is proposed.
+Both learned-tokenizer one-shots remain consumed; real inputs need a later
+separate bounded approval even if this synthetic policy succeeds.
 
 ## Fast Row Capacity Checkpoint (2026-10-20)
 
