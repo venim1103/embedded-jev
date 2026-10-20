@@ -451,12 +451,18 @@ def prepare_profile_model_bpe_metadata(
     prepared, _ = _prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length)
     document = json.loads(tokenizer_bytes)
+    return MappingProxyType({**prepared, **_profile_model_bpe_declarations(document, prepared["tokens"])})
+
+
+def _profile_model_bpe_declarations(document, source_tokens):
+    import json
+
     model = document["model"]
     vocabulary, merges = model.get("vocab"), model.get("merges")
     if (
         not isinstance(vocabulary, dict) or not vocabulary or not isinstance(merges, list)
-        or any(not isinstance(token, str) or type(token_id) is not int or not 0 <= token_id < len(prepared["tokens"])
-               or prepared["tokens"][token_id] != token for token, token_id in vocabulary.items())
+         or any(not isinstance(token, str) or type(token_id) is not int or not 0 <= token_id < len(source_tokens)
+             or source_tokens[token_id] != token for token, token_id in vocabulary.items())
         or model.get("continuing_subword_prefix") not in (None, "") or model.get("end_of_word_suffix") not in (None, "")
     ):
         raise ValueError("unsupported pinned BPE vocabulary, merges or subword markers")
@@ -480,7 +486,7 @@ def prepare_profile_model_bpe_metadata(
     })
     options = json.dumps({name: value for name, value in model.items() if name not in ("vocab", "merges")},
                          sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    return MappingProxyType({**prepared, "bpe_merge_pairs": tuple(pairs), "bpe_merge_count": len(pairs),
+    return MappingProxyType({"bpe_merge_pairs": tuple(pairs), "bpe_merge_count": len(pairs),
                             "bpe_base_vocabulary_size": len(vocabulary), "bpe_options_json": options,
                             "preprocessing_json": preprocessing,
                             "bpe_merge_verification": "trusted_parser_ranked_pairs_and_base_vocabulary",
@@ -943,6 +949,39 @@ def write_profile_model_fast_tokenizer_rows_v2(
                             "metadata_emission": "padded_transformed_strings_and_types_emitted",
                             "metadata_verification": "declared_records_emitted_not_file_verified",
                             "runtime_approval": "not_granted_by_fast_token_rows_emission"})
+
+
+def _prepare_profile_fast_tokenizer_rows_and_merges(
+    profile, *, metadata_files, tokenizer_bytes, context_length, row_policy, maximum_vocabulary_rows, maximum_token_content_bytes,
+):
+    from embedded_jev.inventory import _json_object
+
+    prepared = prepare_profile_model_tokenizer_rows_v2(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows,
+        maximum_token_content_bytes=maximum_token_content_bytes)
+    document = _json_object(tokenizer_bytes, "tokenizer.json", max_bytes=MODEL_METADATA_BYTES_V2)
+    if not isinstance(document["model"].get("merges"), list) or not 0 < len(document["model"]["merges"]) <= 4096:
+        raise ValueError("unsupported bounded BPE merge count")
+    declarations = _profile_model_bpe_declarations(document,
+        tuple(row["source_token"] for row in prepared["token_row_records"]))
+    merges, merge_bytes = _profile_bpe_merge_record(declarations)
+    return MappingProxyType({**prepared, **declarations}), merges, merge_bytes
+
+
+def write_profile_model_fast_tokenizer_rows_and_merges_v2(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str, writer,
+    maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+):
+    """Jointly preflight v2 rows and the unchanged bounded source-merge subset, not a complete tokenizer."""
+    prepared, merges, merge_bytes = _prepare_profile_fast_tokenizer_rows_and_merges(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes)
+    records = _write_profile_model_metadata_records(writer, [*_profile_fast_tokenizer_row_records(prepared), merges])
+    return MappingProxyType({**prepared, "records": records, "metadata_count": len(records), "merge_content_bytes": merge_bytes,
+                            "metadata_scope": "padded_transformed_rows_and_merges_subset",
+                            "metadata_emission": "padded_transformed_strings_types_and_merges_emitted",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "runtime_approval": "not_granted_by_fast_rows_and_merges_emission"})
 
 
 def _profile_fast_tokenizer_row_records(prepared):
@@ -2785,6 +2824,32 @@ def verify_profile_gguf_fast_tokenizer_rows_v3(
     maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
 ):
     """Verify explicitly budgeted v2 rows on one retained file, not complete tokenizer or runtime acceptance."""
+    return _verify_profile_gguf_fast_tokenizer_records_v3(profile, reader=reader, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes,
+        maximum_seconds=maximum_seconds, maximum_metadata_bytes=maximum_metadata_bytes, maximum_header_bytes=maximum_header_bytes,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes, include_merges=False)
+
+
+def verify_profile_gguf_fast_tokenizer_rows_and_merges_v3(
+    profile, *, reader, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 256 * 1024,
+    maximum_seconds: float = 30, maximum_metadata_bytes: int = 8192, maximum_header_bytes: int = 1024**2,
+    maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+):
+    """Prove v2 rows and the unchanged bounded source-merge subset together, not a complete tokenizer."""
+    return _verify_profile_gguf_fast_tokenizer_records_v3(profile, reader=reader, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256, maximum_file_bytes=maximum_file_bytes,
+        maximum_seconds=maximum_seconds, maximum_metadata_bytes=maximum_metadata_bytes, maximum_header_bytes=maximum_header_bytes,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes, include_merges=True)
+
+
+def _verify_profile_gguf_fast_tokenizer_records_v3(
+    profile, *, reader, metadata_files, tokenizer_bytes, context_length, row_policy, expected_file_bytes, expected_file_sha256,
+    maximum_file_bytes, maximum_seconds, maximum_metadata_bytes, maximum_header_bytes, maximum_vocabulary_rows,
+    maximum_token_content_bytes, include_merges,
+):
     from embedded_jev.model_profile import SHA256
 
     if (
@@ -2797,27 +2862,31 @@ def verify_profile_gguf_fast_tokenizer_rows_v3(
     ):
         raise ValueError("invalid v3 fast-row file identity or budget")
     deadline = time.monotonic() + maximum_seconds
-    prepared = prepare_profile_model_tokenizer_rows_v2(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
-        context_length=context_length, row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows,
-        maximum_token_content_bytes=maximum_token_content_bytes)
+    arguments = dict(metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes, context_length=context_length,
+        row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes)
+    if include_merges:
+        prepared, merges, merge_bytes = _prepare_profile_fast_tokenizer_rows_and_merges(profile, **arguments)
+    else:
+        prepared = prepare_profile_model_tokenizer_rows_v2(profile, **arguments)
     if time.monotonic() > deadline:
         raise ValueError("fast-row preparation deadline exceeded")
     verified = dict(_verify_profile_gguf_metadata_records(profile, reader=reader,
         expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
         maximum_file_bytes=maximum_file_bytes, deadline=deadline, model_owner=None, descriptor=None,
         policy_version=2, file_cap=16 * 1024**2, header_cap=maximum_header_bytes,
-        declarations=_profile_fast_tokenizer_row_records(prepared), maximum_metadata_bytes=maximum_metadata_bytes,
+        declarations=[*_profile_fast_tokenizer_row_records(prepared), *([merges] if include_merges else [])], maximum_metadata_bytes=maximum_metadata_bytes,
         maximum_numeric_array_parts=5 + profile.geometry["vocab_size"], record_policy_version=2))
     if time.monotonic() > deadline:
         raise ValueError("fast-row verification deadline exceeded")
     verified.pop("policy_metadata_verification", None)
     return MappingProxyType({**prepared, **verified, "tokenizer_row_file_policy_version": 3,
                             "selected_metadata_cap_bytes": maximum_metadata_bytes,
-                            "metadata_scope": "padded_transformed_token_rows_subset",
+                            **({"merge_content_bytes": merge_bytes} if include_merges else {}),
+                            "metadata_scope": "padded_transformed_rows_and_merges_subset" if include_merges else "padded_transformed_token_rows_subset",
                             "source_row_verification": "selected_pinned_fast_wrapper_declarations_match_file",
                             "gguf_token_type_verification": "selected_padded_transformed_type_rows_match_file",
-                            "metadata_verification": "selected_typed_fast_rows_match_file",
-                            "runtime_approval": "not_granted_by_fast_token_rows_file_verification"})
+                            "metadata_verification": "selected_typed_fast_rows_and_merges_match_file" if include_merges else "selected_typed_fast_rows_match_file",
+                            "runtime_approval": "not_granted_by_fast_rows_and_merges_file_verification" if include_merges else "not_granted_by_fast_token_rows_file_verification"})
 
 
 def verify_profile_gguf_fast_tokenizer_rows_v2(

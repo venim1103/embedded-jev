@@ -35,6 +35,10 @@ its **single completed invocation** after the [runner checkpoint](#learned-row-r
 This approval and both older learned approvals are now **consumed**. No flag
 authorizes another learned read or a runtime/model experiment.
 
+**Current synthetic follow-up:** the [fast rows and merges checkpoint](#fast-rows-and-merges-checkpoint-2026-10-20)
+adds joint three-record composition/proof without widening any merge limit.
+It did not repeat the learned result or establish a complete tokenizer.
+
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
 completes that work after `91111b6`; no next implementation slice has started.
@@ -398,6 +402,60 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Fast Rows And Merges Checkpoint (2026-10-20)
+
+After `e51469a`, code-only synthetic follow-up reuses the existing **4096-merge /
+64 KiB merge-content / 4096-byte merge-string** subset without increasing any
+row/content/file/header/record/resource limit. Pure `_profile_model_bpe_declarations`
+is extracted from the old contiguous source preparer; its original entry point
+retains the same source verification, receipts and contiguous-row refusal.
+Original BPE/preprocessing/merge-budget/three-key controls **46 passed in 0.25 s**.
+
+`write_profile_model_fast_tokenizer_rows_and_merges_v2` freshly prepares explicit
+v2 padded/transformed rows, checks ranked pairs against **original source token
+spellings**, not normalized output or invented padding, then jointly preflights
+tokens/types/merges before any mutation. Existing empty/malformed/duplicate/
+subword-marker/content/known writer conflicts remain refusals. The new helper
+also refuses merge counts above 4096 before ranked-pair materialization. Tests
+exercise an added base spelling transformed in output while its source merge
+remains unchanged, valid tail padding and conflicts on every selected key.
+Old/new composer plus declaration/budget controls **59 passed in 0.31 s**.
+
+`verify_profile_gguf_fast_tokenizer_rows_and_merges_v3` binds all three records
+to **one retained file**, fresh v2 source preparation and one deadline. It shares
+the existing v3 budget/deadline/proof core; the row-only public signature,
+defaults, receipts and limits remain unchanged. Preparation and post-proof
+deadline refusals plus old/new writer/routing controls **66 passed in 0.25 s**.
+This is selected subset proof, not inferred complete tokenizer or BPE semantics.
+
+Optional `test_pinned_profile_tokenizer_rows_diagnostic[synthetic-merges]` uses
+three serial workers, **ten tiny synthetic files / 5602 bytes**, 32 rows/two
+holes, one actual normalization and one space rewrite, **two nonempty ranked
+merges**, exact three-field typed readback, two same-FD hashes and original
+bytes/FD cleanup. It mutates only the disposable synthetic file in place after
+closing the positive map: first a merge byte, then the two merge ranks, each
+with a fresh digest, fresh source preparation and refusal, restoring original
+bytes between cases. No learned flag or input permits those mutations.
+
+First optional attempt failed **6.69 s** while building the second synthetic
+contradiction: missing `struct` import, reported as sanitized `NameError` at
+`run_rows`, not a parser/resource failure. The one-line import repair gave the
+**same check 1 passed in 7.78 s**, two contradictions refused, output **928 bytes**,
+maximum positional read **928 bytes**, logical source/copy/file plus reserved
+spool/report **16,797,540 bytes**. Maximum observed worker RSS **334,753,792
+bytes**, process/host swap zero, observed host available minimum
+**17,200,054,272 bytes**. Parent removes all copied files/output on exit.
+
+Old row-only synthetic diagnostic, BPE control, legacy three-record proof and
+8193-row v3 proof compatibility **4 passed in 12.38 s**. Required gate with all
+consumed learned flags unset **1339 passed, 134 skipped in 25.45 s**, Ruff,
+editor and whitespace clean. No learned contents were reopened; no large
+synthetic control, download, native build/CTest, model/conversion/quality job or
+candidate/refit occurred. No deadline/assertion was relaxed. The earlier
+learned row-only proof remains historical evidence tied to `ff3255c`, not a
+learned proof of this new three-record path. Larger merge counts/content or
+another learned read require a separately bounded approval.
 
 ## Learned Row Proof Checkpoint (2026-10-20)
 

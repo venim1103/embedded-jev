@@ -5918,6 +5918,7 @@ def _tokenizer_rows_diagnostic_environment(mode):
 def _tokenizer_rows_diagnostic_code():
     return _tokenizer_source_copy_code() + r'''
 from contextlib import contextmanager
+import struct
 
 @contextmanager
 def library_diagnostics():
@@ -5944,6 +5945,7 @@ def run_rows():
         maximum_token_content_bytes=4 * 1024**2)
     root = Path(fixture["output"])
     path = root / "rows.gguf"
+    include_merges = fixture.get("include_merges", False)
     descriptors = len(os.listdir("/proc/self/fd"))
     if operation == "rows-emission":
         import numpy as np
@@ -5978,8 +5980,9 @@ def run_rows():
         writer = gguf.GGUFWriter(path, "qwen35")
         try:
             with library_diagnostics():
-                emitted = prism_codec.write_profile_model_fast_tokenizer_rows_v2(profile, writer=writer, **arguments)
-            assert emitted["metadata_count"] == 2 and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
+                emitter = prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.write_profile_model_fast_tokenizer_rows_v2
+                emitted = emitter(profile, writer=writer, **arguments)
+            assert emitted["metadata_count"] == (3 if include_merges else 2) and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
             writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
             writer.write_header_to_file()
             writer.write_kv_data_to_file()
@@ -5994,13 +5997,18 @@ def run_rows():
             assert tuple(types.types) == (gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32)
             assert [strings.parts[index].tobytes().decode() for index in strings.data] == rows
             assert [int(types.parts[index][0]) for index in types.data] == kinds
+            if include_merges:
+                merges = reader.fields["tokenizer.ggml.merges"]
+                assert tuple(merges.types) == (gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING)
+                assert [merges.parts[index].tobytes().decode() for index in merges.data] == ["a b", "ab c"]
             assert len(reader.tensors) == 1 and not {"tokenizer.ggml.pre", "tokenizer.ggml.model"}.intersection(reader.fields)
         finally:
             reader.data._mmap.close()
         report = dict(status="matched", phase=operation, token_rows=len(rows), unused_rows=prepared["unassigned_profile_token_rows"],
             normalized_rows=prepared["normalized_row_count"], rewritten_rows=prepared["space_rewritten_row_count"],
             source_content_bytes=prepared["source_token_content_bytes"], output_content_bytes=prepared["output_token_content_bytes"],
-            output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+            metadata_records=3 if include_merges else 2)
     else:
         assert operation == "rows-proof"
         identity = fixture["identity"]
@@ -6021,11 +6029,12 @@ def run_rows():
         try:
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = record_hash, record_read
             with library_diagnostics():
-                receipt = prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3(profile, reader=reader,
+                verifier = prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v3 if include_merges else prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3
+                receipt = verifier(profile, reader=reader,
                     maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=8 * 1024**2,
                     maximum_header_bytes=8 * 1024**2, **arguments, **identity)
-            assert receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type")
-            assert receipt["metadata_verification"] == "selected_typed_fast_rows_match_file"
+            assert receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type") + (("tokenizer.ggml.merges",) if include_merges else ())
+            assert receipt["metadata_verification"] == ("selected_typed_fast_rows_and_merges_match_file" if include_merges else "selected_typed_fast_rows_match_file")
             assert receipt["source_row_verification"] == "selected_pinned_fast_wrapper_declarations_match_file"
             assert receipt["model_file_access"] == "retained_reader_filename_descriptor"
             assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
@@ -6034,9 +6043,38 @@ def run_rows():
             reader.data._mmap.close()
         assert len(hashes) == 2 and hashes[0] == hashes[1] and reads and max(reads) <= 65536
         assert hashlib.sha256(path.read_bytes()).hexdigest() == identity["expected_file_sha256"]
+        contradictions = 0
+        if include_merges:
+            original = path.read_bytes()
+            start = original.index(b"a b")
+            for defect in ("byte", "rank"):
+                changed = bytearray(original)
+                if defect == "byte":
+                    changed[start] ^= 1
+                else:
+                    end = start + 3
+                    changed[start - 8:end + 12] = struct.pack("<Q", 4) + b"ab c" + struct.pack("<Q", 3) + b"a b"
+                try:
+                    path.write_bytes(changed)
+                    fault = gguf.GGUFReader(path)
+                    try:
+                        with library_diagnostics():
+                            try:
+                                verifier(profile, reader=fault, maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=8 * 1024**2,
+                                    maximum_header_bytes=8 * 1024**2, **arguments,
+                                    expected_file_bytes=len(changed), expected_file_sha256=hashlib.sha256(changed).hexdigest())
+                                raise AssertionError("fresh-hash source merge contradiction accepted")
+                            except ValueError as error:
+                                assert "policy metadata" in str(error)
+                                contradictions += 1
+                    finally:
+                        fault.data._mmap.close()
+                finally:
+                    path.write_bytes(original)
         report = dict(status="matched", phase=operation, token_rows=len(receipt["tokens"]),
             unused_rows=receipt["unassigned_profile_token_rows"], output_file_bytes=path.stat().st_size,
-            output_file_sha256=identity["expected_file_sha256"], retained_file_hashes=len(hashes), maximum_read=max(reads))
+            output_file_sha256=identity["expected_file_sha256"], retained_file_hashes=len(hashes), maximum_read=max(reads),
+            metadata_records=3 if include_merges else 2, merge_contradictions=contradictions)
     assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in root.iterdir()) == {"rows.gguf"}
     report["logical_source_copy_scratch_bytes"] = 2 * total + path.stat().st_size + 16 * 1024**2 + 8192
     assert report["logical_source_copy_scratch_bytes"] < 128 * 1024**2
@@ -6054,14 +6092,15 @@ finish_report(report)
 '''
 
 
-@pytest.mark.parametrize("mode", ["synthetic", "approved"])
+@pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "approved"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
     from tempfile import TemporaryDirectory
     import time
 
-    source, interpreter = _tokenizer_rows_diagnostic_environment(mode)
+    source, interpreter = _tokenizer_rows_diagnostic_environment("synthetic" if mode.startswith("synthetic") else mode)
+    include_merges = mode == "synthetic-merges"
     started = time.monotonic()
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     bodies = {}
@@ -6080,7 +6119,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         inputs, output = root / "inputs", root / "output"
         inputs.mkdir()
         output.mkdir()
-        if mode == "synthetic":
+        if mode.startswith("synthetic"):
             from test_inventory import _packaging_fixture
 
             metadata, _, record = _packaging_fixture()
@@ -6088,6 +6127,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             config["text_config"]["max_position_embeddings"] = 512
             tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
             tokens[0], tokens[1], tokens[5], tokens[12] = "<pad>", "USER", "<|control|>", chr(0x2581) + "user"
+            if include_merges:
+                tokens[2:5] = ["a", "b", "ab"]
+                tokens[6:8] = ["c", "abc"]
             added = [{"id": index, "content": tokens[index], "single_word": False, "lstrip": False, "rstrip": False,
                 "normalized": index != 1, "special": index in (0, 5)} for index in (0, 1, 5, 12)]
             vocabulary = {token: index for index, token in enumerate(tokens) if index not in (20, 31)}
@@ -6095,7 +6137,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 "tokenizer_config.json": b'{"tokenizer_class":"PreTrainedTokenizerFast","clean_up_tokenization_spaces":false}',
                 "tokenizer.json": json.dumps({"version": "1.0", "added_tokens": added,
                     "decoder": {"type": "Replace", "pattern": {"String": "USER"}, "content": "user-normalized"},
-                    "model": {"type": "BPE", "vocab": vocabulary, "merges": [], "dropout": None, "unk_token": None,
+                    "model": {"type": "BPE", "vocab": vocabulary, "merges": [["a", "b"], ["ab", "c"]] if include_merges else [], "dropout": None, "unk_token": None,
                         "continuing_subword_prefix": None, "end_of_word_suffix": None, "fuse_unk": False,
                         "byte_fallback": False, "ignore_merges": False}}).encode(),
                 "vocab.json": json.dumps(vocabulary).encode(), "merges.txt": b"#version: 0.2\n"}
@@ -6113,7 +6155,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         names = tuple(record["packaging"]["metadata_files"]) + ("tokenizer.json", "vocab.json", "merges.txt")
         original_stats = {name: (local / name).stat() for name in names}
         fixture = {"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(inputs), "output": str(output),
-            "row_source": row_source, "special_source": special_source}
+            "row_source": row_source, "special_source": special_source, "include_merges": include_merges}
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
@@ -6141,13 +6183,15 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 assert not report["transformers_loaded"]
             else:
                 assert report["token_rows"] == record["geometry"]["vocab_size"]
-                assert report["unused_rows"] == (2 if mode == "synthetic" else 243)
+                assert report["unused_rows"] == (2 if mode.startswith("synthetic") else 243)
+                assert report["metadata_records"] == (3 if include_merges else 2)
                 if operation == "rows-emission":
                     fixture["identity"] = {"expected_file_bytes": report["output_file_bytes"], "expected_file_sha256": report["output_file_sha256"]}
-                    if mode == "synthetic":
+                    if mode.startswith("synthetic"):
                         assert report["normalized_rows"] == report["rewritten_rows"] == 1
                 else:
                     assert report["retained_file_hashes"] == 2 and report["maximum_read"] <= 65536
+                    assert report["merge_contradictions"] == (2 if include_merges else 0)
                 assert report["output_file_sha256"] == fixture["identity"]["expected_file_sha256"]
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
             reports.append(report)

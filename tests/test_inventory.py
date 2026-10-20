@@ -1428,13 +1428,14 @@ def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypat
         receipt["records"][1]["values"][0] = 5
 
 
+@pytest.mark.parametrize("fast_rows", [False, True])
 @pytest.mark.parametrize("defect", [None, "tokens-conflict", "types-conflict", "merges-conflict", "empty-merges", "bad-merge",
                                     "metadata-pin", "tokenizer-pin", "unassigned", "architecture", "split", "method", "policy"])
-def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monkeypatch, defect):
+def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monkeypatch, defect, fast_rows):
     import sys
     from types import SimpleNamespace
 
-    from embedded_jev.prism_codec import write_profile_model_tokenizer_rows_and_merges
+    from embedded_jev.prism_codec import write_profile_model_fast_tokenizer_rows_and_merges_v2, write_profile_model_tokenizer_rows_and_merges
 
     count = _profile_tokenizer_preparation_fixture(b"{}")[0].geometry["vocab_size"]
     tokens = ["a", "b", "c", "ab", "abc", "<|special|>"] + [f"token{index}" for index in range(6, count)]
@@ -1443,7 +1444,10 @@ def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monke
     vocabulary = {token: index for index, token in enumerate(tokens)}
     added = {"id": 5, "content": tokens[5], "single_word": False, "lstrip": False, "rstrip": False,
              "normalized": True, "special": True}
-    tokenizer_bytes = json.dumps({"added_tokens": [added], "model": {"type": "BPE", "vocab": vocabulary,
+    declarations = [added]
+    if fast_rows:
+        declarations.append({**added, "id": 3, "content": tokens[3], "normalized": False, "special": False})
+    tokenizer_bytes = json.dumps({"added_tokens": declarations, "model": {"type": "BPE", "vocab": vocabulary,
         "merges": [] if defect == "empty-merges" else [["a", "b"], ["ab", "missing" if defect == "bad-merge" else "c"]]}}).encode()
     profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
     calls = []
@@ -1451,9 +1455,16 @@ def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monke
     def from_str(text):
         calls.append(text)
         return SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary),
-                               get_added_tokens_decoder=lambda: {5: SimpleNamespace(**added)})
+                               get_added_tokens_decoder=lambda: {row["id"]: SimpleNamespace(**row) for row in declarations})
 
     monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=from_str)))
+    if fast_rows:
+        def wrapper(**kwargs):
+            assert kwargs["clean_up_tokenization_spaces"] is False
+            return SimpleNamespace(encode=lambda token, **options: [3] if token == "ab" else [],
+                decode=lambda ids, **options: "normalized-ab" if ids == [3] else "")
+
+        monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(PreTrainedTokenizerFast=wrapper))
     writer = _profile_metadata_writer_fixture()
     if defect and defect.endswith("-conflict"):
         key = {"tokens-conflict": "tokens", "types-conflict": "token_type", "merges-conflict": "merges"}[defect]
@@ -1469,38 +1480,47 @@ def test_profile_token_rows_and_merges_preflight_every_key_before_mutation(monke
     elif defect == "method":
         writer.add_array = None
     arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
-                 "token_type_policy": "other" if defect == "policy" else "pinned_prism_no_transform_v1", "writer": writer}
+                 "row_policy" if fast_rows else "token_type_policy": "other" if defect == "policy" else
+                     "pinned_prism_fast_rows_v2" if fast_rows else "pinned_prism_no_transform_v1", "writer": writer}
+    emit = write_profile_model_fast_tokenizer_rows_and_merges_v2 if fast_rows else write_profile_model_tokenizer_rows_and_merges
     before = json.dumps(writer.kv_data, sort_keys=True)
-    if defect:
+    if defect and not (fast_rows and defect == "unassigned"):
         with pytest.raises(ValueError):
-            write_profile_model_tokenizer_rows_and_merges(profile, **arguments)
+            emit(profile, **arguments)
         assert json.dumps(writer.kv_data, sort_keys=True) == before
-        assert len(calls) == (0 if defect in ("metadata-pin", "tokenizer-pin", "policy") else 1 if defect == "unassigned" else 2)
+        assert len(calls) == (0 if defect in ("metadata-pin", "tokenizer-pin", "policy") else 1 if fast_rows or defect == "unassigned" else 2)
         return
-    receipt = write_profile_model_tokenizer_rows_and_merges(profile, **arguments)
-    assert calls == [tokenizer_bytes.decode()] * 2
+    receipt = emit(profile, **arguments)
+    assert calls == [tokenizer_bytes.decode()] * (1 if fast_rows else 2)
     assert receipt["metadata_count"] == len(receipt["records"]) == 3
     assert tuple(record["name"] for record in receipt["records"]) == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges")
-    assert writer.kv_data[0]["tokenizer.ggml.tokens"][1] == tokens
-    assert writer.kv_data[0]["tokenizer.ggml.token_type"][1] == [3 if token_id == 5 else 1 for token_id in range(count)]
+    expected = list(tokens)
+    if fast_rows:
+        expected[3] = "normalized-ab"
+        if defect == "unassigned":
+            expected.append("[PAD31]")
+    assert writer.kv_data[0]["tokenizer.ggml.tokens"][1] == expected
+    assert writer.kv_data[0]["tokenizer.ggml.token_type"][1] == [
+        3 if token_id == 5 else 4 if fast_rows and token_id == 3 else 5 if fast_rows and token_id >= len(tokens) else 1 for token_id in range(count)]
     assert writer.kv_data[0]["tokenizer.ggml.merges"][1] == ["a b", "ab c"]
-    assert receipt["merge_content_bytes"] == 7 and receipt["metadata_scope"] == "source_token_rows_and_merges_subset"
-    assert receipt["metadata_emission"] == "token_strings_types_and_merges_emitted"
+    assert receipt["merge_content_bytes"] == 7 and receipt["metadata_scope"] == (
+        "padded_transformed_rows_and_merges_subset" if fast_rows else "source_token_rows_and_merges_subset")
+    assert receipt["metadata_emission"] == ("padded_transformed_strings_types_and_merges_emitted" if fast_rows else "token_strings_types_and_merges_emitted")
     assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
     with pytest.raises(TypeError):
         receipt["records"][2]["values"][0] = "other"
 
 
-@pytest.mark.parametrize("row_mode", ["rows", "merges", "fast", "fast-v2"])
+@pytest.mark.parametrize("row_mode", ["rows", "merges", "fast", "fast-v2", "fast-v2-merges"])
 @pytest.mark.parametrize("defect", [None, "file-budget", "file-size", "hash", "seconds", "record-budget", "preparation", "verification"])
 def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_private_opt_in(monkeypatch, defect, row_mode):
     from types import SimpleNamespace
 
     from embedded_jev import prism_codec
 
-    include_merges, fast_rows = row_mode == "merges", row_mode in ("fast", "fast-v2")
-    version = 2 if row_mode == "fast-v2" else 1
+    include_merges, fast_rows = row_mode in ("merges", "fast-v2-merges"), row_mode in ("fast", "fast-v2", "fast-v2-merges")
+    version = 2 if row_mode in ("fast-v2", "fast-v2-merges") else 1
     profile = SimpleNamespace(geometry={"vocab_size": 3})
     calls = []
 
@@ -1529,12 +1549,18 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
         calls.append("verify")
         return {"metadata_names": tuple(row["name"] for row in kwargs["declarations"])}
 
+    def prepare_fast_merges(actual_profile, **kwargs):
+        prepared, merges = prepare(actual_profile, **kwargs), prepare_merges(actual_profile, **kwargs)
+        return {**prepared, **merges}, {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("base user",)}, 9
+
     monkeypatch.setattr(prism_codec, "prepare_profile_model_token_type_metadata", prepare)
     monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows", prepare)
     monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows_v2", prepare)
     monkeypatch.setattr(prism_codec, "prepare_profile_model_bpe_metadata", prepare_merges)
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", prepare_fast_merges)
     monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
-    verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3 if version == 2 else
+    verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v3 if row_mode == "fast-v2-merges" else
+                prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3 if version == 2 else
                 prism_codec.verify_profile_gguf_fast_tokenizer_rows_v2 if fast_rows else
                 prism_codec.verify_profile_gguf_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.verify_profile_gguf_tokenizer_rows_v2)
     arguments = {"reader": object(), "metadata_files": {}, "tokenizer_bytes": b"{}", "context_length": 256,
@@ -1551,19 +1577,22 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     elif defect == "record-budget":
         arguments["maximum_metadata_bytes"] = (8 * 1024**2 if version == 2 else 128 * 1024) + 1
     elif defect in ("preparation", "verification"):
-        clock = iter([5, 40] if defect == "preparation" else [5, 6, 7, 40] if include_merges else [5, 6, 40])
+        clock = iter([5, 40] if defect == "preparation" else [5, 6, 7, 40] if row_mode == "merges" else [5, 6, 40])
         monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
     expected_calls = ["prepare", "merges", "verify"] if include_merges else ["prepare", "verify"]
     if defect:
         with pytest.raises(ValueError):
             verifier(profile, **arguments)
-        assert calls == (["prepare"] if defect == "preparation" else expected_calls if defect == "verification" else [])
+        assert calls == (["prepare", "merges"] if defect == "preparation" and row_mode == "fast-v2-merges" else
+            ["prepare"] if defect == "preparation" else expected_calls if defect == "verification" else [])
         return
     receipt = verifier(profile, **arguments)
     assert calls == expected_calls
-    assert receipt["metadata_verification"] == ("selected_typed_fast_rows_match_file" if fast_rows else
+    assert receipt["metadata_verification"] == ("selected_typed_fast_rows_and_merges_match_file" if row_mode == "fast-v2-merges" else
+        "selected_typed_fast_rows_match_file" if fast_rows else
         "selected_typed_token_rows_and_merges_match_file" if include_merges else "selected_typed_token_rows_match_file")
-    assert receipt["runtime_approval"] == ("not_granted_by_fast_token_rows_file_verification" if fast_rows else
+    assert receipt["runtime_approval"] == ("not_granted_by_fast_rows_and_merges_file_verification" if row_mode == "fast-v2-merges" else
+        "not_granted_by_fast_token_rows_file_verification" if fast_rows else
         "not_granted_by_token_rows_and_merges_file_verification" if include_merges else "not_granted_by_token_row_file_verification")
 
 

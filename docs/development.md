@@ -3066,6 +3066,24 @@ do not rerun `[approved]` from the environment flag alone. See the
 [learned result](handover.md#learned-row-proof-checkpoint-2026-10-20) for exact
 identity, commands, measurements and boundaries.
 
+`write_profile_model_fast_tokenizer_rows_and_merges_v2(...)` adds a **bounded
+source-merge subset** to explicit v2 padded/transformed rows. It uses original
+source spellings for ranked-pair validation (not transformed rows/placeholders)
+and jointly preflights all three keys. It retains **4096 merges, 64 KiB aggregate
+merge content and 4096 UTF-8 bytes per merge string**; it does not expand merge
+semantics/capacity or grant a complete tokenizer/tag/runtime claim.
+`verify_profile_gguf_fast_tokenizer_rows_and_merges_v3(...)` freshly prepares
+that subset and binds all three records to one retained descriptor/file, the
+same v3 budgets and one deadline. The row-only v3 signature/receipt/limits remain
+unchanged. This is not separate per-field verification presented as composition.
+
+Optional `[synthetic-merges]` of the row diagnostic exercises actual parser/
+writer/readback/joint proof, normalization/rewrite/padding, plus fresh-hash merge
+byte and rank contradictions. It never selects learned input; the consumed
+`[approved]` mode remains row-only. No learned corruption experiment or larger
+merge/header/file/content allowance is implicit. See the
+[fast composition checkpoint](handover.md#fast-rows-and-merges-checkpoint-2026-10-20).
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`
