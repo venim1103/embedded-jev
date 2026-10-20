@@ -485,10 +485,20 @@ def prepare_profile_model_added_token_metadata(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):
     """Verify bounded added-token flags without normalizing text or assigning GGUF token types."""
-    from embedded_jev.inventory import _json_object
-
     prepared, tokenizer = _prepare_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    records, content_bytes = _profile_added_token_records(tokenizer_bytes, tokenizer, dict(enumerate(prepared["tokens"])))
+    return MappingProxyType({**prepared, "added_token_records": records, "added_token_count": len(records),
+                            "added_token_content_bytes": content_bytes,
+                            "added_token_verification": "source_flags_match_trusted_parser_and_vocabulary",
+                            "added_token_round_trip_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "pre_tokenizer_tag_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_added_token_preparation"})
+
+
+def _profile_added_token_records(tokenizer_bytes, tokenizer, tokens):
+    from embedded_jev.inventory import _json_object
+
     rows = _json_object(tokenizer_bytes, "tokenizer.json").get("added_tokens", [])
     flags = ("single_word", "lstrip", "rstrip", "normalized", "special")
     if not isinstance(rows, list) or len(rows) > 4096:
@@ -502,9 +512,9 @@ def prepare_profile_model_added_token_metadata(
     for row in rows:
         if (
             not isinstance(row, dict) or type(row.get("id")) is not int
-            or not 0 <= row["id"] < len(prepared["tokens"]) or row["id"] in seen
+            or row["id"] not in tokens or row["id"] in seen
             or not isinstance(row.get("content"), str) or not 0 < len(row["content"]) <= 4096
-            or prepared["tokens"][row["id"]] != row["content"]
+            or tokens[row["id"]] != row["content"]
             or any(type(row.get(name)) is not bool for name in flags)
         ):
             raise ValueError("added tokenizer ID, content or flags mismatch")
@@ -521,12 +531,7 @@ def prepare_profile_model_added_token_metadata(
                                         **{name: row[name] for name in flags}}))
     if set(parsed) != seen or any(type(token_id) is not int for token_id in parsed):
         raise ValueError("added tokenizer source IDs differ from trusted decoder")
-    return MappingProxyType({**prepared, "added_token_records": tuple(records), "added_token_count": len(records),
-                            "added_token_content_bytes": content_bytes,
-                            "added_token_verification": "source_flags_match_trusted_parser_and_vocabulary",
-                            "added_token_round_trip_verification": "not_checked", "gguf_token_type_verification": "not_checked",
-                            "pre_tokenizer_tag_verification": "not_checked",
-                            "runtime_approval": "not_granted_by_added_token_preparation"})
+    return tuple(records), content_bytes
 
 
 def prepare_profile_model_token_type_metadata(
@@ -553,11 +558,7 @@ def prepare_profile_model_token_type_metadata(
             row = added[token_id]
             if not row["normalized"]:
                 raise ValueError("source token-type policy refuses encode/decode normalization")
-            looks_special = token in ("<pad>", "<mask>", "<2mass>", "[@BOS@]") or (
-                token.startswith("<|") and token.endswith("|>")) or (
-                token.startswith("<\uff5c") and token.endswith("\uff5c>")) or (
-                token.startswith("<unused") and token.endswith(">"))
-            kind = "CONTROL" if row["special"] or looks_special else "USER_DEFINED"
+            kind = "CONTROL" if row["special"] or _profile_token_looks_special(token) else "USER_DEFINED"
             if kind == "USER_DEFINED" and "\u2581" in token:
                 raise ValueError("source token-type policy refuses user-defined space rewriting")
         records.append(MappingProxyType({"token_id": token_id, "token": token, "token_type": kind}))
@@ -567,6 +568,90 @@ def prepare_profile_model_token_type_metadata(
                             "source_token_type_verification": "selected_pinned_no_transform_declarations_not_file_verified",
                             "gguf_token_type_verification": "not_checked", "metadata_emission": "not_performed",
                             "runtime_approval": "not_granted_by_source_token_type_preparation"})
+
+
+def _profile_token_looks_special(token):
+    return token in ("<pad>", "<mask>", "<2mass>", "[@BOS@]") or (
+        token.startswith("<|") and token.endswith("|>")) or (
+        token.startswith("<\uff5c") and token.endswith("\uff5c>")) or (
+        token.startswith("<unused") and token.endswith(">"))
+
+
+def prepare_profile_model_tokenizer_rows(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+):
+    """Declare bounded padded/transformed rows under an explicit fast-wrapper policy, not runtime parity."""
+    if row_policy != "pinned_prism_fast_rows_v1" or not 0 < profile.geometry["vocab_size"] <= 4096:
+        raise ValueError("unsupported bounded tokenizer row policy")
+    prepared, tokenizer, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    inventory = _profile_tokenizer_id_inventory(profile, vocabulary)
+    source_bytes = 0
+    for token in vocabulary:
+        encoded = token.encode("utf-8")
+        source_bytes += len(encoded)
+        if not 0 < len(encoded) <= 4096 or source_bytes > 64 * 1024 or "\0" in token:
+            raise ValueError("source tokenizer rows exceed string/content budget")
+    reverse = {token_id: token for token, token_id in vocabulary.items()}
+    added_records, _ = _profile_added_token_records(tokenizer_bytes, tokenizer, reverse)
+    added = {row["token_id"]: row for row in added_records}
+    wrapper = None
+    records, seen = [], set()
+    output_bytes = normalized_count = rewritten_count = 0
+    for token_id in range(profile.geometry["vocab_size"]):
+        source_token = reverse.get(token_id)
+        transforms = []
+        encoded_count = 0
+        if source_token is None:
+            token, kind = f"[PAD{token_id}]", "UNUSED"
+            if token in vocabulary:
+                raise ValueError("unused-token label collides with source vocabulary")
+            transforms.append("unused_padding")
+        else:
+            token, kind = source_token, "NORMAL"
+            if token_id in added:
+                row = added[token_id]
+                if not row["normalized"]:
+                    try:
+                        if wrapper is None:
+                            from transformers import PreTrainedTokenizerFast
+
+                            wrapper = PreTrainedTokenizerFast(tokenizer_object=tokenizer, clean_up_tokenization_spaces=False)
+                        token_ids = wrapper.encode(token, add_special_tokens=False)
+                        if (not isinstance(token_ids, list) or not 0 < len(token_ids) <= 4096
+                                or any(type(value) is not int or value not in reverse for value in token_ids)):
+                            raise ValueError("tokenizer row encode ID budget or range mismatch")
+                        encoded_count = len(token_ids)
+                        token = wrapper.decode(token_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
+                    except Exception as exc:
+                        raise ValueError("unable to apply bounded fast-wrapper row normalization") from exc
+                    transforms.append("encode_decode")
+                    normalized_count += 1
+                if not isinstance(token, str):
+                    raise ValueError("transformed tokenizer row must be text")
+                kind = "CONTROL" if row["special"] or _profile_token_looks_special(token) else "USER_DEFINED"
+                if kind == "USER_DEFINED" and "\u2581" in token:
+                    token = token.replace("\u2581", " ")
+                    transforms.append("user_defined_space")
+                    rewritten_count += 1
+        encoded = token.encode("utf-8")
+        output_bytes += len(encoded)
+        if not 0 < len(encoded) <= 4096 or output_bytes > 64 * 1024 or "\0" in token:
+            raise ValueError("transformed tokenizer rows exceed string/content budget")
+        if token in seen:
+            raise ValueError("transformed tokenizer row text collides")
+        seen.add(token)
+        records.append(MappingProxyType({"token_id": token_id, "source_token": source_token, "token": token,
+                                        "token_type": kind, "transforms": tuple(transforms), "encoded_token_count": encoded_count}))
+    return MappingProxyType({**prepared, **inventory, "row_policy": row_policy, "converter_revision": PRISM_SOURCE_REVISION,
+                            "token_row_records": tuple(records), "tokens": tuple(row["token"] for row in records),
+                            "source_token_content_bytes": source_bytes, "output_token_content_bytes": output_bytes,
+                            "normalized_row_count": normalized_count, "space_rewritten_row_count": rewritten_count,
+                            "source_row_verification": "selected_pinned_fast_wrapper_declarations_not_file_verified",
+                            "normalization_verification": "explicit_fast_wrapper_not_model_wrapper_parity",
+                            "metadata_emission": "not_performed", "gguf_token_type_verification": "not_checked",
+                            "gguf_tokenizer_verification": "not_checked", "pre_tokenizer_tag_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_tokenizer_row_preparation"})
 
 
 def prepare_profile_model_tokenizer_inventory(

@@ -6583,7 +6583,7 @@ def test_pinned_profile_selected_native_parser_on_synthetic_sources():
     _run_selected_metadata_composition_control(include_tensors=True, include_source_file=True, include_native_parser=True)
 
 
-@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity"])
+@pytest.mark.parametrize("tokenizer_mode", ["identity", "vocabulary", "contract", "bpe", "added", "inventory", "types", "typed-rows", "row-proof", "row-proof-capacity", "rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity", "fast-rows"])
 def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
     import ast
     import hashlib
@@ -6591,6 +6591,9 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
 
     from test_inventory import _packaging_fixture
 
+    fast_rows = tokenizer_mode == "fast-rows"
+    if fast_rows:
+        tokenizer_mode = "types"
     capacity = tokenizer_mode in ("row-proof-capacity", "rows-merges-proof-capacity")
     combined_proof = tokenizer_mode in ("rows-merges-proof", "rows-merges-proof-capacity")
     include_merges = tokenizer_mode in ("rows-and-merges", "rows-merges-proof", "rows-merges-proof-capacity")
@@ -6668,10 +6671,18 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
                 for token_id in (1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12)]
     if include_merges:
         tokens[13:16] = ["a", "b", "ab"]
+    if fast_rows:
+        tokens[1], tokens[12] = "USER", "\u2581user"
+        for row in added_tokens:
+            row["content"] = tokens[row["id"]]
+            if row["id"] == 1:
+                row["normalized"] = False
     if tokenizer_mode != "identity":
         tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": added_tokens,
+            "decoder": {"type": "Replace", "pattern": {"String": "USER"}, "content": "user-normalized"} if fast_rows else None,
             "normalizer": {"type": "Lowercase"} if tokenizer_mode in ("bpe", "added") else None, "model": {
-            "type": "BPE", "vocab": {token: index for index, token in enumerate(tokens) if tokenizer_mode != "inventory" or index not in (1, 5)},
+            "type": "BPE", "vocab": {token: index for index, token in enumerate(tokens)
+                if (tokenizer_mode != "inventory" or index not in (1, 5)) and (not fast_rows or index not in (20, 31))},
             "merges": [["a", "b"], ["ab", "c"]] if tokenizer_mode == "bpe" else [["a", "b"]] if include_merges else [],
             "dropout": None, "unk_token": None, "continuing_subword_prefix": None,
             "end_of_word_suffix": None, "fuse_unk": False, "byte_fallback": False, "ignore_merges": False,
@@ -6681,7 +6692,7 @@ def test_pinned_profile_context_metadata_on_toy_source(tokenizer_mode):
                "tokenizer": tokenizer_bytes.hex(), "tokenizer_mode": tokenizer_mode, "tokens": tokens,
                "fingerprint_source": fingerprint_source, "unused_source": unused_source,
                "special_source": special_source, "capacity": capacity, "include_merges": include_merges,
-               "combined_proof": combined_proof,
+               "combined_proof": combined_proof, "fast_rows": fast_rows,
                "external_template": external_template.hex() if external_template is not None else None}
     code = """
 import hashlib
@@ -6706,6 +6717,57 @@ tokenizer_bytes = bytes.fromhex(fixture["tokenizer"])
 external_template = bytes.fromhex(fixture["external_template"]) if fixture["external_template"] is not None else None
 template_source = "gguf_embedded" if external_template is not None else "source"
 expected_template = external_template if external_template is not None else metadata[profile.tokenization["template_file"]]
+if fixture["fast_rows"]:
+    import ast
+    import os
+    from types import SimpleNamespace
+    from tokenizers import Tokenizer
+    from transformers import PreTrainedTokenizerFast
+    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows
+
+    saved_stdout = os.dup(1)
+    try:
+        sys.stdout.flush()
+        os.dup2(2, 1)
+        prepared = prepare_profile_model_tokenizer_rows(profile, metadata_files=metadata, tokenizer_bytes=tokenizer_bytes,
+            context_length=256, row_policy="pinned_prism_fast_rows_v1")
+        wrapper = PreTrainedTokenizerFast(tokenizer_object=Tokenizer.from_str(tokenizer_bytes.decode()), clean_up_tokenization_spaces=False)
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved_stdout, 1)
+        os.close(saved_stdout)
+
+    def from_pretrained(directory):
+        assert directory == "synthetic-fast-rows-no-model"
+        return wrapper
+
+    namespace = {"gguf": gguf, "logger": SimpleNamespace(info=lambda *args: None)}
+    exec(compile(ast.parse(fixture["unused_source"] + "\\n" + fixture["special_source"]), "<pinned-fast-rows>", "exec"), namespace)
+    owner = SimpleNamespace(hparams={"vocab_size": profile.geometry["vocab_size"]}, dir_model="synthetic-fast-rows-no-model",
+        get_vocab_base_pre=lambda tokenizer: "synthetic-unverified-tag",
+        does_token_look_special=lambda token: namespace["does_token_look_special"](None, token))
+    import transformers
+
+    previous = transformers.AutoTokenizer.from_pretrained
+    try:
+        transformers.AutoTokenizer.from_pretrained = from_pretrained
+        rows, kinds, tag = namespace["get_vocab_base"](owner)
+    finally:
+        transformers.AutoTokenizer.from_pretrained = previous
+    records = prepared["token_row_records"]
+    assert rows == list(prepared["tokens"]) == [row["token"] for row in records]
+    assert kinds == [gguf.TokenType[row["token_type"]] for row in records]
+    assert rows[1] == "user-normalized" and records[1]["transforms"] == ("encode_decode",)
+    assert rows[12] == " user" and records[12]["transforms"] == ("user_defined_space",)
+    assert [rows[index] for index in (20, 31)] == ["[PAD20]", "[PAD31]"]
+    assert [kinds[index] for index in (20, 31)] == [gguf.TokenType.UNUSED] * 2
+    assert records[4]["token_type"] == "NORMAL" and records[5]["token"] == chr(0x2581) + "control"
+    assert prepared["normalized_row_count"] == prepared["space_rewritten_row_count"] == 1
+    assert tag == "synthetic-unverified-tag" and prepared["metadata_emission"] == "not_performed"
+    assert prepared["gguf_tokenizer_verification"] == prepared["pre_tokenizer_tag_verification"] == "not_checked"
+    print(json.dumps({"context_length": prepared["context_length"], "source_context_length": prepared["source_context_length"],
+        "token_rows": len(rows), "unused_rows": prepared["unassigned_profile_token_rows"], "normalized_rows": 1, "rewritten_rows": 1}))
+    sys.exit(0)
 if fixture["tokenizer_mode"] in ("types", "typed-rows", "row-proof"):
     import ast
     from types import SimpleNamespace
@@ -7307,11 +7369,15 @@ print(json.dumps({"context_length": receipt["context_length"], "source_context_l
                 payload = json.dumps({"fixture_path": str(packet_path)}).encode()
             result = _run_tokenizer_only_guard(interpreter, code, payload,
                 env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+                     **({"USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"} if fast_rows else {}),
                      "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))})
         assert result["returncode"] == 0, result["stderr"]
         summary = json.loads(result["stdout"])
         assert {name: summary[name] for name in ("context_length", "source_context_length")} == {"context_length": 256, "source_context_length": 512}
         assert time.monotonic() - started < 60
+        if fast_rows:
+            assert summary["token_rows"] == 32 and summary["unused_rows"] == 2
+            assert summary["normalized_rows"] == summary["rewritten_rows"] == 1
         if tokenizer_mode in ("typed-rows", "row-proof"):
             assert summary["output_file_bytes"] < 256 * 1024 and summary["logical_scratch_peak_bytes"] < 8 * 1024**2
             assert summary["readback_faults"] == 3 + (2 if capacity else 0) + (1 if include_merges else 0)

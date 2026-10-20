@@ -1222,6 +1222,121 @@ def test_profile_source_token_types_are_declarations_without_transforms(monkeypa
         records[0]["token_type"] = "CONTROL"
 
 
+@pytest.mark.parametrize("defect", [None, "normalized-control", "policy", "metadata-pin", "tokenizer-pin", "duplicate-id", "padding-collision",
+                                    "encode-bool", "encode-range", "encode-budget", "normalization", "output-empty", "output-nul",
+                                    "output-type", "output-budget", "output-collision", "output-padding-collision"])
+def test_profile_explicit_fast_rows_keep_padding_and_transform_provenance(monkeypatch, defect):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev.prism_codec import prepare_profile_model_tokenizer_rows, prepare_profile_model_tokenizer_vocabulary
+
+    vocabulary = {"base": 0, "USER": 1, "\u2581user": 2, "<|marker|>": 4, "<|base|>": 5}
+    if defect == "duplicate-id":
+        vocabulary["other"] = 0
+    elif defect == "padding-collision":
+        del vocabulary["<|base|>"]
+        vocabulary["[PAD3]"] = 5
+    flags = {"single_word": False, "lstrip": False, "rstrip": False, "normalized": True, "special": False}
+    added = [{"id": token_id, "content": token, **flags, "normalized": token_id != 1}
+             for token, token_id in vocabulary.items() if token_id in (1, 2, 4)]
+    tokenizer_bytes = json.dumps({"model": {"type": "BPE"}, "added_tokens": added}).encode()
+    profile, metadata = _profile_tokenizer_preparation_fixture(tokenizer_bytes)
+    parsed = {row["id"]: SimpleNamespace(**row) for row in added}
+    tokenizer = SimpleNamespace(get_vocab=lambda *, with_added_tokens: dict(vocabulary), get_added_tokens_decoder=lambda: parsed)
+    calls = []
+
+    class Fast:
+        def __init__(self, *, tokenizer_object, clean_up_tokenization_spaces):
+            assert tokenizer_object is tokenizer and clean_up_tokenization_spaces is False
+            calls.append("wrapper")
+
+        def encode(self, token, *, add_special_tokens):
+            assert token == "USER" and add_special_tokens is False
+            calls.append("encode")
+            if defect == "normalization":
+                raise RuntimeError("refused normalization")
+            return [True] if defect == "encode-bool" else [3] if defect == "encode-range" else [0] * 4097 if defect == "encode-budget" else [0]
+
+        def decode(self, token_ids, *, skip_special_tokens, clean_up_tokenization_spaces):
+            assert token_ids == [0] and skip_special_tokens is clean_up_tokenization_spaces is False
+            calls.append("decode")
+            return {"output-empty": "", "output-nul": "bad\0", "output-type": 7,
+                    "output-budget": "x" * 4097, "output-collision": "base", "normalized-control": "<|new|>",
+                    "output-padding-collision": "[PAD3]"}.get(defect, "normalized")
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=SimpleNamespace(from_str=lambda text: tokenizer)))
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(PreTrainedTokenizerFast=Fast))
+    if defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    arguments = {"metadata_files": metadata, "tokenizer_bytes": tokenizer_bytes, "context_length": 256,
+                 "row_policy": "other" if defect == "policy" else "pinned_prism_fast_rows_v1"}
+    if defect not in (None, "normalized-control"):
+        with pytest.raises(ValueError):
+            prepare_profile_model_tokenizer_rows(profile, **arguments)
+        if defect in ("policy", "metadata-pin", "tokenizer-pin", "duplicate-id"):
+            assert not calls
+        return
+    receipt = prepare_profile_model_tokenizer_rows(profile, **arguments)
+    rows = receipt["token_row_records"]
+    assert calls == ["wrapper", "encode", "decode"]
+    assert len(rows) == profile.geometry["vocab_size"] == 32
+    assert rows[0]["token_type"] == rows[5]["token_type"] == "NORMAL"
+    assert rows[1]["source_token"] == "USER" and rows[1]["token"] == ("<|new|>" if defect == "normalized-control" else "normalized")
+    assert rows[1]["token_type"] == ("CONTROL" if defect == "normalized-control" else "USER_DEFINED") and rows[1]["transforms"] == ("encode_decode",)
+    assert rows[2]["token"] == " user" and rows[2]["transforms"] == ("user_defined_space",)
+    assert rows[3]["token"] == "[PAD3]" and rows[3]["source_token"] is None and rows[3]["token_type"] == "UNUSED"
+    assert rows[4]["token_type"] == "CONTROL" and receipt["unassigned_profile_token_rows"] == 27
+    assert receipt["normalized_row_count"] == receipt["space_rewritten_row_count"] == 1
+    assert receipt["metadata_emission"] == "not_performed" and receipt["gguf_token_type_verification"] == "not_checked"
+    assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+    with pytest.raises(TypeError):
+        rows[1]["token"] = "other"
+    with pytest.raises(ValueError, match="vocabulary IDs"):
+        prepare_profile_model_tokenizer_vocabulary(profile, **{key: value for key, value in arguments.items() if key != "row_policy"})
+
+
+@pytest.mark.parametrize("side,count", [("source", 16), ("source", 17), ("output", 16), ("output", 17)])
+def test_profile_fast_rows_enforce_independent_source_and_output_content_budgets(monkeypatch, side, count):
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    vocabulary = {f"{token_id:04d}" + ("x" * 4092 if side == "source" else ""): token_id for token_id in range(count)}
+    added = [{"id": token_id, "content": token, "single_word": False, "lstrip": False, "rstrip": False,
+              "normalized": False, "special": False} for token, token_id in vocabulary.items()] if side == "output" else []
+    tokenizer = SimpleNamespace(get_added_tokens_decoder=lambda: {row["id"]: SimpleNamespace(**row) for row in added})
+    monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", lambda *args, **kwargs: ({}, tokenizer, vocabulary))
+    decoded = []
+
+    class Fast:
+        def __init__(self, **kwargs):
+            pass
+
+        def encode(self, token, **kwargs):
+            return [vocabulary[token]]
+
+        def decode(self, token_ids, **kwargs):
+            decoded.append(token_ids[0])
+            return f"{token_ids[0]:04d}" + "x" * 4092
+
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(PreTrainedTokenizerFast=Fast))
+    arguments = {"metadata_files": {}, "tokenizer_bytes": json.dumps({"added_tokens": added}).encode(),
+                 "context_length": 256, "row_policy": "pinned_prism_fast_rows_v1"}
+    profile = SimpleNamespace(geometry={"vocab_size": count})
+    if count == 17:
+        with pytest.raises(ValueError, match="content budget"):
+            prism_codec.prepare_profile_model_tokenizer_rows(profile, **arguments)
+        assert len(decoded) == (17 if side == "output" else 0)
+        return
+    receipt = prism_codec.prepare_profile_model_tokenizer_rows(profile, **arguments)
+    assert receipt["output_token_content_bytes"] == 65536 and len(decoded) == (16 if side == "output" else 0)
+    assert receipt["source_token_content_bytes"] == (65536 if side == "source" else 64)
+
+
 @pytest.mark.parametrize("defect", [None, "tokens-conflict", "types-conflict", "architecture", "split", "method", "preparation"])
 def test_profile_paired_token_rows_are_preflighted_before_any_mutation(monkeypatch, defect):
     from embedded_jev import prism_codec

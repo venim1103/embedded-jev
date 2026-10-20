@@ -2920,6 +2920,35 @@ The capacity case includes last-row string/type faults and merge corruption;
 all six contradictions must fail even with freshly matching file hashes. The
 parent-owned packet transport and all resource/cleanup guards stay unchanged.
 
+### Explicit Fast Tokenizer Rows
+
+`prepare_profile_model_tokenizer_rows(...,
+row_policy="pinned_prism_fast_rows_v1")` is a separate bounded declaration API
+for sparse source IDs and explicit transformations. Existing no-transform APIs
+do not acquire padding or normalization. Each immutable row records its source
+text (null for unused IDs), emitted-text declaration, type, transform names and
+encoded-token count. Missing rows use `[PADi]`/UNUSED; collisions with source or
+transformed rows refuse. Added rows with `normalized=false` pass through a trusted
+offline fast wrapper's encode/decode before type assignment; USER_DEFINED rows
+replace U+2581 with a space, while CONTROL rows do not.
+
+The wrapper is constructed from the pinned parsed tokenizer, not loaded from a
+model directory. Encode uses `add_special_tokens=false`; decode keeps special
+tokens and disables cleanup. This explicitly selected fast-wrapper policy does
+not establish the semantics of a model-specific `AutoTokenizer` configuration.
+It assigns no pre-tag and grants no runtime approval. Capacity remains 4096,
+source/output token content each at most 64 KiB, each token at most 4096 UTF-8
+bytes and each encode at most 4096 IDs already present in the source vocabulary.
+Empty/NUL/oversized transformed text and duplicate output rows refuse.
+
+Use the `fast-rows` optional toy parameter with the same cached environment above
+for exact pinned-method comparison on actual offline fast-tokenizer objects.
+It disables Torch/TF/Flax and network loading, keeps the existing process caps,
+and emits no GGUF. The library warns when serializing a deliberately sparse BPE
+vocabulary; construction diagnostics are routed to bounded stderr while stdout
+remains JSON. No learned files are read and no complete tokenizer/model parity
+is claimed.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

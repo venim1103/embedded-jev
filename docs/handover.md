@@ -9,7 +9,8 @@ original conversation. Read this first, then follow the links for detail.
 **Resumed by user, 2026-10-20:** Continue autonomously with periodic tested local
 commits until stopped or genuinely blocked. Starting `36b2d69` matches
 `origin/main`; only untouched user editor settings are untracked. Read the
-[rows and merges proof checkpoint](#rows-and-merges-proof-checkpoint-2026-10-20),
+[fast row declaration checkpoint](#fast-row-declaration-checkpoint-2026-10-20),
+then the [rows and merges proof checkpoint](#rows-and-merges-proof-checkpoint-2026-10-20),
 then the [emission checkpoint](#rows-and-merges-checkpoint-2026-10-20) and the
 [synthetic row-policy proposal](#synthetic-row-policy-proposal-2026-10-20).
 The pauses below are historical. Existing resource, learned-input, native and
@@ -380,9 +381,61 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Fast Row Declaration Checkpoint (2026-10-20)
+
+After `fccc6bf`, the user separately approved **synthetic padding and transforms**
+within the proposal below, including later emission/file proof. New
+`prepare_profile_model_tokenizer_rows(..., row_policy="pinned_prism_fast_rows_v1")`
+declares every profile row with source/output text, type, explicit transform
+names and encoded-token count. It reuses strict source IDs and added-token flags,
+declares missing rows as `[PADi]`/UNUSED, and refuses collisions with source or
+transformed rows. Added rows requiring normalization use the trusted installed
+`PreTrainedTokenizerFast` over the already parsed tokenizer, without pretrained
+directory loading; encode excludes special tokens and decode retains them.
+Cleanup is explicitly disabled. Classification follows normalization; only
+USER_DEFINED rows replace U+2581 with a space. This explicit wrapper policy is
+not arbitrary model `AutoTokenizer` parity. It assigns no pre-tag and emits no
+metadata. Source and output content each have independent 64 KiB caps; per-row
+4096-byte and per-encode 4096 source-ID limits are enforced. Capacity stays 4096.
+
+Shared flag validation now accepts an ID-to-text lookup so sparse declarations
+can reuse it; existing contiguous APIs still require all source rows and their
+receipts/limits remain unchanged. The special-looking predicate is shared,
+unchanged. Initial old-validator/composer checks **48 passed in 0.27 s**. New
+provenance/error cases plus exact 64 KiB source/output boundaries **21 passed in
+0.24 s**, including collision with a future padding row and post-normalization
+CONTROL classification. Routing/budget fixtures use explicit parser doubles.
+
+The pinned `fast-rows` optional reference uses a real offline fast tokenizer,
+exact Git-blob-verified converter method, and a factory returning only that
+synthetic wrapper; the pre-tag remains a deliberate unverified double. Its
+32 rows include one interior and one tail unused row, actual decoder-driven
+text change, user-space rewrite and unchanged control/base cases. Exact text
+and enum agreement passes, **1 passed in 3.01 s**, observed child RSS
+**334,630,912 bytes**, process/host swap zero, no GGUF/scratch emission.
+
+**Failure history:** initial parent report parse failed in **4.68 s** despite
+worker status zero; a diagnostic assertion failed in **2.91 s**, exposing the
+library's two stdout warnings about the deliberately sparse vocabulary.
+The comparison itself passed in both workers. Worker construction now routes
+library diagnostics to bounded stderr using a saved/restored/closed stdout
+descriptor; stdout remains strict JSON. Warnings remain visible, no semantic
+assertion/output/resource limit was weakened, diagnostic assertion removed.
+
+All fourteen toy modes and old/new declaration controls **70 passed in 8.82 s**.
+Required root gate **1236 passed, 117 skipped in 30.72 s**, Ruff/whitespace and
+editor/syntax clean; four resolved public calls compatible. No learned input,
+download, native build/CTest, model execution/conversion, refit or quality job.
+Next approved slice is separate padded/transformed row emission and retained-file
+proof under the same budgets, preserving all no-transform APIs. Real vocabulary
+scale, complete tokenizer/pre-tag mapping and model-wrapper acceptance remain
+separate; learned-input approvals remain consumed.
+
 ## Synthetic Row Policy Proposal (2026-10-20)
 
-Prepared after `6576f81`; **not approved or implemented at proposal time**.
+Prepared after `6576f81`; **historical proposal, subsequently separately approved**
+after `fccc6bf`. The declaration checkpoint above records implemented evidence;
+emission/file proof remain the next approved increment.
 The exact pinned `TextModel.get_vocab_base` source was read statically, without
 model/tokenizer inputs. It fills missing IDs with `[PADi]`/UNUSED, applies
 encode-without-special-tokens/decode to added rows whose `normalized` flag is
@@ -409,7 +462,7 @@ most 8 KiB. Parent owns and cleans synthetic scratch on success/failure.
 No learned file read, full-size vocabulary, weights, download, native build/model
 execution, new candidate, refit, quality experiment or policy promotion is
 included. Both earlier learned-input approvals stay consumed. This explicit
-padding/transform expansion requires separate approval before code or execution.
+padding/transform expansion required the separately recorded approval.
 
 ## Rows And Merges Proof Checkpoint (2026-10-20)
 
