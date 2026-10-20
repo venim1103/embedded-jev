@@ -10,7 +10,8 @@ original conversation. Read this first, then follow the links for detail.
 commits until stopped or genuinely blocked. Starting `36b2d69` matches
 `origin/main`; only untouched user editor settings are untracked. Read the
 [rows and merges proof checkpoint](#rows-and-merges-proof-checkpoint-2026-10-20),
-then the [emission checkpoint](#rows-and-merges-checkpoint-2026-10-20).
+then the [emission checkpoint](#rows-and-merges-checkpoint-2026-10-20) and the
+[synthetic row-policy proposal](#synthetic-row-policy-proposal-2026-10-20).
 The pauses below are historical. Existing resource, learned-input, native and
 other-profile execution boundaries remain in force; both learned-tokenizer
 one-shot approvals remain consumed.
@@ -378,6 +379,37 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Synthetic Row Policy Proposal (2026-10-20)
+
+Prepared after `6576f81`; **not approved or implemented at proposal time**.
+The exact pinned `TextModel.get_vocab_base` source was read statically, without
+model/tokenizer inputs. It fills missing IDs with `[PADi]`/UNUSED, applies
+encode-without-special-tokens/decode to added rows whose `normalized` flag is
+false, classifies transformed special-looking rows as CONTROL, and replaces
+U+2581 with space in other added rows classified USER_DEFINED. Base rows remain
+NORMAL. Existing no-transform APIs intentionally refuse these cases.
+
+Proposed separate opt-in synthetic policy: declare ID-ordered rows with explicit
+source/output text, type, missing-ID and transform provenance; compare with the
+exact pinned method on tiny trusted offline tokenizers, then add separate joint
+emission and retained-file proof. Keep old no-transform and unused-declaration
+APIs unchanged. Refuse invalid/duplicate IDs, source/output padding-label or
+transformed-token collisions, empty/NUL/nonfinite/oversized inputs and unsupported
+normalization. Do not infer a pre-tokenizer tag, silently change source files or
+claim complete tokenizer/native compatibility.
+
+Fixed budgets: profile rows at most 4096; each source/transformed token at most
+4096 UTF-8 bytes, source and output token content each at most 64 KiB; each
+encode result at most 4096 in-range IDs. Existing pinned input aggregate at most
+32 MiB, merge limits unchanged; selected-record default 8 KiB with explicit
+ceiling 128 KiB, file/fault at most 256 KiB each, logical scratch below 8 MiB,
+15 s child/60 s stage, observed RSS at most 1 GiB/no swap growth, summaries at
+most 8 KiB. Parent owns and cleans synthetic scratch on success/failure.
+No learned file read, full-size vocabulary, weights, download, native build/model
+execution, new candidate, refit, quality experiment or policy promotion is
+included. Both earlier learned-input approvals stay consumed. This explicit
+padding/transform expansion requires separate approval before code or execution.
 
 ## Rows And Merges Proof Checkpoint (2026-10-20)
 
