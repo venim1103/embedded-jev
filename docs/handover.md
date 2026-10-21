@@ -6,6 +6,15 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+**Paused by user, 2026-10-21:** pause at completed source checkpoint `191c1b5`.
+The synthetic native three-field integration, refusals and old-command controls
+are verified; the next composition proposal below is documentation only and
+**not approved or started**. Native ledger remains conservatively 250/600 s;
+all four learned approvals remain consumed. No worker or generated fixture is
+retained; user editor settings remain untouched. Resume only on an explicit
+user request, with any required separate scope approval. Earlier autonomy,
+terminal notifications and documentation updates do not override this pause.
+
 **Resumed by user, 2026-10-21:** Continue autonomously with periodic tested local
 commits until stopped or genuinely blocked. Starting `8ea2420` matches
 `origin/main`; tracked worktree is clean, user editor settings remain untouched.
@@ -39,6 +48,13 @@ the user explicitly resumed autonomous work. The
 successful tiny/intermediate/full generated getter checks, strict refusals and
 old-command compatibility with zero swap. All four learned approvals remain
 consumed; no learned input or native model execution is authorized.
+
+**Next bounded proposal, not approved:** the
+[selected fast metadata composition proposal](#selected-fast-metadata-composition-proposal-2026-10-21)
+would join the verified fast rows/types/merges with the existing policy/context/
+template subset in one generated file. It changes the exact native selected-field
+contract and therefore requires separate approval before implementation or
+execution. No new learned, model-loading, download or quality work is proposed.
 
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
@@ -522,6 +538,79 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Selected Fast Metadata Composition Proposal (2026-10-21)
+
+Prepared after tested source checkpoint `191c1b5`; **not approved**. Local source
+inspection, without learned/cache/model reads, identifies the next boundary:
+`write_profile_model_selected_metadata` jointly preflights policy/context/template
+with untransformed tokens/merges, not fast token types. The fast v3 writer jointly
+preflights the three transformed tokenizer fields, not policy/context/template.
+Calling them consecutively would collide on tokens/merges and cannot provide
+all-or-nothing writer preflight. Their existing defaults and caps must not change.
+
+Hypothesis: a separately versioned composition can reuse the existing pure
+policy/source/fast-row declaration helpers, then jointly preflight all names
+before the first writer mutation. For the existing generated geometry, replacing
+two old tokenizer arrays with the three fast fields gives **29 emitted records /
+30 file records including `general.architecture`**, rather than the old 28/29.
+A malformed last declaration or preexisting last writer key must refuse with
+the complete writer snapshot unchanged. This is the cheapest discriminating
+check before integration. Full-size source preparation must use explicitly
+versioned JSON allowances; do not widen the old 1 MiB/default pathways.
+
+Request a **synthetic-only selected metadata composition allowance**:
+
+- Add an explicit writer and fresh source-bound retained-file verifier for the
+  combined policy/context/template/fast-row/type/ranked-merge subset. Reuse the
+  current row and merge policies, single retained FD/two hashes, exact mapped
+  bytes/types and shared deadline. A composed receipt remains a selected-field
+  proof, not complete tokenizer/tensor-table/model acceptance.
+- Add a separately versioned native test command for the exact 30 generated
+  declarations. Compare all fields through native parser getters before backend
+  discovery, with `no_alloc` and no tensor context. Preserve the old 29-field
+  command and new three-field command and all their limits. Do not add or infer
+  tokenizer model/pre tags, special-ID policy or vocabulary-loader calls.
+- Use only existing generated 32-row, 8193-row/4097-pair and
+  248320-row/245760-pair fixtures, a synthetic policy/manifest/payload, and a
+  two-byte BF16 anchor. No existing learned candidate/source is an input.
+  Verify joint writer preflight, positive exact typed records, first/last
+  policy/source/row/type/merge contradictions, mismatched profile/template,
+  duplicate names/element types/budgets, stale identity, copied/closed maps and
+  restored-write detection. Existing refusal helpers should be reused, not
+  duplicated or weakened; use one disposable fault at a time.
+- Keep GGUF/fault/spool <=16 MiB each, strict declaration JSON <=32 MiB,
+  source/copy sets <=32 MiB each, conservative total logical reservation
+  <=128 MiB, <=64 GGUF keys/427 tensors, <=262144 rows/pairs, independently
+  <=4 MiB source/output/merge content and <=4096-byte strings/encode IDs.
+  Reject insufficient reservation before input copying/emission. Preserve
+  the old selected verifier's record/header/file/default caps by a new explicit
+  version, never an implicit global allowance increase.
+- Use the existing cached tools only: no install/download/source revision or
+  library change. Rebuild only the loader-control target through CMake Tools,
+  explicit Release/at most two jobs, guarded and <=180 s; stop if unrelated
+  dependencies need rebuilding. No tensor/model arithmetic or backend discovery.
+- All children serial, path-only stdin <=64 KiB, combined output/report <=8 KiB,
+  <=60 s per child/180 s per stage, observed RSS <=2 GiB, host reserve >=2 GiB,
+  abort any process/host swap growth and kill/reap/close/clean on refusal.
+  Charge implementation checks/build/default gate against the **remaining
+  350 s of the retained 600 s native ledger**, not a new/reset sequence. Stop
+  before exhausting it; no automatic retry after a resource failure.
+
+If approved, first add the small reversible composition and the failing-late
+writer snapshot check; validate immediately, then fresh retained proof on the
+tiny fixture, then the guarded compiled native case before larger fixtures.
+Run unchanged-command compatibility and the required source gate before source
+checkpoint commits. Retain only small numeric/hash/resource evidence; remove
+all generated inputs/copies/JSON/GGUF/faults/spool and verify maps/FDs/workers.
+No proof is atomic against hostile concurrent writes, and process sampling is
+not a target-device guarantee.
+
+All four learned approvals remain consumed. This proposal does **not** include
+learned/header/weight access, a native vocabulary/model loader, tokenizer-engine
+semantics, full conversion, refitting/new retained candidates, held-out scoring,
+representative quality, other-profile/device execution or deployment claims.
+No new native build, fixture execution or composition implementation has begun.
 
 ## Native Joint Metadata Checkpoint (2026-10-21)
 
