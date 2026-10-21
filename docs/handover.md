@@ -10,6 +10,7 @@ original conversation. Read this first, then follow the links for detail.
 commits until stopped or genuinely blocked. Starting `8ea2420` matches
 `origin/main`; tracked worktree is clean, user editor settings remain untouched.
 The pauses below are historical. Read the
+[full-size merge lifetime checkpoint](#full-size-merge-lifetime-checkpoint-2026-10-21), then the
 [full-size merge refusal checkpoint](#full-size-merge-refusal-checkpoint-2026-10-21)
 for the current synthetic-only follow-up. Existing resource limits remain in
 force; all three learned approvals remain consumed. No new learned/model/native
@@ -62,7 +63,8 @@ The [larger merge policy checkpoint](#larger-merge-policy-checkpoint-2026-10-20)
 implements separate opt-ins and verifies 8193 rows/4097 pairs. The
 [full-size checkpoint](#full-size-merge-checkpoint-2026-10-20) adds positive
 248320-row/245760-pair evidence. The October 21 refusal checkpoint adds
-first/last byte/rank contradictions; type/budget/mapping cases remain next.
+first/last byte/rank contradictions; the lifetime checkpoint completes the
+planned synthetic type/default-budget/hash/mapping/restored-write controls.
 
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
@@ -427,6 +429,67 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Full-Size Merge Lifetime Checkpoint (2026-10-21)
+
+After `b8fa078`, new optional modes `[synthetic-merges-intermediate-controls]`
+and `[synthetic-merges-full-controls]` select **ten additional independent
+refusal workers**, not a rerun of the four byte/rank cases. Trusted cached
+parser/writer/source pins, generated rows/pairs, typed emission/readback and
+source/copy audit/identity checks remain the same. No public API changes.
+
+Cases cover an in-memory merge type claim, a fresh-hash on-disk INT32-to-UINT32
+token-type array-kind change, count/content/record/header caps, stale digest,
+a copied last merge-string part, a closed mapping and a restored write after
+the second retained hash. Full-size caps are the actual defaults **4096 merges,
+64 KiB merge content, 8 KiB selected records, 1 MiB header**; the intermediate
+fixture uses explicit **32768-byte content / 8192-byte header** caps because it
+fits those defaults. These are not presented as identical default refusals.
+
+The restored-write hook is reused from the existing row-only control: mutate
+and restore the last disposable file byte immediately after the second hash,
+then require the stat-identity check to reject it. Earlier code retained a closed
+initial reader/field while building the fresh mapping; the helper now releases
+those part objects after extracting scalar mutation offsets. This preserves
+mapping memory headroom, not a larger resource allowance. Every case restores
+the original file/hash, closes maps and checks descriptor/file-set cleanup.
+
+Intermediate ten-case control **1 passed in 27.39 s**. Full-size ten-case control
+**1 passed in 167.57 s**, twelve serial workers including copy/emission, each
+<=60 s and stage <=180 s. The controller deducts the actual prior **220.85 s**
+from the approved 600 s sequence before the full-size run. No assertion,
+tolerance, child deadline, RSS/swap or scratch allowance was relaxed.
+
+| Full-Size Lifetime Measurement | Bytes |
+| --- | --- |
+| Ten original synthetic files / read-only copies, each | 14853033 |
+| Disposable file / logical aggregate with reserved spool/report | 9630112 / 56121586 |
+| Maximum observed emission / refusal worker RSS | 1750568960 / 1602990080 |
+| Minimum observed host available memory | 18992963584 |
+| Maximum positional read on retained-hash paths | 65536 |
+
+Process/host swap remains zero, observed RSS <2 GiB, host reserve >=2 GiB and
+logical scratch <64 MiB. The stale-digest case reaches **one** retained hash;
+restored-write reaches **two hashes of the same descriptor**, then refuses the
+stat change. Other cases correctly refuse before hashing. Do not infer that
+hashing ran for an earlier metadata/layout/budget rejection. Recreated output
+retains the prior file digest; all source/copy/output scratch is removed.
+
+Affected four-case intermediate byte/rank compatibility **1 passed in 14.40 s**.
+Required gate with all learned flags unset **1382 passed, 141 skipped in
+22.63 s**, Ruff, whitespace, Pylance syntax and editor checks clean. No failures
+or automatic retries. Conservatively including that compatibility command, the
+new merge sequence now uses **402.82 s of 600 s**, leaving **197.18 s**. The
+planned approved synthetic controls are complete; do not spend the remainder
+rerunning unchanged successful large controls merely for reassurance.
+
+No learned input or weight/shard header was reopened; no download/install,
+native build/CTest, model execution, refit/candidate or quality/device work ran.
+All three learned approvals remain consumed. This is a synthetic selected
+row/type/source-merge storage proof, not a complete tokenizer/pre-tokenizer tag,
+runtime/model or representative quality acceptance. Next: prepare a separately
+bounded one-shot joint learned-row/merge proposal and obtain fresh approval
+before implementing a new learned allowance or reading its input contents.
 
 ## Full-Size Merge Refusal Checkpoint (2026-10-21)
 

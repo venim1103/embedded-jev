@@ -3121,7 +3121,16 @@ explicitly approved, but no learned/native/model acceptance is implied. See the
 and [full-size checkpoint](handover.md#full-size-merge-checkpoint-2026-10-20)
 for implementation/evidence; the
 [full-size refusal checkpoint](handover.md#full-size-merge-refusal-checkpoint-2026-10-21)
-records current contradictions and the remaining type/budget/mapping cases.
+records first/last contradictions. Optional `[synthetic-merges-intermediate-controls]`
+and `[synthetic-merges-full-controls]` select ten separate type/array-kind,
+count/content/record/header, stale-hash, copied/closed mapping and restored-write
+workers. The full-size fixture exercises actual default merge-count/content/
+record/header refusals; intermediate content/header checks explicitly use
+32768/8192-byte caps, not those defaults. Restored-write must reach two
+same-descriptor hashes before stat rejection; earlier refusals need not hash.
+See the [lifetime checkpoint](handover.md#full-size-merge-lifetime-checkpoint-2026-10-21)
+for actual measurements, sequence accounting and evidence boundaries. All
+learned flags remain consumed; these modes authorize only generated fixtures.
 
 ### Offline Selected Metadata Control
 
