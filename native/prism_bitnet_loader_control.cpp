@@ -1334,10 +1334,10 @@ static std::vector<char> selected_metadata_file(const char* path, std::size_t li
     return bytes;
 }
 
-static int test_selected_metadata(const char* path, const char* expected_path) {
+static int test_selected_metadata(const char* path, const char* expected_path, bool joint = false) {
     using nlohmann::json;
     try {
-        const auto expected_bytes = selected_metadata_file(expected_path, 256 * 1024);
+        const auto expected_bytes = selected_metadata_file(expected_path, joint ? 32 * 1024 * 1024 + 1 : 256 * 1024);
         std::vector<std::set<std::string>> object_keys(9);
         const auto expected = json::parse(expected_bytes.begin(), expected_bytes.end(),
             [&object_keys](int depth, json::parse_event_t event, json& value) {
@@ -1352,7 +1352,7 @@ static int test_selected_metadata(const char* path, const char* expected_path) {
                 }
                 return true;
             });
-        if (!expected.is_array() || expected.size() != 29) {
+        if (!expected.is_array() || expected.size() != (joint ? 3 : 29)) {
             return 30;
         }
         std::set<std::string> names;
@@ -1369,8 +1369,12 @@ static int test_selected_metadata(const char* path, const char* expected_path) {
                     !names.insert(name).second || values.empty()) {
                 return 30;
             }
+            if (joint && !((name == "tokenizer.ggml.tokens" || name == "tokenizer.ggml.merges") && kind == "str_array") &&
+                    !(joint && name == "tokenizer.ggml.token_type" && kind == "i32_array")) {
+                return 30;
+            }
             if (kind == "string" || kind == "str_array") {
-                if (values.size() > (kind == "string" ? 1 : name == "tokenizer.ggml.merges" ? 4096 : 16384)) {
+                if (values.size() > (joint ? 262144 : kind == "string" ? 1 : name == "tokenizer.ggml.merges" ? 4096 : 16384)) {
                     return 30;
                 }
                 std::size_t total = 0;
@@ -1380,12 +1384,12 @@ static int test_selected_metadata(const char* path, const char* expected_path) {
                     }
                     const auto text = value.get<std::string>();
                     total += text.size();
-                    if (text.empty() || text.size() > 4096 || text.find('\0') != std::string::npos || total > 65536) {
+                    if (text.empty() || text.size() > 4096 || text.find('\0') != std::string::npos || total > (joint ? 4 * 1024 * 1024 : 65536)) {
                         return 30;
                     }
                 }
             } else if (kind == "u32" || kind == "i32_array") {
-                if (values.size() > (kind == "u32" ? 1 : 16)) {
+                if (values.size() > (joint ? 262144 : kind == "u32" ? 1 : 16)) {
                     return 30;
                 }
                 for (const auto& value : values) {
@@ -1404,7 +1408,10 @@ static int test_selected_metadata(const char* path, const char* expected_path) {
                 return 30;
             }
         }
-        const auto bytes = selected_metadata_file(path, 1024 * 1024);
+        if (joint && names != std::set<std::string>{"tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges"}) {
+            return 30;
+        }
+        const auto bytes = selected_metadata_file(path, joint ? 16 * 1024 * 1024 + 1 : 1024 * 1024);
         std::unique_ptr<gguf_context, decltype(&gguf_free)> context(
             gguf_init_from_buffer(bytes.data(), bytes.size(), { true, nullptr }), gguf_free);
         if (!context || gguf_get_n_kv(context.get()) > 64 || gguf_get_n_tensors(context.get()) > 427) {
@@ -1445,7 +1452,11 @@ static int test_selected_metadata(const char* path, const char* expected_path) {
                 }
             }
         }
-        std::puts("{\"selected_records\":29,\"tensor_data_allocated\":false,\"model_loaded\":false}");
+        if (joint) {
+            std::puts("{\"selected_records\":3,\"policy_version\":2,\"tensor_data_allocated\":false,\"model_loaded\":false}");
+        } else {
+            std::puts("{\"selected_records\":29,\"tensor_data_allocated\":false,\"model_loaded\":false}");
+        }
         return 0;
     } catch (const std::exception&) {
         std::fputs("selected metadata input refused\n", stderr);
@@ -1458,6 +1469,9 @@ int main(int argc, char** argv) {
 #ifdef JEV_TEST_REAL_LOADER
     if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control") == 0) {
         return test_selected_metadata(argv[2], argv[3]);
+    }
+    if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control-v2") == 0) {
+        return test_selected_metadata(argv[2], argv[3], true);
     }
 #endif
 #ifdef JEV_TEST_FULL_RUNTIME

@@ -5622,6 +5622,13 @@ deadline = time.monotonic() + (60 if row_mode else 15)
 profile = parse_model_profile(bytes.fromhex(fixture["profile_hex"]))
 source, scratch = Path(fixture["source"]), Path(fixture["scratch"])
 learned_joint = fixture.get("learned_joint", False)
+native_joint = fixture.get("native_joint", False)
+if native_joint:
+    assert row_mode and not learned_joint and profile.profile_id == "synthetic-profile"
+    assert source.resolve().parent == scratch.resolve().parent and source.name == "source"
+    assert fixture["include_merges"] and fixture["merge_version"] == 2 and not fixture["merge_faults"]
+    assert type(fixture["sequence_deadline"]) in (int, float) and 0 < fixture["sequence_deadline"] - time.monotonic() <= 180
+    deadline = min(deadline, fixture["sequence_deadline"])
 if learned_joint:
     assert os.environ.get("MIMO_TOKENIZER_JOINT_APPROVED") == "1" and row_mode
     assert profile.sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
@@ -5636,8 +5643,10 @@ names = (tuple(profile.packaging["metadata_files"]) + ("tokenizer.json", "vocab.
     ("config.json", "tokenizer_config.json", "tokenizer.json", "vocab.json", "merges.txt"))
 total = sum(profile.files[name].bytes for name in names)
 assert len(set(names)) == len(names) and 0 < total < 32 * 1024**2
-row_scratch_cap = (128 if learned_joint else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
+row_scratch_cap = (128 if learned_joint or native_joint else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 assert (2 * total + 2 * 16 * 1024**2 + 8192 < row_scratch_cap if row_mode else 2 * total + 8192 < 64 * 1024**2)
+if native_joint:
+    assert 2 * total + 3 * 16 * 1024**2 + 32 * 1024**2 + 8192 < row_scratch_cap
 assert scratch.is_dir() and (row_mode and fixture["operation"] != "rows-copy" or not list(scratch.iterdir()))
 
 if row_mode:
@@ -6124,6 +6133,11 @@ def run_rows():
                     prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.write_profile_model_fast_tokenizer_rows_v2)
                 emitted = emitter(profile, writer=writer, **arguments, **merge_arguments)
             assert emitted["metadata_count"] == (3 if include_merges else 2) and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
+            if native_joint:
+                declarations = json.dumps([{key: record[key] for key in ("name", "kind", "values")} for record in emitted["records"]],
+                    ensure_ascii=True, separators=(",", ":")).encode()
+                assert 0 < len(declarations) <= 32 * 1024**2
+                (root / "expected.json").write_bytes(declarations)
             writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
             writer.write_header_to_file()
             writer.write_kv_data_to_file()
@@ -6138,6 +6152,9 @@ def run_rows():
             assert tuple(types.types) == (gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32)
             assert [strings.parts[index].tobytes().decode() for index in strings.data] == rows
             assert [int(types.parts[index][0]) for index in types.data] == kinds
+            if native_joint:
+                native_type_element_offset = int(types.parts[3].ctypes.data - reader.data.ctypes.data)
+                native_wrong_type_kind = int(gguf.GGUFValueType.UINT32)
             if include_merges:
                 merges = reader.fields["tokenizer.ggml.merges"]
                 assert tuple(merges.types) == (gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING)
@@ -6150,6 +6167,8 @@ def run_rows():
             source_content_bytes=prepared["source_token_content_bytes"], output_content_bytes=prepared["output_token_content_bytes"],
             output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
             metadata_records=3 if include_merges else 2, merge_rows=len(merge_values), merge_content_bytes=emitted.get("merge_content_bytes", 0))
+        if native_joint:
+            report.update(native_type_element_offset=native_type_element_offset, native_wrong_type_kind=native_wrong_type_kind)
     else:
         assert operation == "rows-proof"
         identity = fixture["identity"]
@@ -6227,8 +6246,10 @@ def run_rows():
             unused_rows=receipt["unassigned_profile_token_rows"], output_file_bytes=path.stat().st_size,
             output_file_sha256=identity["expected_file_sha256"], retained_file_hashes=len(hashes), maximum_read=max(reads),
             metadata_records=3 if include_merges else 2, merge_contradictions=contradictions, merge_rows=len(merge_values))
-    assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in root.iterdir()) == {"rows.gguf"}
-    report["logical_source_copy_scratch_bytes"] = 2 * total + path.stat().st_size + 16 * 1024**2 + 8192
+    assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in root.iterdir()) == ({"rows.gguf", "expected.json"} if native_joint else {"rows.gguf"})
+    expected_bytes = (root / "expected.json").stat().st_size if native_joint else 0
+    report["expected_declaration_bytes"] = expected_bytes
+    report["logical_source_copy_scratch_bytes"] = 2 * total + path.stat().st_size + expected_bytes + 16 * 1024**2 + 8192
     assert report["logical_source_copy_scratch_bytes"] < row_scratch_cap
     report["logical_scratch_cap_bytes"] = row_scratch_cap
     return report
@@ -6247,19 +6268,29 @@ finish_report(report)
 
 @pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full", "approved",
     "synthetic-merges-intermediate-refusals", "synthetic-merges-full-refusals",
-    "synthetic-merges-intermediate-controls", "synthetic-merges-full-controls", "synthetic-joint", "approved-joint"])
+    "synthetic-merges-intermediate-controls", "synthetic-merges-full-controls", "synthetic-joint", "approved-joint", "synthetic-joint-native",
+    "synthetic-merges-intermediate-native", "synthetic-merges-full-native", "synthetic-joint-native-controls", "synthetic-merges-full-native-controls"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
+    import sys
     from tempfile import TemporaryDirectory
     import time
 
     source, interpreter = _tokenizer_rows_diagnostic_environment("synthetic" if mode.startswith("synthetic") else mode)
-    base_mode = mode.removesuffix("-refusals").removesuffix("-controls")
+    native_refusals = mode.endswith("-native-controls")
+    native_joint = mode.endswith("-native") or native_refusals
+    base_mode = mode.removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls")
+    if native_joint:
+        runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+        if not runtime_build:
+            pytest.skip("requires the separately approved cached synthetic native checker")
+        executable = Path(runtime_build) / "bin/prism_bitnet_loader_control"
+        assert mode.startswith("synthetic") and executable.is_file()
     learned_joint = mode == "approved-joint"
     joint_policy = base_mode in ("synthetic-joint", "approved-joint")
-    control_mode = mode.endswith("-controls")
-    refusal_mode = mode.endswith(("-refusals", "-controls"))
+    control_mode = mode.endswith("-controls") and not native_joint
+    refusal_mode = mode.endswith(("-refusals", "-controls")) and not native_joint
     full_scale = base_mode == "synthetic-merges-full"
     large_fixture = base_mode in ("synthetic-merges-intermediate", "synthetic-merges-full")
     expanded_merges = large_fixture or joint_policy
@@ -6339,10 +6370,10 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "row_source": row_source, "special_source": special_source, "include_merges": include_merges,
             "merge_version": 2 if expanded_merges else 1, "merge_rows": None if learned_joint else len(pairs) if large_fixture else 2 if include_merges else 0,
             "merge_row_cap": 262144 if joint_policy else len(pairs) if large_fixture else 4096,
-            "merge_faults": [] if full_scale or refusal_mode or joint_policy or not include_merges else ["byte", "rank"],
-            "joint_policy": joint_policy, "learned_joint": learned_joint,
+            "merge_faults": [] if native_joint or full_scale or refusal_mode or joint_policy or not include_merges else ["byte", "rank"],
+            "joint_policy": joint_policy, "learned_joint": learned_joint, "native_joint": native_joint,
             "synthetic_refusals": refusal_mode, "unused_rows": 243 if full_scale or mode in ("approved", "approved-joint") else 2}
-        if learned_joint:
+        if learned_joint or native_joint:
             fixture["sequence_deadline"] = started + 180
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
@@ -6357,7 +6388,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         for operation, proof_case in operations:
             phase_started = time.monotonic()
             payload = json.dumps({**fixture, "operation": operation, "proof_case": proof_case}).encode()
-            child_seconds = min(60, fixture["sequence_deadline"] - phase_started) if learned_joint else 60
+            child_seconds = min(60, fixture["sequence_deadline"] - phase_started) if learned_joint or native_joint else 60
             assert child_seconds > 0
             result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env=env, maximum_seconds=child_seconds)
             assert result["returncode"] == 0, result["stderr"]
@@ -6384,7 +6415,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     assert learned_joint and operation == "rows-emission" and 0 < report["merge_rows"] <= fixture["merge_row_cap"]
                     fixture["merge_rows"] = report["merge_rows"]
                 assert report["merge_rows"] == fixture["merge_rows"]
-                assert report["logical_scratch_cap_bytes"] == (128 if learned_joint else 64 if expanded_merges else 128) * 1024**2
+                assert report["logical_scratch_cap_bytes"] == (128 if learned_joint or native_joint else 64 if expanded_merges else 128) * 1024**2
                 if operation == "rows-emission":
                     fixture["identity"] = {"expected_file_bytes": report["output_file_bytes"], "expected_file_sha256": report["output_file_sha256"]}
                     if mode.startswith("synthetic"):
@@ -6399,6 +6430,92 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
             reports.append(report)
         assert len(reports) == len(operations)
+        if native_joint:
+            import struct
+
+            path, expected_path = output / "rows.gguf", output / "expected.json"
+            assert 0 < path.stat().st_size <= 16 * 1024**2 and 0 < expected_path.stat().st_size <= 32 * 1024**2
+            execute = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
+            arguments = [str(executable), "--selected-metadata-control-v2", str(path), str(expected_path)]
+            native_seconds = min(60, fixture["sequence_deadline"] - time.monotonic())
+            assert native_seconds > 0
+            native = _run_tokenizer_only_guard_v2(sys.executable, execute, json.dumps(arguments).encode(), env=env, maximum_seconds=native_seconds)
+            assert native["returncode"] == 0, native
+            assert json.loads(native["stdout"]) == {"selected_records": 3, "policy_version": 2, "tensor_data_allocated": False, "model_loaded": False}
+            assert native["host_swap_baseline_bytes"] == baseline_swap
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == fixture["identity"]["expected_file_sha256"]
+            assert time.monotonic() - started < 180
+            print(json.dumps({**native, "tokenizer_native_diagnostic": mode, "logical_source_copy_scratch_bytes": reports[-1]["logical_source_copy_scratch_bytes"]}))
+            if native_refusals:
+                original_file, original_expected = path.read_bytes(), expected_path.read_bytes()
+                original_stats = path.stat(), expected_path.stat()
+                descriptor_count = len(os.listdir("/proc/self/fd"))
+                refusals = 0
+
+                def refuse(*, expected_bytes=None, gguf_bytes=None, status=30):
+                    nonlocal refusals
+                    assert (expected_bytes is None) != (gguf_bytes is None)
+                    assert len(expected_bytes if expected_bytes is not None else gguf_bytes) <= (32 if expected_bytes is not None else 16) * 1024**2
+                    target = output / ("native-fault.json" if expected_bytes is not None else "native-fault.gguf")
+                    fault_arguments = [str(executable), "--selected-metadata-control-v2",
+                        str(path if expected_bytes is not None else target), str(target if expected_bytes is not None else expected_path)]
+                    try:
+                        target.write_bytes(expected_bytes if expected_bytes is not None else gguf_bytes)
+                        remaining = min(60, fixture["sequence_deadline"] - time.monotonic())
+                        assert remaining > 0
+                        fault = _run_tokenizer_only_guard_v2(sys.executable, execute, json.dumps(fault_arguments).encode(), env=env, maximum_seconds=remaining)
+                        assert fault["returncode"] == status and not fault["stdout"], fault
+                        assert fault["host_swap_baseline_bytes"] == baseline_swap
+                        native["observed_rss_bytes"] = max(native["observed_rss_bytes"], fault["observed_rss_bytes"])
+                        native["observed_host_available_minimum_bytes"] = min(native["observed_host_available_minimum_bytes"], fault["observed_host_available_minimum_bytes"])
+                        refusals += 1
+                    finally:
+                        target.unlink(missing_ok=True)
+                    assert path.read_bytes() == original_file and expected_path.read_bytes() == original_expected
+                    assert (path.stat(), expected_path.stat()) == original_stats
+
+                refuse(expected_bytes=b'[{"name":"duplicate",' + original_expected[2:])
+                refuse(expected_bytes=b"[" * 10 + b"0" + b"]" * 10)
+                refuse(expected_bytes=b"[\xff]")
+                for defect in ("token-first", "token-last", "type-first", "type-last", "merge-first", "merge-last", "rank-first", "rank-last",
+                        "duplicate-name", "missing", "unknown-name", "wrong-kind", "bool-type", "overflow-type", "negative-overflow-type",
+                        "row-cap", "merge-cap", "token-content-cap", "merge-content-cap", "string-cap", "nul"):
+                    declarations = json.loads(original_expected)
+                    row_values, type_values, merge_values = (record["values"] for record in declarations)
+                    mismatch = defect.startswith(("token-", "type-", "merge-", "rank-")) and defect.endswith(("first", "last"))
+                    if mismatch:
+                        values = row_values if defect.startswith("token") else type_values if defect.startswith("type") else merge_values
+                        index = -1 if defect.endswith("last") else 0
+                        if defect.startswith("rank"):
+                            other = -2 if index == -1 else 1
+                            values[index], values[other] = values[other], values[index]
+                        elif defect.startswith("type"):
+                            values[index] = 1 if values[index] != 1 else 3
+                        else:
+                            values[index] += "!"
+                    elif defect == "duplicate-name":
+                        declarations[2] = declarations[0]
+                    elif defect == "missing":
+                        declarations.pop()
+                    elif defect == "unknown-name":
+                        declarations[0]["name"] = "tokenizer.ggml.pre"
+                    elif defect == "wrong-kind":
+                        declarations[0]["kind"] = "i32_array"
+                    elif defect in ("bool-type", "overflow-type", "negative-overflow-type"):
+                        type_values[0] = {"bool-type": True, "overflow-type": 2**31, "negative-overflow-type": -2**31 - 1}[defect]
+                    elif defect in ("row-cap", "merge-cap"):
+                        declarations[0 if defect == "row-cap" else 2]["values"] = ["x"] * 262145
+                    elif defect in ("token-content-cap", "merge-content-cap"):
+                        declarations[0 if defect == "token-content-cap" else 2]["values"] = ["x" * 4096] * 1025
+                    else:
+                        row_values[0] = "x" * 4097 if defect == "string-cap" else "bad\0token"
+                    refuse(expected_bytes=json.dumps(declarations, separators=(",", ":")).encode(), status=32 if mismatch else 30)
+                changed = bytearray(original_file)
+                struct.pack_into("<I", changed, reports[1]["native_type_element_offset"], reports[1]["native_wrong_type_kind"])
+                refuse(gguf_bytes=changed, status=32)
+                assert len(os.listdir("/proc/self/fd")) == descriptor_count and time.monotonic() - started < 180
+                assert set(item.name for item in output.iterdir()) == {"rows.gguf", "expected.json"}
+                print(json.dumps({**native, "tokenizer_native_refusals": mode, "refusal_count": refusals, "restored_file": True}))
     assert not root.exists()
 
 

@@ -3208,11 +3208,31 @@ This existing command cannot validate the larger joint three-record row/type/
 merge file: its exact 29-record contract and count/content/file caps remain
 unchanged. A separate synthetic-only native capacity allowance was
 [explicitly approved](handover.md#native-joint-metadata-proposal-2026-10-21).
-The local v2 checker has compiled, but guarded native integration is currently
-[resource-blocked](handover.md#native-crash-recovery-checkpoint-2026-10-21), not
-accepted. Existing source/caps remain the stable reference until those controls
-pass and source is checkpointed. No consumed learned approval enables another
-model-data read or native model loading.
+The v2 checker has compiled and guarded native integration is
+[verified on generated fixtures](handover.md#native-joint-metadata-checkpoint-2026-10-21)
+after the historical host resource block. The versioned
+`--selected-metadata-control-v2 GGUF JSON` accepts exactly the joint tokens,
+types and merges declarations, preserving the old command/caps. It permits
+262144 values, independently 4 MiB token/merge content, strings up to 4096 bytes,
+GGUF up to 16 MiB and strict declaration JSON up to 32 MiB. It uses native
+parser getters with `no_alloc` and no tensor context, before backend discovery;
+it never invokes a tokenizer/vocabulary/model loader.
+
+The existing diagnostic parametrization has separately selected modes
+`synthetic-joint-native`, `synthetic-merges-intermediate-native` and
+`synthetic-merges-full-native`, plus `synthetic-joint-native-controls` and
+`synthetic-merges-full-native-controls`. They require the same three cached-tool
+variables shown above; none builds or downloads automatically. Each performs
+the existing Python source-bound proof before direct guarded native execution.
+Control modes add exact refusal-status checks, one disposable fault at a time,
+unchanged original bytes/stat and recovered FD counts. They have a shared 180 s
+stage deadline, at most 60 s per child, observed RSS at most 2 GiB, host reserve
+at least 2 GiB and no process/host swap growth; the new native-only logical
+reservation is 128 MiB. These are not the old 15 s/1 GiB controls. Successful
+synthetic parser checks are not complete tokenizer or model/runtime acceptance.
+The approved sequence is finite; consult its retained ledger before another
+opt-in run. No consumed learned approval enables another model-data read or
+native model loading.
 
 ### Guarded Vocabulary Preflight
 

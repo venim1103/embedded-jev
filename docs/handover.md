@@ -27,15 +27,18 @@ The [joint proof checkpoint](#learned-joint-tokenizer-proof-checkpoint-2026-10-2
 records its single successful invocation after committed runner `465d07d`.
 **All four learned approvals are now consumed.** No flag permits another read.
 
-**Approved synthetic-native follow-up, currently resource-blocked:** the user
+**Approved synthetic-native follow-up, completed after host repair:** the user
 approved the exact committed scope of the
 [native joint metadata proposal](#native-joint-metadata-proposal-2026-10-21)
 before an editor crash. The
 [crash recovery checkpoint](#native-crash-recovery-checkpoint-2026-10-21)
 records intact source/caches, a successful target-only Release compile and
-failed guarded fixture verification. The C++/test edits remain uncommitted;
-no learned input or native model execution is authorized. Resume native checks
-only after host swap activity settles and a bounded retry is separately approved.
+failed guarded fixture verification. After storage cleanup and a WSL restart,
+the user explicitly resumed autonomous work. The
+[native joint checkpoint](#native-joint-metadata-checkpoint-2026-10-21) records
+successful tiny/intermediate/full generated getter checks, strict refusals and
+old-command compatibility with zero swap. All four learned approvals remain
+consumed; no learned input or native model execution is authorized.
 
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
@@ -520,7 +523,95 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Native Joint Metadata Checkpoint (2026-10-21)
+
+After checkpoint `604a1ef`, the user identified host storage pressure, cleaned
+unreferenced images and compacted the WSL virtual disk outside this container.
+The user reports over 300 GB of Windows free space and explicitly requests
+autonomous continuation. Fresh checks show intact pending source/cached binary,
+22 GiB available RAM, zero swap and no owned worker. This changed environment
+and explicit resume permit the repaired tiny check under the original guards;
+no unchanged failing test loop or consumed learned invocation was repeated.
+The previous crash cause remains inconclusive. No assistant host-level,
+privileged, clock, network, TLS or editor-setting change occurred.
+
+The cached Release executable from the prior successful target-only build was
+reused, not rebuilt. The versioned `--selected-metadata-control-v2` compares
+exactly three source-bound generated fields using native GGUF getters: tokens
+ARRAY/STRING, types ARRAY/INT32 and ranked merges ARRAY/STRING. It reports
+`selected_records=3`, `policy_version=2`, `tensor_data_allocated=false`, and
+`model_loaded=false`. The branch precedes backend discovery, uses `no_alloc`
+without a tensor context, and does not call a vocabulary/model loader. The
+original 29-record checker and its stricter limits are unchanged.
+
+Existing row-copy/emission/typed-readback/fresh-retained-proof workers now have
+separately selected native modes, source/JSON/output reservation before copying,
+path-only guarded native execution and a shared 180 s deadline. Each child has
+at most the remaining stage allowance and 60 s. New native modes alone use the
+approved 128 MiB logical allowance; old synthetic/learned policies retain their
+prior caps. Independent source/output/merge content limits, 262144 row/pair
+ceilings, 4096-byte strings, 16 MiB GGUF and 32 MiB declaration ceilings remain.
+
+Executed focused checks, all learned flags unset, no downloads/model inputs:
+
+| Generated Mode | Result | Pytest Time | Rows / Pairs | GGUF / Expected JSON Bytes |
+| --- | --- | --- | --- | --- |
+| `synthetic-joint-native` | Passed, including first native v2 getter invocation | 11.64 s | 32 / 2 | 928 / 570 |
+| `synthetic-merges-intermediate-native` | Passed before proceeding to full size | 6.67 s | 8193 / 4097 | 233472 / 155521 |
+| `synthetic-merges-full-native` | Passed after shared-deadline tightening | 36.85 s | 248320 / 245760 | 9630112 / 6662958 |
+| `synthetic-joint-native-controls` | 25 refusals passed | 6.52 s | 32 / 2 | 928 / 570 |
+| `synthetic-joint-native-controls` | Passed after changing faults to disposable copies and exact FD/stat assertions | 7.20 s | 32 / 2 | 928 / 570 |
+| `synthetic-merges-full-native-controls` plus old selected-parser compatibility | Both passed, serially | 42.86 s total | Full v2; old 32/8193 | Same full v2 bytes |
+
+The 25 v2 refusals cover first/last token strings, integer types, merge strings
+and pair ranks; duplicate JSON members/names, missing/unknown names, wrong kind,
+excess nesting, invalid UTF-8, bool/over/under-range INT32, excess row/pair counts,
+independent token/merge content, per-string length/NUL, and a GGUF UINT32 array
+where INT32 is required. Each child must return its exact expected status and
+no success output. One bounded disposable JSON or GGUF fault exists at a time;
+original bytes/stat identities are unchanged, descriptor counts recover exactly,
+and only the two intended original files remain before parent cleanup. The old
+checker passes both positive fixtures and 31 refusals at each size, including
+multibyte UTF-8 and wrong string/integer element types. No oversize artifact was
+created beyond the approved file ceilings; this is not arbitrary-input fuzzing.
+
+Full generated GGUF SHA-256 remains
+`cf8fab2999cf27c020f74da345bae5c75ee650e07b309abaca64aae9b96fa2dd`, with 243
+tail pads, 245760 generated pairs (not the learned pair count), and a two-byte
+BF16 anchor. Source/copy sets are 14853033 bytes each; source/output/merge string
+content is 2223602 / 2226284 / 2457600 bytes independently. Measured logical
+source/copy/GGUF/JSON plus reserved spool/report is 62784544 bytes, below 128 MiB;
+the larger conservative pre-copy reservation includes a separate fault allowance.
+Maximum observed child RSS across resumed checks is 1778843648 bytes, maximum
+observed v2 native RSS 84377600 bytes, minimum observed host available
+19562921984 bytes. Process/host swap remains zero. Sampling is not a hard peak
+or target-device memory guarantee. All temporary fixtures/maps/FDs/workers were
+cleaned; no learned contents, artifact, activations or spill were retained.
+
+Required source gate with learned and native/cache opt-ins unset: **1398 passed,
+154 skipped in 30.21 s**, Ruff and whitespace clean. C++/Python editor diagnostics
+and Pylance file syntax are clean. Documentation validation passes eight documents,
+565 local links and 73 tables. The native modes above were run explicitly;
+the default gate's skips are not native/model evidence. Backend-init CTest
+controls were not rerun: this branch neither initializes nor changes backends.
+Observed accumulated native-sequence accounting is 246.05 s including the prior
+104.10 s; conservatively reserve **250/600 s** for command/check overhead. Earlier
+synthetic 425.19/600 s accounting is independent and unchanged. No limits or
+ledgers were reset after the host repair.
+
+This completes the approved **synthetic three-field native parser** scope, not
+native tokenizer/pre-tag/vocabulary acceptance, complete metadata/tensor-table
+integration, a learned native read, model loading/dispatch, representative
+quality, calibrated confidence or device performance. All four learned approvals
+remain consumed. Next prepare a separately bounded proposal for the missing
+integration boundary using only synthetic fixtures; no new learned/native-model
+experiment is implicitly authorized by this checkpoint.
+
 ## Native Crash Recovery Checkpoint (2026-10-21)
+
+Historical blocked state, superseded by the
+[successful native joint checkpoint](#native-joint-metadata-checkpoint-2026-10-21).
+Failures and consumed retry approvals below remain part of the evidence.
 
 The user reported VS Code crashed and explicitly requested recovery checks,
 then continuation if safe. Starting `d61b188` matches `origin/main`; tracked
@@ -629,7 +720,9 @@ deliberately not staged with it.
 Prepared after result checkpoint `9657edf`, initially unapproved; **separately
 approved by the user after `d61b188`**. See the
 [recovery checkpoint](#native-crash-recovery-checkpoint-2026-10-21) for local
-implementation/build evidence and the resource-blocked verification status.
+implementation/build evidence and historical resource failures, then the
+[native joint checkpoint](#native-joint-metadata-checkpoint-2026-10-21) for
+completed synthetic verification after host repair.
 The learned joint file is 10933312 bytes, but the existing native test-only
 `--selected-metadata-control` accepts GGUF strictly below 1 MiB, expected JSON
 below 256 KiB and exactly 29 selected records. Its string-array caps are 16384
