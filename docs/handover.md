@@ -577,6 +577,16 @@ These edits remain local in the C++ control and its existing Python test file.
   The combined guard does not retain the failed child's peak metrics, so no
   exact RSS/process-swap attribution is claimed. Host swap did grow again;
   no resource-failed fixture was automatically retried or rebaselined.
+- After recovery checkpoint `4d06902`, the user resumed autonomous work and
+  separately selected **Approve One Tiny Retry**. Exactly one invocation of
+  the repaired tiny integration ran with all learned flags unset, no rebuild
+  and unchanged limits. Copy passed; emission stopped in the same RSS/swap
+  guard after **3.10 s**, before native launch. Host swap went from the measured
+  **9560064-byte** baseline to **9564160 bytes**: **4096 bytes** of growth alone
+  suffice to violate the strict host-global rule, even with >14 GB available.
+  This does not establish a native parser defect or a large memory overrun;
+  failed-child peak counters remain unavailable. The one tiny retry approval
+  is consumed, no identical retry followed, and worker/fixture cleanup passed.
 
 Before the import failure, the tiny generated input/copy sets were **5592 bytes
 each**, expected declarations **570 bytes**, GGUF **928 bytes**, logical owned
@@ -595,14 +605,19 @@ download, refit, candidate, quality or device job occurred.
 Post-recovery default gate, with all four learned flags and native/cache opt-ins
 unset: **1398 passed, 150 skipped in 34.64 s**, Ruff and whitespace clean;
 C++/Python editor diagnostics clean. Optional native/model tests were skipped,
-not inferred successful. Conservatively reserve **101 s of the new 600 s native
-sequence** (61.39 s observed watcher/focused-test time +34.64 s default gate,
-rounded upward for small observer self-tests); earlier synthetic ledger
-425.19/600 s is independent and unchanged.
+not inferred successful. Conservatively reserve **104.10 s of the new 600 s
+native sequence** (initial 101 s reservation for watcher/focused checks/default
+gate and small observer self-tests, plus the separately approved 3.10 s tiny
+retry); earlier synthetic ledger 425.19/600 s is independent and unchanged.
+No source changed after the completed default gate, so that unchanged successful
+gate was not repeated for this documentation-only failed-retry update.
 
-**Current blocker/next action:** stabilize host/VM swap activity, then request
-one bounded retry of the repaired tiny native integration under unchanged
-limits. Do not reset the ledger, rerun learned diagnostics or claim a native
+**Current blocker/next action:** provide a host/VM test window without unrelated
+swap growth, then separately approve one bounded retry of the repaired tiny
+native integration under unchanged limits. Repeatedly resetting the baseline
+is not a remedy; the guard intentionally rejects even 4096 bytes of host-global
+growth. No host settings or resource tolerance have been changed. Do not reset
+the ledger, rerun learned diagnostics or claim a native
 source checkpoint from a compile alone. After tiny getter agreement, finish
 scoped old-command compatibility, strict v2 refusals, intermediate/full generated
 integration and required gates before committing native/test source. Recovery
