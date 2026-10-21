@@ -27,10 +27,15 @@ The [joint proof checkpoint](#learned-joint-tokenizer-proof-checkpoint-2026-10-2
 records its single successful invocation after committed runner `465d07d`.
 **All four learned approvals are now consumed.** No flag permits another read.
 
-**Next proposal, not approved:** the
+**Approved synthetic-native follow-up, currently resource-blocked:** the user
+approved the exact committed scope of the
 [native joint metadata proposal](#native-joint-metadata-proposal-2026-10-21)
-would add a separately bounded synthetic-only native parser check. No new
-native build/run or larger resource allowance has started under that proposal.
+before an editor crash. The
+[crash recovery checkpoint](#native-crash-recovery-checkpoint-2026-10-21)
+records intact source/caches, a successful target-only Release compile and
+failed guarded fixture verification. The C++/test edits remain uncommitted;
+no learned input or native model execution is authorized. Resume native checks
+only after host swap activity settles and a bounded retry is separately approved.
 
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
@@ -515,9 +520,101 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Native Crash Recovery Checkpoint (2026-10-21)
+
+The user reported VS Code crashed and explicitly requested recovery checks,
+then continuation if safe. Starting `d61b188` matches `origin/main`; tracked
+source was clean, user editor settings untouched. The user had separately
+approved the native proposal after that commit, although earlier documentation
+and memory still said approval pending. All four learned approvals remain
+consumed; this recovery opened no learned inputs or weight/shard headers.
+
+**Crash evidence is inconclusive:** previous remote/extension-host logs end
+without a recorded fatal exception/OOM cause. Current container memory-event
+counters report zero OOM/OOM kills, but do not establish the previous editor
+process's cause. Kernel Hyper-V storage-buffer warnings are present, not proof
+of causation. Host-side VS Code crash evidence is unavailable here. Repository,
+pinned Prism revision `842b1880415d6f508f03b789e5ce70194def7bfd`, cached Release/
+clang++-18/Ninja build and cached interpreter survived. No build/watcher was
+running, no interrupted C++ edit had applied and no fixture data remained.
+
+**Implemented locally, not integrated/committed:** new test-only
+`--selected-metadata-control-v2` accepts exactly tokens ARRAY/STRING, token types
+ARRAY/INT32 and merges ARRAY/STRING. It keeps the old 29-record command/caps
+unchanged, runs before backend discovery with `no_alloc=true`/no tensor context,
+and applies the proposed count/content/string/JSON/GGUF limits. The tiny
+`[synthetic-joint-native]` diagnostic reserves source/copy/file/fault/JSON/spool
+before copying, emits bounded declarations, and uses the existing direct-exec
+native process guard after Python source-bound proof. Its new native prefix
+requires the generated profile/local temporary source, never a learned target.
+These edits remain local in the C++ control and its existing Python test file.
+
+**Observed build/failed-check history:**
+
+- A disposable observer's Release/target/two-job ownership checks passed.
+  First watched build request aborted after **24.14 s**, observed build RSS
+  zero: CMake Tools issued an exact cached **Release configure** request, but
+  the observer incorrectly classified it as a build. CMake diagnostics were
+  empty and the cache remained Release. This was an observer defect, not a
+  compiler failure or a Debug rebuild.
+- The observer was repaired to admit only that exact Release configure form,
+  retested, and kept active until the target build completed. Its next arming
+  aborted after **4.03 s**, before a build request: host swap grew from
+  **5435392 to 5857280 bytes**, while observed build RSS was zero and available
+  memory stayed above 16 GB. No unchanged automatic retry followed.
+- The user explicitly selected **Approve One Guarded Retry**, with the new
+  baseline and all limits unchanged. That single attempt completed: CMake
+  built only the loader-control object/executable, **2 steps / 11.04 s**;
+  observer **19.32 s**, maximum observed build-tree RSS **342872064 bytes**,
+  minimum host available **15772090368 bytes**, no process/host swap growth.
+  The separately approved retry is consumed. No dependency rebuild occurred.
+- First tiny integration attempt **failed in 9.43 s** after Python emission/
+  proof, before native launch: missing local `sys` import in the new controller
+  call. That single import was repaired; no assertion/limit was changed.
+- The same focused check then **failed in 4.46 s** during emission in the
+  unchanged RSS/swap guard, before native launch. A subsequent host snapshot
+  reports swap **9457664 bytes**, versus the attempt's **5857280-byte** baseline.
+  The combined guard does not retain the failed child's peak metrics, so no
+  exact RSS/process-swap attribution is claimed. Host swap did grow again;
+  no resource-failed fixture was automatically retried or rebaselined.
+
+Before the import failure, the tiny generated input/copy sets were **5592 bytes
+each**, expected declarations **570 bytes**, GGUF **928 bytes**, logical owned
+source/copy/file/JSON plus reserved spool/report **16798090 bytes**. All 32 row
+strings/types and two merges passed typed Python readback/fresh retained proof
+with two same-FD hashes; bounded sparse-vocabulary warnings are expected.
+**No v2 native getter invocation has completed**, so this is not native parser
+acceptance. No intermediate/full native fixture has started.
+
+All guarded failures killed/reaped children and removed temporary fixture data;
+no worker remains. Small disposable build observer/report files remain in
+`/tmp` for recovery; the pinned native cache retains the newly compiled target.
+No host/clock/network/TLS/privilege/editor setting changed. No model loading,
+download, refit, candidate, quality or device job occurred.
+
+Post-recovery default gate, with all four learned flags and native/cache opt-ins
+unset: **1398 passed, 150 skipped in 34.64 s**, Ruff and whitespace clean;
+C++/Python editor diagnostics clean. Optional native/model tests were skipped,
+not inferred successful. Conservatively reserve **101 s of the new 600 s native
+sequence** (61.39 s observed watcher/focused-test time +34.64 s default gate,
+rounded upward for small observer self-tests); earlier synthetic ledger
+425.19/600 s is independent and unchanged.
+
+**Current blocker/next action:** stabilize host/VM swap activity, then request
+one bounded retry of the repaired tiny native integration under unchanged
+limits. Do not reset the ledger, rerun learned diagnostics or claim a native
+source checkpoint from a compile alone. After tiny getter agreement, finish
+scoped old-command compatibility, strict v2 refusals, intermediate/full generated
+integration and required gates before committing native/test source. Recovery
+documentation is a separate documentation-only checkpoint; pending source is
+deliberately not staged with it.
+
 ## Native Joint Metadata Proposal (2026-10-21)
 
-Prepared after result checkpoint `9657edf`; **not approved or implemented**.
+Prepared after result checkpoint `9657edf`, initially unapproved; **separately
+approved by the user after `d61b188`**. See the
+[recovery checkpoint](#native-crash-recovery-checkpoint-2026-10-21) for local
+implementation/build evidence and the resource-blocked verification status.
 The learned joint file is 10933312 bytes, but the existing native test-only
 `--selected-metadata-control` accepts GGUF strictly below 1 MiB, expected JSON
 below 256 KiB and exactly 29 selected records. Its string-array caps are 16384
@@ -581,8 +678,8 @@ failed gate without diagnosis and a substantive repair.
 All four learned approvals remain consumed. This proposal includes **no learned
 file/header reads**, native model loading/inference, full conversion, downloads,
 candidate/refit/quality work, other-profile/device execution or deployment claim.
-Ask for approval of this exact bounded synthetic native scope before editing
-the checker, building or running its new large cases.
+The separate scope approval was given before the editor crash; it does not
+permit relaxing a resource bound or automatically retrying a resource refusal.
 
 ## Joint Tokenizer Runner Checkpoint (2026-10-21)
 

@@ -3206,9 +3206,13 @@ values are not a hard peak-memory or target-device guarantee.
 
 This existing command cannot validate the larger joint three-record row/type/
 merge file: its exact 29-record contract and count/content/file caps remain
-unchanged. A separate synthetic-only native capacity allowance is
-[proposed, not implemented or approved](handover.md#native-joint-metadata-proposal-2026-10-21).
-No consumed learned approval enables that proposal or another model-data read.
+unchanged. A separate synthetic-only native capacity allowance was
+[explicitly approved](handover.md#native-joint-metadata-proposal-2026-10-21).
+The local v2 checker has compiled, but guarded native integration is currently
+[resource-blocked](handover.md#native-crash-recovery-checkpoint-2026-10-21), not
+accepted. Existing source/caps remain the stable reference until those controls
+pass and source is checkpointed. No consumed learned approval enables another
+model-data read or native model loading.
 
 ### Guarded Vocabulary Preflight
 
