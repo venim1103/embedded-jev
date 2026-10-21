@@ -3157,8 +3157,14 @@ learned invocation; record failure without automatic retry and delete all
 copies/file/spool. See the
 [joint runner checkpoint](handover.md#joint-tokenizer-runner-checkpoint-2026-10-21)
 and [bounded proposal](handover.md#learned-joint-tokenizer-proposal-2026-10-21)
-for authorization and actual consumed/unused status. The three older learned
-approvals remain consumed; do not infer a new invocation from their flags.
+for the original authorization. The
+[joint proof checkpoint](handover.md#learned-joint-tokenizer-proof-checkpoint-2026-10-21)
+records the single successful invocation after committed runner `465d07d`:
+248320 row strings/types and 247587 original ranked merges, exact typed
+readback and fresh retained-file proof, 38.22 s with zero swap growth and full
+cleanup. All four learned approvals are now **consumed**. No output artifact is
+retained; this is selected storage/policy agreement, not full tokenizer or
+native/model acceptance. Do not infer permission to repeat from any flag.
 
 ### Offline Selected Metadata Control
 

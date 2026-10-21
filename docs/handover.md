@@ -13,8 +13,9 @@ The pauses below are historical. Read the
 [full-size merge lifetime checkpoint](#full-size-merge-lifetime-checkpoint-2026-10-21), then the
 [full-size merge refusal checkpoint](#full-size-merge-refusal-checkpoint-2026-10-21)
 for the current synthetic-only follow-up. Existing resource limits remain in
-force; all three learned approvals remain consumed. No new learned/model/native
-execution, download, refit or quality experiment is authorized by this resume.
+force; the three learned approvals then available were consumed. This resume
+alone authorizes no new learned/model/native execution, download, refit or quality
+experiment; a later separate approval is recorded below.
 
 **New separate approval after `14e9e4c`:** the user selected **Approve One Joint
 Proof** for the
@@ -22,7 +23,9 @@ Proof** for the
 on the exact pinned MiMo profile. The
 [joint runner checkpoint](#joint-tokenizer-runner-checkpoint-2026-10-21) records
 implementation/synthetic safety gates before the single learned invocation.
-That new approval is not consumed yet; all three older approvals stay consumed.
+The [joint proof checkpoint](#learned-joint-tokenizer-proof-checkpoint-2026-10-21)
+records its single successful invocation after committed runner `465d07d`.
+**All four learned approvals are now consumed.** No flag permits another read.
 
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
@@ -438,6 +441,73 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Learned Joint Tokenizer Proof Checkpoint (2026-10-21)
+
+After committed runner **`465d07d`**, execute the separately approved
+`[approved-joint]` **exactly once**. All three serial copy/emission/proof workers
+pass, **1 passed in 38.22 s**, with empty stderr and no retries. The new approval
+is now **consumed**, as are the three older learned approvals. Source code is
+unchanged after its committed pre-invocation gate; this results update is
+documentation only.
+
+Exact command from the repository root:
+
+```bash
+env -u MIMO_TOKENIZER_ROWS_APPROVED \
+  -u MIMO_TOKENIZER_ONLY_APPROVED \
+  -u MIMO_TOKENIZER_INVENTORY_APPROVED \
+  MIMO_TOKENIZER_JOINT_APPROVED=1 \
+  MIMO_LOCAL_DIR=/home/vscode/.cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177 \
+  PRISM_SOURCE_DIR=/home/vscode/.cache/huggingface/embedded-jev/native/prism-source \
+  PRISM_CONVERTER_PYTHON=/home/vscode/.cache/huggingface/embedded-jev/dense-venv/bin/python \
+  PYTHONDONTWRITEBYTECODE=1 \
+  python -m pytest -q -s -p no:cacheprovider --tb=short \
+  'tests/test_prism_native_control.py::test_pinned_profile_tokenizer_rows_diagnostic[approved-joint]'
+```
+
+Exact MiMo revision `2367e865d009c13ac81713a2878291d33ab28177`, canonical profile
+`1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`, pinned Prism
+`842b1880415d6f508f03b789e5ce70194def7bfd`, Transformers 5.12.1/tokenizers
+0.22.2/NumPy 2.2.6. Ten pinned non-weight files and their read-only copies are
+**30144444 bytes each**. All **248320 row strings/types**, including **243 tail
+placeholders**, agree with the pinned row method. There are **33 normalization
+operations**, not necessarily changed strings, and zero USER_DEFINED space
+rewrites. Source/output row content is **2864125/2866798 bytes** independently.
+All **247587 original ranked source merges**, **3105672 content bytes**, pass
+source-spelling/join/order checks and exact typed readback.
+
+Exactly three selected records plus the two-byte synthetic BF16 anchor produce
+**10933312 bytes**, SHA-256
+`06199581b0064ce7526eb83d63cfde40f75a136f53a56b396c96ffe1d055a960`.
+Fresh-source v4 joint proof matches all rows and merges, reaches **two hashes
+on one retained descriptor**, and uses positional reads <=**65536 bytes**.
+There are zero merge contradictions/fault cases. No model/pre-tokenizer tag is
+emitted and the unchecked pre-tag stub remains explicit.
+
+Logical source+copy+output+reserved spool/report is **88007608 bytes**, below
+the learned-only **128 MiB** cap. Copy/emission/proof observed RSS is
+**40558592 / 1920811008 / 1648271360 bytes**; reported process high-water is
+**53284864 / 1919889408 / 1647603712 bytes**. The largest observed RSS remains
+below 2 GiB; minimum observed host available is **16007462912 bytes**. Process
+and host swap remain **zero**. Each worker meets 60 s and the complete invocation
+meets 180 s. These are observed process/host controls, not device guarantees.
+
+Source/copy hashes and original-source stat identities are rechecked across
+all phases; map/FD lifetime and complete parent-owned cleanup assertions pass.
+Disposable input copies, GGUF and spool are removed; no learned strings,
+weights, output artifact or raw activations are retained. User editor settings
+remain untouched. No source writes, network/download, weight/shard-header reads,
+other-profile inputs, native/model execution, refit, quality or device work ran.
+
+This closes the approved **joint selected storage/policy proof**, not full BPE
+semantics, pre-tokenizer/model-tag acceptance, complete converter integration,
+native dispatch, representative quality or calibrated confidence. The prior
+source gate remains **1398 passed / 149 skipped in 25.40 s**, Ruff/Pylance/editor
+checks clean; it was not repeated for this documentation-only result.
+Next: inspect pinned pre-tokenizer/model-tag prerequisites using source and
+generated fixtures only, then scope any new learned/native action separately.
+Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
 ## Joint Tokenizer Runner Checkpoint (2026-10-21)
 
 After `14e9e4c` and the user's separate **Approve One Joint Proof**, implement
@@ -493,7 +563,7 @@ not claimed from that gate. Conservatively adding the 7.30/1.11/13.96 s checks
 to the previous synthetic ledger gives **425.19/600 s**; no unchanged large
 control was rerun. The new learned invocation has its own 180 s limit.
 
-**Before the learned invocation:** commit this runner and gate evidence; then
+**Historical runner state, committed as `465d07d`:** commit this runner and gate evidence; then
 run exactly one `[approved-joint]` on the pinned cached MiMo inputs with only
 the new flag. That invocation has not run in this checkpoint and its approval
 is still unused. Original three approvals remain consumed. No learned content,
@@ -502,9 +572,11 @@ has occurred. Stop and report any refusal without an automatic retry.
 
 ## Learned Joint Tokenizer Proposal (2026-10-21)
 
-Prepared after `c3bd0df`, **separately approved after `14e9e4c`**; implementation
-and synthetic safety evidence are in the runner checkpoint above. The learned
-invocation is **not yet exercised**. The
+Historical proposal prepared after `c3bd0df`, **separately approved after
+`14e9e4c` and now consumed**. Implementation and synthetic safety evidence are
+in the runner checkpoint above; the joint proof checkpoint records the single
+completed invocation after `465d07d`. The text below preserves the pre-run
+request and its then-unknown counts, not current unused authorization. The
 synthetic positive/first-last/type/default-budget/hash/mapping/lifetime controls
 are complete, with no learned proof of the joint three-record path. All three
 earlier learned one-shots are consumed. This requests **one separate new parent
