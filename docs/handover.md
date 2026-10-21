@@ -16,6 +16,12 @@ for the current synthetic-only follow-up. Existing resource limits remain in
 force; all three learned approvals remain consumed. No new learned/model/native
 execution, download, refit or quality experiment is authorized by this resume.
 
+**Next approval pending:** after `c3bd0df`, the
+[learned joint tokenizer proposal](#learned-joint-tokenizer-proposal-2026-10-21)
+requests one new row/type/merge proof on the exact pinned MiMo profile. Only
+cache-entry metadata and installed package metadata were checked; learned
+contents were not read. This proposal is not approval or an implemented runner.
+
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
 positive synthetic emission/readback/retained proof; no full-size merge fault
@@ -429,6 +435,83 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Learned Joint Tokenizer Proposal (2026-10-21)
+
+Prepared after `c3bd0df`; **not approved, implemented or exercised**. The
+synthetic positive/first-last/type/default-budget/hash/mapping/lifetime controls
+are complete, with no learned proof of the joint three-record path. All three
+earlier learned one-shots are consumed. This requests **one separate new parent
+invocation**, three serial copy/emission/proof workers, not a model conversion
+or permission to repeat any earlier learned diagnostic.
+
+Target only cached MiMo revision
+`2367e865d009c13ac81713a2878291d33ab28177`, canonical parsed profile SHA-256
+`1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`, and cached
+Prism `842b1880415d6f508f03b789e5ce70194def7bfd`. Use the existing trusted converter
+environment: Transformers 5.12.1, tokenizers 0.22.2, NumPy 2.2.6. No install,
+download, other model/profile or source revision change is included.
+
+Allow exactly the seven declared profile metadata files plus `tokenizer.json`,
+`vocab.json`, `merges.txt`: ten files, each source/copy set <=32 MiB. Rehash all
+against profile pins before copy; create read-only disposable copies, check
+source/copy bytes and original source stat identity across phases. No weights,
+shard headers, unlisted model-data files, network or source writes. Trusted
+installed library/system imports outside those model-data roots remain allowed;
+Python auditing/local-only loading is not an OS/native sandbox. Never execute
+model-repository code or enable `trust_remote_code`.
+
+Use existing writer v3 / retained verifier v4 with exact row/merge policies,
+rows <=262144, original ranked pairs <=262144, source/output/merge content
+**4 MiB each independently**, each UTF-8 string and encode <=4096 bytes/IDs,
+added rows <=4096/64 KiB and missing intervals <=4096. Actual learned pair count
+and joined content are **unknown**; do not infer them from generated fixtures
+or the text-file size. Unsupported data or an exceeded bound must refuse, not
+expand policy. Old API/default/synthetic hard ceilings stay unchanged.
+
+Compare all row strings/types with the exact pinned row method, retaining its
+explicit unchecked pre-tag stub; validate merges against original source
+spellings/join/order, not normalized output or padding. Emit exactly tokens,
+token types and merges plus one two-byte synthetic BF16 anchor, no model/pre-
+tokenizer tag, then exact typed readback and one fresh-source, single-retained-
+file proof with two hashes, pread <=65536 and the existing default proof deadline.
+This is selected storage/policy agreement, not independent full BPE semantics,
+complete tokenizer, native dispatch, model execution, confidence or quality.
+
+**New learned-only limits requiring approval:** logical aggregate
+source+copy+output+reserved spool+report <=**128 MiB**; source/copies <=32 MiB
+each, output/spool <=16 MiB each, selected records/header <=16 MiB. No learned
+fault/corruption or second file. Serial child <=**60 s**, entire new invocation
+<=**180 s**, observed worker RSS <=**2 GiB**, observed host reserve >=**2 GiB**,
+abort process/host swap growth. Path-only stdin <=64 KiB, stdout+stderr and
+summary <=8 KiB per worker. Parent kills/reaps/closes/cleans on failure. No
+deadline/assertion/tolerance relaxation, automatic retry or budget increase.
+This does not increase the existing synthetic 64 MiB allowance or reset its
+402.82/600 s accounting.
+
+Before learned access, implement an independent
+`MIMO_TOKENIZER_JOINT_APPROVED=1` opt-in and exact pinned target check; all older
+flags must be unable to enable it, and it must not enable old modes. Preserve
+the consumed row-only `[approved]` path. Run focused synthetic routing/safety
+checks and the required source gate, then commit the runner **before** the
+single learned invocation. A failure ends that invocation; report it and ask
+for a separately scoped action rather than silently retrying or extending limits.
+
+Metadata-only preflight: an initial assertion incorrectly compared the canonical
+profile identity with raw file bytes, failing **before cache-entry access**.
+The public parser confirms canonical identity as above; raw repository-file SHA
+is `dd7ca2e74e658c17c764ba538822247c4e3d176e898e6f53c8131ae825ae2f98`.
+Corrected stat-only check confirms **ten entries / 30144444 bytes**, no learned
+contents read. Proposed conservative logical upper with two source sets, two
+16 MiB reservations and 8 KiB report is **93851512 bytes**, below 128 MiB.
+Installed package metadata matches the versions above. These are prerequisites,
+not source-content hash verification or actual learned parser/writer evidence.
+
+After the invocation, remove all disposable copies/file/spool; retain only a
+small count/hash/resource report, never learned strings or raw activations.
+Record original-source immutability, consumed approval, exact commands/results,
+cleanup and limits in this handover. Ask for **separate explicit approval**
+before implementing this new learned allowance or opening learned contents.
 
 ## Full-Size Merge Lifetime Checkpoint (2026-10-21)
 
