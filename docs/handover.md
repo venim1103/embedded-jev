@@ -16,11 +16,13 @@ for the current synthetic-only follow-up. Existing resource limits remain in
 force; all three learned approvals remain consumed. No new learned/model/native
 execution, download, refit or quality experiment is authorized by this resume.
 
-**Next approval pending:** after `c3bd0df`, the
+**New separate approval after `14e9e4c`:** the user selected **Approve One Joint
+Proof** for the
 [learned joint tokenizer proposal](#learned-joint-tokenizer-proposal-2026-10-21)
-requests one new row/type/merge proof on the exact pinned MiMo profile. Only
-cache-entry metadata and installed package metadata were checked; learned
-contents were not read. This proposal is not approval or an implemented runner.
+on the exact pinned MiMo profile. The
+[joint runner checkpoint](#joint-tokenizer-runner-checkpoint-2026-10-21) records
+implementation/synthetic safety gates before the single learned invocation.
+That new approval is not consumed yet; all three older approvals stay consumed.
 
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
@@ -436,9 +438,73 @@ table, Bash-syntax, editor-diagnostic and whitespace validation passed; no sourc
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
 
+## Joint Tokenizer Runner Checkpoint (2026-10-21)
+
+After `14e9e4c` and the user's separate **Approve One Joint Proof**, implement
+explicit `[approved-joint]` in the row diagnostic. It requires independent exact
+`MIMO_TOKENIZER_JOINT_APPROVED=1` before cache/source/process access. Old row,
+fingerprint and inventory flags cannot enable it; the new flag cannot enable
+those consumed modes. Exact canonical MiMo profile/source target is checked
+before cached-source commands, with source-tree diff against pinned Prism for
+the row method and `gguf-py`. Child checks independently repeat flag, profile,
+source, versions and no-fault conditions before input-content access.
+
+This mode alone permits the approved **128 MiB** logical aggregate with ten
+<=32 MiB source/copy files and <=16 MiB file/spool; new synthetic modes remain
+**64 MiB**. Both use existing explicit v3 writer/v4 retained verifier limits.
+Learned merge count stays unknown until successful emission under the **262144
+pair / 4 MiB** caps, never inferred from text-file size or synthetic counts.
+Readback handles existing string/two-string-list merge representations without
+adding supported formats or normalization semantics. No learned fault cases.
+
+Parent and child share a monotonic **180 s** total deadline. Existing v2 worker
+guard already supports a stricter timeout: pass `min(60, remaining)` for each
+serial copy/emission/proof child and shorten child content deadlines too. Old
+guard APIs/defaults/hard ceilings and old 600 s sequences stay unchanged.
+Keep 2 GiB observed RSS/host reserve, swap-growth abort, path-only 64 KiB stdin,
+8 KiB output, source/copy byte/stat checks and parent-owned full cleanup.
+
+Flag/source-process isolation **21 passed in 0.04 s**. Tiny `[synthetic-joint]`
+uses 32 generated rows/two holes/two string-form merges, actual pinned row
+comparison, v3 emission/typed readback/v4 proof, **1 passed in 7.30 s**. Output
+928 bytes, two retained hashes/pread <=928, logical **16797520 bytes**, observed
+worker RSS <=**335224832 bytes**, process/host swap zero. Expected sparse-row
+warnings remain in bounded stderr, not JSON stdout. No learned input involved.
+
+While inserting additional safety tests, a context-only patch was automatically
+corrected into an unintended decorator at the file header. Focused collection
+failed **SyntaxError at line 2 / 0.09 s**, before a diagnostic process/source read.
+Read the header, removed only that inserted line; the **same check collected
+three tests in 0.02 s**. No test/resource assertion was relaxed. Later intended
+tests use a real function anchor; no unrelated decorator/flag remains.
+
+New exact-target tests use only the committed profile and path metadata. Child
+prefix tests deliberately stop **before the source read/copy loop**, with an
+additional audit hook that rejects every model-data open. Accepted prefix
+confirms 128 MiB/ten entries/30144444 bytes; wrong flag, profile, path, fault or
+expired deadline refuses, leaving empty scratch. Combined target/prefix and
+cross-flag checks **23 passed in 1.11 s**, no learned contents opened.
+
+Affected old guard/copy/tiny row/merge controls **21 passed in 13.96 s**.
+Required pre-learned source gate with **all four learned flags unset**:
+**1398 passed, 149 skipped in 25.40 s**, Ruff, whitespace, Pylance syntax and
+editor checks clean. Native/model/full-size optional controls were skipped,
+not claimed from that gate. Conservatively adding the 7.30/1.11/13.96 s checks
+to the previous synthetic ledger gives **425.19/600 s**; no unchanged large
+control was rerun. The new learned invocation has its own 180 s limit.
+
+**Before the learned invocation:** commit this runner and gate evidence; then
+run exactly one `[approved-joint]` on the pinned cached MiMo inputs with only
+the new flag. That invocation has not run in this checkpoint and its approval
+is still unused. Original three approvals remain consumed. No learned content,
+weight/header, download/install, native/model execution, refit or quality work
+has occurred. Stop and report any refusal without an automatic retry.
+
 ## Learned Joint Tokenizer Proposal (2026-10-21)
 
-Prepared after `c3bd0df`; **not approved, implemented or exercised**. The
+Prepared after `c3bd0df`, **separately approved after `14e9e4c`**; implementation
+and synthetic safety evidence are in the runner checkpoint above. The learned
+invocation is **not yet exercised**. The
 synthetic positive/first-last/type/default-budget/hash/mapping/lifetime controls
 are complete, with no learned proof of the joint three-record path. All three
 earlier learned one-shots are consumed. This requests **one separate new parent

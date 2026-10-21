@@ -3132,6 +3132,34 @@ See the [lifetime checkpoint](handover.md#full-size-merge-lifetime-checkpoint-20
 for actual measurements, sequence accounting and evidence boundaries. All
 learned flags remain consumed; these modes authorize only generated fixtures.
 
+New `[synthetic-joint]` validates the joint writer/proof routing on tiny
+generated rows and string-form source merges; it retains the synthetic 64 MiB
+cap. Separately approved `[approved-joint]` requires independent exact
+`MIMO_TOKENIZER_JOINT_APPROVED=1`, canonical MiMo profile and cached source
+target. It does not enable consumed row-only/fingerprint/inventory modes, and
+their flags cannot enable it. An environment flag alone is not fresh approval.
+
+The learned joint mode alone uses **128 MiB** logical source+copy+output+
+reserved spool/report, source/copies <=32 MiB each, file/spool and selected
+records/header <=16 MiB. Exact input set is seven declared metadata files plus
+tokenizer JSON/vocab/merges; no weights, shard headers, unlisted model-data,
+network, source writes, repository-code execution, faults or second file.
+Three serial workers share **180 s total**; each guard gets the smaller of
+60 s and remaining time. Keep observed RSS <=2 GiB, host reserve >=2 GiB,
+swap-growth abort, path-only 64 KiB stdin and bounded 8 KiB summaries/output.
+
+Check exact flag/profile/path/versions/no-fault policy in parent and child,
+recheck source/copy pins and source stat identity per phase, compare all rows
+with the pinned method and original ranked source pairs/order, then typed
+readback and fresh joint retained proof. No tag/model/native or tokenizer
+semantics acceptance is implied. Commit the tested runner before exactly one
+learned invocation; record failure without automatic retry and delete all
+copies/file/spool. See the
+[joint runner checkpoint](handover.md#joint-tokenizer-runner-checkpoint-2026-10-21)
+and [bounded proposal](handover.md#learned-joint-tokenizer-proposal-2026-10-21)
+for authorization and actual consumed/unused status. The three older learned
+approvals remain consumed; do not infer a new invocation from their flags.
+
 ### Offline Selected Metadata Control
 
 The test-only `prism_bitnet_loader_control --selected-metadata-control GGUF JSON`

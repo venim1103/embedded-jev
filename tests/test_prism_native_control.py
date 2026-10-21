@@ -5621,11 +5621,22 @@ row_mode = fixture["operation"] in ("rows-copy", "rows-emission", "rows-proof")
 deadline = time.monotonic() + (60 if row_mode else 15)
 profile = parse_model_profile(bytes.fromhex(fixture["profile_hex"]))
 source, scratch = Path(fixture["source"]), Path(fixture["scratch"])
+learned_joint = fixture.get("learned_joint", False)
+if learned_joint:
+    assert os.environ.get("MIMO_TOKENIZER_JOINT_APPROVED") == "1" and row_mode
+    assert profile.sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
+    assert profile.revision == "2367e865d009c13ac81713a2878291d33ab28177"
+    assert source.resolve() == (Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177").resolve()
+    assert fixture["include_merges"] and fixture["merge_version"] == 2 and fixture["joint_policy"]
+    assert not fixture["synthetic_refusals"] and not fixture["merge_faults"] and fixture.get("proof_case") is None
+    assert type(fixture["sequence_deadline"]) in (int, float) and 0 < fixture["sequence_deadline"] - time.monotonic() <= 180
+    deadline = min(deadline, fixture["sequence_deadline"])
+    assert tuple(version(name) for name in ("transformers", "tokenizers", "numpy")) == ("5.12.1", "0.22.2", "2.2.6")
 names = (tuple(profile.packaging["metadata_files"]) + ("tokenizer.json", "vocab.json", "merges.txt") if row_mode else
     ("config.json", "tokenizer_config.json", "tokenizer.json", "vocab.json", "merges.txt"))
 total = sum(profile.files[name].bytes for name in names)
 assert len(set(names)) == len(names) and 0 < total < 32 * 1024**2
-row_scratch_cap = (64 if fixture.get("merge_version") == 2 else 128) * 1024**2
+row_scratch_cap = (128 if learned_joint else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 assert (2 * total + 2 * 16 * 1024**2 + 8192 < row_scratch_cap if row_mode else 2 * total + 8192 < 64 * 1024**2)
 assert scratch.is_dir() and (row_mode and fixture["operation"] != "rows-copy" or not list(scratch.iterdir()))
 
@@ -5912,12 +5923,23 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
 
 
 def _tokenizer_rows_diagnostic_environment(mode):
-    if mode not in ("synthetic", "approved"):
+    if mode not in ("synthetic", "approved", "approved-joint"):
         raise ValueError("unknown tokenizer row diagnostic mode")
     source, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
-    if not source or not interpreter or mode == "approved" and os.environ.get("MIMO_TOKENIZER_ROWS_APPROVED") != "1":
+    flag = "MIMO_TOKENIZER_JOINT_APPROVED" if mode == "approved-joint" else "MIMO_TOKENIZER_ROWS_APPROVED"
+    if not source or not interpreter or mode != "synthetic" and os.environ.get(flag) != "1":
         pytest.skip("requires pinned cached libraries; learned rows need their own one-shot approval")
     return Path(source), interpreter
+
+
+def _tokenizer_joint_target_profile(profile_bytes, local):
+    from embedded_jev.model_profile import parse_model_profile
+
+    profile = parse_model_profile(profile_bytes)
+    expected = Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
+    if profile.sha256 != "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a" or local.resolve() != expected.resolve():
+        raise ValueError("joint tokenizer diagnostic requires exact pinned MiMo target")
+    return profile
 
 
 def _tokenizer_rows_diagnostic_code():
@@ -6060,9 +6082,10 @@ def run_rows():
     path = root / "rows.gguf"
     include_merges = fixture.get("include_merges", False)
     expanded_merges = fixture.get("merge_version", 1) == 2
-    merge_arguments = dict(merge_policy="pinned_prism_ranked_source_merges_v2", maximum_merge_rows=fixture["merge_rows"],
+    merge_arguments = dict(merge_policy="pinned_prism_ranked_source_merges_v2", maximum_merge_rows=fixture["merge_row_cap"],
         maximum_merge_content_bytes=4 * 1024**2) if expanded_merges else {}
-    merge_values = tuple(" ".join(pair) for pair in json.loads(arguments["tokenizer_bytes"])["model"]["merges"]) if include_merges else ()
+    merge_values = tuple(pair if isinstance(pair, str) else " ".join(pair)
+        for pair in json.loads(arguments["tokenizer_bytes"])["model"]["merges"]) if include_merges else ()
     descriptors = len(os.listdir("/proc/self/fd"))
     if operation == "rows-emission":
         import numpy as np
@@ -6161,7 +6184,9 @@ def run_rows():
             assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
             if expanded_merges:
                 assert receipt["tokenizer_row_file_policy_version"] == 4 and receipt["bpe_merge_policy_version"] == 2
-                assert receipt["bpe_merge_count"] == fixture["merge_rows"] > 4096
+                assert receipt["bpe_merge_count"] == len(merge_values) <= fixture["merge_row_cap"]
+                if not fixture["joint_policy"]:
+                    assert len(merge_values) > 4096
             if include_merges:
                 field = reader.fields["tokenizer.ggml.merges"]
                 merge_offsets = [int(field.parts[field.data[index]].ctypes.data - reader.data.ctypes.data) for index in (0, 1)]
@@ -6222,7 +6247,7 @@ finish_report(report)
 
 @pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full", "approved",
     "synthetic-merges-intermediate-refusals", "synthetic-merges-full-refusals",
-    "synthetic-merges-intermediate-controls", "synthetic-merges-full-controls"])
+    "synthetic-merges-intermediate-controls", "synthetic-merges-full-controls", "synthetic-joint", "approved-joint"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6231,13 +6256,22 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
 
     source, interpreter = _tokenizer_rows_diagnostic_environment("synthetic" if mode.startswith("synthetic") else mode)
     base_mode = mode.removesuffix("-refusals").removesuffix("-controls")
+    learned_joint = mode == "approved-joint"
+    joint_policy = base_mode in ("synthetic-joint", "approved-joint")
     control_mode = mode.endswith("-controls")
     refusal_mode = mode.endswith(("-refusals", "-controls"))
     full_scale = base_mode == "synthetic-merges-full"
-    expanded_merges = base_mode in ("synthetic-merges-intermediate", "synthetic-merges-full")
-    include_merges = base_mode in ("synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full")
+    large_fixture = base_mode in ("synthetic-merges-intermediate", "synthetic-merges-full")
+    expanded_merges = large_fixture or joint_policy
+    include_merges = expanded_merges or base_mode == "synthetic-merges"
     started = time.monotonic()
+    if learned_joint:
+        local = Path(os.environ["MIMO_LOCAL_DIR"])
+        profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
+        _tokenizer_joint_target_profile(profile_bytes, local)
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    if learned_joint:
+        subprocess.check_output(["git", "-C", str(source), "diff", "--exit-code", PRISM_REVISION, "--", "conversion/base.py", "gguf-py"])
     bodies = {}
     for name in ("conversion/base.py", "gguf-py/gguf/constants.py"):
         pinned = subprocess.check_output(["git", "-C", str(source), "show", f"{PRISM_REVISION}:{name}"])
@@ -6260,7 +6294,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             metadata, _, record = _packaging_fixture()
             config = json.loads(metadata["config.json"])
             config["text_config"]["max_position_embeddings"] = 512
-            if expanded_merges:
+            if large_fixture:
                 record["geometry"]["vocab_size"] = config["text_config"]["vocab_size"] = 248320 if full_scale else 8193
                 prefixes = [f"A{index:03d}" for index in range(120)]
                 suffixes = [f"B{index:04d}" for index in range(2048)]
@@ -6272,17 +6306,18 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             else:
                 tokens = [f"token{index}" for index in range(record["geometry"]["vocab_size"])]
             tokens[0], tokens[1], tokens[5], tokens[12] = "<pad>", "USER", "<|control|>", chr(0x2581) + "user"
-            if include_merges and not expanded_merges:
+            if include_merges and not large_fixture:
                 tokens[2:5] = ["a", "b", "ab"]
                 tokens[6:8] = ["c", "abc"]
             added = [{"id": index, "content": tokens[index], "single_word": False, "lstrip": False, "rstrip": False,
                 "normalized": index != 1, "special": index in (0, 5)} for index in (0, 1, 5, 12)]
-            vocabulary = {token: index for index, token in enumerate(tokens) if expanded_merges or index not in (20, 31)}
+            vocabulary = {token: index for index, token in enumerate(tokens) if large_fixture or index not in (20, 31)}
+            fixture_merges = (pairs if large_fixture else ["a b", "ab c"] if joint_policy else [["a", "b"], ["ab", "c"]]) if include_merges else []
             files = {**metadata, "config.json": json.dumps(config).encode(),
                 "tokenizer_config.json": b'{"tokenizer_class":"PreTrainedTokenizerFast","clean_up_tokenization_spaces":false}',
                 "tokenizer.json": json.dumps({"version": "1.0", "added_tokens": added,
                     "decoder": {"type": "Replace", "pattern": {"String": "USER"}, "content": "user-normalized"},
-                    "model": {"type": "BPE", "vocab": vocabulary, "merges": pairs if expanded_merges else [["a", "b"], ["ab", "c"]] if include_merges else [], "dropout": None, "unk_token": None,
+                    "model": {"type": "BPE", "vocab": vocabulary, "merges": fixture_merges, "dropout": None, "unk_token": None,
                         "continuing_subword_prefix": None, "end_of_word_suffix": None, "fuse_unk": False,
                         "byte_fallback": False, "ignore_merges": False}}).encode(),
                 "vocab.json": json.dumps(vocabulary).encode(), "merges.txt": b"#version: 0.2\n"}
@@ -6293,17 +6328,22 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 (local / name).write_bytes(data)
             profile_bytes = json.dumps(record).encode()
         else:
-            local = Path(os.environ["MIMO_LOCAL_DIR"])
+            if not learned_joint:
+                local = Path(os.environ["MIMO_LOCAL_DIR"])
+                profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
             assert local.resolve() == (Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177").resolve()
-            profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
             record = json.loads(profile_bytes)
         names = tuple(record["packaging"]["metadata_files"]) + ("tokenizer.json", "vocab.json", "merges.txt")
         original_stats = {name: (local / name).stat() for name in names}
         fixture = {"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(inputs), "output": str(output),
             "row_source": row_source, "special_source": special_source, "include_merges": include_merges,
-            "merge_version": 2 if expanded_merges else 1, "merge_rows": len(pairs) if expanded_merges else 2 if include_merges else 0,
-            "merge_faults": [] if full_scale or refusal_mode or not include_merges else ["byte", "rank"],
-            "synthetic_refusals": refusal_mode, "unused_rows": 243 if full_scale or mode == "approved" else 2}
+            "merge_version": 2 if expanded_merges else 1, "merge_rows": None if learned_joint else len(pairs) if large_fixture else 2 if include_merges else 0,
+            "merge_row_cap": 262144 if joint_policy else len(pairs) if large_fixture else 4096,
+            "merge_faults": [] if full_scale or refusal_mode or joint_policy or not include_merges else ["byte", "rank"],
+            "joint_policy": joint_policy, "learned_joint": learned_joint,
+            "synthetic_refusals": refusal_mode, "unused_rows": 243 if full_scale or mode in ("approved", "approved-joint") else 2}
+        if learned_joint:
+            fixture["sequence_deadline"] = started + 180
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
@@ -6317,12 +6357,14 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         for operation, proof_case in operations:
             phase_started = time.monotonic()
             payload = json.dumps({**fixture, "operation": operation, "proof_case": proof_case}).encode()
-            result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env=env)
+            child_seconds = min(60, fixture["sequence_deadline"] - phase_started) if learned_joint else 60
+            assert child_seconds > 0
+            result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env=env, maximum_seconds=child_seconds)
             assert result["returncode"] == 0, result["stderr"]
             report = json.loads(result["stdout"])
             print(json.dumps({**result, "tokenizer_rows_diagnostic": mode}))
             assert report["status"] == "matched", report
-            assert time.monotonic() - phase_started < 180 and time.monotonic() - started < 600 - prior_sequence_seconds
+            assert time.monotonic() - phase_started < 180 and time.monotonic() - started < (180 if learned_joint else 600 - prior_sequence_seconds)
             assert report["input_files"] == 10 and report["input_bytes"] == report["scratch_bytes"] < 32 * 1024**2
             assert report["transformers"] == "5.12.1" and report["tokenizers"] == "0.22.2"
             assert result["observed_process_swap_bytes"] == 0 and result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
@@ -6336,10 +6378,13 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 assert not report["transformers_loaded"]
             else:
                 assert report["token_rows"] == record["geometry"]["vocab_size"]
-                assert report["unused_rows"] == (243 if full_scale or mode == "approved" else 2)
+                assert report["unused_rows"] == fixture["unused_rows"]
                 assert report["metadata_records"] == (3 if include_merges else 2)
+                if fixture["merge_rows"] is None:
+                    assert learned_joint and operation == "rows-emission" and 0 < report["merge_rows"] <= fixture["merge_row_cap"]
+                    fixture["merge_rows"] = report["merge_rows"]
                 assert report["merge_rows"] == fixture["merge_rows"]
-                assert report["logical_scratch_cap_bytes"] == (64 if expanded_merges else 128) * 1024**2
+                assert report["logical_scratch_cap_bytes"] == (128 if learned_joint else 64 if expanded_merges else 128) * 1024**2
                 if operation == "rows-emission":
                     fixture["identity"] = {"expected_file_bytes": report["output_file_bytes"], "expected_file_sha256": report["output_file_sha256"]}
                     if mode.startswith("synthetic"):
@@ -6357,18 +6402,115 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     assert not root.exists()
 
 
-@pytest.mark.parametrize("wrong_flag", [None, "MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED"])
-def test_tokenizer_rows_diagnostic_approval_refuses_before_source_access(monkeypatch, wrong_flag):
+@pytest.mark.parametrize("mode,wrong_flag", [("approved", None), ("approved", "MIMO_TOKENIZER_ONLY_APPROVED"),
+    ("approved", "MIMO_TOKENIZER_INVENTORY_APPROVED"), ("approved", "MIMO_TOKENIZER_JOINT_APPROVED"),
+    ("approved-joint", None), ("approved-joint", "MIMO_TOKENIZER_ONLY_APPROVED"),
+    ("approved-joint", "MIMO_TOKENIZER_INVENTORY_APPROVED"), ("approved-joint", "MIMO_TOKENIZER_ROWS_APPROVED")])
+def test_tokenizer_rows_diagnostic_approval_refuses_before_source_access(monkeypatch, mode, wrong_flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
     monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
-    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED"):
+    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED"):
         monkeypatch.delenv(name, raising=False)
     if wrong_flag:
         monkeypatch.setenv(wrong_flag, "1")
     monkeypatch.setattr(Path, "read_bytes", lambda *args, **kwargs: pytest.fail("row approval guard read a source file"))
     monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: pytest.fail("row approval guard launched a process"))
     with pytest.raises(pytest.skip.Exception):
-        _tokenizer_rows_diagnostic_environment("approved")
+        _tokenizer_rows_diagnostic_environment(mode)
+
+
+@pytest.mark.parametrize("mode,flag", [("synthetic", None), ("approved", "MIMO_TOKENIZER_ROWS_APPROVED"),
+    ("approved-joint", "MIMO_TOKENIZER_JOINT_APPROVED")])
+def test_tokenizer_row_diagnostic_own_flag_is_checked_without_source_access(monkeypatch, mode, flag):
+    monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
+    monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
+    for name in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED"):
+        monkeypatch.delenv(name, raising=False)
+    if flag:
+        monkeypatch.setenv(flag, "1")
+    monkeypatch.setattr(Path, "read_bytes", lambda *args, **kwargs: pytest.fail("flag selection read a source file"))
+    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: pytest.fail("flag selection launched a process"))
+    assert _tokenizer_rows_diagnostic_environment(mode) == (Path("/not-read"), "/not-run")
+
+
+@pytest.mark.parametrize("value", ["0", "true", "1 "])
+def test_tokenizer_joint_diagnostic_flag_requires_exact_opt_in(monkeypatch, value):
+    monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
+    monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
+    monkeypatch.setenv("MIMO_TOKENIZER_JOINT_APPROVED", value)
+    with pytest.raises(pytest.skip.Exception):
+        _tokenizer_rows_diagnostic_environment("approved-joint")
+
+
+@pytest.mark.parametrize("defect", [None, "profile", "source"])
+def test_tokenizer_joint_target_is_exact_before_process_or_source_read(monkeypatch, defect):
+    profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
+    local = Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
+    if defect == "profile":
+        record = json.loads(profile_bytes)
+        record["profile_id"] = "other-profile"
+        profile_bytes = json.dumps(record).encode()
+    elif defect == "source":
+        local = local.with_name("other-profile")
+    monkeypatch.setattr(Path, "read_bytes", lambda *args, **kwargs: pytest.fail("target check read source contents"))
+    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: pytest.fail("target check launched a process"))
+    if defect:
+        with pytest.raises(ValueError, match="exact pinned MiMo target"):
+            _tokenizer_joint_target_profile(profile_bytes, local)
+    else:
+        assert _tokenizer_joint_target_profile(profile_bytes, local).sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
+
+
+@pytest.mark.parametrize("defect", [None, "flag", "profile", "source", "faults", "deadline"])
+def test_pinned_joint_prefix_guard_without_model_content_reads(defect):
+    from tempfile import TemporaryDirectory
+    import time
+
+    _, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
+    profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
+    if defect == "profile":
+        record = json.loads(profile_bytes)
+        record["profile_id"] = "other-profile"
+        profile_bytes = json.dumps(record).encode()
+    prefix, boundary, _ = _tokenizer_source_copy_code().partition("source_identities = {}")
+    assert boundary
+    code = r'''
+import os
+from pathlib import Path
+import sys
+models_root = Path.home() / ".cache/huggingface/embedded-jev/models"
+def deny_model_contents(event, args):
+    if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
+        if Path(os.fsdecode(args[0])).absolute().is_relative_to(models_root):
+            raise AssertionError("metadata-only prefix opened model-data content")
+sys.addaudithook(deny_model_contents)
+''' + prefix + '\nassert not list(scratch.iterdir())\nprint(json.dumps({"cap": row_scratch_cap, "files": len(names), "bytes": total}))\n'
+    with TemporaryDirectory(prefix="jev-joint-prefix-") as directory:
+        root = Path(directory)
+        inputs = root / "inputs"
+        inputs.mkdir()
+        local = Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
+        fixture = {"profile_hex": profile_bytes.hex(), "source": str(local if defect != "source" else root / "not-read"),
+            "scratch": str(inputs), "output": str(root), "operation": "rows-copy", "learned_joint": True,
+            "include_merges": True, "merge_version": 2, "joint_policy": True, "synthetic_refusals": False,
+            "merge_faults": ["byte"] if defect == "faults" else [], "proof_case": None,
+            "sequence_deadline": time.monotonic() + (-1 if defect == "deadline" else 175)}
+        env = {**os.environ, "MIMO_TOKENIZER_JOINT_APPROVED": "1", "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+        for flag in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED"):
+            env.pop(flag, None)
+        if defect == "flag":
+            env.pop("MIMO_TOKENIZER_JOINT_APPROVED")
+        result = _run_tokenizer_only_guard_v2(interpreter, code, json.dumps(fixture).encode(), env=env)
+        assert "metadata-only prefix opened model-data content" not in result["stderr"]
+        if defect:
+            assert result["returncode"] != 0 and "AssertionError" in result["stderr"]
+        else:
+            assert result["returncode"] == 0, result["stderr"]
+            assert json.loads(result["stdout"]) == {"cap": 128 * 1024**2, "files": 10, "bytes": 30144444}
+        assert not list(inputs.iterdir()) and result["observed_process_swap_bytes"] == 0
+        assert result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
+    assert not root.exists()
 
 
 def test_tokenizer_rows_diagnostic_refuses_unknown_mode():
@@ -6379,11 +6521,13 @@ def test_tokenizer_rows_diagnostic_refuses_unknown_mode():
 @pytest.mark.parametrize("mode,wrong_flag", [("approved-inventory", "MIMO_TOKENIZER_ONLY_APPROVED"),
                                            ("approved", "MIMO_TOKENIZER_INVENTORY_APPROVED"),
                                            ("approved-inventory", "MIMO_TOKENIZER_ROWS_APPROVED"),
-                                           ("approved", "MIMO_TOKENIZER_ROWS_APPROVED")])
+                                           ("approved", "MIMO_TOKENIZER_ROWS_APPROVED"),
+                                           ("approved-inventory", "MIMO_TOKENIZER_JOINT_APPROVED"),
+                                           ("approved", "MIMO_TOKENIZER_JOINT_APPROVED")])
 def test_tokenizer_only_diagnostic_approvals_do_not_cross_modes(monkeypatch, mode, wrong_flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
     monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
-    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED"):
+    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv(wrong_flag, "1")
     monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: pytest.fail("cross-mode approval reached source access"))
