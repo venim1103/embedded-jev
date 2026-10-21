@@ -5937,6 +5937,55 @@ def library_diagnostics():
         os.dup2(saved, 1)
         os.close(saved)
 
+def run_merge_refusal(arguments, merge_arguments, merge_values, path):
+    import gguf
+    from embedded_jev import prism_codec
+
+    case = fixture["proof_case"]
+    assert fixture["synthetic_refusals"] and fixture["merge_version"] == 2
+    assert case in ("byte-first", "byte-last", "rank-first", "rank-last")
+    descriptors = len(os.listdir("/proc/self/fd"))
+    original = path.read_bytes()
+    reader = gguf.GGUFReader(path)
+    try:
+        field = reader.fields["tokenizer.ggml.merges"]
+        indices = (0, 1) if case.endswith("first") else (len(merge_values) - 2, len(merge_values) - 1)
+        offsets = [int(field.parts[field.data[index]].ctypes.data - reader.data.ctypes.data) for index in indices]
+    finally:
+        reader.data._mmap.close()
+    changed = bytearray(original)
+    if case.startswith("byte"):
+        changed[offsets[0 if case.endswith("first") else 1]] ^= 1
+    else:
+        first, second = (merge_values[index].encode() for index in indices)
+        changed[offsets[0] - 8:offsets[1] + len(second)] = struct.pack("<Q", len(second)) + second + struct.pack("<Q", len(first)) + first
+    assert len(changed) == len(original) and changed != original
+    try:
+        path.write_bytes(changed)
+        reader = gguf.GGUFReader(path)
+        try:
+            with library_diagnostics():
+                try:
+                    prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v4(profile, reader=reader,
+                        maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=16 * 1024**2, maximum_header_bytes=16 * 1024**2,
+                        **arguments, **merge_arguments, expected_file_bytes=len(changed),
+                        expected_file_sha256=hashlib.sha256(changed).hexdigest())
+                    raise AssertionError("fresh-hash merge contradiction accepted")
+                except ValueError as error:
+                    assert "policy metadata" in str(error)
+        finally:
+            reader.data._mmap.close()
+    finally:
+        path.write_bytes(original)
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == fixture["identity"]["expected_file_sha256"]
+    assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in path.parent.iterdir()) == {"rows.gguf"}
+    logical = 2 * total + len(original) + 16 * 1024**2 + 8192
+    assert logical < row_scratch_cap == 64 * 1024**2
+    return dict(status="matched", phase="rows-proof", proof_case=case, token_rows=profile.geometry["vocab_size"],
+        unused_rows=fixture["unused_rows"], metadata_records=3, merge_rows=len(merge_values), merge_contradictions=1,
+        output_file_bytes=len(original), output_file_sha256=fixture["identity"]["expected_file_sha256"],
+        logical_source_copy_scratch_bytes=logical, logical_scratch_cap_bytes=row_scratch_cap, restored_file=True)
+
 def run_rows():
     operation = fixture["operation"]
     if operation == "rows-copy":
@@ -6024,6 +6073,8 @@ def run_rows():
         identity = fixture["identity"]
         assert 0 < path.stat().st_size == identity["expected_file_bytes"] < 16 * 1024**2
         assert hashlib.sha256(path.read_bytes()).hexdigest() == identity["expected_file_sha256"]
+        if fixture.get("proof_case"):
+            return run_merge_refusal(arguments, merge_arguments, merge_values, path)
         hashes, reads = [], []
         hasher, pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
 
@@ -6110,7 +6161,8 @@ finish_report(report)
 '''
 
 
-@pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full", "approved"])
+@pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full", "approved",
+    "synthetic-merges-intermediate-refusals", "synthetic-merges-full-refusals"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6118,9 +6170,11 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import time
 
     source, interpreter = _tokenizer_rows_diagnostic_environment("synthetic" if mode.startswith("synthetic") else mode)
-    full_scale = mode == "synthetic-merges-full"
-    expanded_merges = mode in ("synthetic-merges-intermediate", "synthetic-merges-full")
-    include_merges = mode in ("synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full")
+    base_mode = mode.removesuffix("-refusals")
+    refusal_mode = mode.endswith("-refusals")
+    full_scale = base_mode == "synthetic-merges-full"
+    expanded_merges = base_mode in ("synthetic-merges-intermediate", "synthetic-merges-full")
+    include_merges = base_mode in ("synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full")
     started = time.monotonic()
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     bodies = {}
@@ -6187,21 +6241,24 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         fixture = {"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(inputs), "output": str(output),
             "row_source": row_source, "special_source": special_source, "include_merges": include_merges,
             "merge_version": 2 if expanded_merges else 1, "merge_rows": len(pairs) if expanded_merges else 2 if include_merges else 0,
-            "merge_faults": [] if full_scale or not include_merges else ["byte", "rank"]}
+            "merge_faults": [] if full_scale or refusal_mode or not include_merges else ["byte", "rank"],
+            "synthetic_refusals": refusal_mode, "unused_rows": 243 if full_scale or mode == "approved" else 2}
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
         reports = []
         baseline_swap = None
-        for operation in ("rows-copy", "rows-emission", "rows-proof"):
+        proof_cases = ("byte-first", "byte-last", "rank-first", "rank-last") if refusal_mode else (None,)
+        operations = [("rows-copy", None), ("rows-emission", None)] + [("rows-proof", case) for case in proof_cases]
+        for operation, proof_case in operations:
             phase_started = time.monotonic()
-            payload = json.dumps({**fixture, "operation": operation}).encode()
+            payload = json.dumps({**fixture, "operation": operation, "proof_case": proof_case}).encode()
             result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env=env)
             assert result["returncode"] == 0, result["stderr"]
             report = json.loads(result["stdout"])
             print(json.dumps({**result, "tokenizer_rows_diagnostic": mode}))
             assert report["status"] == "matched", report
-            assert time.monotonic() - phase_started < 180 and time.monotonic() - started < 600
+            assert time.monotonic() - phase_started < 180 and time.monotonic() - started < (600 - 64.03 if refusal_mode else 600)
             assert report["input_files"] == 10 and report["input_bytes"] == report["scratch_bytes"] < 32 * 1024**2
             assert report["transformers"] == "5.12.1" and report["tokenizers"] == "0.22.2"
             assert result["observed_process_swap_bytes"] == 0 and result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
@@ -6224,12 +6281,15 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     if mode.startswith("synthetic"):
                         assert report["normalized_rows"] == report["rewritten_rows"] == 1
                 else:
-                    assert report["retained_file_hashes"] == 2 and report["maximum_read"] <= 65536
-                    assert report["merge_contradictions"] == len(fixture["merge_faults"])
+                    if proof_case:
+                        assert report["proof_case"] == proof_case and report["restored_file"] and report["merge_contradictions"] == 1
+                    else:
+                        assert report["retained_file_hashes"] == 2 and report["maximum_read"] <= 65536
+                        assert report["merge_contradictions"] == len(fixture["merge_faults"])
                 assert report["output_file_sha256"] == fixture["identity"]["expected_file_sha256"]
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
             reports.append(report)
-        assert len(reports) == 3
+        assert len(reports) == len(operations)
     assert not root.exists()
 
 

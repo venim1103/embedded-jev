@@ -3105,7 +3105,11 @@ Optional row diagnostic `[synthetic-merges-intermediate]` exercises 8193 rows/
 4097 valid pairs through these versions, including typed readback and fresh-hash
 byte/rank contradictions. `[synthetic-merges-full]` uses 248320 rows, 243 tail
 pads and 245760 generated valid pairs, with positive emission/readback/retained
-proof only; faults must use separate bounded workers. New merge-version-2 fixture modes enforce **64 MiB**
+proof only. `[synthetic-merges-intermediate-refusals]` and
+`[synthetic-merges-full-refusals]` use the same generated sizes but one fresh
+supervised worker per first/last merge byte/rank contradiction, with fresh
+digests and mandatory original byte/map/FD cleanup. The full positive proof is
+not repeated inside refusal workers. New merge-version-2 fixture modes enforce **64 MiB**
 logical source+copy+output+reserved spool/report, including a conservative
 pre-copy reservation. Sources/copies <=32 MiB each, file/spool <=16 MiB each,
 path-only stdin <=64 KiB, combined output <=8 KiB, serial 60 s children/180 s
@@ -3115,7 +3119,9 @@ the consumed learned mode remains row-only. Larger synthetic capacity was
 explicitly approved, but no learned/native/model acceptance is implied. See the
 [larger merge policy checkpoint](handover.md#larger-merge-policy-checkpoint-2026-10-20)
 and [full-size checkpoint](handover.md#full-size-merge-checkpoint-2026-10-20)
-for implementation/evidence and the currently paused full-size fault follow-up.
+for implementation/evidence; the
+[full-size refusal checkpoint](handover.md#full-size-merge-refusal-checkpoint-2026-10-21)
+records current contradictions and the remaining type/budget/mapping cases.
 
 ### Offline Selected Metadata Control
 

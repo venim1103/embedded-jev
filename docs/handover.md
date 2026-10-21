@@ -1,10 +1,19 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-20. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-21. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
+
+**Resumed by user, 2026-10-21:** Continue autonomously with periodic tested local
+commits until stopped or genuinely blocked. Starting `8ea2420` matches
+`origin/main`; tracked worktree is clean, user editor settings remain untouched.
+The pauses below are historical. Read the
+[full-size merge refusal checkpoint](#full-size-merge-refusal-checkpoint-2026-10-21)
+for the current synthetic-only follow-up. Existing resource limits remain in
+force; all three learned approvals remain consumed. No new learned/model/native
+execution, download, refit or quality experiment is authorized by this resume.
 
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
@@ -52,7 +61,8 @@ Synthetic Merges** for the [larger synthetic merge proposal](#larger-synthetic-m
 The [larger merge policy checkpoint](#larger-merge-policy-checkpoint-2026-10-20)
 implements separate opt-ins and verifies 8193 rows/4097 pairs. The
 [full-size checkpoint](#full-size-merge-checkpoint-2026-10-20) adds positive
-248320-row/245760-pair evidence; full-size faults remain deferred while paused.
+248320-row/245760-pair evidence. The October 21 refusal checkpoint adds
+first/last byte/rank contradictions; type/budget/mapping cases remain next.
 
 **Paused by user, 2026-10-19:** Finish the current bounded capacity check and
 pause for today. The [paired rows capacity checkpoint](#paired-rows-capacity-checkpoint-2026-10-19)
@@ -417,6 +427,59 @@ model/numerical evidence are unchanged. Scoped content, local-link/anchor, fence
 table, Bash-syntax, editor-diagnostic and whitespace validation passed; no source,
 native or model gates were rerun. Implementation stays paused in this chat;
 the next chat must receive the user's explicit resume instruction.
+
+## Full-Size Merge Refusal Checkpoint (2026-10-21)
+
+Resumed from `8ea2420` after the user's explicit request. Actual tracked tree
+matches `origin/main`; cached converter/source are present, controller Python
+and Ruff are under `/opt/venv/bin`, host swap initially unused. Reuse those
+caches; no learned input was inspected and no download/install was needed.
+
+New optional diagnostic modes `[synthetic-merges-intermediate-refusals]` and
+`[synthetic-merges-full-refusals]` reuse generated fixtures and path-only
+copy/emission workers, then launch **one fresh guarded child per refusal**.
+Each independently mutates the first/last merge byte or swaps the first/last
+adjacent pair ranks, supplies a fresh digest and requires a policy-metadata
+refusal against freshly prepared original source declarations. File length
+stays unchanged. Maps close before mutation/restoration; descriptor counts,
+restored original bytes/digest and the single output-file set are asserted.
+Parent rechecks original/copy bytes and source stat identity across workers,
+then removes all synthetic source/copy/output scratch.
+
+Intermediate 8193 rows/two pads/4097 pairs **1 passed in 16.83 s**. Full generated
+248320 rows/243 pads/245760 pairs **1 passed in 112.60 s**: four independent
+contradictions refuse, with no positive full-size proof unnecessarily repeated
+inside those children. Exact cached row-method comparison and three-field typed
+readback still run during emission. The recreated disposable output retains
+the previous **9630112-byte** size and SHA-256
+`cf8fab2999cf27c020f74da345bae5c75ee650e07b309abaca64aae9b96fa2dd`.
+
+| Full-Size Refusal Measurement | Bytes |
+| --- | --- |
+| Ten original synthetic files / read-only copies, each | 14853033 |
+| Logical source+copy+file+reserved 16 MiB spool+8 KiB report | 56121586 |
+| Maximum observed emission worker RSS | 1740570624 |
+| Maximum observed refusal worker RSS | 1925009408 |
+| Minimum observed host available memory | 18485252096 |
+
+All four children remain within **60 s**, each stage <=180 s, observed RSS
+<=2 GiB and logical scratch <64 MiB; host reserve >=2 GiB, process/host swap
+zero. The original new merge sequence now conservatively uses **193.46 s of
+600 s**, including prior 64.03 s plus 16.83/112.60 s checks. No bound, assertion
+or tolerance was relaxed. Refusals may occur at declaration comparison before
+descriptor hashing; supplied fresh digests do not imply hashes ran after an
+earlier rejection. Earlier positive retained-hash evidence stays separate.
+
+Required source gate with all learned flags unset **1382 passed, 139 skipped
+in 23.67 s**, Ruff and whitespace clean. Old row-only/two-merge tiny diagnostic
+compatibility **2 passed in 11.16 s**; Pylance syntax and editor checks clean.
+Optional native/model controls were skipped, not inferred from default success.
+No failed test, automatic retry, learned read, weight/header access, native
+build/CTest, model/conversion execution, new candidate/refit or quality job.
+Current source change is test-only; public API versions/defaults/ceilings and
+all consumed learned approvals stay unchanged. Next bounded slice: full-size
+type, default-count/content/header/record and mapping/lifetime refusals, each in
+its own supervised worker within the remaining **406.54 s** synthetic budget.
 
 ## Full-Size Merge Checkpoint (2026-10-20)
 
