@@ -3204,6 +3204,12 @@ below 1 MiB, expected declarations below 256 KiB, logical scratch below 8 MiB
 and the stage below 60 s. A short child can finish between RSS samples; observed
 values are not a hard peak-memory or target-device guarantee.
 
+This existing command cannot validate the larger joint three-record row/type/
+merge file: its exact 29-record contract and count/content/file caps remain
+unchanged. A separate synthetic-only native capacity allowance is
+[proposed, not implemented or approved](handover.md#native-joint-metadata-proposal-2026-10-21).
+No consumed learned approval enables that proposal or another model-data read.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.

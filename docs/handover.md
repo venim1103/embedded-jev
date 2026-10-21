@@ -27,6 +27,11 @@ The [joint proof checkpoint](#learned-joint-tokenizer-proof-checkpoint-2026-10-2
 records its single successful invocation after committed runner `465d07d`.
 **All four learned approvals are now consumed.** No flag permits another read.
 
+**Next proposal, not approved:** the
+[native joint metadata proposal](#native-joint-metadata-proposal-2026-10-21)
+would add a separately bounded synthetic-only native parser check. No new
+native build/run or larger resource allowance has started under that proposal.
+
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
 positive synthetic emission/readback/retained proof; no full-size merge fault
@@ -504,9 +509,80 @@ semantics, pre-tokenizer/model-tag acceptance, complete converter integration,
 native dispatch, representative quality or calibrated confidence. The prior
 source gate remains **1398 passed / 149 skipped in 25.40 s**, Ruff/Pylance/editor
 checks clean; it was not repeated for this documentation-only result.
-Next: inspect pinned pre-tokenizer/model-tag prerequisites using source and
-generated fixtures only, then scope any new learned/native action separately.
+The saved October 19 fixed probe already recognized `qwen35` on both encoders;
+it is not permission to promote a tag or repeat that learned diagnostic.
+Static follow-up identifies native selected-record capacity as a separate
+integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Native Joint Metadata Proposal (2026-10-21)
+
+Prepared after result checkpoint `9657edf`; **not approved or implemented**.
+The learned joint file is 10933312 bytes, but the existing native test-only
+`--selected-metadata-control` accepts GGUF strictly below 1 MiB, expected JSON
+below 256 KiB and exactly 29 selected records. Its string-array caps are 16384
+rows / 4096 merges / 64 KiB content, and INT32 arrays have at most 16 values.
+These source-verified bounds prevent reusing it for the joint three-record
+policy. Do not weaken them or open learned inputs to investigate this limit.
+
+Request a **separate synthetic-only native parser allowance**, not another
+learned one-shot or model/runtime acceptance. Add an explicit versioned
+test-only command for exactly `tokenizer.ggml.tokens` (ARRAY/STRING),
+`tokenizer.ggml.token_type` (ARRAY/INT32) and `tokenizer.ggml.merges`
+(ARRAY/STRING). Preserve the old command, exact types, defaults and hard caps.
+The new branch must run before backend discovery, use the pinned parser with
+`no_alloc=true` and no tensor context, and never call a model/vocabulary loader,
+backend, tokenizer engine, weight reader or tensor arithmetic. Its result is
+typed parser-getter agreement, not source authentication or tokenizer semantics.
+
+Use only generated profiles/tokenizer inputs and a two-byte synthetic BF16
+anchor. Reuse the existing pinned row policy, v3 writer/v4 retained proof and
+32-row, intermediate 8193-row/4097-pair and full 248320-row/245760-pair fixtures.
+The new native checker compares every selected row/type and ranked merge with
+the same source-bound declarations already checked by Python. It must not
+invent a pre-tokenizer/model tag or claim a complete model file. Do not rerun
+unchanged large Python-only controls as a substitute for this new integration.
+
+Explicit new per-case bounds: GGUF/fault/spool <=16 MiB each; expected typed
+declaration JSON <=32 MiB; source/copy sets <=32 MiB each; total logical owned
+source+copy+GGUF+one fault+expected JSON+reserved spool/report <=**128 MiB**.
+Reject before emission if conservative reservation cannot fit. Up to 262144
+rows and original ranked merges; source/output/merge content <=4 MiB each
+independently, each string/encode <=4096 bytes/IDs. Preserve exact signed INT32
+token types, nonempty/no-NUL strings, strict UTF-8, member/name uniqueness,
+depth <=8 and existing GGUF key/tensor-count bounds. Any unsupported declaration
+or exceeded budget refuses; no automatic allowance increase.
+
+Keep inputs path-only, stdin <=64 KiB and stdout+stderr/report <=8 KiB per
+worker. Run **serial** supervised children <=60 s each, <=180 s per stage;
+new sequence including build and focused fixture checks <=**600 s**. Observed
+worker RSS <=2 GiB, host available reserve >=2 GiB, abort process/host swap
+growth; kill/reap/close and parent-owned full cleanup on any refusal. This is
+a requested new sequence allowance, not a reset of the earlier synthetic
+425.19/600 s ledger. No unguarded large native parser invocation.
+
+If approved, first implement/validate the narrow checker and synthetic bounds.
+Build only the existing cached loader-control target, explicitly Release and
+at most two jobs through CMake Tools, without changing pinned sources/libraries
+or rebuilding unrelated dependencies. Build <=180 s within the same sequence;
+observe RSS/reserve/swap and stop on a required wider rebuild or resource
+breach rather than silently retrying/changing configuration. Reuse existing
+cached environments; no install/download is proposed.
+
+Acceptance: tiny/intermediate/full getter agreement, same source-bound Python
+selected-file proof and independent caps, plus serial synthetic first/last
+string/type/rank mismatches, wrong element types and declared bounds/duplicate
+refusals. Keep faults disposable, restore/check the original, close maps/FDs,
+remove all copies/output/spool/JSON and retain only small numeric/hash/resource
+evidence. Run the required source gate and scoped compiled controls before a
+source checkpoint commit; do not relax failed assertions or repeat an unchanged
+failed gate without diagnosis and a substantive repair.
+
+All four learned approvals remain consumed. This proposal includes **no learned
+file/header reads**, native model loading/inference, full conversion, downloads,
+candidate/refit/quality work, other-profile/device execution or deployment claim.
+Ask for approval of this exact bounded synthetic native scope before editing
+the checker, building or running its new large cases.
 
 ## Joint Tokenizer Runner Checkpoint (2026-10-21)
 
