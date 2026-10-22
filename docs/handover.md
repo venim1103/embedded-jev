@@ -25,8 +25,11 @@ records completed generated Python-only evidence; no cached learned templates,
 learned tokenizer, native/model execution or new quality run is authorized.
 Source checkpoint `40dd712` completes contextual composition. The next
 [native vocabulary proposal](#synthetic-native-vocabulary-proposal-2026-10-22)
-is unapproved and requests a separate additional allowance; prior 575/600 s
-accounting is retained, not reset. No new native implementation/build has begun.
+was separately approved through **Approve Native Vocabulary** after `41388c7`.
+The [native vocabulary checkpoint](#synthetic-native-vocabulary-checkpoint-2026-10-22)
+records direct generated lexical evidence; prior 575/600 s accounting is frozen,
+not reset. All four learned approvals remain consumed, and no model/backend or
+quality execution is authorized by this synthetic-only scope.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -567,9 +570,126 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Synthetic Native Vocabulary Checkpoint (2026-10-22)
+
+The user selected **Approve Native Vocabulary** for proposal `41388c7`, including
+a separate additional **300 s** allowance. Added test-only early-dispatch
+`--synthetic-vocab-control-v1`, preserving all existing parser/runtime commands
+and production metadata policies. The new branch parses bounded retained bytes
+with `gguf_init_from_buffer(..., {true, nullptr})`, requires zero tensors and an
+exact 12-field typed metadata set, validates explicit toy GPT-2 model/pre tags,
+row/type alignment, source-declared special IDs/CONTROL rows and disabled BOS/EOS
+addition, then constructs the external-metadata loader and `llama_vocab` directly.
+It checks loader files/mappings/contexts/weight maps and tensor/creation counts
+stay empty before/after vocabulary use. No model object, model hparams, runtime
+policy, backend discovery/init, tensor-data allocation, graph or arithmetic.
+
+Native limits: 256 KiB GGUF, 64 KiB expected JSON, <=512 rows, <=16 merges,
+independent <=64 KiB string/merge content, <=64 bytes/string and <=64 IDs per
+lexical case. Expected JSON is exact three fields, 35 token-ID arrays/two distinct
+special IDs/one boundary-refusal bool, with strict integer/non-bool/range/depth
+and duplicate-member checks. GPT-2 model/pre enum, direct special IDs/auto-special
+flags and normal label types are checked after loading too. Exit statuses:
+40 expected-input/exception, 41 metadata shape/type/tensor, 42 toy tag/special
+metadata, 43 unexpected loader/vocab state, 44 lexical/contextual mismatch.
+
+New modes reuse guarded source/copy, profile-pinned preparation and actual trusted
+Python encoding. Their complete byte alphabet comes from the exact pinned
+`gguf/vocab.py` utility extracted by AST, not a reimplemented alphabet. New toy
+rows are 256 alphabet strings, AA, BB and two declared specials, total **260**;
+A-P IDs derive from the alphabet. Source ByteLevel pre-tokenizer has no prefix
+space. Source template renders synthetic BA, with B+B as the harmless baseline
+merge and A+A added only in the second fixture. The toy config explicitly binds
+BOS/EOS to the control token, unknown/pad to pad, and disables automatic specials.
+Supported Qwen2 config class is only static profile-schema input; the actual
+encoding oracle is explicitly generic, not a Qwen-specific wrapper assertion.
+
+The production metadata writer's `qwen35` guard is unchanged. Only this test
+emitter writes GPT-2 tags/IDs, using existing pure pinned fast-row/ranked-merge
+declarations and typed writer APIs. Fresh mapped-reader checks compare all stored
+strings/types/merges to those declarations and require zero tensors. The mapping
+is closed before native execution. Source-copy and output identities/hashes,
+descriptor counts, bounds and parent-owned cleanup are asserted. This is not a
+production tokenizer-tag/special-ID adapter or whole-model source conversion.
+
+Failure/repair history, all before checkpoint acceptance:
+
+- First integration collected no workers: fixture indentation error, **0.11 s**.
+  Corrected that local block and explicit toy source ID declarations.
+- Same check failed **0.30 s** because importing the entire cached `gguf` package
+  in the controller required absent PyYAML. No install/environment change;
+  reused the verified pure utility through existing AST extraction conventions.
+- Same check refused **2.70 s** at the production writer architecture guard.
+  Kept it intact; changed only the explicitly approved toy emitter to use pure
+  declarations directly. No production override, temporary arch spoof or new cap.
+- Same check **2.69 s** completed native lexical comparison but final full
+  `stat()` equality incorrectly included read-access time. After the mandatory
+  three-repair checkpoint, user selected **Continue Narrow Identity Repair**.
+  Stable device/inode/size/mtime/ctime plus both file hashes now match the existing
+  source-identity convention; native/encoding/resource assertions unchanged.
+
+The repaired positive `[synthetic-joint-vocab]` passes **2.58 s**. Ten original
+and copied files/**11423 bytes per set**, GGUF **4128 bytes**, expected JSON
+**413 bytes**, logical peak reservation **887547 bytes <16 MiB**. File SHA-256:
+`07465761ba0a4fea87591e9139513ec355179725eea5218a80b1265bd319a701`.
+`[synthetic-joint-vocab-merge]` passes **2.36 s**. Ten files/**11434 bytes per
+set**, GGUF **4160 bytes**, logical **887597 bytes**, file SHA-256
+`8c354711a3987d7a673faf3bfaf0ac42d65b3dac9c0dedbf267398d713e8a97b`.
+Both direct native calls match **35 source-encoded strings**: A-P, BA, each
+BA-plus-label and two specials with no added specials/explicit special parsing.
+The positive accepts contextual labels; the merge case keeps standalone A valid
+but agrees with Python on the exact A-boundary discrepancy. This does not assert
+all-input, Unicode, rendered-template-engine, EOG or Qwen/MiMo semantic parity.
+
+`[synthetic-joint-vocab-controls]` first passes **18 exact-status refusals in
+2.94 s** using disposable GGUF/JSON copies and typed-reader-derived field offsets.
+Adding a four-byte synthetic tensor contradiction then refuses **2.52 s** at
+the audit's old single-GGUF path rule, before native execution. Added only the
+explicit `tensor-fault.gguf` path for this controls flag; all old modes' paths
+and source/model/network restrictions remain unchanged. Same check now passes
+**19 refusals in 2.84 s**: bool/negative/range/changed token oracle, duplicate or
+wrong special IDs, contextual expectation/count/unknown/duplicate/deep JSON,
+wrong model/pre/unknown ID/auto-special flag/scalar kind/array subtype/control
+type, and nonzero tensor count. The tensor-bearing disposable GGUF is rejected
+before loader/vocabulary construction. Originals retain stable identities/bytes;
+faults/FDs/maps/children/source/copy directories all cleaned. No fault artifact or
+synthetic tensor is retained. No assertion was relaxed to accept a semantic gap.
+
+Pinned Release/Ninja/clang++-18 target-only CMake Tools build: **two steps,
+8.112 s**, only this object/link. Existing observer's new explicit 90 s mode
+retains its 180 s historical default and all exact command/job/resource checks;
+self-test passes. Observer **15.34 s** including arming/build, max tree RSS
+**374427648 bytes**, min host available **17956622336 bytes**, swap baseline/growth
+zero. No dependencies, libraries, caches or editor settings changed. No second
+build; same executable exercised all lexical/refusal/compatibility controls.
+
+Across successful new Python workers, max observed RSS **263819264 bytes**;
+direct positive native RSS <=**9957376 bytes**. Successful host available minimum
+**17999396864 bytes**; earlier writer-refusal minimum **17135681536 bytes**.
+All observed process/host swap baseline/growth zero. Native loader emits bounded
+toy metadata and EOG warnings for the deliberately artificial special spellings;
+logs were not hidden, limits weakened or source refitted to suppress them.
+
+Old 29-field native parser/refusals, v2 three-field tiny and v3 30-field tiny
+compatibility: **3 passed in 16.59 s** with unchanged old limits. Required default
+source gate with all learned/native opt-ins unset: **1462 passed, 168 skipped in
+25.86 s**, within 40 s reservation; Ruff/whitespace/editor diagnostics clean.
+The three new optional modes account for skips; default success alone is not
+native evidence. Backend-init CTests, medium/full fixtures and model/quality
+paths were not run because outside this approved direct early branch.
+
+New additional ledger measured observer/failure/fixture/control/gate total
+**76.83/300 s**; conservatively reserve **90/300 s** including self-test, command
+and documentation overhead, leaving **210 s**, not a new scope approval. The
+older native/composition **575/600 s** and synthetic **425.19/600 s** remain
+independently frozen. All four learned approvals remain consumed. No learned
+tokenizer/template/header/weight read, download/install, model execution, runtime
+dispatch, refit/candidate, representative scoring or device work occurred.
+
 ## Synthetic Native Vocabulary Proposal (2026-10-22)
 
-Prepared after source checkpoint `40dd712`; **not approved or started**. The
+Prepared after source checkpoint `40dd712`; **separately approved by the user
+after `41388c7`**. The checkpoint above records completed scope/evidence. The
 completed synthetic Python path verifies contextual labels, not native tokenizing.
 Existing `test_vocab_only` calls runtime/backend initialization and the model
 loader; do not invoke it under the completed parser/Python approvals. Static

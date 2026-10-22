@@ -3309,6 +3309,35 @@ and isolate a cross-boundary A+A merge after valid standalone encoding. See
 the [checkpoint](handover.md#synthetic-contextual-boundary-checkpoint-2026-10-22)
 for actual evidence, warnings, cleanup, consumed ledger and scope restrictions.
 
+### Synthetic Direct Vocabulary Control
+
+The cached `prism_bitnet_loader_control --synthetic-vocab-control-v1` test branch
+loads **generated GPT-2 vocabulary only** from a bounded zero-tensor GGUF through
+external metadata and `llama_vocab`, before backend discovery. It never constructs
+a model or initializes a backend/runtime. This is distinct from the historical
+`--vocab-only` model-loading path; do not substitute that path under this scope.
+
+The command accepts a <=256 KiB zero-tensor GGUF with an exact 12-field toy
+tokenizer contract and <=64 KiB strict expected JSON. Rows <=512, merges <=16,
+independent content <=64 KiB/string <=64 bytes. Expected JSON has `token_ids`
+(35 arrays), `special_ids` (two IDs) and `boundary_refusal` (bool). Success reports
+35 checked strings, policy version 1, row count and explicit no-model/backend/
+tensor-data status. Test-only statuses 40-44 distinguish expected input, metadata,
+tag/ID, loader-state and lexical failures; these are not a public runtime API.
+
+Use only `synthetic-joint-vocab`, `synthetic-joint-vocab-merge` and
+`synthetic-joint-vocab-controls` with the existing cached row-diagnostic variables
+plus `MIMO_PRISM_RUNTIME_BUILD`. They generate a full byte alphabet/two specials,
+source-pinned rows/merges and test-only explicit GPT-2 tags/IDs; production
+`qwen35` writer policies remain unchanged. Each new stage <=60 s, child <=30 s,
+source/copy <=64 KiB, logical scratch <=16 MiB, existing 2 GiB observed RSS/host
+reserve/no-swap-growth and strict audited path/cleanup rules. No learned model
+or tokenizer inputs, backend CTests or downloads are implied by these modes.
+See the [checkpoint](handover.md#synthetic-native-vocabulary-checkpoint-2026-10-22)
+for actual build/35-case/19-refusal/legacy compatibility evidence, failure history,
+warnings and separate finite ledger. Synthetic GPT-2 lexical agreement is not
+Qwen/MiMo parity, calibrated decisions, BitNet execution or whole-model quality.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.

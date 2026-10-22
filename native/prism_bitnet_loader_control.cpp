@@ -5,6 +5,7 @@
 #include "llama.h"
 #ifdef JEV_TEST_REAL_LOADER
 #include "llama-model-loader.h"
+#include "llama-vocab.h"
 #include "nlohmann/json.hpp"
 #include <set>
 #endif
@@ -1334,6 +1335,169 @@ static std::vector<char> selected_metadata_file(const char* path, std::size_t li
     return bytes;
 }
 
+static int test_synthetic_vocab_v1(const char* path, const char* expected_path) {
+    using nlohmann::json;
+    try {
+        const auto expected_bytes = selected_metadata_file(expected_path, 65537);
+        std::vector<std::set<std::string>> object_keys(5);
+        const auto expected = json::parse(expected_bytes.begin(), expected_bytes.end(),
+            [&object_keys](int depth, json::parse_event_t event, json& value) {
+                if (depth > 4) {
+                    throw std::runtime_error("vocabulary JSON nesting exceeds bound");
+                }
+                if (event == json::parse_event_t::object_start) {
+                    object_keys.at(depth).clear();
+                } else if (event == json::parse_event_t::key &&
+                        (depth <= 0 || !object_keys.at(depth - 1).insert(value.get<std::string>()).second)) {
+                    throw std::runtime_error("vocabulary JSON duplicate member");
+                }
+                return true;
+            });
+        if (!expected.is_object() || expected.size() != 3 || !expected.contains("token_ids") ||
+                !expected.contains("special_ids") || !expected.contains("boundary_refusal") ||
+                !expected["token_ids"].is_array() || expected["token_ids"].size() != 35 ||
+                !expected["special_ids"].is_array() || expected["special_ids"].size() != 2 ||
+                !expected["boundary_refusal"].is_boolean()) {
+            return 40;
+        }
+        const auto bytes = selected_metadata_file(path, 256 * 1024 + 1);
+        std::unique_ptr<gguf_context, decltype(&gguf_free)> context(
+            gguf_init_from_buffer(bytes.data(), bytes.size(), { true, nullptr }), gguf_free);
+        const std::set<std::string> fields{
+            "general.architecture", "tokenizer.ggml.model", "tokenizer.ggml.pre", "tokenizer.ggml.tokens",
+            "tokenizer.ggml.token_type", "tokenizer.ggml.merges", "tokenizer.ggml.bos_token_id",
+            "tokenizer.ggml.eos_token_id", "tokenizer.ggml.unknown_token_id", "tokenizer.ggml.padding_token_id",
+            "tokenizer.ggml.add_bos_token", "tokenizer.ggml.add_eos_token",
+        };
+        if (!context || gguf_get_n_tensors(context.get()) != 0 || gguf_get_n_kv(context.get()) != fields.size()) {
+            return 41;
+        }
+        for (const auto& name : fields) {
+            const auto key = gguf_find_key(context.get(), name.c_str());
+            const auto type = name == "general.architecture" || name == "tokenizer.ggml.model" || name == "tokenizer.ggml.pre" ? GGUF_TYPE_STRING :
+                name == "tokenizer.ggml.tokens" || name == "tokenizer.ggml.token_type" || name == "tokenizer.ggml.merges" ? GGUF_TYPE_ARRAY :
+                name == "tokenizer.ggml.add_bos_token" || name == "tokenizer.ggml.add_eos_token" ? GGUF_TYPE_BOOL : GGUF_TYPE_UINT32;
+            if (key < 0 || gguf_get_kv_type(context.get(), key) != type) {
+                return 41;
+            }
+        }
+        const auto key = [&context](const char* name) { return gguf_find_key(context.get(), name); };
+        if (std::strcmp(gguf_get_val_str(context.get(), key("general.architecture")), "gpt2") != 0 ||
+                std::strcmp(gguf_get_val_str(context.get(), key("tokenizer.ggml.model")), "gpt2") != 0 ||
+                std::strcmp(gguf_get_val_str(context.get(), key("tokenizer.ggml.pre")), "gpt-2") != 0 ||
+                gguf_get_val_bool(context.get(), key("tokenizer.ggml.add_bos_token")) ||
+                gguf_get_val_bool(context.get(), key("tokenizer.ggml.add_eos_token"))) {
+            return 42;
+        }
+        const auto token_key = key("tokenizer.ggml.tokens"), type_key = key("tokenizer.ggml.token_type"), merge_key = key("tokenizer.ggml.merges");
+        const auto rows = gguf_get_arr_n(context.get(), token_key);
+        if (rows < 258 || rows > 512 || gguf_get_arr_type(context.get(), token_key) != GGUF_TYPE_STRING ||
+                gguf_get_arr_type(context.get(), type_key) != GGUF_TYPE_INT32 || gguf_get_arr_n(context.get(), type_key) != rows ||
+                gguf_get_arr_type(context.get(), merge_key) != GGUF_TYPE_STRING || gguf_get_arr_n(context.get(), merge_key) > 16) {
+            return 41;
+        }
+        const auto* types = static_cast<const int32_t*>(gguf_get_arr_data(context.get(), type_key));
+        for (const auto array_key : {token_key, merge_key}) {
+            std::size_t total = 0;
+            for (std::size_t index = 0; index < gguf_get_arr_n(context.get(), array_key); ++index) {
+                const std::string text(gguf_get_arr_str(context.get(), array_key, index));
+                total += text.size();
+                if (text.empty() || text.size() > 64 || text.find('\0') != std::string::npos || total > 65536 ||
+                        (array_key == token_key && types[index] != 1 && types[index] != 3 && types[index] != 5)) {
+                    return 41;
+                }
+                json(text).dump();
+            }
+        }
+        const auto valid_id = [rows](const json& value) {
+            return value.is_number_integer() && (value.is_number_unsigned() ? value.get<uint64_t>() < rows :
+                value.get<int64_t>() >= 0 && uint64_t(value.get<int64_t>()) < rows);
+        };
+        for (const auto& ids : expected["token_ids"]) {
+            if (!ids.is_array() || ids.empty() || ids.size() > 64) {
+                return 40;
+            }
+            for (const auto& value : ids) {
+                if (!valid_id(value)) {
+                    return 40;
+                }
+            }
+        }
+        if (!valid_id(expected["special_ids"][0]) || !valid_id(expected["special_ids"][1]) ||
+                expected["special_ids"][0] == expected["special_ids"][1]) {
+            return 40;
+        }
+        const auto pad = expected["special_ids"][0].get<uint32_t>(), control = expected["special_ids"][1].get<uint32_t>();
+        if (types[pad] != 3 || types[control] != 3 ||
+                std::strcmp(gguf_get_arr_str(context.get(), token_key, pad), "<pad>") != 0 ||
+                std::strcmp(gguf_get_arr_str(context.get(), token_key, control), "<|control|>") != 0 ||
+                gguf_get_val_u32(context.get(), key("tokenizer.ggml.padding_token_id")) != pad ||
+                gguf_get_val_u32(context.get(), key("tokenizer.ggml.unknown_token_id")) != pad ||
+                gguf_get_val_u32(context.get(), key("tokenizer.ggml.bos_token_id")) != control ||
+                gguf_get_val_u32(context.get(), key("tokenizer.ggml.eos_token_id")) != control) {
+            return 42;
+        }
+        std::vector<std::string> splits;
+        llama_model_loader loader(context.get(), nullptr, nullptr, "", splits, nullptr, LLAMA_LOAD_MODE_NONE,
+            false, true, false, nullptr, nullptr);
+        const auto empty_loader = [&loader]() {
+            return loader.files.empty() && loader.mappings.empty() && loader.contexts.empty() && loader.weights_map.empty() &&
+                loader.n_tensors == 0 && loader.n_created == 0;
+        };
+        if (!empty_loader()) {
+            return 43;
+        }
+        llama_vocab vocab;
+        vocab.load(loader, loader.llm_kv);
+        if (!empty_loader() || vocab.n_tokens() != rows || vocab.get_type() != LLAMA_VOCAB_TYPE_BPE ||
+                vocab.get_pre_type() != LLAMA_VOCAB_PRE_TYPE_GPT2 || vocab.get_add_bos() || vocab.get_add_eos() ||
+                vocab.token_pad() != int32_t(pad) || vocab.token_unk() != int32_t(pad) ||
+                vocab.token_bos() != int32_t(control) || vocab.token_eos() != int32_t(control)) {
+            return 43;
+        }
+        std::vector<std::string> texts;
+        for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
+            texts.emplace_back(1, label);
+        }
+        texts.emplace_back("BA");
+        for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
+            texts.push_back(std::string("BA") + label);
+        }
+        texts.emplace_back("<pad>");
+        texts.emplace_back("<|control|>");
+        std::vector<std::vector<llama_token>> actual;
+        for (std::size_t index = 0; index < texts.size(); ++index) {
+            llama_token tokens[64];
+            const auto count = vocab.tokenize(texts[index].data(), texts[index].size(), tokens, 64, false, true);
+            if (count <= 0 || count > 64) {
+                return 44;
+            }
+            actual.emplace_back(tokens, tokens + count);
+            if (actual.back() != expected["token_ids"][index].get<std::vector<llama_token>>()) {
+                return 44;
+            }
+        }
+        bool boundary_refusal = false;
+        for (std::size_t index = 0; index < 16; ++index) {
+            if (actual[index].size() != 1 || !vocab.is_normal(actual[index][0])) {
+                return 44;
+            }
+            auto continuation = actual[16];
+            continuation.insert(continuation.end(), actual[index].begin(), actual[index].end());
+            boundary_refusal = boundary_refusal || continuation != actual[17 + index];
+        }
+        if (boundary_refusal != expected["boundary_refusal"].get<bool>() || !empty_loader()) {
+            return 44;
+        }
+        std::printf("{\"checked_strings\":35,\"policy_version\":1,\"token_rows\":%zu,\"contextual_refusal\":%s,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
+            rows, boundary_refusal ? "true" : "false");
+        return 0;
+    } catch (const std::exception&) {
+        std::fputs("synthetic vocabulary input refused\n", stderr);
+        return 40;
+    }
+}
+
 static int test_selected_metadata(const char* path, const char* expected_path, int policy_version = 1) {
     using nlohmann::json;
     const bool joint = policy_version == 2;
@@ -1490,6 +1654,9 @@ static int test_selected_metadata(const char* path, const char* expected_path, i
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_REAL_LOADER
+    if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v1") == 0) {
+        return test_synthetic_vocab_v1(argv[2], argv[3]);
+    }
     if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control") == 0) {
         return test_selected_metadata(argv[2], argv[3]);
     }
