@@ -56,6 +56,9 @@ a separate 120 s allowance, not a ledger reset. The
 [contextual role checkpoint](#synthetic-role-context-checkpoint-2026-10-22)
 records generated positive/refusal evidence; all five learned approvals remain
 consumed and the learned refusal is unchanged.
+Source checkpoint `12ffdf8` completes the tiny scope. The next
+[generated v5 capacity proposal](#synthetic-role-context-capacity-proposal-2026-10-22)
+is unapproved; no larger role-aware fixture or sixth learned read has begun.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -595,6 +598,54 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Synthetic Role-Context Capacity Proposal (2026-10-22)
+
+Prepared after tested tiny contextual checkpoint `12ffdf8`; **not approved or
+started**. V5 verifies explicit roles and contextual continuations at 32 rows;
+its existing larger row/source route has not been exercised with roles. Request
+only **two generated capacity fixtures**, 8193 and 248320 vocabulary rows,
+within a **new separately approved 200 s ledger**. Freeze prior 90/120,
+270/300, 575/600 and 425.19/600 reservations; do not reset or combine them.
+
+- Extend the existing intermediate/full generated builders with distinct v5
+  modes beside unchanged v4/tiny/learned/native modes. Keep the production API,
+  source policies, profiles, role predicates, template bounds and old test
+  oracles unchanged; no additional role-aware API or learned runner/flag.
+- Use generated source-special tokens and an ordinary added marker in the
+  actual rendered prompt, explicit roles, unchanged marker spelling/ID/flag and
+  A-P labels. Call existing v5 at context 256 with explicit profile-row allowance
+  and independent 4 MiB row-content budget. Verify wrapper preservation before/
+  after encoding and all 16 exact single-token contextual continuations.
+- Reuse v4 capacity generation, including independent large ranked source
+  merges, padding and row-normalization behavior, not MiMo tokenizer contents.
+  Verify the full source tokenizer JSON actually exceeds 1 MiB, exercising
+  v5's existing 32 MiB aggregate source path; do not widen any bound or infer
+  learned/native semantic agreement from generated capacity.
+- Run the 8193-row case first as the first focused executable validation, then
+  the 248320-row case only if that check succeeds. Each two-child source-copy/
+  preparation stage <=70 s, each child <=60 s; run serially. Source/copy sets
+  <=32 MiB each, existing conservative logical scratch <=128 MiB, observed
+  worker RSS <=2 GiB/host reserve >=2 GiB, no process/host swap growth, <=64 KiB
+  input/8 KiB output, no generated files, source/copy hash/stable-stat/read-only/
+  FD/owned temporary cleanup mandatory. Record nonzero host-swap baselines
+  accurately; never change host settings or guards to obtain green.
+- The new **200 s** includes both <=70 s stages, focused failures,
+  **40 s** source gate reservation and overhead. Diagnose a failed check before
+  repair/rerun; do not repeat unchanged successful native/fingerprint/row/v4
+  controls or rerun an unchanged root gate. Commit only the tested fixture
+  integration and actual handover evidence.
+
+No learned file/tokenizer/template/header/weight read, sixth learned approval,
+profile/candidate mutation, processor/model/backend/native/C++ build/command,
+GGUF emission, downloads/install/refit/compensation, held-out/scoring/quality,
+device or another model experiment. All **five learned approvals remain
+consumed**. This remains generated Python tokenization capacity only, not
+full-model or on-device performance, model quality or contextual MiMo acceptance.
+
+Current branch state after `12ffdf8`: tracked clean, user `.vscode/` untracked
+and untouched; `origin/main` advanced externally to `ee14def`, leaving local
+`main` one commit ahead. No assistant push/fetch/branch operation occurred.
 
 ## Synthetic Role-Context Checkpoint (2026-10-22)
 
