@@ -502,6 +502,65 @@ def prepare_profile_model_fast_tokenizer_contract_v2(
                             "runtime_approval": "not_granted_by_standalone_fast_contract"})
 
 
+def prepare_profile_model_fast_context_contract_v3(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+    row_policy: str, messages: list[dict], maximum_seconds: float = 10,
+):
+    """Check bounded source-template continuations with the explicit generic fast wrapper."""
+    import json
+
+    from embedded_jev.label_probe import LabelProbeError, probe_label_boundary
+
+    if (type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 12
+            or type(context_length) is not int or context_length < 2
+            or type(messages) is not list or not 1 <= len(messages) <= 4
+            or any(type(message) is not dict or set(message) != {"role", "content"}
+                   or message["role"] not in ("system", "user", "assistant") or type(message["content"]) is not str
+                   or "\0" in message["content"] or len(message["content"].encode("utf-8")) > 4096 for message in messages)):
+        raise ValueError("invalid contextual fast contract input or budget")
+    serialized = json.dumps(messages, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    template_bytes = metadata_files.get(profile.tokenization["template_file"]) if isinstance(metadata_files, dict) else None
+    if len(serialized) > 16384 or type(template_bytes) is not bytes or not 0 < len(template_bytes) <= 16384:
+        raise ValueError("contextual fast contract message or template budget exceeded")
+    messages = json.loads(serialized)
+    deadline = time.monotonic() + maximum_seconds
+    prepared = prepare_profile_model_fast_tokenizer_contract_v2(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy, maximum_seconds=maximum_seconds)
+    selected = prepare_profile_model_template_metadata(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, template_source="source")
+    _, tokenizer, _ = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+    if time.monotonic() > deadline:
+        raise ValueError("contextual fast contract deadline exceeded")
+    from transformers import PreTrainedTokenizerFast
+
+    wrapper = PreTrainedTokenizerFast(tokenizer_object=tokenizer, clean_up_tokenization_spaces=False,
+        additional_special_tokens=list(profile.tokenization["special_token_ids"]))
+    wrapper.chat_template = selected["template"]
+    prompt = wrapper.apply_chat_template(messages, tokenize=False, **dict(profile.tokenization["render_arguments"]))
+    if not isinstance(prompt, str) or not prompt or "\0" in prompt or len(prompt.encode("utf-8")) > 16384:
+        raise ValueError("contextual fast contract rendered prompt budget exceeded")
+    prompt_ids = wrapper.encode(prompt, add_special_tokens=False)
+    if not 0 < len(prompt_ids) <= min(4096, context_length - 1):
+        raise ValueError("contextual fast contract prompt token budget exceeded")
+    try:
+        boundary = probe_label_boundary(wrapper, messages, profile=profile, template_source="source")
+    except LabelProbeError as exc:
+        raise ValueError("contextual fast contract boundary refused") from exc
+    if (boundary["prompt_sha256"] != hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+            or boundary["prompt_token_count"] != len(prompt_ids)):
+        raise ValueError("contextual fast contract rendering changed between checks")
+    if time.monotonic() > deadline:
+        raise ValueError("contextual fast contract deadline exceeded")
+    return MappingProxyType({**prepared, "contextual_contract_policy_version": 3,
+                            "selected_template_sha256": selected["selected_template_sha256"],
+                            "template_render_verification": "profile_pinned_generic_fast_wrapper",
+                            "prompt_label_boundary_verification": "profile_pinned_generic_fast_contextual_labels",
+                            "prompt_sha256": boundary["prompt_sha256"], "prompt_token_count": boundary["prompt_token_count"],
+                            "native_tokenizer_verification": "not_checked", "processor_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_contextual_fast_contract"})
+
+
 def prepare_profile_model_bpe_metadata(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):

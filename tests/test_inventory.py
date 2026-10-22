@@ -1988,6 +1988,71 @@ def test_profile_selected_metadata_writer_preflights_every_group_before_mutation
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
 
 
+@pytest.mark.parametrize("defect", [None, "boundary", "template-pin", "messages-type", "empty-messages", "message-count", "extra-field",
+    "role", "content-type", "content-bytes", "message-bytes", "nul", "template-bytes", "empty-prompt", "prompt-bytes", "prompt-tokens",
+    "context", "context-room", "render-changed", "seconds", "deadline", "late-deadline"])
+def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, defect):
+    import hashlib
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import label_probe, prism_codec
+
+    profile = SimpleNamespace(tokenization={"template_file": "chat_template.jinja", "special_token_ids": {"<pad>": 0}, "render_arguments": {}})
+    messages = [{"role": "user", "content": "B"}]
+    if defect == "messages-type":
+        messages = tuple(messages)
+    elif defect == "empty-messages":
+        messages = []
+    elif defect == "message-count":
+        messages *= 5
+    elif defect == "extra-field":
+        messages[0]["extra"] = True
+    elif defect == "role":
+        messages[0]["role"] = "unknown"
+    elif defect == "content-type":
+        messages[0]["content"] = []
+    elif defect == "content-bytes":
+        messages[0]["content"] = "x" * 4097
+    elif defect == "message-bytes":
+        messages = [{"role": "user", "content": "x" * 4096} for _ in range(4)]
+    elif defect == "nul":
+        messages[0]["content"] = "\0"
+    prompt = "" if defect == "empty-prompt" else "A" * 16385 if defect == "prompt-bytes" else "A"
+    wrapper = SimpleNamespace(apply_chat_template=lambda *args, **kwargs: prompt,
+        encode=lambda *args, **kwargs: [1] * (4097 if defect == "prompt-tokens" else 2 if defect == "context-room" else 1))
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(PreTrainedTokenizerFast=lambda **kwargs: wrapper))
+    prepared = {"label_token_ids": {"A": 1}, "tokenizer_wrapper_policy": "generic_pretrained_fast"}
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_tokenizer_contract_v2", lambda *args, **kwargs: prepared)
+    def select(*args, **kwargs):
+        if defect == "template-pin":
+            raise ValueError("template pin mismatch")
+        return {"template": "A", "selected_template_sha256": hashlib.sha256(b"A").hexdigest()}
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_template_metadata", select)
+    monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", lambda *args, **kwargs: ({}, object(), {}))
+    def boundary(*args, **kwargs):
+        if defect == "boundary":
+            raise label_probe.LabelProbeError("A does not extend the exact prompt by one token")
+        return {"prompt_sha256": hashlib.sha256(b"changed" if defect == "render-changed" else prompt.encode()).hexdigest(), "prompt_token_count": 1}
+    monkeypatch.setattr(label_probe, "probe_label_boundary", boundary)
+    arguments = dict(metadata_files={"chat_template.jinja": b"A" * (16385 if defect == "template-bytes" else 1)},
+        tokenizer_bytes=b"{}", context_length=1 if defect == "context" else 2 if defect == "context-room" else 8192,
+        row_policy="pinned_prism_fast_rows_v2", messages=messages)
+    if defect == "seconds":
+        arguments["maximum_seconds"] = float("nan")
+    elif defect in ("deadline", "late-deadline"):
+        clock = iter([0, 11] if defect == "deadline" else [0, 0, 11])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    if defect:
+        with pytest.raises(ValueError, match="contextual fast contract|template pin"):
+            prism_codec.prepare_profile_model_fast_context_contract_v3(profile, **arguments)
+    else:
+        receipt = prism_codec.prepare_profile_model_fast_context_contract_v3(profile, **arguments)
+        assert receipt["contextual_contract_policy_version"] == 3 and receipt["prompt_token_count"] == 1
+        assert receipt["native_tokenizer_verification"] == receipt["processor_verification"] == "not_checked"
+        assert "prompt" not in receipt and "messages" not in receipt and "contextual_contract_policy_version" not in prepared
+
+
 @pytest.mark.parametrize("defect", [None, "special-flag", "source-id", "empty-encoding", "multiple-encoding", "label-special",
     "padding", "transformed", "duplicate", "conflict", "bool-id", "range", "count", "bool-count", "row-budget", "content-budget",
     "content", "seconds", "deadline", "late-deadline"])

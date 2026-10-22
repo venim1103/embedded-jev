@@ -19,8 +19,10 @@ The subsequent separately approved Python-only
 verifies tiny/medium generated special/label declarations without output files.
 Source checkpoint `bda1480` completes that scope. The
 [contextual boundary proposal](#synthetic-contextual-boundary-proposal-2026-10-22)
-is a separate, unapproved Python-only follow-up; it does not authorize rendering
-cached learned templates or tokenizer/native/model execution.
+was separately approved through **Approve Context Boundaries** after `8dc8bc4`.
+The [contextual checkpoint](#synthetic-contextual-boundary-checkpoint-2026-10-22)
+records completed generated Python-only evidence; no cached learned templates,
+learned tokenizer, native/model execution or new quality run is authorized.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -561,9 +563,76 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Synthetic Contextual Boundary Checkpoint (2026-10-22)
+
+The user selected **Approve Context Boundaries** for the exact proposal committed
+as `8dc8bc4`. Added `prepare_profile_model_fast_context_contract_v3`, composing
+the standalone v2 contract, unchanged pinned source-template preparation, an
+explicit installed generic fast wrapper with profile-declared special tokens,
+and existing `label_probe.probe_label_boundary`. No new boundary algorithm or
+Qwen-specific wrapper selection. Source inputs/default row/content caps and all
+old APIs, native commands, original fixtures and their assertions remain intact.
+
+New input bounds: one to four exact role/content messages, system/user/assistant
+roles, string content <=4096 UTF-8 bytes each/no NUL, <=16 KiB serialized messages
+copied through JSON, <=16 KiB template/rendered prompt, <=4096 prompt IDs and a
+reserved final label position within context. Source-template pin checks occur
+before rendering. The preparer compares repeated render hash/count, checks a
+shared cooperative deadline before/after rendering/probing, and defaults to 10 s
+with an explicit 12 s ceiling. Parent guards, not in-process checks, enforce
+hard time/RSS limits; this is not general template-sandbox safety. Returns only
+prompt hash/count, selected template hash and explicit generic contextual status,
+not raw prompts/messages. Native/processor/runtime approval remains not checked
+or not granted; the generic/Qwen normalization difference remains unresolved.
+
+The first focused invocation failed **11 cases**, **66 passed in 2.67 s**:
+missing local `json` import prevented preparation in valid/late-refusal paths;
+independent early input refusals still passed. Added that import and the new test's explicit hash
+dependency; no numeric/boundary assertion changed. Same check passes **77 cases
+in 0.34 s**. Adding invalid-role and reserved-label-position controls then passes
+**79 in 0.34 s**: 22 new composition cases plus 57 unchanged boundary controls.
+New tests cover input/message/template/render/token/context bounds, selected-pin
+failure propagation, exact boundary refusal, changed render and early/late
+deadline expiry; existing tests own suffix/tokenization/special/label-ID checks.
+
+Two new generated 32-row modes preserve prior fixtures. Both contain A and AA
+rows, consistent two-special/A-P declarations and the same pinned tiny template
+rendering synthetic BA. The first has no A+A merge and verifies **all 16 labels**
+extend the exact prompt by one non-special declared token. The second adds only
+that source merge, keeps standalone A valid, and requires the exact chained
+`LabelProbeError`: A does not extend the prompt by one token. Zero accepted
+contextual labels are reported on refusal, not 16 successes. No GGUF output.
+
+`[synthetic-joint-context]` passes **2.68 s**; ten source/copy files, **5469 bytes
+per set**, logical **19130 bytes**. `[synthetic-joint-context-merge]` passes
+**2.49 s**; ten files/**5476 bytes per set**, logical **19144 bytes**. Each has
+a hard shared **12 s stage**, <=32 KiB source/copy set and existing conservative
+pre-copy reservation within 128 MiB; combined actual **5.17 s <25 s**. Source
+stat/hash rechecks, empty output directories, exact FD restoration and owned
+temporary/map/child cleanup pass. Max observed worker RSS **262180864 bytes**,
+minimum host available **18574331904 bytes**, process/host swap baseline/growth
+zero. The intentional source hole at ID20 produces the two bounded library
+warnings per preparation; warnings were neither hidden nor treated as failures.
+
+All learned/native opt-ins unset for the required root gate: **1462 passed,
+165 skipped in 27.93 s**; the reserved 40 s pytest cap did not fire. Ruff,
+whitespace/editor diagnostics clean. Two new optional modes are skipped by default;
+no C++/native/build/learned/medium/full/scoring/processor/other-profile job ran.
+No downloads, installs, refits, candidates, weights, activations or spill retained.
+No repeated optional fixture after its success; unchanged native checks were not
+rerun. Current ledger adds **36.45 s** measured failure/focused/fixture/gate time
+to prior 520 reservation; conservatively reserve **575/600 s** including overhead,
+leaving **25 s**. Older synthetic 425.19/600 ledger is unchanged, not reset.
+
+Approved contextual scope is complete. All four learned approvals remain consumed.
+The remaining 25 s cannot cover another required source gate plus useful compiled
+or synthetic integration checkpoint. A next execution scope needs its own precise
+approval/resource allowance; no implicit reset or native/learned extension.
+
 ## Synthetic Contextual Boundary Proposal (2026-10-22)
 
-Prepared after tested source checkpoint `bda1480`; **not approved or started**.
+Prepared after tested source checkpoint `bda1480`; **separately approved by the
+user after `8dc8bc4`**. The checkpoint above records completed scope/evidence.
 Its standalone receipt deliberately leaves prompt boundaries unchecked. Nearby
 `label_probe.probe_label_boundary` already verifies profile-pinned template text,
 render arguments/non-thinking suffix, rendered-versus-tokenized prompt agreement,

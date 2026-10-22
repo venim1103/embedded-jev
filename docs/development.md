@@ -3286,6 +3286,29 @@ invocation. Their shared stage is 60 s, not the older 180 s maximum. Consult
 the [checkpoint](handover.md#standalone-fast-token-contract-checkpoint-2026-10-22)
 for tiny/8193-row evidence, cleanup, remaining ledger and approval limits.
 
+### Contextual Fast Token Contracts
+
+`prepare_profile_model_fast_context_contract_v3` composes standalone fast
+contracts, the pinned **source** template and existing `probe_label_boundary`
+through an explicit generic fast wrapper with declared special tokens. It
+checks exact contextual A-P continuations, not Qwen-specific/native equivalence,
+processor behavior, calibrated scores or model/runtime approval. Old APIs and
+row/content caps are unchanged; this path does not emit GGUF metadata.
+
+Inputs are one to four exact role/content messages using system/user/assistant
+roles; content <=4 KiB each/no NUL, serialized messages/template/rendered prompt
+<=16 KiB each, prompt <=4096 IDs with room for one label in context. It returns
+hash/count rather than prompt/message text. Default cooperative deadline is
+10 s, ceiling 12 s; hard time/RSS enforcement requires the guarded worker, not
+the pure preparer's checks. Rendering pinned text is not a general sandbox.
+
+Only generated `synthetic-joint-context` and `synthetic-joint-context-merge`
+modes are verified. They reuse cached row-diagnostic variables/guards, enforce
+32 rows/32 KiB source sets/12 s shared stage, preserve empty output directories,
+and isolate a cross-boundary A+A merge after valid standalone encoding. See
+the [checkpoint](handover.md#synthetic-contextual-boundary-checkpoint-2026-10-22)
+for actual evidence, warnings, cleanup, consumed ledger and scope restrictions.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.
