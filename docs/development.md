@@ -3266,6 +3266,26 @@ records generated positive/refusal evidence and limits. Neither API nor native
 getter success approves learned reads, vocabulary/model loading or complete
 tokenizer semantics. No new model/pre tag or special-ID policy is inferred.
 
+### Standalone Fast Token Contracts
+
+`prepare_profile_model_fast_tokenizer_contract_v2` checks profile-pinned source
+special/label IDs and standalone encodings against the explicit generic fast-row
+policy. Special tokens require source special flags/CONTROL rows; A-P labels
+must encode to their declared single non-special ID and retain their exact text
+in a non-padding selected row. It does not render a prompt, infer special-ID
+GGUF fields or claim Qwen-specific/native tokenizer equivalence. The old
+`prepare_profile_model_tokenizer_contract` remains unchanged.
+
+The new defaults are 4096 rows/64 KiB independent source/output content,
+64 declarations/30 s, with explicit ceilings 262144 rows/4 MiB content,
+4096 declarations/4096 bytes per string/60 s. One deadline covers preparation
+and all standalone checks. New `synthetic-joint-contract` and
+`synthetic-merges-intermediate-contract` modes reuse the cached row-diagnostic
+variables and existing guards, with an empty output directory and no native
+invocation. Their shared stage is 60 s, not the older 180 s maximum. Consult
+the [checkpoint](handover.md#standalone-fast-token-contract-checkpoint-2026-10-22)
+for tiny/8193-row evidence, cleanup, remaining ledger and approval limits.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.

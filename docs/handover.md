@@ -14,6 +14,9 @@ commits until stopped or genuinely blocked. Starting `62e59a3` matches
 before continuing: the approved tiny/intermediate/full 30-field parser scope is
 verified. All four learned approvals remain consumed; no tokenizer-engine/model
 loading or new learned execution is authorized.
+The subsequent separately approved Python-only
+[standalone contract checkpoint](#standalone-fast-token-contract-checkpoint-2026-10-22)
+verifies tiny/medium generated special/label declarations without output files.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -65,9 +68,9 @@ template subset in one generated file. It changes the exact native selected-fiel
 contract; the separate synthetic-only approval is now recorded above. No new
 learned, model-loading, download or quality work is authorized.
 
-**Next Python-only proposal, not approved:** the
+**Python-only follow-up, separately approved and completed:** the
 [standalone fast token contract proposal](#standalone-fast-token-contract-proposal-2026-10-22)
-would check source-pinned special/label IDs alongside the explicit fast-row
+checks source-pinned special/label IDs alongside the explicit fast-row
 policy on new generated fixtures. It is not a native loader/engine-parity or
 GGUF tag/special-ID emission proposal; the completed 30-field evidence is unchanged.
 
@@ -554,9 +557,81 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Standalone Fast Token Contract Checkpoint (2026-10-22)
+
+After proposal checkpoint `f967f9d`, the user selected **Approve Python Contract**
+for the exact remaining-ledger Python-only scope. Added
+`prepare_profile_model_fast_tokenizer_contract_v2`, keeping the old standalone
+contract API/defaults intact. The new path reuses source-pinned fast row and
+trusted source tokenizer preparation, validates bounded unique non-conflicting
+declarations, raw spelling/ID agreement and exactly one source-encoded ID with
+`add_special_tokens=False`. Declared special tokens require source special flags
+and CONTROL rows; labels require non-special/non-padding selected rows with text
+unchanged. Preparation touches no GGUF writer/model file. Receipt explicitly
+states generic fast-wrapper policy, standalone-only verification and unchecked
+prompt/context/native/runtime semantics.
+
+Defaults are 4096 rows, independently bounded 64 KiB source/output content,
+64 declared tokens and 30 s; explicit ceilings remain 262144 rows/4 MiB content,
+4096 declarations/4096-byte strings and 60 s. A shared deadline covers preparation
+and all encoding checks, including after the final encoding. Existing APIs,
+row/merge policies, profiles and native commands/caps are unchanged.
+
+Twenty new unit cases (19 refusals/one positive) check missing special flags,
+wrong source ID, empty/multiple encoding, special/padding/transformed labels,
+duplicate/conflicting declarations, bool/out-of-range IDs, count/content/row
+budgets, count bool, nonfinite deadline and early/late deadline expiry. Together
+with unchanged old standalone controls, focused tests pass **22 cases in
+0.17 s**, then **26 in 0.19 s** after extending the new budget/deadline matrix.
+
+New generated modes fork only their own source declarations to contain exact
+two special tokens and A-P label spellings at distinct non-special IDs. Old
+positive/fault fixtures remain unchanged. `[synthetic-joint-contract]` and
+`[synthetic-merges-intermediate-contract]` use existing guarded source-copy
+workers, source/copy rechecks and a tighter shared **60 s stage** within the
+remaining allowance. Preparation uses actual installed trusted tokenizer
+encoding and the explicit generic fast-row policy, never Qwen-specific wrapper
+or native engine parity. No output file is created; FD/output assertions and
+parent-owned cleanup pass.
+
+The first tiny invocation failed **0.60 s** after copy, before preparation:
+the phase classifier omitted new `rows-contract`, so the unchanged prefix refused
+it. Explicitly registering that phase fixed the routing; no guard was relaxed.
+The same check then passes **3.13 s**. Medium passes **2.74 s**, run only after
+tiny success. Each verifies two special tokens, all 16 standalone labels, one
+generic row normalization and one space rewrite. Tiny: ten source/copy files,
+**5464 bytes per set**, 32 rows, logical owned inputs plus report **19120 bytes**.
+Medium: ten files/**366218 bytes per set**, 8193 rows, logical **740628 bytes**.
+Both fit the conservative pre-copy reservation and 128 MiB allowance, keep output
+directories empty, and preserve original source stat/hash identities.
+
+Maximum observed worker RSS **275271680 bytes**, minimum host available
+**17263157248 bytes**, process/host swap baseline/growth zero. Temporary sources,
+copies, maps/FDs/children cleaned; no GGUF, weights, native artifact, candidate,
+activation or spill created/retained. No full-size contract case, fingerprint,
+learned label diagnostic, model/header read, download/install, C++ edit/build,
+native invocation, backend discovery or tokenizer model/pre/special-ID field
+inference/emission occurred. The generic/Qwen normalization difference remains
+unresolved; standalone contracts do not prove contextual choice-token boundaries.
+
+Required source gate, all learned/native opt-ins unset: **1440 passed, 163 skipped
+in 28.25 s**, Ruff/whitespace/editor diagnostics clean. Twenty new unit cases and
+two explicit optional modes account for the count changes; skipped tests are not
+native/model evidence. C++/native controls were not rerun because that source and
+contract did not change. From prior 470 s reservation, focused checks/failure and
+gate add **35.08 s**; conservatively reserve **520/600 s** including command/doc
+overhead, leaving **80 s**, not a reset. Older synthetic 425.19/600 s accounting
+is independent and unchanged. All four learned approvals remain consumed.
+
+This completes the approved Python-only standalone-contract slice. Source/token
+storage, standalone contracts, native semantics, contextual rendering and model
+execution remain separately gated. Do not spend remaining time on unapproved
+learned/native/quality work or repeat successful unchanged gates for reassurance.
+
 ## Standalone Fast Token Contract Proposal (2026-10-22)
 
-Prepared after source checkpoint `e185034`; **not approved**. Source inspection
+Prepared after source checkpoint `e185034`; **separately approved by the user
+after `f967f9d`**. Source inspection
 shows `prepare_profile_model_tokenizer_contract` already verifies declared
 special IDs and standalone labels, but uses the old bounded contiguous-vocabulary
 preparation. The new selected-fast composition deliberately proves stored
@@ -604,7 +679,8 @@ validate immediately, then actual tiny source-bound encoding before the medium
 fixture. The required source gate counts against the same remaining 130 s;
 reserve it before optional integration and stop before exceeding the allowance.
 Commit useful tested increments with exact evidence and failed-check history.
-No implementation or new diagnostic for this proposal has begun.
+The [standalone checkpoint](#standalone-fast-token-contract-checkpoint-2026-10-22)
+records implementation, actual generated encoding checks and retained limits.
 
 ## Selected Fast Native Checkpoint (2026-10-22)
 

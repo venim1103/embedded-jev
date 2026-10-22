@@ -451,6 +451,57 @@ def prepare_profile_model_tokenizer_contract(
                             "runtime_approval": "not_granted_by_token_contract_preparation"})
 
 
+def prepare_profile_model_fast_tokenizer_contract_v2(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+    maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+    maximum_declared_tokens: int = 64, maximum_seconds: float = 30,
+):
+    """Check source standalone IDs/flags and generic fast rows, not prompt boundaries or native semantics."""
+    if (type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 60
+            or type(maximum_declared_tokens) is not int or not 0 < maximum_declared_tokens <= 4096
+            or type(maximum_vocabulary_rows) is not int or not 0 < maximum_vocabulary_rows <= 262144
+            or type(maximum_token_content_bytes) is not int or not 0 < maximum_token_content_bytes <= 4 * 1024**2):
+        raise ValueError("invalid standalone fast contract budget")
+    deadline = time.monotonic() + maximum_seconds
+    special = dict(profile.tokenization["special_token_ids"])
+    labels = dict(profile.tokenization["label_token_ids"])
+    declarations = [*special.items(), *labels.items()]
+    if (not special or not labels or len(declarations) > maximum_declared_tokens
+            or len({text for text, _ in declarations}) != len(declarations)
+            or len({token_id for _, token_id in declarations}) != len(declarations)
+            or any(not isinstance(text, str) or not 0 < len(text.encode("utf-8")) <= 4096 or "\0" in text
+                   or type(token_id) is not int or not 0 <= token_id < profile.geometry["vocab_size"] for text, token_id in declarations)
+            or sum(len(text.encode("utf-8")) for text, _ in declarations) > maximum_token_content_bytes):
+        raise ValueError("invalid standalone fast contract declarations")
+    prepared = prepare_profile_model_tokenizer_rows_v2(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows,
+        maximum_token_content_bytes=maximum_token_content_bytes)
+    _, tokenizer, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, maximum_tokenizer_json_bytes=MODEL_METADATA_BYTES_V2)
+    added = tokenizer.get_added_tokens_decoder()
+    for text, token_id in declarations:
+        if time.monotonic() > deadline:
+            raise ValueError("standalone fast contract deadline exceeded")
+        row = prepared["token_row_records"][token_id]
+        if (vocabulary.get(text) != token_id or tokenizer.token_to_id(text) != token_id
+                or row["source_token"] != text or tokenizer.encode(text, add_special_tokens=False).ids != [token_id]):
+            raise ValueError("standalone fast contract source ID or encoding mismatch")
+        source_special = token_id in added and added[token_id].special
+        if (text in special and (not source_special or row["token_type"] != "CONTROL")
+                or text in labels and (source_special or row["token_type"] not in ("NORMAL", "USER_DEFINED")
+                                      or prepared["tokens"][token_id] != text)):
+            raise ValueError("standalone fast contract flags or selected row mismatch")
+    if time.monotonic() > deadline:
+        raise ValueError("standalone fast contract deadline exceeded")
+    return MappingProxyType({**prepared, "standalone_contract_policy_version": 2,
+                            "special_token_ids": MappingProxyType(special), "label_token_ids": MappingProxyType(labels),
+                            "special_token_verification": "declared_source_ids_flags_and_standalone_encoding",
+                            "label_token_verification": "standalone_non_special_ids_and_unchanged_fast_rows",
+                            "tokenizer_wrapper_policy": "generic_pretrained_fast",
+                            "prompt_label_boundary_verification": "not_checked", "native_tokenizer_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_standalone_fast_contract"})
+
+
 def prepare_profile_model_bpe_metadata(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
 ):

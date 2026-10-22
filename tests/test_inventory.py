@@ -1988,6 +1988,63 @@ def test_profile_selected_metadata_writer_preflights_every_group_before_mutation
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
 
 
+@pytest.mark.parametrize("defect", [None, "special-flag", "source-id", "empty-encoding", "multiple-encoding", "label-special",
+    "padding", "transformed", "duplicate", "conflict", "bool-id", "range", "count", "bool-count", "row-budget", "content-budget",
+    "content", "seconds", "deadline", "late-deadline"])
+def test_profile_fast_standalone_contract_refuses_source_and_row_conflicts(monkeypatch, defect):
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    texts = ("<pad>", "A", "B")
+    vocabulary = {text: index for index, text in enumerate(texts)}
+    profile = SimpleNamespace(geometry={"vocab_size": 3}, tokenization={"special_token_ids": {"<pad>": 0}, "label_token_ids": {"A": 1}})
+    rows = [{"source_token": text, "token_type": "CONTROL" if index == 0 else "NORMAL"} for index, text in enumerate(texts)]
+    tokens = list(texts)
+    if defect == "padding":
+        rows[1]["token_type"] = "UNUSED"
+    elif defect == "transformed":
+        tokens[1] = "changed"
+    elif defect == "duplicate":
+        profile.tokenization["label_token_ids"]["B"] = 1
+    elif defect == "conflict":
+        profile.tokenization["label_token_ids"] = {"<pad>": 0}
+    elif defect == "bool-id":
+        profile.tokenization["label_token_ids"]["A"] = True
+    elif defect == "range":
+        profile.tokenization["label_token_ids"]["A"] = 3
+    elif defect == "content":
+        profile.tokenization["label_token_ids"] = {"A" * 4097: 1}
+    backend = SimpleNamespace(get_added_tokens_decoder=lambda: {0: SimpleNamespace(special=defect != "special-flag"),
+        1: SimpleNamespace(special=defect == "label-special")}, token_to_id=lambda text: None if defect == "source-id" else vocabulary[text],
+        encode=lambda text, **kwargs: SimpleNamespace(ids=[] if defect == "empty-encoding" else
+            [vocabulary[text]] * (2 if defect == "multiple-encoding" else 1)))
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows_v2", lambda *args, **kwargs:
+        {"token_row_records": rows, "tokens": tuple(tokens)})
+    monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", lambda *args, **kwargs: ({}, backend, vocabulary))
+    arguments = dict(metadata_files={}, tokenizer_bytes=b"{}", context_length=256, row_policy="pinned_prism_fast_rows_v2")
+    if defect == "count":
+        arguments["maximum_declared_tokens"] = 1
+    elif defect == "bool-count":
+        arguments["maximum_declared_tokens"] = True
+    elif defect == "row-budget":
+        arguments["maximum_vocabulary_rows"] = 262145
+    elif defect == "content-budget":
+        arguments["maximum_token_content_bytes"] = 4 * 1024**2 + 1
+    elif defect == "seconds":
+        arguments["maximum_seconds"] = float("nan")
+    elif defect in ("deadline", "late-deadline"):
+        clock = iter([0, 31] if defect == "deadline" else [0, 0, 0, 31])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    if defect:
+        with pytest.raises(ValueError, match="standalone fast contract"):
+            prism_codec.prepare_profile_model_fast_tokenizer_contract_v2(profile, **arguments)
+    else:
+        receipt = prism_codec.prepare_profile_model_fast_tokenizer_contract_v2(profile, **arguments)
+        assert receipt["standalone_contract_policy_version"] == 2 and receipt["tokenizer_wrapper_policy"] == "generic_pretrained_fast"
+        assert receipt["prompt_label_boundary_verification"] == receipt["native_tokenizer_verification"] == "not_checked"
+
+
 @pytest.mark.parametrize("defect", [None, "duplicate-merges", "duplicate-types", "metadata-pin", "tokenizer-pin", "manifest", "profile", "template-pin"])
 def test_profile_selected_fast_metadata_joint_writer_preflight(monkeypatch, defect):
     from embedded_jev import prism_codec
