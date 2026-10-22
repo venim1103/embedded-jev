@@ -49,6 +49,9 @@ The next [generated token-role proposal](#synthetic-token-role-proposal-2026-10-
 was approved through **Approve Generated Token Roles** after `12618a1`;
 the [standalone checkpoint](#synthetic-token-role-checkpoint-2026-10-22) records
 its bounded generated evidence. No additional learned invocation is authorized.
+Source checkpoint `93f679a` completes that standalone scope. The next
+[generated role-aware contextual proposal](#synthetic-role-context-proposal-2026-10-22)
+is unapproved and requests a separate finite allowance, not a ledger reset.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -588,6 +591,57 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Synthetic Role-Context Proposal (2026-10-22)
+
+Prepared after tested standalone checkpoint `93f679a`; **not approved or
+started**. Required IDs, source-special tokens and ordinary added markers now
+have a source-faithful standalone contract on generated input. Contextual
+composition still uses the old all-special contract and is not integrated.
+Request one **generated-only role-aware contextual composition** beside strict
+v3/v4, with a **new separately approved 120 s ledger**. Freeze the current
+270/300 s reservation and older 575/600 and 425.19/600 ledgers; neither their
+remaining allowance nor prior approvals authorize this work.
+
+- Add `prepare_profile_model_fast_context_contract_v5` with a required explicit
+  `token_roles` map, using the new standalone role contract as its producer.
+  Reuse the existing owning contextual path, message/template/prompt bounds,
+  pinned source template/render arguments and `probe_label_boundary`; keep
+  v3/v4 signatures, strict producer, limits and receipts unchanged. V5 retains
+  v4's explicit existing row/content/source bounds without a capacity run.
+- Supply only verified `source_special_token_ids` to the generic contextual
+  wrapper's additional-special configuration. Do not promote ordinary markers
+  to specials. Check declared role/ID/flag preservation on the contextual
+  wrapper itself before and after rendering/encoding; an ordinary marker must
+  remain non-special and source spelling/ID must be unchanged. Keep inherited
+  row normalization and all source flags/profile hashes frozen.
+- Give the new receipt explicit contextual policy version 5 and role-map
+  identity alongside the existing prompt hash/count and no-native/processor/
+  runtime-approval caveats. Standalone acceptance does not imply contextual
+  acceptance; old strict refusals stay strict and historical learned refusal
+  remains intact. Do not infer another model's roles or alter any profile.
+- Extend nearby tests/helpers, not a new test framework. Discriminating
+  generated fixture renders an ordinary added marker in the prompt followed
+  by A; verify correct singleton labels and non-special marker preservation.
+  A second fixture adds the existing cross-boundary A+A merge and must refuse
+  despite valid standalone roles. Wrong wrapper role/flag/ID changes and
+  relevant bounds/deadlines must refuse without weakening old checks.
+- Run only those two tiny actual pinned-library fixtures, <=32 vocabulary
+  rows/<=64 KiB source/copy sets, each <=12 s shared stage, children limited by
+  that stage, combined <=25 s. Preserve current <=2 GiB worker RSS/host reserve,
+  no swap growth, <=64 KiB stdin/8 KiB output, immutable copies/source hashes,
+  exact FD/output-empty/owned temporary cleanup and no model repository code.
+  No larger synthetic capacity or unchanged native/fingerprint/row diagnostic.
+- New **120 s** allowance includes focused/synthetic failures, fixture stages,
+  **40 s** mandatory source gate reservation and overhead; do not relax or
+  retry an unchanged failed gate. Commit the tested bounded source checkpoint
+  and handover before proposing any later learned or larger follow-up.
+
+No learned metadata/tokenizer/template/weight/header read, new learned runner
+or flag, native/C++ build/command, model/backend/processor execution, GGUF,
+download/install, candidate/refit/compensation/quality/scoring/device/other-model
+experiment. All **five learned approvals remain consumed**. This synthetic
+proposal is not a sixth learned approval and cannot authorize a later retry.
 
 ## Synthetic Token-Role Checkpoint (2026-10-22)
 
