@@ -61,6 +61,9 @@ Source checkpoint `12ffdf8` completes the tiny scope. The next
 was approved through **Approve Generated V5 Capacity** after `c2dc86f`.
 The [capacity checkpoint](#synthetic-role-context-capacity-checkpoint-2026-10-22)
 records generated medium/full evidence, not another learned invocation.
+Source checkpoint `874a4f1` completes the approved capacity scope. The next
+[one-shot role-aware learned proposal](#learned-role-context-proposal-2026-10-22)
+is unapproved; no sixth learned invocation has begun.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -600,6 +603,82 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Learned Role-Context Proposal (2026-10-22)
+
+Prepared after tested capacity checkpoint `874a4f1`; **not approved or
+started**. All five prior learned approvals remain consumed. Generated v5
+capacity/roles now pass, while the historical v4 learned refusal remains
+correct under its strict all-special predicate. Request **exactly one sixth,
+separate learned Python role-aware contextual diagnostic**, not a retry under
+an old flag or changed v4 predicate.
+
+Target only `XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B` revision
+`2367e865d009c13ac81713a2878291d33ab28177`, canonical profile SHA-256
+`1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`,
+Prism `842b1880415d6f508f03b789e5ce70194def7bfd`. Use the same exact cache
+directory and ten pinned non-weight files as the fifth diagnostic: seven
+profile packaging files plus `tokenizer.json`, `vocab.json`, `merges.txt`,
+**30144444 bytes per original/copy set**. No additional input or model code.
+
+The explicit new validation policy is:
+
+```json
+{
+  "<|endoftext|>": "source_special",
+  "<|im_start|>": "source_special",
+  "<|im_end|>": "source_special",
+  "<think>": "ordinary_added_marker",
+  "</think>": "ordinary_added_marker"
+}
+```
+
+Its profile-bound canonical role-policy SHA-256 is
+`c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472`, computed
+from the checked-in profile only, without reopening cached learned input.
+This policy is informed by the fifth diagnostic's authorized flag receipt,
+not automatic role inference. The unchanged literal row heuristic does not
+mark either thinking spelling special; actual selected-row/encoding/contextual
+compatibility still needs validation and may refuse. Frozen profile, source
+flags, row policy, candidate and strict v2/v3/v4 stay unchanged.
+
+- Add only a distinct learned-role-context mode/approval flag, exact target/
+  role-policy binding and guarded worker routing. Reuse controller/source-copy
+  pins, read-only/stat/hash checks and deny network/unlisted/model/weight/
+  GGUF/process-creation guards; wrong flag/profile/path/policy must fail before
+  learned source I/O in synthetic tests. Preserve all old modes and approvals.
+- Test and commit the runner with its required source gate **before** the
+  single source-read invocation. Do not repeat successful unchanged capacity,
+  native/fingerprint/row proofs. Only then call existing v5 exactly once at
+  context 256/248320 rows/4 MiB content, fixed user message `A or B?`, source
+  pinned template/profile render arguments and this exact explicit role map.
+- Verify three actual source-specials, two ordinary marker IDs/flags/unchanged
+  rows, all A-P standalone labels and exact contextual continuations, wrapper
+  roles before/after encoding and role-policy/profile identity. On success
+  retain only small hashes/counts/resource receipts. On semantic refusal retain
+  bounded category/function/line, no fallback or predicate/wrapper selection.
+  The same authorized five-entry source added-token special-flag vector may
+  be reported from the immutable copied JSON after releasing large exception/
+  preparation state. A completed refusal is not contract acceptance.
+- Two serial children <=60 s each/**70 s shared stage**, existing <=2 GiB
+  observed worker RSS/host reserve >=2 GiB, abort any process/host swap growth,
+  <=64 KiB path-only stdin/8 KiB output. No subprocess/fork/spawn/exec, output
+  file or GGUF allowed. Preserve source/copy final hashes/stable identity,
+  exact FDs, empty output and owned temporary cleanup. Logical scratch two
+  source sets+32 MiB transient+8 KiB report <128 MiB, no retained arrays/prompt.
+- Use **120 s remaining of the same 200 s ledger**, prior 80 s reservation,
+  including **40 s** runner gate, <=70 s one-shot stage and focused/overhead
+  remainder. Prior 90/120, 270/300, 575/600 and 425.19/600 stay frozen. A flag
+  alone never authorizes another learned read. Consume this sixth approval on
+  attempted source-read invocation regardless of success/resource/semantic
+  outcome; no automatic retry/rebaseline or seventh flag. Record result in a
+  docs-only checkpoint if the committed runner is unchanged.
+
+No C++/native build/vocabulary/model/backend/processor call, source/weight
+download/install, safetensor header/weight content, GGUF emission, profile or
+candidate mutation, refit/compensation/scoring/held-out/quality/device/other-model
+experiment. Explicit generic wrapper evidence does not establish Qwen-specific
+or native parity, BitNet execution, calibrated confidence or model quality.
 
 ## Synthetic Role-Context Capacity Checkpoint (2026-10-22)
 
