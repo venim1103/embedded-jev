@@ -23,6 +23,10 @@ was separately approved through **Approve Context Boundaries** after `8dc8bc4`.
 The [contextual checkpoint](#synthetic-contextual-boundary-checkpoint-2026-10-22)
 records completed generated Python-only evidence; no cached learned templates,
 learned tokenizer, native/model execution or new quality run is authorized.
+Source checkpoint `40dd712` completes contextual composition. The next
+[native vocabulary proposal](#synthetic-native-vocabulary-proposal-2026-10-22)
+is unapproved and requests a separate additional allowance; prior 575/600 s
+accounting is retained, not reset. No new native implementation/build has begun.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -562,6 +566,85 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Synthetic Native Vocabulary Proposal (2026-10-22)
+
+Prepared after source checkpoint `40dd712`; **not approved or started**. The
+completed synthetic Python path verifies contextual labels, not native tokenizing.
+Existing `test_vocab_only` calls runtime/backend initialization and the model
+loader; do not invoke it under the completed parser/Python approvals. Static
+inspection of cached pinned headers/source shows a narrower possible path:
+`llama_model_loader` accepts externally parsed GGUF metadata with empty filename,
+null file and no allocation; that branch does not open files or create weight
+maps/tensor contexts. `llama_vocab::load(loader, loader.llm_kv)` is available.
+Pinned vocabulary code explicitly maps `gpt-2` to the GPT-2 pre-tokenizer enum.
+No new binary or learned input was invoked/read to establish these source facts.
+
+Hypothesis: a zero-tensor generated GGUF can drive this direct vocabulary path
+and reproduce bounded generic GPT-2 BPE standalone/contextual label cases without
+a model object, hparams/weights, runtime policy, backend discovery or graph.
+Cheapest discriminator: compile one test-only early-dispatch command, then load
+one tiny zero-tensor byte-alphabet fixture and tokenize A/BA. Assert empty loader
+files/mappings/contexts/weight map and zero tensors/created tensors before and
+after vocabulary loading; reject nonzero tensor counts before construction.
+If that fails, diagnose locally; do not fall back to backend/model initialization,
+add tensor data, widen sources or try arbitrary tokenizer tags seeking green.
+
+Request **synthetic native vocabulary feasibility/integration** with a **new,
+additional 300 s ledger** for this exact scope. Freeze prior native/composition
+575/600 s and independent synthetic 425.19/600 s totals; neither resets nor funds
+this request. No learned or complete-model approval is implied.
+
+- Add one test-only versioned command before backend discovery, guarded with
+  existing real-loader compilation. Reuse retained bounded metadata parsing and
+  strict expected-JSON duplicate/type/field checks where suitable. Directly own
+  parsed metadata, external loader and vocabulary with correct RAII lifetime;
+  never construct `llama_model`, call runtime/backend initialization or load
+  tensors. Old commands, caps and numerical kernels remain unchanged.
+- Use only new generated GPT-2 BPE fixtures: a complete deterministic 256-byte
+  alphabet, explicit source ByteLevel pre-tokenizer with no prefix-space addition,
+  A-P IDs derived from that alphabet, two source-declared specials and an AA row.
+  Limit padded capacity to <=512 rows, original ranked merges <=16 and independent
+  string/merge contents <=64 KiB, each string <=64 UTF-8 bytes. No model-specific
+  token IDs, learned alphabet, Qwen geometry or learned pre-tokenizer fingerprint.
+- Test fixtures may emit only their own explicit tokenizer model `gpt2`, pre
+  `gpt-2`, source-declared BOS/EOS/unknown/pad IDs and disabled automatic BOS/EOS
+  flags alongside source-verified tokens/types/merges. Derive those IDs from new
+  toy source declarations/config, not defaults or another profile. This is a
+  test-only emitter, not production special-ID/tag inference or promotion.
+  The native command must verify exact field types/ranges/row alignment/enum,
+  source-matched special IDs/types and disabled auto-special behavior before
+  bounded lexical checks. Reject nonzero tensors; output contains counts/IDs
+  and explicit zero-model/backend/tensor-data status, not performance claims.
+- First guarded positive: Python source/standalone/contextual checks, then direct
+  native A-P and BA-plus-label comparisons with `add_special=false` and explicit
+  special parsing. A separately generated A+A merge fixture must preserve valid
+  standalone A but produce the exact contextual discrepancy in both engines.
+  Include bounded wrong model/pre/ID/type, duplicate JSON and expected token/label
+  contradictions. Keep old fixtures and equality/normalization assertions intact.
+- All source/copy sets <=64 KiB each, zero-tensor GGUF/fault copies <=256 KiB each,
+  expected JSON <=64 KiB, logical owned scratch <=16 MiB, <=64 KiB path-only
+  stdin/<=8 KiB stdout+stderr/report. Reuse source/copy stat/hash, exact FD/map
+  closure and parent temporary/process cleanup. Native tests use the cached
+  controller/direct exec, never converter-triggered downloads or model code.
+- Serial workers <=30 s each/60 s stage and <=remaining new sequence time;
+  observed process-tree RSS <=2 GiB, host reserve >=2 GiB, no process/host swap
+  growth. One target-only cached Release build via CMake Tools, <=2 jobs/90 s,
+  with bounded observer and no unrelated source/dependency rebuild. Verify pins
+  first; do not change cached sources/libraries, CMake flags or editor settings.
+- Include relevant old 29/v2/v3 parser compatibility controls and the required
+  default source gate, reserving **40 s** for that gate. Charge every build,
+  failure/control/fixture/gate to the new 300 s allowance. No intermediate/full
+  fixture, learned/cache tokenizer/template/header/weight read, model/prefill or
+  arithmetic, backend initialization, download/install, refit/candidate,
+  quality/device/other-profile execution. All four learned approvals stay consumed.
+
+If separately approved, verify the cached path and make the smallest reversible
+C++ edit, immediately target-compile, then guarded tiny positive before native
+refusals/compatibility. Record actual resources/failures/cleanup and commit only
+after applicable checks. A synthetic vocabulary result would not prove Qwen/MiMo
+semantic parity, model loading, BitNet arithmetic, representative quality or
+whole-model deployment. Otherwise retain `40dd712` and the existing boundaries.
 
 ## Synthetic Contextual Boundary Checkpoint (2026-10-22)
 
