@@ -586,15 +586,27 @@ def prepare_profile_model_fast_context_contract_v4(
         maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes, policy_version=4)
 
 
+def prepare_profile_model_fast_context_contract_v5(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+    row_policy: str, messages: list[dict], token_roles: dict, maximum_vocabulary_rows: int = 4096,
+    maximum_token_content_bytes: int = 64 * 1024, maximum_seconds: float = 30,
+):
+    """Check contextual labels while preserving explicit source-special and ordinary-marker roles."""
+    return _prepare_profile_model_fast_context_contract(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, messages=messages, maximum_seconds=maximum_seconds,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
+        policy_version=5, token_roles=token_roles)
+
+
 def _prepare_profile_model_fast_context_contract(
     profile, *, metadata_files, tokenizer_bytes, context_length, row_policy, messages, maximum_seconds,
-    maximum_vocabulary_rows, maximum_token_content_bytes, policy_version,
+    maximum_vocabulary_rows, maximum_token_content_bytes, policy_version, token_roles=None,
 ):
     import json
 
     from embedded_jev.label_probe import LabelProbeError, probe_label_boundary
 
-    if (type(policy_version) is not int or policy_version not in (3, 4)
+    if (type(policy_version) is not int or policy_version not in (3, 4, 5)
             or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= (12 if policy_version == 3 else 60)
             or type(maximum_vocabulary_rows) is not int or not 0 < maximum_vocabulary_rows <= 262144
             or type(maximum_token_content_bytes) is not int or not 0 < maximum_token_content_bytes <= 4 * 1024**2
@@ -610,9 +622,11 @@ def _prepare_profile_model_fast_context_contract(
         raise ValueError("contextual fast contract message or template budget exceeded")
     messages = json.loads(serialized)
     deadline = time.monotonic() + maximum_seconds
-    prepared = prepare_profile_model_fast_tokenizer_contract_v2(profile, metadata_files=metadata_files,
+    producer = prepare_profile_model_fast_token_role_contract_v1 if policy_version == 5 else prepare_profile_model_fast_tokenizer_contract_v2
+    prepared = producer(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy, maximum_seconds=maximum_seconds,
-        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes)
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
+        **({"token_roles": token_roles} if policy_version == 5 else {}))
     template_arguments = dict(metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes, context_length=context_length, template_source="source")
     if policy_version == 3:
         selected = prepare_profile_model_template_metadata(profile, **template_arguments)
@@ -621,13 +635,25 @@ def _prepare_profile_model_fast_context_contract(
             maximum_tokenizer_json_bytes=MODEL_METADATA_BYTES_V2)
     _, tokenizer, _ = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
         tokenizer_bytes=tokenizer_bytes, context_length=context_length,
-        **({"maximum_tokenizer_json_bytes": MODEL_METADATA_BYTES_V2} if policy_version == 4 else {}))
+        **({"maximum_tokenizer_json_bytes": MODEL_METADATA_BYTES_V2} if policy_version in (4, 5) else {}))
     if time.monotonic() > deadline:
         raise ValueError("contextual fast contract deadline exceeded")
     from transformers import PreTrainedTokenizerFast
 
     wrapper = PreTrainedTokenizerFast(tokenizer_object=tokenizer, clean_up_tokenization_spaces=False,
-        additional_special_tokens=list(profile.tokenization["special_token_ids"]))
+        additional_special_tokens=list(prepared["source_special_token_ids"] if policy_version == 5 else profile.tokenization["special_token_ids"]))
+
+    def verify_wrapper_roles():
+        added = wrapper.added_tokens_decoder
+        for text, token_id in prepared["required_token_ids"].items():
+            special = prepared["token_roles"][text] == "source_special"
+            if (wrapper.convert_tokens_to_ids(text) != token_id or wrapper.backend_tokenizer.token_to_id(text) != token_id
+                    or token_id not in added or added[token_id].content != text or added[token_id].special is not special
+                    or (token_id in wrapper.all_special_ids) is not special):
+                raise ValueError("contextual fast contract wrapper token role changed")
+
+    if policy_version == 5:
+        verify_wrapper_roles()
     wrapper.chat_template = selected["template"]
     prompt = wrapper.apply_chat_template(messages, tokenize=False, **dict(profile.tokenization["render_arguments"]))
     if not isinstance(prompt, str) or not prompt or "\0" in prompt or len(prompt.encode("utf-8")) > 16384:
@@ -642,9 +668,13 @@ def _prepare_profile_model_fast_context_contract(
     if (boundary["prompt_sha256"] != hashlib.sha256(prompt.encode("utf-8")).hexdigest()
             or boundary["prompt_token_count"] != len(prompt_ids)):
         raise ValueError("contextual fast contract rendering changed between checks")
+    if policy_version == 5:
+        verify_wrapper_roles()
     if time.monotonic() > deadline:
         raise ValueError("contextual fast contract deadline exceeded")
     return MappingProxyType({**prepared, "contextual_contract_policy_version": policy_version,
+                            **({"tokenizer_wrapper_policy": "generic_pretrained_fast",
+                                "wrapper_token_roles_verification": "before_and_after_contextual_encoding"} if policy_version == 5 else {}),
                             "selected_template_sha256": selected["selected_template_sha256"],
                             "template_render_verification": "profile_pinned_generic_fast_wrapper",
                             "prompt_label_boundary_verification": "profile_pinned_generic_fast_contextual_labels",

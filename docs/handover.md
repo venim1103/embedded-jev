@@ -51,7 +51,11 @@ the [standalone checkpoint](#synthetic-token-role-checkpoint-2026-10-22) records
 its bounded generated evidence. No additional learned invocation is authorized.
 Source checkpoint `93f679a` completes that standalone scope. The next
 [generated role-aware contextual proposal](#synthetic-role-context-proposal-2026-10-22)
-is unapproved and requests a separate finite allowance, not a ledger reset.
+was approved through **Approve Tiny Role Context** after `ee14def`, including
+a separate 120 s allowance, not a ledger reset. The
+[contextual role checkpoint](#synthetic-role-context-checkpoint-2026-10-22)
+records generated positive/refusal evidence; all five learned approvals remain
+consumed and the learned refusal is unchanged.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -592,10 +596,82 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Synthetic Role-Context Checkpoint (2026-10-22)
+
+The user selected **Approve Tiny Role Context** after `ee14def`, including
+a new separate **120 s** finite ledger. Old 270/300, 575/600 and 425.19/600 s
+reservations are frozen, not reset. Added
+`prepare_profile_model_fast_context_contract_v5` through the existing contextual
+owner with a required explicit role map and standalone-role producer. V3/v4
+retain their strict producer, public signatures, default/maximum budgets,
+template/parser routes and receipt semantics. No profile file changed.
+
+V5 configures additional wrapper specials using only verified
+`source_special_token_ids`, not every legacy required ID. It checks every
+required token's wrapper/source-backend ID, added-token content/flag and
+special-ID membership both before rendering and after contextual encoding.
+Ordinary added markers remain non-special. Existing inherited row normalization,
+template/render arguments, message/prompt/context/deadline bounds and exact
+`probe_label_boundary` oracle are unchanged. The receipt distinguishes contextual
+version 5, preserves the bound role-map identity, and records wrapper-role
+verification, prompt hash/count and explicit no-native/processor/runtime caveats.
+No raw prompt/messages or learned/native acceptance is claimed.
+
+Initial shared-owner check **84 passed/0.24 s**; new before/after wrapper
+ID/backend-ID/content/missing/flag/special-set controls gave **98 passed/0.27 s**.
+The first actual fixture pair **failed twice in 5.97 s**. The terminal omitted
+the bounded child receipt inside a long traceback; a diagnostic-only parent
+assertion change preserves JSON refusal messages. The positive-only probe
+**failed in 7.10 s**, exposing `AttributeError`, installed wrapper `__getattr__`
+line 1316. Inspection of trusted installed Transformers 5.12.1, without model
+input, established that the wrapper exposes `added_tokens_decoder` as a property,
+not raw tokenizers' `get_added_tokens_decoder()` method. Corrected that accessor
+and the over-permissive mocks only; no predicate or resource assertion changed.
+Same focused check **98 passed/0.74 s**, then the same actual pair passed.
+The original full terminal-output path was host-side and unavailable in the
+container; the bounded probe, not another learned read, recovered the evidence.
+
+Actual `synthetic-joint-context-roles` and
+`synthetic-joint-context-roles-merge`: **2 passed in 12.78 s**, combined <25 s,
+each shared stage <=12 s. Both use 32 generated rows, two actual specials,
+one ordinary added marker in the rendered prompt, and A-P labels. Positive
+renders synthetic `B<marker>A`, exactly three prompt IDs, preserving the marker
+before/after while accepting all 16 single-token label continuations. The
+second adds A+A and reports the exact chained refusal
+`A does not extend the exact prompt by one token`; no contextual acceptance.
+
+Ten source/copy files **5489 bytes each** positive/**5496 bytes each** merge;
+logical source/copy/scratch **19170/19184 bytes** <128 MiB. Positive observed
+worker RSS **263356416**, high-water **262057984**; merge observed RSS
+**263159808**, high-water **261939200**. Host available minima
+**13491810304/13939011584 bytes**. Process swap was zero; host swap was already
+**143360 bytes** and stayed exactly at that baseline in all four successful
+children, not a zero-host-swap result. The approved guard forbids growth and
+passed unchanged. No resource limit/deadline fired or host setting changed.
+Existing artificial ID-20 hole warnings appeared twice per preparation,
+recorded without suppression/refitting. Source/copy pins/stable stats/read-only
+mode, final hashes, exact FDs, empty output and owned scratch cleanup passed.
+All five learned approval flags and native-build variable were unset.
+
+Default source gate passed with all five learned flags and optional cached
+library/native variables unset: **1583 passed, 180 skipped in 31.38 s** under
+the 40 s wrapper; Ruff/editor/whitespace clean. Optional skips are not executed
+native/learned evidence. No source changed after that gate. Known measured
+test time **58.48 s**, including failed/probe runs and gate; conservatively
+reserve **90/120 s**, including the 40 s gate reservation, trusted API
+inspection and overhead, leaving 30 s. Older 270/300, 575/600 and 425.19/600
+ledgers remain frozen. Another source slice needs separately approved scope
+and enough allowance for its mandatory gate, not an ungated use of the remainder.
+No larger capacity run, native/C++ build/command, learned input,
+new learned runner/flag, model/backend/processor, GGUF, scoring/quality,
+candidate/refit/download/install/device/other-model experiment occurred.
+All **five learned approvals remain consumed**; v5 is only tiny synthetic
+evidence, not a successful retry of the historical learned refusal.
+
 ## Synthetic Role-Context Proposal (2026-10-22)
 
-Prepared after tested standalone checkpoint `93f679a`; **not approved or
-started**. Required IDs, source-special tokens and ordinary added markers now
+Prepared after tested standalone checkpoint `93f679a`; subsequently **approved**
+through **Approve Tiny Role Context** after `ee14def`. Required IDs, source-special tokens and ordinary added markers now
 have a source-faithful standalone contract on generated input. Contextual
 composition still uses the old all-special contract and is not integrated.
 Request one **generated-only role-aware contextual composition** beside strict

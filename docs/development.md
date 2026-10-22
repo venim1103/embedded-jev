@@ -3373,6 +3373,26 @@ within 128 MiB. Source/copy identity, final hashes, empty output and cleanup
 remain mandatory. No GGUF/native/model/processor call, prompt/token-array dump,
 download, score or runtime approval is implied. Existing routes are unchanged.
 
+`prepare_profile_model_fast_context_contract_v5` is the separate role-aware
+route with required explicit `token_roles`; it does not relax v3/v4. It reuses
+the standalone-role producer and v4 bounds/template route, supplies only verified
+source-special IDs to the contextual wrapper, and verifies every declared
+wrapper/backend ID, added-token content/flag and special-ID membership before
+and after contextual encoding. Ordinary added markers must stay non-special.
+The Transformers wrapper uses its `added_tokens_decoder` property; the raw
+tokenizers backend has a differently named method. No source flags are changed.
+
+V5 receipts include contextual version 5, the standalone role-map hash and
+`wrapper_token_roles_verification=before_and_after_contextual_encoding`, alongside
+the existing prompt hash/count/no-native/processor/runtime caveats. Generated
+`synthetic-joint-context-roles` and `synthetic-joint-context-roles-merge` render
+an ordinary marker in the prompt and discriminate valid continuations from
+A+A cross-boundary merging, without output files. Each uses <=32 rows/64 KiB
+source sets/12 s stage and existing resource/audit/hash/FD/cleanup guards;
+combined pair <=25 s. The [checkpoint](handover.md#synthetic-role-context-checkpoint-2026-10-22)
+records failures/repair, actual bounds and nonzero-but-unchanged host-swap
+baseline. This is not larger-capacity, learned or native validation.
+
 ### Synthetic Direct Vocabulary Control
 
 The cached `prism_bitnet_loader_control --synthetic-vocab-control-v1` test branch

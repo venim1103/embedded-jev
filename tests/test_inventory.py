@@ -1988,7 +1988,7 @@ def test_profile_selected_metadata_writer_preflights_every_group_before_mutation
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
 
 
-@pytest.mark.parametrize("version", [3, 4])
+@pytest.mark.parametrize("version", [3, 4, 5])
 @pytest.mark.parametrize("defect", [None, "row-bool", "row-zero", "row-range", "bytes-bool", "bytes-range", "seconds-limit",
     "boundary", "template-pin", "messages-type", "empty-messages", "message-count", "extra-field",
     "role", "content-type", "content-bytes", "message-bytes", "nul", "template-bytes", "empty-prompt", "prompt-bytes", "prompt-tokens",
@@ -2001,6 +2001,7 @@ def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, 
     from embedded_jev import label_probe, prism_codec
 
     profile = SimpleNamespace(tokenization={"template_file": "chat_template.jinja", "special_token_ids": {"<pad>": 0}, "render_arguments": {}})
+    token_roles = {"<pad>": "source_special", "<marker>": "ordinary_added_marker"}
     messages = [{"role": "user", "content": "B"}]
     if defect == "messages-type":
         messages = tuple(messages)
@@ -2022,9 +2023,15 @@ def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, 
         messages[0]["content"] = "\0"
     prompt = "" if defect == "empty-prompt" else "A" * 16385 if defect == "prompt-bytes" else "A"
     wrapper = SimpleNamespace(apply_chat_template=lambda *args, **kwargs: prompt,
-        encode=lambda *args, **kwargs: [1] * (4097 if defect == "prompt-tokens" else 2 if defect == "context-room" else 1))
+        encode=lambda *args, **kwargs: [1] * (4097 if defect == "prompt-tokens" else 2 if defect == "context-room" else 1),
+        added_tokens_decoder={0: SimpleNamespace(content="<pad>", special=True), 2: SimpleNamespace(content="<marker>", special=False)},
+        convert_tokens_to_ids=lambda text: 0 if text == "<pad>" else 2,
+        backend_tokenizer=SimpleNamespace(token_to_id=lambda text: 0 if text == "<pad>" else 2), all_special_ids=[0])
     monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(PreTrainedTokenizerFast=lambda **kwargs: wrapper))
     prepared = {"label_token_ids": {"A": 1}, "tokenizer_wrapper_policy": "generic_pretrained_fast"}
+    if version == 5:
+        prepared.update(required_token_ids={"<pad>": 0, "<marker>": 2}, source_special_token_ids={"<pad>": 0},
+            token_roles=token_roles, token_roles_sha256="0" * 64)
     monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_tokenizer_contract_v2", lambda *args, **kwargs: prepared)
     def select(*args, **kwargs):
         if defect == "template-pin":
@@ -2040,6 +2047,8 @@ def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, 
     arguments = dict(metadata_files={"chat_template.jinja": b"A" * (16385 if defect == "template-bytes" else 1)},
         tokenizer_bytes=b"{}", context_length=1 if defect == "context" else 2 if defect == "context-room" else 8192,
         row_policy="pinned_prism_fast_rows_v2", messages=messages)
+    if version == 5:
+        arguments["token_roles"] = token_roles
     if defect == "seconds":
         arguments["maximum_seconds"] = float("nan")
     elif defect == "seconds-limit":
@@ -2066,10 +2075,13 @@ def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, 
         calls.append(("parse", kwargs))
         return {}, object(), {}
     monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_tokenizer_contract_v2", standalone)
+    if version == 5:
+        monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_tokenizer_contract_v2", lambda *args, **kwargs: pytest.fail("v5 used strict v2"))
+        monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_token_role_contract_v1", standalone)
     monkeypatch.setattr(prism_codec, "prepare_profile_model_template_metadata" if version == 3 else "_prepare_profile_model_template_metadata", selected)
     monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", parse)
-    prepare = prism_codec.prepare_profile_model_fast_context_contract_v3 if version == 3 else prism_codec.prepare_profile_model_fast_context_contract_v4
-    if version == 4 and defect is None:
+    prepare = getattr(prism_codec, f"prepare_profile_model_fast_context_contract_v{version}")
+    if version in (4, 5) and defect is None:
         arguments.update(maximum_vocabulary_rows=8193, maximum_token_content_bytes=128 * 1024)
     if defect:
         with pytest.raises(ValueError, match="contextual fast contract|template pin"):
@@ -2083,6 +2095,70 @@ def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, 
         assert calls[0][1]["maximum_token_content_bytes"] == (64 * 1024 if version == 3 else 128 * 1024)
         for _, kwargs in calls[1:]:
             assert kwargs.get("maximum_tokenizer_json_bytes", 1024**2) == (1024**2 if version == 3 else prism_codec.MODEL_METADATA_BYTES_V2)
+        if version == 5:
+            assert calls[0][1]["token_roles"] == token_roles
+            assert receipt["token_roles_sha256"] == "0" * 64
+            assert receipt["wrapper_token_roles_verification"] == "before_and_after_contextual_encoding"
+
+
+@pytest.mark.parametrize("phase", ["before", "after"])
+@pytest.mark.parametrize("defect", ["id", "backend-id", "marker-special", "control-ordinary", "missing", "content", "special-set"])
+def test_profile_fast_context_roles_refuse_wrapper_changes(monkeypatch, phase, defect):
+    import hashlib
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import label_probe, prism_codec
+
+    roles = {"<control>": "source_special", "<marker>": "ordinary_added_marker"}
+    ids = {"<control>": 0, "<marker>": 1}
+    backend_ids = dict(ids)
+    records = {token_id: SimpleNamespace(content=text, special=token_id == 0) for text, token_id in ids.items()}
+    special_ids = [0]
+
+    def mutate():
+        if defect == "id":
+            ids["<marker>"] = 2
+        elif defect == "backend-id":
+            backend_ids["<marker>"] = 2
+        elif defect == "marker-special":
+            records[1].special = True
+        elif defect == "control-ordinary":
+            records[0].special = False
+        elif defect == "missing":
+            del records[1]
+        elif defect == "content":
+            records[1].content = "changed"
+        else:
+            special_ids.append(1)
+
+    wrapper = SimpleNamespace(added_tokens_decoder=records, convert_tokens_to_ids=lambda text: ids[text],
+        backend_tokenizer=SimpleNamespace(token_to_id=lambda text: backend_ids[text]), all_special_ids=special_ids,
+        apply_chat_template=lambda *args, **kwargs: "B<marker>A", encode=lambda *args, **kwargs: [2, 1, 3])
+
+    def construct(**kwargs):
+        assert kwargs["additional_special_tokens"] == ["<control>"]
+        if phase == "before":
+            mutate()
+        return wrapper
+
+    def boundary(*args, **kwargs):
+        assert phase == "after"
+        mutate()
+        return {"prompt_sha256": hashlib.sha256(b"B<marker>A").hexdigest(), "prompt_token_count": 3}
+
+    prepared = dict(required_token_ids={"<control>": 0, "<marker>": 1}, source_special_token_ids={"<control>": 0}, token_roles=roles)
+    profile = SimpleNamespace(tokenization={"template_file": "chat_template.jinja", "render_arguments": {}})
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(PreTrainedTokenizerFast=construct))
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_token_role_contract_v1", lambda *args, **kwargs: prepared)
+    monkeypatch.setattr(prism_codec, "_prepare_profile_model_template_metadata", lambda *args, **kwargs:
+        {"template": "B<marker>A", "selected_template_sha256": "0" * 64})
+    monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", lambda *args, **kwargs: ({}, object(), {}))
+    monkeypatch.setattr(label_probe, "probe_label_boundary", boundary)
+    with pytest.raises(ValueError, match="wrapper token role changed"):
+        prism_codec.prepare_profile_model_fast_context_contract_v5(profile, metadata_files={"chat_template.jinja": b"template"},
+            tokenizer_bytes=b"{}", context_length=256, row_policy="pinned_prism_fast_rows_v2",
+            messages=[{"role": "user", "content": "B"}], token_roles=roles)
 
 
 @pytest.mark.parametrize("defect", [None, "special-flag", "source-id", "empty-encoding", "multiple-encoding", "label-special",
