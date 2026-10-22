@@ -38,8 +38,11 @@ records medium/full generated Python evidence, not permission to repeat learned
 diagnostics, widen native policies or claim real-model contextual parity.
 Source checkpoint `20a78a1` completes that scope. The
 [one-shot learned contextual proposal](#learned-contextual-proposal-2026-10-22)
-is unapproved; no fifth learned read has begun. The four earlier approvals stay
-consumed, and an environment flag alone cannot authorize another invocation.
+was separately approved through **Approve One Context Diagnostic** after
+`56cc706`. The [runner checkpoint](#learned-contextual-runner-checkpoint-2026-10-22)
+records implementation before the fifth learned attempt. The four earlier
+approvals stay consumed; this new approval permits only the exact one-shot scope,
+and an environment flag alone cannot authorize another invocation.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -580,9 +583,57 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Learned Contextual Runner Checkpoint (2026-10-22)
+
+The user selected **Approve One Context Diagnostic** for the exact `56cc706`
+proposal. A distinct `approved-context` route requires exact
+`MIMO_TOKENIZER_CONTEXT_APPROVED=1`; older flags do not cross-authorize it.
+The controller and both guarded prefixes reuse the exact canonical MiMo
+profile/cache-path verifier. All ten files retain pinned size/hash, read-only
+copy, source stable-stat, audit, final rehash and temporary cleanup controls.
+No learned source-read invocation has begun at this runner checkpoint.
+
+The generated worker calls v4 exactly once with context 256, 248320 rows,
+4 MiB row-content allowance and the fixed user message `A or B?`. A strict
+`ValueError` becomes a bounded category/function/line receipt, not acceptance.
+Its exception/large preparation state is released before inspecting only the
+five declared source special flags. Both outcomes preserve empty output and
+FD counts. No GGUF path is allowed, and no writer/native/model API is used.
+Two serial children remain <=60 s each/75 s shared stage, logical scratch
+two source sets+32 MiB transient+8 KiB report <128 MiB, existing 2 GiB observed
+worker RSS/2 GiB host reserve/no swap growth/output/input limits unchanged.
+
+Review found the inherited monitor samples its worker rather than an arbitrary
+descendant tree. The new context-only audit therefore rejects subprocess,
+fork/forkpty, posix-spawn and exec events explicitly; no child process is in
+the allowed scope. Synthetic event checks verify those rejections. This is
+trusted-library confinement, not a general hostile-code/OS sandbox.
+
+Focused evidence before the default gate: **22 pass/0.04 s** after flag routing;
+**22 pass/0.04 s** after worker addition; **36 pass/2.52 s** for synthetic
+prefix/target/receipt controls; **8 pass/0.21 s** for exact flags and generated
+acceptance/refusal receipts; **6 pass/2.62 s** after child-process denial.
+No failed checks or learned reads occurred. The receipt tests invoke the
+actual generated function with stubbed preparation and prove exactly one call,
+five bool/null flags, no prompt on refusal and bounded output. Pinned-library
+prefix tests forbid model-content opens; native/generated capacity checks were
+not repeated. Local Ruff/editor diagnostics are clean.
+
+Default source gate passed with all five learned flags and optional cached
+native/library variables unset: **1509 passed, 177 skipped in 38.82 s** under
+the 40 s wrapper; Ruff and whitespace clean. The optional skips include the
+uninvoked learned diagnostic and cached/native tests, not executed evidence.
+No source changed after this gate. Runner commit precedes learned execution.
+Conservatively reserve **200/300 s** now: prior 145 s, 5.43 s focused checks,
+40 s gate reservation and remaining overhead. This leaves 100 s, including
+the <=75 s one-shot stage; old 575/600 and 425.19/600 ledgers remain frozen.
+The fifth approval is granted but not yet consumed. Consume it on the actual
+source-read invocation regardless of outcome; no retry or predicate change.
+
 ## Learned Contextual Proposal (2026-10-22)
 
-Prepared after tested source checkpoint `20a78a1`; **not approved or started**.
+Prepared after tested source checkpoint `20a78a1`; subsequently **approved**
+through **Approve One Context Diagnostic** after proposal commit `56cc706`.
 Generated full-size v4 preparation now passes exact contextual continuations,
 but that is not learned MiMo evidence. The repository profile declares five
 special IDs, including the two thinking markers; standalone v2 now requires

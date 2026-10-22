@@ -5628,6 +5628,16 @@ standalone_contract = fixture.get("standalone_contract", False)
 context_contract = fixture.get("context_contract", False)
 native_vocab = fixture.get("native_vocab", False)
 large_context = fixture.get("large_context", False)
+learned_context = fixture.get("learned_context", False)
+if learned_context:
+    assert os.environ.get("MIMO_TOKENIZER_CONTEXT_APPROVED") == "1" and row_mode
+    assert profile.sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
+    assert source.resolve() == (Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177").resolve()
+    assert not any((learned_joint, native_joint, selected_fast, standalone_contract, context_contract, native_vocab, large_context))
+    assert fixture["operation"] in ("rows-copy", "rows-contract")
+    assert type(fixture["sequence_deadline"]) in (int, float) and 0 < fixture["sequence_deadline"] - time.monotonic() <= 75
+    deadline = min(deadline, fixture["sequence_deadline"])
+    assert tuple(version(name) for name in ("transformers", "tokenizers", "numpy")) == ("5.12.1", "0.22.2", "2.2.6")
 if native_joint or selected_fast or standalone_contract:
     assert row_mode and not learned_joint and profile.profile_id == "synthetic-profile"
     assert source.resolve().parent == scratch.resolve().parent and source.name == "source"
@@ -5652,7 +5662,7 @@ if context_contract and not large_context:
     assert standalone_contract and profile.geometry["vocab_size"] == 32 and total <= 32 * 1024
 if large_context:
     assert standalone_contract and context_contract and profile.geometry["vocab_size"] in (8193, 248320)
-row_scratch_cap = (16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
+row_scratch_cap = (128 if learned_context else 16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 if native_vocab:
     assert standalone_contract and profile.geometry["vocab_size"] == 260 and total <= 65536
     assert 2 * total + 3 * 256 * 1024 + 65536 + 8192 < row_scratch_cap
@@ -5668,11 +5678,13 @@ if row_mode:
     copy_paths = {scratch / name for name in names}
     models_root = Path.home() / ".cache/huggingface/embedded-jev/models"
     output_path = Path(fixture["output"]) / "rows.gguf" if fixture.get("output") else None
-    allowed_gguf_paths = {output_path}
+    allowed_gguf_paths = set() if learned_context else {output_path}
     if native_vocab and fixture.get("vocab_controls", False):
         allowed_gguf_paths.add(Path(fixture["output"]) / "tensor-fault.gguf")
 
     def row_audit(event, args):
+        if learned_context and event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+            raise RuntimeError("child processes prohibited in contextual diagnostic")
         if event in ("socket.connect", "socket.connect_ex", "socket.getaddrinfo", "socket.sendto", "socket.bind"):
             raise RuntimeError("network prohibited in tokenizer row diagnostic")
         if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
@@ -5948,10 +5960,11 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
 
 
 def _tokenizer_rows_diagnostic_environment(mode):
-    if mode not in ("synthetic", "approved", "approved-joint"):
+    if mode not in ("synthetic", "approved", "approved-joint", "approved-context"):
         raise ValueError("unknown tokenizer row diagnostic mode")
     source, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
-    flag = "MIMO_TOKENIZER_JOINT_APPROVED" if mode == "approved-joint" else "MIMO_TOKENIZER_ROWS_APPROVED"
+    flag = {"approved-context": "MIMO_TOKENIZER_CONTEXT_APPROVED", "approved-joint": "MIMO_TOKENIZER_JOINT_APPROVED"}.get(
+        mode, "MIMO_TOKENIZER_ROWS_APPROVED")
     if not source or not interpreter or mode != "synthetic" and os.environ.get(flag) != "1":
         pytest.skip("requires pinned cached libraries; learned rows need their own one-shot approval")
     return Path(source), interpreter
@@ -5965,6 +5978,121 @@ def _tokenizer_joint_target_profile(profile_bytes, local):
     if profile.sha256 != "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a" or local.resolve() != expected.resolve():
         raise ValueError("joint tokenizer diagnostic requires exact pinned MiMo target")
     return profile
+
+
+def _tokenizer_context_diagnostic_code():
+    return _tokenizer_source_copy_code() + r'''
+def contextual_report():
+    import gc
+    from embedded_jev import prism_codec
+
+    arguments = dict(metadata_files={name: (scratch / name).read_bytes() for name in profile.packaging["metadata_files"]},
+        tokenizer_bytes=(scratch / "tokenizer.json").read_bytes(), context_length=256,
+        row_policy="pinned_prism_fast_rows_v2", maximum_vocabulary_rows=248320,
+        maximum_token_content_bytes=4 * 1024**2, messages=[{"role": "user", "content": "A or B?"}],
+        maximum_seconds=min(60, deadline - time.monotonic()))
+    descriptors = len(os.listdir("/proc/self/fd"))
+    saved = os.dup(1)
+    try:
+        sys.stdout.flush()
+        os.dup2(2, 1)
+        try:
+            receipt = prism_codec.prepare_profile_model_fast_context_contract_v4(profile, **arguments)
+        except ValueError as error:
+            trace = error.__traceback__
+            while trace.tb_next is not None:
+                trace = trace.tb_next
+            report = {"contract_accepted": False, "refusal_type": type(error).__name__,
+                "refusal_function": trace.tb_frame.f_code.co_name, "refusal_line": trace.tb_lineno}
+            del trace
+        else:
+            assert receipt["contextual_contract_policy_version"] == 4 and len(receipt["tokens"]) == 248320
+            assert receipt["prompt_label_boundary_verification"] == "profile_pinned_generic_fast_contextual_labels"
+            assert receipt["tokenizer_wrapper_policy"] == "generic_pretrained_fast"
+            assert receipt["native_tokenizer_verification"] == receipt["processor_verification"] == "not_checked"
+            assert len(receipt["special_token_ids"]) == 5 and len(receipt["label_token_ids"]) == 16
+            report = {"contract_accepted": True, "prompt_sha256": receipt["prompt_sha256"],
+                "prompt_token_count": receipt["prompt_token_count"], "checked_labels": 16, "checked_special_tokens": 5}
+            del receipt
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
+    gc.collect()
+    document = json.loads(arguments["tokenizer_bytes"])
+    flags = {text: None for text in profile.tokenization["special_token_ids"]}
+    for token in document.get("added_tokens", []):
+        if token.get("content") in flags:
+            flag = token.get("special")
+            assert type(flag) is bool
+            assert flags[token["content"]] is None
+            flags[token["content"]] = flag
+    del document, arguments
+    assert len(os.listdir("/proc/self/fd")) == descriptors
+    assert not list(Path(fixture["output"]).iterdir())
+    return {**report, "status": "completed", "phase": "rows-contract", "source_special_flags": flags,
+        "contract_policy_version": 4, "no_output_files": True,
+        "logical_source_copy_scratch_bytes": 2 * total + 32 * 1024**2 + 8192,
+        "logical_scratch_cap_bytes": row_scratch_cap}
+
+assert learned_context
+finish_report({"status": "matched", "phase": "rows-copy"} if fixture["operation"] == "rows-copy" else contextual_report())
+'''
+
+
+def test_pinned_profile_tokenizer_context_diagnostic():
+    import ast
+    from tempfile import TemporaryDirectory
+    import time
+
+    source, interpreter = _tokenizer_rows_diagnostic_environment("approved-context")
+    local = Path(os.environ["MIMO_LOCAL_DIR"])
+    profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
+    profile = _tokenizer_joint_target_profile(profile_bytes, local)
+    assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    subprocess.check_output(["git", "-C", str(source), "diff", "--exit-code", PRISM_REVISION, "--", "conversion/base.py", "gguf-py"])
+    code = _tokenizer_context_diagnostic_code()
+    ast.parse(code)
+    names = tuple(profile.packaging["metadata_files"]) + ("tokenizer.json", "vocab.json", "merges.txt")
+    assert len(names) == 10 and sum(profile.files[name].bytes for name in names) == 30144444
+    started = time.monotonic()
+    descriptors = len(list(Path("/proc/self/fd").iterdir()))
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
+        "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    reports = []
+    with TemporaryDirectory(prefix="jev-learned-context-") as directory:
+        root = Path(directory)
+        inputs, output = root / "inputs", root / "output"
+        inputs.mkdir()
+        output.mkdir()
+        original = {name: (local / name).stat() for name in names}
+        baseline_swap = None
+        for operation in ("rows-copy", "rows-contract"):
+            fixture = dict(profile_hex=profile_bytes.hex(), source=str(local), scratch=str(inputs), output=str(output),
+                operation=operation, learned_context=True, sequence_deadline=started + 75)
+            result = _run_tokenizer_only_guard_v2(interpreter, code, json.dumps(fixture).encode(), env=env,
+                maximum_seconds=min(60, started + 75 - time.monotonic()))
+            assert result["returncode"] == 0, result["stderr"]
+            report = json.loads(result["stdout"])
+            print(json.dumps({**result, "tokenizer_context_diagnostic": "approved-context"}, sort_keys=True))
+            assert report["status"] == ("matched" if operation == "rows-copy" else "completed")
+            assert report["profile_sha256"] == profile.sha256 and report["input_files"] == 10
+            assert report["input_bytes"] == report["scratch_bytes"] == 30144444
+            assert result["observed_process_swap_bytes"] == 0 and result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
+            baseline_swap = result["host_swap_baseline_bytes"] if baseline_swap is None else baseline_swap
+            assert result["host_swap_baseline_bytes"] == baseline_swap and result["observed_host_available_minimum_bytes"] >= 2 * 1024**3
+            for name in names:
+                actual, before = (local / name).stat(), original[name]
+                assert (actual.st_dev, actual.st_ino, actual.st_size, actual.st_mtime_ns, actual.st_ctime_ns) == (
+                    before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            assert not list(output.iterdir()) and time.monotonic() < started + 75
+            reports.append(report)
+        assert set(reports[-1]["source_special_flags"]) == set(profile.tokenization["special_token_ids"])
+        assert reports[-1]["logical_source_copy_scratch_bytes"] < reports[-1]["logical_scratch_cap_bytes"] == 128 * 1024**2
+        assert len(list(inputs.iterdir())) == 10
+    assert not root.exists() and len(list(Path("/proc/self/fd").iterdir())) == descriptors
+    print(json.dumps({"scratch_cleaned": True, "output_files": 0, "approval_consumed": True}))
 
 
 def _tokenizer_rows_diagnostic_code():
@@ -6915,11 +7043,15 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
 @pytest.mark.parametrize("mode,wrong_flag", [("approved", None), ("approved", "MIMO_TOKENIZER_ONLY_APPROVED"),
     ("approved", "MIMO_TOKENIZER_INVENTORY_APPROVED"), ("approved", "MIMO_TOKENIZER_JOINT_APPROVED"),
     ("approved-joint", None), ("approved-joint", "MIMO_TOKENIZER_ONLY_APPROVED"),
-    ("approved-joint", "MIMO_TOKENIZER_INVENTORY_APPROVED"), ("approved-joint", "MIMO_TOKENIZER_ROWS_APPROVED")])
+    ("approved-joint", "MIMO_TOKENIZER_INVENTORY_APPROVED"), ("approved-joint", "MIMO_TOKENIZER_ROWS_APPROVED"),
+    ("approved-context", None), ("approved-context", "MIMO_TOKENIZER_ONLY_APPROVED"),
+    ("approved-context", "MIMO_TOKENIZER_INVENTORY_APPROVED"), ("approved-context", "MIMO_TOKENIZER_ROWS_APPROVED"),
+    ("approved-context", "MIMO_TOKENIZER_JOINT_APPROVED"), ("approved", "MIMO_TOKENIZER_CONTEXT_APPROVED"),
+    ("approved-joint", "MIMO_TOKENIZER_CONTEXT_APPROVED")])
 def test_tokenizer_rows_diagnostic_approval_refuses_before_source_access(monkeypatch, mode, wrong_flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
     monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
-    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED"):
+    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED"):
         monkeypatch.delenv(name, raising=False)
     if wrong_flag:
         monkeypatch.setenv(wrong_flag, "1")
@@ -6930,11 +7062,11 @@ def test_tokenizer_rows_diagnostic_approval_refuses_before_source_access(monkeyp
 
 
 @pytest.mark.parametrize("mode,flag", [("synthetic", None), ("approved", "MIMO_TOKENIZER_ROWS_APPROVED"),
-    ("approved-joint", "MIMO_TOKENIZER_JOINT_APPROVED")])
+    ("approved-joint", "MIMO_TOKENIZER_JOINT_APPROVED"), ("approved-context", "MIMO_TOKENIZER_CONTEXT_APPROVED")])
 def test_tokenizer_row_diagnostic_own_flag_is_checked_without_source_access(monkeypatch, mode, flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
     monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
-    for name in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED"):
+    for name in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED"):
         monkeypatch.delenv(name, raising=False)
     if flag:
         monkeypatch.setenv(flag, "1")
@@ -6943,13 +7075,15 @@ def test_tokenizer_row_diagnostic_own_flag_is_checked_without_source_access(monk
     assert _tokenizer_rows_diagnostic_environment(mode) == (Path("/not-read"), "/not-run")
 
 
+@pytest.mark.parametrize("mode,flag", [("approved-joint", "MIMO_TOKENIZER_JOINT_APPROVED"),
+    ("approved-context", "MIMO_TOKENIZER_CONTEXT_APPROVED")])
 @pytest.mark.parametrize("value", ["0", "true", "1 "])
-def test_tokenizer_joint_diagnostic_flag_requires_exact_opt_in(monkeypatch, value):
+def test_tokenizer_joint_diagnostic_flag_requires_exact_opt_in(monkeypatch, value, mode, flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
     monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
-    monkeypatch.setenv("MIMO_TOKENIZER_JOINT_APPROVED", value)
+    monkeypatch.setenv(flag, value)
     with pytest.raises(pytest.skip.Exception):
-        _tokenizer_rows_diagnostic_environment("approved-joint")
+        _tokenizer_rows_diagnostic_environment(mode)
 
 
 @pytest.mark.parametrize("defect", [None, "profile", "source"])
@@ -6971,8 +7105,9 @@ def test_tokenizer_joint_target_is_exact_before_process_or_source_read(monkeypat
         assert _tokenizer_joint_target_profile(profile_bytes, local).sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
 
 
+@pytest.mark.parametrize("kind", ["joint", "context"])
 @pytest.mark.parametrize("defect", [None, "flag", "profile", "source", "faults", "deadline"])
-def test_pinned_joint_prefix_guard_without_model_content_reads(defect):
+def test_pinned_joint_prefix_guard_without_model_content_reads(defect, kind):
     from tempfile import TemporaryDirectory
     import time
 
@@ -6994,23 +7129,36 @@ def deny_model_contents(event, args):
         if Path(os.fsdecode(args[0])).absolute().is_relative_to(models_root):
             raise AssertionError("metadata-only prefix opened model-data content")
 sys.addaudithook(deny_model_contents)
-''' + prefix + '\nassert not list(scratch.iterdir())\nprint(json.dumps({"cap": row_scratch_cap, "files": len(names), "bytes": total}))\n'
+''' + prefix + r'''
+if learned_context:
+    for event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+        try:
+            sys.audit(event)
+        except RuntimeError as error:
+            assert str(error) == "child processes prohibited in contextual diagnostic"
+        else:
+            raise AssertionError("contextual prefix allowed a child process event")
+assert not list(scratch.iterdir())
+print(json.dumps({"cap": row_scratch_cap, "files": len(names), "bytes": total}))
+'''
     with TemporaryDirectory(prefix="jev-joint-prefix-") as directory:
         root = Path(directory)
         inputs = root / "inputs"
         inputs.mkdir()
         local = Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
         fixture = {"profile_hex": profile_bytes.hex(), "source": str(local if defect != "source" else root / "not-read"),
-            "scratch": str(inputs), "output": str(root), "operation": "rows-copy", "learned_joint": True,
+            "scratch": str(inputs), "output": str(root), "operation": "rows-copy",
+            "learned_joint": kind == "joint" or defect == "faults", "learned_context": kind == "context",
             "include_merges": True, "merge_version": 2, "joint_policy": True, "synthetic_refusals": False,
             "merge_faults": ["byte"] if defect == "faults" else [], "proof_case": None,
-            "sequence_deadline": time.monotonic() + (-1 if defect == "deadline" else 175)}
-        env = {**os.environ, "MIMO_TOKENIZER_JOINT_APPROVED": "1", "PYTHONDONTWRITEBYTECODE": "1",
+            "sequence_deadline": time.monotonic() + (-1 if defect == "deadline" else 70 if kind == "context" else 175)}
+        approval_flag = "MIMO_TOKENIZER_CONTEXT_APPROVED" if kind == "context" else "MIMO_TOKENIZER_JOINT_APPROVED"
+        env = {**os.environ, approval_flag: "1", "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
         for flag in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED"):
             env.pop(flag, None)
         if defect == "flag":
-            env.pop("MIMO_TOKENIZER_JOINT_APPROVED")
+            env.pop(approval_flag)
         result = _run_tokenizer_only_guard_v2(interpreter, code, json.dumps(fixture).encode(), env=env)
         assert "metadata-only prefix opened model-data content" not in result["stderr"]
         if defect:
@@ -7021,6 +7169,53 @@ sys.addaudithook(deny_model_contents)
         assert not list(inputs.iterdir()) and result["observed_process_swap_bytes"] == 0
         assert result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
     assert not root.exists()
+
+
+@pytest.mark.parametrize("refused", [False, True])
+def test_contextual_diagnostic_receipt_is_synthetic_single_call_and_bounded(monkeypatch, tmp_path, refused):
+    import ast
+    import sys
+    import time
+
+    from embedded_jev import prism_codec
+    from embedded_jev.model_profile import parse_model_profile
+
+    profile = parse_model_profile((Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes())
+    for name in profile.packaging["metadata_files"]:
+        (tmp_path / name).write_bytes(b"{}")
+    specials = list(profile.tokenization["special_token_ids"])
+    (tmp_path / "tokenizer.json").write_text(json.dumps({"added_tokens": [
+        {"content": text, "special": index % 2 == 0} for index, text in enumerate(specials[:-1])]}))
+    output = tmp_path / "output"
+    output.mkdir()
+    calls = []
+
+    def prepare(actual, **arguments):
+        calls.append(arguments)
+        assert actual == profile and arguments["context_length"] == 256
+        assert arguments["maximum_vocabulary_rows"] == 248320 and arguments["maximum_token_content_bytes"] == 4 * 1024**2
+        assert arguments["messages"] == [{"role": "user", "content": "A or B?"}]
+        if refused:
+            raise ValueError("synthetic contract refusal")
+        return dict(contextual_contract_policy_version=4, tokens=[None] * 248320,
+            prompt_label_boundary_verification="profile_pinned_generic_fast_contextual_labels",
+            tokenizer_wrapper_policy="generic_pretrained_fast", native_tokenizer_verification="not_checked",
+            processor_verification="not_checked", special_token_ids=dict.fromkeys(specials), label_token_ids=dict.fromkeys("ABCDEFGHIJKLMNOP"),
+            prompt_sha256="0" * 64, prompt_token_count=8)
+
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_context_contract_v4", prepare)
+    function = next(node for node in ast.parse(_tokenizer_context_diagnostic_code()).body
+        if isinstance(node, ast.FunctionDef) and node.name == "contextual_report")
+    namespace = dict(os=os, sys=sys, json=json, time=time, Path=Path, scratch=tmp_path, profile=profile,
+        fixture={"output": str(output)}, deadline=time.monotonic() + 60, total=1024, row_scratch_cap=128 * 1024**2)
+    exec(compile(ast.Module(body=[function], type_ignores=[]), "<synthetic-context-receipt>", "exec"), namespace)
+    report = namespace["contextual_report"]()
+    assert len(calls) == 1 and report["contract_accepted"] is not refused and report["status"] == "completed"
+    assert report["source_special_flags"] == {text: index % 2 == 0 if index < 4 else None for index, text in enumerate(specials)}
+    assert len(json.dumps(report).encode()) < 8192 and not list(output.iterdir())
+    if refused:
+        assert report["refusal_type"] == "ValueError" and report["refusal_function"] == "prepare"
+        assert "prompt_sha256" not in report and "checked_labels" not in report
 
 
 def test_tokenizer_rows_diagnostic_refuses_unknown_mode():

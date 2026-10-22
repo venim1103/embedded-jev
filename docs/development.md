@@ -3326,6 +3326,25 @@ audit/FD/hash/output-empty cleanup controls apply. The
 records actual 8193/248320-row and >1 MiB source-JSON evidence, old-route tests
 and finite allowance. Full-size generated input is not full-model execution.
 
+`test_pinned_profile_tokenizer_context_diagnostic` is a separate one-shot
+learned route, not a generated-capacity mode. It requires a fresh exact scope
+approval as well as `MIMO_TOKENIZER_CONTEXT_APPROVED=1`, cached
+`PRISM_SOURCE_DIR`/`PRISM_CONVERTER_PYTHON` and exact pinned MiMo `MIMO_LOCAL_DIR`.
+It reads only the ten pinned non-weight inputs, calls v4 once and reports
+acceptance or bounded semantic refusal plus the five declared source special
+flags. A completed diagnostic is not necessarily an accepted contract. Its
+runner must be gated and committed before learned execution, and its approval
+is consumed on the attempt regardless of outcome. Do not rerun it using an old
+flag. See the [runner checkpoint](handover.md#learned-contextual-runner-checkpoint-2026-10-22)
+for finite allowance and current approval state.
+
+This route permits two serial <=60 s children/75 s shared stage, no subprocess/
+fork/spawn/exec from those children, existing 2 GiB worker RSS/host reserve and
+zero swap-growth guards. Logical scratch is two source sets+32 MiB+8 KiB
+within 128 MiB. Source/copy identity, final hashes, empty output and cleanup
+remain mandatory. No GGUF/native/model/processor call, prompt/token-array dump,
+download, score or runtime approval is implied. Existing routes are unchanged.
+
 ### Synthetic Direct Vocabulary Control
 
 The cached `prism_bitnet_loader_control --synthetic-vocab-control-v1` test branch
