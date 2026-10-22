@@ -17,6 +17,10 @@ loading or new learned execution is authorized.
 The subsequent separately approved Python-only
 [standalone contract checkpoint](#standalone-fast-token-contract-checkpoint-2026-10-22)
 verifies tiny/medium generated special/label declarations without output files.
+Source checkpoint `bda1480` completes that scope. The
+[contextual boundary proposal](#synthetic-contextual-boundary-proposal-2026-10-22)
+is a separate, unapproved Python-only follow-up; it does not authorize rendering
+cached learned templates or tokenizer/native/model execution.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -556,6 +560,68 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Synthetic Contextual Boundary Proposal (2026-10-22)
+
+Prepared after tested source checkpoint `bda1480`; **not approved or started**.
+Its standalone receipt deliberately leaves prompt boundaries unchecked. Nearby
+`label_probe.probe_label_boundary` already verifies profile-pinned template text,
+render arguments/non-thinking suffix, rendered-versus-tokenized prompt agreement,
+exact one-token label continuation and declared non-special/distinct label IDs.
+Reuse it, rather than invent another boundary algorithm. The generic row helper
+constructs `PreTrainedTokenizerFast(tokenizer_object=...)`; this is a usable
+explicit policy, not evidence that the Qwen-specific wrapper behaves identically.
+
+Hypothesis: individually valid source/fast-row/standalone/template declarations
+can still fail when a label joins the rendered prompt, so a combined preparation
+must check the actual contextual continuation before reporting it verified.
+Cheap discriminator: generated BPE rows include A and AA, with A declared as a
+standalone label; adding merge A+A must refuse a rendered prompt ending in A,
+while the otherwise identical source without that merge accepts all A-P labels.
+Separate generated pins must match each fixture; do not mutate learned inputs,
+the original row fixtures or assertions to manufacture agreement.
+
+Request **Python-only synthetic contextual composition**, within the remaining
+**80 s of the same 600 s ledger**, not a reset:
+
+- Add one explicitly versioned pure preparer composing the new standalone fast
+  contract, selected pinned source-template preparation, explicit generic fast
+  wrapper and existing `probe_label_boundary`. Preserve old APIs/caps/receipts.
+  Report generic-wrapper/source-template/contextual synthetic verification only;
+  keep native/model, processor and Qwen-wrapper equivalence unchecked. No generated
+  answer tokens, scoring or GGUF output.
+- First add a focused refusal for boundary merge after otherwise valid standalone
+  preparation. Check wrong template pin/suffix, empty prompt, rendered/tokenized
+  mismatch, extra/special/wrong/duplicate label IDs, bad input/count/byte/token
+  bounds and early/late deadline expiry with existing helpers where practical.
+  Refuse before return/mutation, never loosen existing assertions for green.
+- Limit this new text-only input surface to four role/content messages, 4 KiB
+  per content/16 KiB aggregate serialized messages, a 16 KiB template/rendered
+  prompt and <=4096 prompt IDs within the declared context. Reject unknown keys,
+  non-string content and NUL. Use pinned render arguments, no ad-hoc role prefix
+  or template rewriting, and do not return/log raw prompt/message text.
+- Exercise only two new **32-row generated** fixtures, positive and exact
+  cross-boundary-merge refusal, with consistent profile/pins/labels/template.
+  Reuse source-copy workers, strict audited paths, source/copy stat/hash checks,
+  observed <=2 GiB RSS/>=2 GiB host reserve/no swap growth, <=128 MiB logical
+  scratch with existing conservative pre-copy reservation, <=64 KiB path-only
+  stdin/<=8 KiB output and empty output directories/FD checks/parent cleanup.
+  Serial stages <=12 s each, **<=25 s total** including both copy/preparation
+  sequences; each child's allowance is <=remaining stage/sequence time. Bound
+  each new fixture's source/copy set to 32 KiB. No medium/full-size run.
+- Reserve **40 s** for the unchanged default source gate before optional fixtures;
+  focused units and all attempted stages/failures consume the remaining 80 s.
+  Refuse optional work that cannot fit. No C++ edit/build/native invocation,
+  backend discovery, GGUF tokenizer tag/special-ID emission, vocabulary/model
+  loading, processor path, fingerprint/learned template/label/tokenizer read,
+  download/install, refit/candidate, quality/device or other-profile execution.
+  All four learned approvals remain consumed.
+
+If separately approved, make the smallest pure composition and failing local
+test, immediately validate, then guarded positive before the refusal fixture.
+Record failures/cleanup and actual time/resources; commit only after the required
+gate. Synthetic contextual validity is not representative accuracy, general
+template safety, model compatibility or native engine acceptance.
 
 ## Standalone Fast Token Contract Checkpoint (2026-10-22)
 
