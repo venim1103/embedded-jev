@@ -65,6 +65,12 @@ template subset in one generated file. It changes the exact native selected-fiel
 contract; the separate synthetic-only approval is now recorded above. No new
 learned, model-loading, download or quality work is authorized.
 
+**Next Python-only proposal, not approved:** the
+[standalone fast token contract proposal](#standalone-fast-token-contract-proposal-2026-10-22)
+would check source-pinned special/label IDs alongside the explicit fast-row
+policy on new generated fixtures. It is not a native loader/engine-parity or
+GGUF tag/special-ID emission proposal; the completed 30-field evidence is unchanged.
+
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
 positive synthetic emission/readback/retained proof; no full-size merge fault
@@ -547,6 +553,58 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Standalone Fast Token Contract Proposal (2026-10-22)
+
+Prepared after source checkpoint `e185034`; **not approved**. Source inspection
+shows `prepare_profile_model_tokenizer_contract` already verifies declared
+special IDs and standalone labels, but uses the old bounded contiguous-vocabulary
+preparation. The new selected-fast composition deliberately proves stored
+fields, not label or special-token behavior. Its generated row fixtures are not
+decision datasets and do not establish their profile-declared label contracts.
+The observed generic/Qwen wrapper difference remains unresolved.
+
+Request a **Python-only synthetic standalone-contract allowance**, within the
+remaining **130 s of the retained 600 s native ledger**, with no ledger reset:
+
+- Add an explicitly versioned preparation API for profile-pinned tokenizer
+  source/fast rows plus declared special/standalone label contracts, preserving
+  the old API's defaults/caps and all existing row/merge policies. Reuse the
+  existing trusted installed tokenizer and preparation helpers; no model code.
+- Require declared source spelling/ID agreement and exactly one source-encoded
+  ID without added specials. Declared specials must have source special flags;
+  labels must be non-special/non-padding, and their selected fast row must still
+  be the exact label text. Receipt must state standalone-only checking, generic
+  fast-row policy, no rendered prompt/contextual boundary, no native engine
+  parity/model approval. Do not assert that generic/Qwen wrapper behavior agrees.
+- First use a tiny reversible test: a declared label mapped to a padding,
+  special, different source ID or transformed row must refuse. Check pins,
+  changed special flags, empty/multiple encoded IDs, duplicate/conflicting
+  declarations, bool/range/count/content/deadline bounds before mutation.
+  No GGUF writer/model files should be touched by preparation.
+- Use new generated fixtures with internally consistent source special/label
+  declarations; preserve original positive/fault fixture bytes and expectations.
+  Exercise 32 rows and one 8193-row case through existing guarded workers.
+  This proposal does not run another full-size fixture, learned tokenizer or
+  fingerprint/label diagnostic. No decision-accuracy or native semantic claim.
+- Keep existing explicit source/row JSON/count/content limits and conservative
+  pre-copy reservations, <=128 MiB logical scratch, path-only <=64 KiB input,
+  <=8 KiB output/report, serial <=60 s children and stage limited by the smaller
+  of 180 s and remaining sequence time. Observe <=2 GiB child RSS, >=2 GiB host
+  reserve and abort any process/host swap growth. Kill/reap/close/remove scratch
+  on refusal; retain only small count/hash/resource evidence.
+- No C++ edit/build or native invocation, backend discovery, tokenizer model/pre
+  tag or BOS/EOS/pad field inference/emission, vocabulary/model loader, download,
+  install, source/library change, refit/retained candidate, quality or device work.
+  All four learned approvals remain consumed. Old native default/opt-in tests
+  need not be repeated when their code/contract is unchanged.
+
+If approved, implement the smallest pure preparation and focused refusal check,
+validate immediately, then actual tiny source-bound encoding before the medium
+fixture. The required source gate counts against the same remaining 130 s;
+reserve it before optional integration and stop before exceeding the allowance.
+Commit useful tested increments with exact evidence and failed-check history.
+No implementation or new diagnostic for this proposal has begun.
 
 ## Selected Fast Native Checkpoint (2026-10-22)
 
