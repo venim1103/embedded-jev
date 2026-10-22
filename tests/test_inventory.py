@@ -2142,6 +2142,84 @@ def test_profile_fast_standalone_contract_refuses_source_and_row_conflicts(monke
         assert receipt["prompt_label_boundary_verification"] == receipt["native_tokenizer_verification"] == "not_checked"
 
 
+@pytest.mark.parametrize("defect", [None, "missing-role", "extra-role", "unknown-role", "bool-role", "role-type",
+    "control-flag", "marker-flag", "marker-missing", "marker-control", "control-normal", "label-special", "label-unused",
+    "source-id", "row-spelling", "selected-spelling", "encoding", "duplicate-id", "conflict", "bool-id", "range", "content",
+    "count", "bool-count", "rows", "bool-rows", "content-budget", "bool-content", "seconds", "bool-seconds", "deadline", "late-deadline"])
+def test_profile_fast_token_roles_preserve_strict_contract_and_source_flags(monkeypatch, defect):
+    import hashlib
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    texts = ("<control>", "<marker>", "A", "B")
+    vocabulary = {text: index for index, text in enumerate(texts)}
+    profile = SimpleNamespace(sha256="0" * 64, geometry={"vocab_size": 4},
+        tokenization={"special_token_ids": {texts[0]: 0, texts[1]: 1}, "label_token_ids": {"A": 2, "B": 3}})
+    rows = [{"source_token": text, "token_type": "CONTROL" if index == 0 else "USER_DEFINED" if index == 1 else "NORMAL"}
+        for index, text in enumerate(texts)]
+    tokens = list(texts)
+    roles = {texts[0]: "source_special", texts[1]: "ordinary_added_marker"}
+    added = {0: SimpleNamespace(special=defect != "control-flag"), 1: SimpleNamespace(special=defect == "marker-flag")}
+    if defect == "missing-role":
+        del roles[texts[1]]
+    elif defect == "extra-role":
+        roles["extra"] = "source_special"
+    elif defect in ("unknown-role", "bool-role"):
+        roles[texts[1]] = True if defect == "bool-role" else "infer"
+    elif defect == "role-type":
+        roles = list(roles)
+    elif defect == "marker-missing":
+        del added[1]
+    elif defect in ("marker-control", "control-normal", "label-unused"):
+        index, kind = {"marker-control": (1, "CONTROL"), "control-normal": (0, "NORMAL"), "label-unused": (2, "UNUSED")}[defect]
+        rows[index]["token_type"] = kind
+    elif defect == "label-special":
+        added[2] = SimpleNamespace(special=True)
+    elif defect == "row-spelling":
+        rows[1]["source_token"] = "changed"
+    elif defect == "selected-spelling":
+        tokens[1] = "changed"
+    elif defect in ("duplicate-id", "conflict", "bool-id", "range"):
+        profile.tokenization["label_token_ids"]["A"] = {"duplicate-id": 3, "conflict": 1, "bool-id": True, "range": 4}[defect]
+    elif defect == "content":
+        profile.tokenization["label_token_ids"] = {"A" * 4097: 2}
+    backend = SimpleNamespace(get_added_tokens_decoder=lambda: added,
+        token_to_id=lambda text: None if defect == "source-id" else vocabulary[text],
+        encode=lambda text, **kwargs: SimpleNamespace(ids=[vocabulary[text]] * (2 if defect == "encoding" else 1)))
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows_v2", lambda *args, **kwargs:
+        {"token_row_records": rows, "tokens": tuple(tokens)})
+    monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", lambda *args, **kwargs: ({}, backend, vocabulary))
+    arguments = dict(metadata_files={}, tokenizer_bytes=b"{}", context_length=256, row_policy="pinned_prism_fast_rows_v2")
+    limits = {"count": ("maximum_declared_tokens", 3), "bool-count": ("maximum_declared_tokens", True),
+        "rows": ("maximum_vocabulary_rows", 262145), "bool-rows": ("maximum_vocabulary_rows", True),
+        "content-budget": ("maximum_token_content_bytes", 4 * 1024**2 + 1), "bool-content": ("maximum_token_content_bytes", True),
+        "seconds": ("maximum_seconds", float("nan")), "bool-seconds": ("maximum_seconds", True)}
+    if defect in limits:
+        name, value = limits[defect]
+        arguments[name] = value
+    if defect in ("deadline", "late-deadline"):
+        clock = iter([0, 31] if defect == "deadline" else [0, 0, 0, 0, 0, 31])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    if defect:
+        with pytest.raises(ValueError, match="token role contract"):
+            prism_codec.prepare_profile_model_fast_token_role_contract_v1(profile, **arguments, token_roles=roles)
+    else:
+        original = json.dumps(profile.tokenization, sort_keys=True)
+        with pytest.raises(ValueError, match="standalone fast contract flags or selected row mismatch"):
+            prism_codec.prepare_profile_model_fast_tokenizer_contract_v2(profile, **arguments)
+        receipt = prism_codec.prepare_profile_model_fast_token_role_contract_v1(profile, **arguments, token_roles=roles)
+        expected_hash = hashlib.sha256(json.dumps({"profile_sha256": profile.sha256, "token_roles": roles},
+            sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        assert receipt["token_roles_sha256"] == expected_hash and receipt["token_role_contract_policy_version"] == 1
+        assert receipt["required_token_ids"] == profile.tokenization["special_token_ids"]
+        assert receipt["source_special_token_ids"] == {texts[0]: 0} and receipt["ordinary_marker_token_ids"] == {texts[1]: 1}
+        assert receipt["prompt_label_boundary_verification"] == receipt["native_tokenizer_verification"] == "not_checked"
+        assert json.dumps(profile.tokenization, sort_keys=True) == original and added[0].special and not added[1].special
+        roles[texts[1]] = "source_special"
+        assert receipt["token_roles"][texts[1]] == "ordinary_added_marker"
+
+
 @pytest.mark.parametrize("defect", [None, "duplicate-merges", "duplicate-types", "metadata-pin", "tokenizer-pin", "manifest", "profile", "template-pin"])
 def test_profile_selected_fast_metadata_joint_writer_preflight(monkeypatch, defect):
     from embedded_jev import prism_codec

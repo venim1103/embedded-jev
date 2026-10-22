@@ -502,6 +502,69 @@ def prepare_profile_model_fast_tokenizer_contract_v2(
                             "runtime_approval": "not_granted_by_standalone_fast_contract"})
 
 
+def prepare_profile_model_fast_token_role_contract_v1(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+    token_roles: dict, maximum_vocabulary_rows: int = 4096, maximum_token_content_bytes: int = 64 * 1024,
+    maximum_declared_tokens: int = 64, maximum_seconds: float = 30,
+):
+    """Verify explicit source-special versus ordinary-added roles without changing source semantics."""
+    import json
+
+    if (type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 60
+            or type(maximum_declared_tokens) is not int or not 0 < maximum_declared_tokens <= 4096
+            or type(maximum_vocabulary_rows) is not int or not 0 < maximum_vocabulary_rows <= 262144
+            or type(maximum_token_content_bytes) is not int or not 0 < maximum_token_content_bytes <= 4 * 1024**2):
+        raise ValueError("invalid token role contract budget")
+    deadline = time.monotonic() + maximum_seconds
+    required = dict(profile.tokenization["special_token_ids"])
+    labels = dict(profile.tokenization["label_token_ids"])
+    declarations = [*required.items(), *labels.items()]
+    if (not required or not labels or len(declarations) > maximum_declared_tokens
+            or len({text for text, _ in declarations}) != len(declarations)
+            or len({token_id for _, token_id in declarations}) != len(declarations)
+            or any(not isinstance(text, str) or not 0 < len(text.encode("utf-8")) <= 4096 or "\0" in text
+                   or type(token_id) is not int or not 0 <= token_id < profile.geometry["vocab_size"] for text, token_id in declarations)
+            or sum(len(text.encode("utf-8")) for text, _ in declarations) > maximum_token_content_bytes):
+        raise ValueError("invalid token role contract declarations")
+    if (type(token_roles) is not dict or set(token_roles) != set(required)
+            or any(type(role) is not str or role not in ("source_special", "ordinary_added_marker") for role in token_roles.values())):
+        raise ValueError("invalid token role contract roles")
+    roles = dict(token_roles)
+    prepared = prepare_profile_model_tokenizer_rows_v2(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, maximum_vocabulary_rows=maximum_vocabulary_rows,
+        maximum_token_content_bytes=maximum_token_content_bytes)
+    _, tokenizer, vocabulary = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, maximum_tokenizer_json_bytes=MODEL_METADATA_BYTES_V2)
+    added = tokenizer.get_added_tokens_decoder()
+    for text, token_id in declarations:
+        if time.monotonic() > deadline:
+            raise ValueError("token role contract deadline exceeded")
+        row = prepared["token_row_records"][token_id]
+        if (vocabulary.get(text) != token_id or tokenizer.token_to_id(text) != token_id
+                or row["source_token"] != text or prepared["tokens"][token_id] != text
+                or tokenizer.encode(text, add_special_tokens=False).ids != [token_id]):
+            raise ValueError("token role contract source ID or encoding mismatch")
+        source_special = token_id in added and added[token_id].special
+        if text in required:
+            expected_special = roles[text] == "source_special"
+            if (token_id not in added or source_special is not expected_special
+                    or row["token_type"] not in (("CONTROL",) if expected_special else ("NORMAL", "USER_DEFINED"))):
+                raise ValueError("token role contract source flags or selected row mismatch")
+        elif source_special or row["token_type"] not in ("NORMAL", "USER_DEFINED"):
+            raise ValueError("token role contract label flags or selected row mismatch")
+    if time.monotonic() > deadline:
+        raise ValueError("token role contract deadline exceeded")
+    role_identity = hashlib.sha256(json.dumps({"profile_sha256": profile.sha256, "token_roles": roles},
+        sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    return MappingProxyType({**prepared, "token_role_contract_policy_version": 1, "profile_sha256": profile.sha256,
+        "token_roles": MappingProxyType(roles), "token_roles_sha256": role_identity,
+        "required_token_ids": MappingProxyType(required), "label_token_ids": MappingProxyType(labels),
+        "source_special_token_ids": MappingProxyType({text: token_id for text, token_id in required.items() if roles[text] == "source_special"}),
+        "ordinary_marker_token_ids": MappingProxyType({text: token_id for text, token_id in required.items() if roles[text] == "ordinary_added_marker"}),
+        "prompt_label_boundary_verification": "not_checked", "native_tokenizer_verification": "not_checked",
+        "runtime_approval": "not_granted_by_token_role_contract"})
+
+
 def prepare_profile_model_fast_context_contract_v3(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
     row_policy: str, messages: list[dict], maximum_seconds: float = 10,

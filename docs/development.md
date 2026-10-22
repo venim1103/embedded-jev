@@ -3286,6 +3286,34 @@ invocation. Their shared stage is 60 s, not the older 180 s maximum. Consult
 the [checkpoint](handover.md#standalone-fast-token-contract-checkpoint-2026-10-22)
 for tiny/8193-row evidence, cleanup, remaining ledger and approval limits.
 
+### Explicit Standalone Token Roles
+
+`prepare_profile_model_fast_token_role_contract_v1` is separate from strict
+standalone v2: it requires an exact `token_roles` dict covering all legacy
+profile `special_token_ids` declarations. Each role is explicitly
+`source_special` (actual added-token special=true/CONTROL row) or
+`ordinary_added_marker` (actual added-token special=false/NORMAL-or-USER_DEFINED
+row). Missing/extra/unknown roles refuse; no role inference or flag/row mutation.
+Both require unchanged source/selected spelling and ID plus single-ID standalone
+encoding. Declared labels retain independent unchanged/non-special checks.
+
+Budgets match standalone v2: rows default4096/ceiling262144, independent
+content default64 KiB/ceiling4 MiB, declarations default64/ceiling4096,
+cooperative seconds default30/ceiling60; strict bool/range/deadline checks.
+Returns separate `required_token_ids`, `source_special_token_ids`,
+`ordinary_marker_token_ids`, role version 1 and canonical `token_roles_sha256`
+over the profile hash and exact role map. A role policy is not a changed profile
+identity or runtime approval. Existing generic fast row normalization is reused;
+the new function does not construct a contextual wrapper or render/probe prompts.
+
+Generated `synthetic-joint-roles` uses the pinned cached row-diagnostic libraries
+only, <=32 rows/64 KiB source sets, <=20 s shared stage/15 s child/12 s cooperative
+pair, inherited resource/audit/hash/FD/empty-output/cleanup controls. It compares
+strict-v2 refusal with explicit-role acceptance on identical immutable inputs.
+See the [checkpoint](handover.md#synthetic-token-role-checkpoint-2026-10-22)
+for measured evidence and warnings. This does not change v2/v3/v4, native or
+learned runners, frozen profiles or any consumed approval.
+
 ### Contextual Fast Token Contracts
 
 `prepare_profile_model_fast_context_contract_v3` composes standalone fast

@@ -46,7 +46,9 @@ its single completed diagnostic after runner `80a0b58`: the strict contract was
 refused before contextual rendering. **All five learned approvals are consumed**;
 no retry, relaxed predicate or further learned execution is authorized.
 The next [generated token-role proposal](#synthetic-token-role-proposal-2026-10-22)
-is unapproved and does not permit another learned invocation.
+was approved through **Approve Generated Token Roles** after `12618a1`;
+the [standalone checkpoint](#synthetic-token-role-checkpoint-2026-10-22) records
+its bounded generated evidence. No additional learned invocation is authorized.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -587,9 +589,69 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Synthetic Token-Role Checkpoint (2026-10-22)
+
+The user selected **Approve Generated Token Roles** after `12618a1`.
+Added `prepare_profile_model_fast_token_role_contract_v1` alongside unchanged
+strict standalone v2 and contextual v3/v4. An explicit exact role map covers
+every legacy declared required token, distinguishing `source_special` from
+`ordinary_added_marker`. It verifies source/selected spelling and ID, unchanged
+selected text, singleton encoding, actual added-token presence/special flag
+and CONTROL versus NORMAL/USER_DEFINED row type. Labels remain separate,
+unchanged and non-special. Duplicate/conflicting/bool/out-of-range IDs and
+role/declaration/content/time budgets refuse.
+
+Receipt has separate required-ID/source-special-ID/ordinary-marker-ID maps,
+explicit version 1, caller roles and a canonical role-map SHA-256 bound to the
+supplied profile SHA-256. No frozen profile or legacy semantics changes, role
+inference, relabeling or source flag mutation. No contextual rendering/probe,
+native/model/runtime approval or inference. A future role-aware contextual
+API and any learned validation still need separate scopes.
+
+**Scope clarification:** the proposal required reusing row preparation but
+also said not to construct a wrapper. After the generated fixture, inspection
+confirmed that existing row preparation already creates a generic fast wrapper
+for its unchanged encode/decode normalization. The user explicitly selected
+**Allow Inherited Normalization** before further gate/commit work. This permits
+that existing dependency only, not a new contextual wrapper or policy change.
+The new function itself constructs no wrapper and does not modify normalization.
+
+First focused check **52 passed in 0.23 s**, including 32 new role cases and
+20 unchanged strict standalone controls. The same generated declaration is
+still refused by v2 while accepting an ordinary marker only under its explicit
+new role; source flags, profile content and receipt role-map snapshot remain
+unchanged. Wrong roles/flags/rows/spellings/IDs/encoding and budget/deadline
+controls pass. No failed test, retry or learned source read occurred.
+
+One actual pinned-library `synthetic-joint-roles` fixture **passed in 2.93 s**,
+all five learned flags and native-build variable unset. Generated 32-row
+tokenizer, ten source/copy files **5476 bytes each**; same immutable bytes/profile
+produce strict-v2 refusal and new role acceptance with **2 source-specials,
+1 ordinary marker, 16 labels**. Shared stage <=20 s/child <=15 s/cooperative
+pair <=12 s, bounded stdin/output and inherited audit/hash/stat/FD/cleanup
+checks pass, with no output file. Logical source/copy/scratch **19144 bytes**;
+worker observed RSS **263163904**, high-water **262557696**, host available
+minimum **17019449344 bytes**, host/process swap **zero**. Stderr records the
+existing artificial vocabulary-hole warning for ID 20 twice; not suppressed or
+refitted. This is tiny generated standalone evidence, not learned or contextual
+acceptance. No native build/command or unchanged capacity test was repeated.
+
+Default source gate passed with all five learned flags and optional cached
+library/native variables unset: **1541 passed, 178 skipped in 25.38 s** under
+the 40 s wrapper; Ruff/editor/whitespace clean. Skipped optional tests are not
+executed native or learned evidence. No source changed after this gate.
+Conservatively reserve **270/300 s**, prior 215 s plus 3.16 s focused/fixture
+work, 40 s gate reservation and overhead, leaving **30 s**. Actual measured
+focused/fixture/gate time was 28.54 s. Old 575/600 and 425.19/600 remain frozen.
+All **five learned approvals remain consumed**; the original refusal is intact.
+The next source slice would need enough separately approved allowance for its
+mandatory gate; the remaining 30 s is not permission to start an ungated edit.
+
 ## Synthetic Token-Role Proposal (2026-10-22)
 
-Prepared after refusal checkpoint `8d3c186`; **not approved or started**.
+Prepared after refusal checkpoint `8d3c186`; subsequently **approved** through
+**Approve Generated Token Roles** after `12618a1`, with the explicitly approved
+inherited-normalization clarification recorded above.
 The fifth diagnostic exposed a distinction between required marker IDs and
 actual source special flags. Preserve that refusal, the frozen profiles and
 strict standalone v2/contextual v3/v4 behavior. Request one **generated-only
@@ -615,7 +677,7 @@ new model profile or learned retry.
   runtime approval. The role map is an explicit new validation policy, not a
   change to the pinned profile's identity or evidence from another model.
 - Keep the old strict APIs and all learned/native runners unchanged. Do not
-  construct a wrapper, render templates, probe contextual continuations or
+  construct a new contextual wrapper, render templates, probe contextual continuations or
   integrate this into v3/v4. A future contextual role-aware contract needs its
   own scope; another learned validation needs another exact one-shot approval.
 - Use existing test helpers/files for generated tiny vocabulary, true controls,

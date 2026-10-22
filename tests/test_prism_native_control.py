@@ -5628,6 +5628,7 @@ standalone_contract = fixture.get("standalone_contract", False)
 context_contract = fixture.get("context_contract", False)
 native_vocab = fixture.get("native_vocab", False)
 large_context = fixture.get("large_context", False)
+token_roles_contract = fixture.get("token_roles_contract", False)
 learned_context = fixture.get("learned_context", False)
 if learned_context:
     assert os.environ.get("MIMO_TOKENIZER_CONTEXT_APPROVED") == "1" and row_mode
@@ -5662,6 +5663,9 @@ if context_contract and not large_context:
     assert standalone_contract and profile.geometry["vocab_size"] == 32 and total <= 32 * 1024
 if large_context:
     assert standalone_contract and context_contract and profile.geometry["vocab_size"] in (8193, 248320)
+if token_roles_contract:
+    assert standalone_contract and profile.profile_id == "synthetic-profile" and profile.geometry["vocab_size"] == 32
+    assert total <= 65536 and not any((context_contract, native_vocab, learned_joint, learned_context))
 row_scratch_cap = (128 if learned_context else 16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 if native_vocab:
     assert standalone_contract and profile.geometry["vocab_size"] == 260 and total <= 65536
@@ -6261,6 +6265,29 @@ def run_rows():
         assert hashlib.sha256(memoryview(blocks)).hexdigest() == manifest["payload_sha256"]
         policy_arguments = dict(inventory=fixture["composition"]["inventory"], manifest=manifest, pq2_blocks=blocks, template_source="source")
     descriptors = len(os.listdir("/proc/self/fd"))
+    if token_roles_contract:
+        assert operation == "rows-contract" and not list(root.iterdir())
+        role_deadline = min(time.monotonic() + 12, fixture["sequence_deadline"])
+        roles = {text: "ordinary_added_marker" if text == "<marker>" else "source_special"
+            for text in profile.tokenization["special_token_ids"]}
+        with library_diagnostics():
+            try:
+                prism_codec.prepare_profile_model_fast_tokenizer_contract_v2(profile, **arguments,
+                    maximum_seconds=role_deadline - time.monotonic())
+            except ValueError as error:
+                assert str(error) == "standalone fast contract flags or selected row mismatch"
+            else:
+                raise AssertionError("strict v2 accepted ordinary marker as source special")
+            receipt = prism_codec.prepare_profile_model_fast_token_role_contract_v1(profile, **arguments, token_roles=roles,
+                maximum_seconds=role_deadline - time.monotonic())
+        assert receipt["token_role_contract_policy_version"] == 1 and receipt["profile_sha256"] == profile.sha256
+        assert receipt["source_special_token_ids"] == {"<pad>": 0, "<|control|>": 5}
+        assert receipt["ordinary_marker_token_ids"] == {"<marker>": 1} and len(receipt["label_token_ids"]) == 16
+        assert len(os.listdir("/proc/self/fd")) == descriptors and not list(root.iterdir()) and time.monotonic() < role_deadline
+        return dict(status="matched", phase=operation, token_rows=32, required_tokens=3, source_special_tokens=2,
+            ordinary_markers=1, checked_labels=16, strict_v2_refused=True, no_output_files=True,
+            token_roles_sha256=receipt["token_roles_sha256"], contract_policy_version=1,
+            logical_source_copy_scratch_bytes=2 * total + 8192, logical_scratch_cap_bytes=row_scratch_cap)
     if large_context:
         assert operation == "rows-contract" and root.is_dir() and not list(root.iterdir())
         remaining = min(60, fixture["sequence_deadline"] - time.monotonic())
@@ -6590,7 +6617,7 @@ finish_report(report)
     "synthetic-merges-intermediate-selected-native", "synthetic-merges-full-selected-native", "synthetic-merges-full-selected-native-controls",
     "synthetic-joint-contract", "synthetic-merges-intermediate-contract", "synthetic-joint-context", "synthetic-joint-context-merge",
     "synthetic-joint-vocab", "synthetic-joint-vocab-merge", "synthetic-joint-vocab-controls",
-    "synthetic-merges-intermediate-context-v4", "synthetic-merges-full-context-v4"])
+    "synthetic-merges-intermediate-context-v4", "synthetic-merges-full-context-v4", "synthetic-joint-roles"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6607,8 +6634,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     native_vocab = "-vocab" in mode
     vocab_merge = mode.endswith("-vocab-merge")
     large_context = mode.endswith("-context-v4")
-    standalone_contract = mode.endswith("-contract") or context_contract or native_vocab
-    base_mode = mode.removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected").removesuffix("-contract").removesuffix("-context-merge").removesuffix("-context").removesuffix("-vocab-merge").removesuffix("-vocab").removesuffix("-context-v4")
+    token_roles_contract = mode.endswith("-roles")
+    standalone_contract = mode.endswith("-contract") or context_contract or native_vocab or token_roles_contract
+    base_mode = mode.removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected").removesuffix("-contract").removesuffix("-context-merge").removesuffix("-context").removesuffix("-vocab-merge").removesuffix("-vocab").removesuffix("-context-v4").removesuffix("-roles")
     if native_joint or native_vocab:
         runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
         if not runtime_build:
@@ -6676,6 +6704,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             if standalone_contract:
                 label_ids = (8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25)
                 record["tokenization"]["special_token_ids"] = {"<pad>": 0, "<|control|>": 5}
+                if token_roles_contract:
+                    tokens[1] = "<marker>"
+                    record["tokenization"]["special_token_ids"]["<marker>"] = 1
                 record["tokenization"]["label_token_ids"] = dict(zip("ABCDEFGHIJKLMNOP", label_ids, strict=True))
                 for label, token_id in record["tokenization"]["label_token_ids"].items():
                     tokens[token_id] = label
@@ -6751,6 +6782,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "context_contract": context_contract, "context_refusal": context_refusal,
             "native_vocab": native_vocab, "vocab_merge": vocab_merge,
             "large_context": large_context,
+            "token_roles_contract": token_roles_contract,
             "vocab_controls": mode.endswith("-vocab-controls"),
             "synthetic_refusals": refusal_mode, "unused_rows": 243 if full_scale or mode in ("approved", "approved-joint") else 2}
         if selected_fast:
@@ -6761,7 +6793,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             fixture["composition"] = {"inventory": build_inventory({name: files[name] for name in profile.packaging["metadata_files"]}, headers, profile=profile),
                 "manifest": {**manifest, "profile_sha256": profile.sha256}}
         if learned_joint or native_joint or selected_fast or standalone_contract:
-            fixture["sequence_deadline"] = started + (70 if large_context else 60 if native_vocab else 12 if context_contract else 60 if standalone_contract else 180)
+            fixture["sequence_deadline"] = started + (20 if token_roles_contract else 70 if large_context else 60 if native_vocab else 12 if context_contract else 60 if standalone_contract else 180)
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
@@ -6776,7 +6808,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         for operation, proof_case in operations:
             phase_started = time.monotonic()
             payload = json.dumps({**fixture, "operation": operation, "proof_case": proof_case}).encode()
-            child_seconds = min(30 if native_vocab else 60, fixture["sequence_deadline"] - phase_started) if learned_joint or native_joint or selected_fast or standalone_contract else 60
+            child_seconds = min(15 if token_roles_contract else 30 if native_vocab else 60, fixture["sequence_deadline"] - phase_started) if learned_joint or native_joint or selected_fast or standalone_contract else 60
             assert child_seconds > 0
             result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env=env, maximum_seconds=child_seconds)
             assert result["returncode"] == 0, result["stderr"]
@@ -6793,6 +6825,13 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 actual, original = (local / name).stat(), original_stats[name]
                 assert (actual.st_dev, actual.st_ino, actual.st_size, actual.st_mtime_ns, actual.st_ctime_ns) == (
                     original.st_dev, original.st_ino, original.st_size, original.st_mtime_ns, original.st_ctime_ns)
+            if operation == "rows-contract" and token_roles_contract:
+                assert report["token_rows"] == 32 and report["required_tokens"] == 3
+                assert report["source_special_tokens"] == 2 and report["ordinary_markers"] == 1 and report["checked_labels"] == 16
+                assert report["strict_v2_refused"] and report["no_output_files"] and not list(output.iterdir())
+                assert report["input_bytes"] <= 65536 and time.monotonic() < fixture["sequence_deadline"]
+                reports.append(report)
+                continue
             if operation == "rows-contract" and native_vocab:
                 assert report["token_rows"] == 260 and report["contextual_refusal"] == vocab_merge
                 assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == 16 * 1024**2
