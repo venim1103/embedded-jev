@@ -6010,16 +6010,24 @@ def run_merge_refusal(arguments, merge_arguments, merge_values, path):
     selected = {**arguments, **merge_arguments, "expected_file_bytes": len(changed), "expected_file_sha256": hashlib.sha256(changed).hexdigest()}
     if case == "count-limit":
         del selected["maximum_merge_rows"]
+        if selected_fast:
+            selected["maximum_merge_rows"] = len(merge_values) - 1
     elif case == "content-limit":
         del selected["maximum_merge_content_bytes"]
         if fixture["merge_rows"] == 4097:
             selected["maximum_merge_content_bytes"] = 32768
+        if selected_fast:
+            selected["maximum_merge_content_bytes"] = sum(len(value.encode()) for value in merge_values) - 1
     elif case == "records-limit":
         del limits["maximum_metadata_bytes"]
+        if selected_fast:
+            limits["maximum_metadata_bytes"] = 1
     elif case == "header-limit":
         del limits["maximum_header_bytes"]
         if fixture["merge_rows"] == 4097:
             limits["maximum_header_bytes"] = 8192
+        if selected_fast:
+            limits["maximum_header_bytes"] = 24
     elif case == "stale-hash":
         selected["expected_file_sha256"] = "0" * 64
     hashes, reads = [], []
@@ -6055,7 +6063,8 @@ def run_merge_refusal(arguments, merge_arguments, merge_values, path):
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = record_hash, record_read
             with library_diagnostics():
                 try:
-                    prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v4(profile, reader=reader, **limits, **selected)
+                    verifier = prism_codec.verify_profile_gguf_selected_fast_metadata_v3 if selected_fast else prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v4
+                    verifier(profile, reader=reader, **limits, **selected)
                     raise AssertionError("synthetic merge refusal control accepted")
                 except ValueError as error:
                     assert errors[case] in str(error), str(error)
@@ -6068,11 +6077,11 @@ def run_merge_refusal(arguments, merge_arguments, merge_values, path):
     if case == "restored-write":
         assert len(hashes) == 2 and hashes[0] == hashes[1] and reads
     assert hashlib.sha256(path.read_bytes()).hexdigest() == fixture["identity"]["expected_file_sha256"]
-    assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in path.parent.iterdir()) == {"rows.gguf"}
-    logical = 2 * total + len(original) + 16 * 1024**2 + 8192
-    assert logical < row_scratch_cap == 64 * 1024**2
+    assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in path.parent.iterdir()) == ({"rows.gguf", "expected.json"} if selected_fast else {"rows.gguf"})
+    logical = 2 * total + len(original) + ((path.parent / "expected.json").stat().st_size if selected_fast else 0) + 16 * 1024**2 + 8192
+    assert logical < row_scratch_cap == (128 if selected_fast else 64) * 1024**2
     return dict(status="matched", phase="rows-proof", proof_case=case, token_rows=profile.geometry["vocab_size"],
-        unused_rows=fixture["unused_rows"], metadata_records=3, merge_rows=len(merge_values), refusal_count=1,
+        unused_rows=fixture["unused_rows"], metadata_records=30 if selected_fast else 3, merge_rows=len(merge_values), refusal_count=1,
         retained_file_hashes=len(hashes), maximum_read=max(reads, default=0),
         output_file_bytes=len(original), output_file_sha256=fixture["identity"]["expected_file_sha256"],
         logical_source_copy_scratch_bytes=logical, logical_scratch_cap_bytes=row_scratch_cap, restored_file=True)
@@ -6194,7 +6203,7 @@ def run_rows():
         assert 0 < path.stat().st_size == identity["expected_file_bytes"] < 16 * 1024**2
         assert hashlib.sha256(path.read_bytes()).hexdigest() == identity["expected_file_sha256"]
         if fixture.get("proof_case"):
-            return run_merge_refusal(arguments, merge_arguments, merge_values, path)
+            return run_merge_refusal({**arguments, **policy_arguments}, merge_arguments, merge_values, path)
         hashes, reads = [], []
         hasher, pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
 
@@ -6296,7 +6305,8 @@ finish_report(report)
     "synthetic-merges-intermediate-refusals", "synthetic-merges-full-refusals",
     "synthetic-merges-intermediate-controls", "synthetic-merges-full-controls", "synthetic-joint", "approved-joint", "synthetic-joint-native",
     "synthetic-merges-intermediate-native", "synthetic-merges-full-native", "synthetic-joint-native-controls", "synthetic-merges-full-native-controls",
-    "synthetic-joint-selected"])
+    "synthetic-joint-selected", "synthetic-joint-selected-native", "synthetic-joint-selected-controls", "synthetic-joint-selected-native-controls",
+    "synthetic-merges-intermediate-selected-native", "synthetic-merges-full-selected-native", "synthetic-merges-full-selected-native-controls"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6479,12 +6489,14 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             path, expected_path = output / "rows.gguf", output / "expected.json"
             assert 0 < path.stat().st_size <= 16 * 1024**2 and 0 < expected_path.stat().st_size <= 32 * 1024**2
             execute = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
-            arguments = [str(executable), "--selected-metadata-control-v2", str(path), str(expected_path)]
+            native_command = "--selected-metadata-control-v3" if selected_fast else "--selected-metadata-control-v2"
+            arguments = [str(executable), native_command, str(path), str(expected_path)]
             native_seconds = min(60, fixture["sequence_deadline"] - time.monotonic())
             assert native_seconds > 0
             native = _run_tokenizer_only_guard_v2(sys.executable, execute, json.dumps(arguments).encode(), env=env, maximum_seconds=native_seconds)
             assert native["returncode"] == 0, native
-            assert json.loads(native["stdout"]) == {"selected_records": 3, "policy_version": 2, "tensor_data_allocated": False, "model_loaded": False}
+            assert json.loads(native["stdout"]) == {"selected_records": 30 if selected_fast else 3,
+                "policy_version": 3 if selected_fast else 2, "tensor_data_allocated": False, "model_loaded": False}
             assert native["host_swap_baseline_bytes"] == baseline_swap
             assert hashlib.sha256(path.read_bytes()).hexdigest() == fixture["identity"]["expected_file_sha256"]
             assert time.monotonic() - started < 180
@@ -6500,7 +6512,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     assert (expected_bytes is None) != (gguf_bytes is None)
                     assert len(expected_bytes if expected_bytes is not None else gguf_bytes) <= (32 if expected_bytes is not None else 16) * 1024**2
                     target = output / ("native-fault.json" if expected_bytes is not None else "native-fault.gguf")
-                    fault_arguments = [str(executable), "--selected-metadata-control-v2",
+                    fault_arguments = [str(executable), native_command,
                         str(path if expected_bytes is not None else target), str(target if expected_bytes is not None else expected_path)]
                     try:
                         target.write_bytes(expected_bytes if expected_bytes is not None else gguf_bytes)
@@ -6520,13 +6532,21 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 refuse(expected_bytes=b'[{"name":"duplicate",' + original_expected[2:])
                 refuse(expected_bytes=b"[" * 10 + b"0" + b"]" * 10)
                 refuse(expected_bytes=b"[\xff]")
-                for defect in ("token-first", "token-last", "type-first", "type-last", "merge-first", "merge-last", "rank-first", "rank-last",
+                defects = ("token-first", "token-last", "type-first", "type-last", "merge-first", "merge-last", "rank-first", "rank-last",
                         "duplicate-name", "missing", "unknown-name", "wrong-kind", "bool-type", "overflow-type", "negative-overflow-type",
-                        "row-cap", "merge-cap", "token-content-cap", "merge-content-cap", "string-cap", "nul"):
+                        "row-cap", "merge-cap", "token-content-cap", "merge-content-cap", "string-cap", "nul")
+                for defect in defects + (("policy-first", "policy-last", "profile", "context", "template") if selected_fast else ()):
                     declarations = json.loads(original_expected)
-                    row_values, type_values, merge_values = (record["values"] for record in declarations)
+                    fields = {record["name"]: record for record in declarations}
+                    row_values, type_values, merge_values = (fields[name]["values"] for name in
+                        ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges"))
                     mismatch = defect.startswith(("token-", "type-", "merge-", "rank-")) and defect.endswith(("first", "last"))
-                    if mismatch:
+                    policy_mismatch = defect in ("policy-first", "policy-last", "profile", "context", "template")
+                    if policy_mismatch:
+                        name = {"policy-first": "general.architecture", "policy-last": "jev.bitnet.execution", "profile": "jev.model.profile_sha256",
+                            "context": "qwen35.context_length", "template": "tokenizer.chat_template"}[defect]
+                        fields[name]["values"][0] += 1 if defect == "context" else "!"
+                    elif mismatch:
                         values = row_values if defect.startswith("token") else type_values if defect.startswith("type") else merge_values
                         index = -1 if defect.endswith("last") else 0
                         if defect.startswith("rank"):
@@ -6547,12 +6567,12 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     elif defect in ("bool-type", "overflow-type", "negative-overflow-type"):
                         type_values[0] = {"bool-type": True, "overflow-type": 2**31, "negative-overflow-type": -2**31 - 1}[defect]
                     elif defect in ("row-cap", "merge-cap"):
-                        declarations[0 if defect == "row-cap" else 2]["values"] = ["x"] * 262145
+                        fields["tokenizer.ggml.tokens" if defect == "row-cap" else "tokenizer.ggml.merges"]["values"] = ["x"] * 262145
                     elif defect in ("token-content-cap", "merge-content-cap"):
-                        declarations[0 if defect == "token-content-cap" else 2]["values"] = ["x" * 4096] * 1025
+                        fields["tokenizer.ggml.tokens" if defect == "token-content-cap" else "tokenizer.ggml.merges"]["values"] = ["x" * 4096] * 1025
                     else:
                         row_values[0] = "x" * 4097 if defect == "string-cap" else "bad\0token"
-                    refuse(expected_bytes=json.dumps(declarations, separators=(",", ":")).encode(), status=32 if mismatch else 30)
+                    refuse(expected_bytes=json.dumps(declarations, separators=(",", ":")).encode(), status=32 if mismatch or policy_mismatch else 30)
                 changed = bytearray(original_file)
                 struct.pack_into("<I", changed, reports[1]["native_type_element_offset"], reports[1]["native_wrong_type_kind"])
                 refuse(gguf_bytes=changed, status=32)

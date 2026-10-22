@@ -1334,10 +1334,27 @@ static std::vector<char> selected_metadata_file(const char* path, std::size_t li
     return bytes;
 }
 
-static int test_selected_metadata(const char* path, const char* expected_path, bool joint = false) {
+static int test_selected_metadata(const char* path, const char* expected_path, int policy_version = 1) {
     using nlohmann::json;
+    const bool joint = policy_version == 2;
+    const bool selected = policy_version == 3;
+    const bool large = joint || selected;
+    const std::set<std::pair<std::string, std::string>> selected_fields{
+        {"general.architecture", "string"}, {"jev.model.profile_id", "string"}, {"jev.model.profile_sha256", "string"},
+        {"jev.model.source_revision", "string"}, {"jev.model.converter_revision", "string"},
+        {"jev.bitnet.source_tensor_sha256", "string"}, {"jev.bitnet.model", "string"}, {"jev.bitnet.execution", "string"},
+        {"qwen35.block_count", "u32"}, {"qwen35.embedding_length", "u32"}, {"qwen35.feed_forward_length", "u32"},
+        {"qwen35.attention.head_count", "u32"}, {"qwen35.attention.head_count_kv", "u32"},
+        {"qwen35.attention.key_length", "u32"}, {"qwen35.attention.value_length", "u32"},
+        {"qwen35.rope.dimension_count", "u32"}, {"qwen35.ssm.conv_kernel", "u32"}, {"qwen35.ssm.inner_size", "u32"},
+        {"qwen35.ssm.state_size", "u32"}, {"qwen35.ssm.time_step_rank", "u32"}, {"qwen35.ssm.group_count", "u32"},
+        {"qwen35.full_attention_interval", "u32"}, {"qwen35.attention.layer_norm_rms_epsilon", "f32"},
+        {"qwen35.rope.freq_base", "f32"}, {"qwen35.rope.dimension_sections", "i32_array"},
+        {"qwen35.context_length", "u32"}, {"tokenizer.chat_template", "string"},
+        {"tokenizer.ggml.tokens", "str_array"}, {"tokenizer.ggml.token_type", "i32_array"}, {"tokenizer.ggml.merges", "str_array"},
+    };
     try {
-        const auto expected_bytes = selected_metadata_file(expected_path, joint ? 32 * 1024 * 1024 + 1 : 256 * 1024);
+        const auto expected_bytes = selected_metadata_file(expected_path, large ? 32 * 1024 * 1024 + 1 : 256 * 1024);
         std::vector<std::set<std::string>> object_keys(9);
         const auto expected = json::parse(expected_bytes.begin(), expected_bytes.end(),
             [&object_keys](int depth, json::parse_event_t event, json& value) {
@@ -1352,7 +1369,7 @@ static int test_selected_metadata(const char* path, const char* expected_path, b
                 }
                 return true;
             });
-        if (!expected.is_array() || expected.size() != (joint ? 3 : 29)) {
+        if (!expected.is_array() || expected.size() != (selected ? selected_fields.size() : joint ? 3 : 29)) {
             return 30;
         }
         std::set<std::string> names;
@@ -1365,6 +1382,7 @@ static int test_selected_metadata(const char* path, const char* expected_path, b
             const auto name = record["name"].get<std::string>();
             const auto kind = record["kind"].get<std::string>();
             const auto& values = record["values"];
+            const bool large_array = large && (name == "tokenizer.ggml.tokens" || name == "tokenizer.ggml.token_type" || name == "tokenizer.ggml.merges");
             if (name.empty() || name.size() > 256 || name.find('\0') != std::string::npos ||
                     !names.insert(name).second || values.empty()) {
                 return 30;
@@ -1373,8 +1391,11 @@ static int test_selected_metadata(const char* path, const char* expected_path, b
                     !(joint && name == "tokenizer.ggml.token_type" && kind == "i32_array")) {
                 return 30;
             }
+            if (selected && selected_fields.count({name, kind}) != 1) {
+                return 30;
+            }
             if (kind == "string" || kind == "str_array") {
-                if (values.size() > (joint ? 262144 : kind == "string" ? 1 : name == "tokenizer.ggml.merges" ? 4096 : 16384)) {
+                if (values.size() > (large_array ? 262144 : kind == "string" ? 1 : name == "tokenizer.ggml.merges" ? 4096 : 16384)) {
                     return 30;
                 }
                 std::size_t total = 0;
@@ -1384,12 +1405,12 @@ static int test_selected_metadata(const char* path, const char* expected_path, b
                     }
                     const auto text = value.get<std::string>();
                     total += text.size();
-                    if (text.empty() || text.size() > 4096 || text.find('\0') != std::string::npos || total > (joint ? 4 * 1024 * 1024 : 65536)) {
+                    if (text.empty() || text.size() > 4096 || text.find('\0') != std::string::npos || total > (large_array ? 4 * 1024 * 1024 : 65536)) {
                         return 30;
                     }
                 }
             } else if (kind == "u32" || kind == "i32_array") {
-                if (values.size() > (joint ? 262144 : kind == "u32" ? 1 : 16)) {
+                if (values.size() > (large_array ? 262144 : kind == "u32" ? 1 : 16)) {
                     return 30;
                 }
                 for (const auto& value : values) {
@@ -1411,7 +1432,7 @@ static int test_selected_metadata(const char* path, const char* expected_path, b
         if (joint && names != std::set<std::string>{"tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges"}) {
             return 30;
         }
-        const auto bytes = selected_metadata_file(path, joint ? 16 * 1024 * 1024 + 1 : 1024 * 1024);
+        const auto bytes = selected_metadata_file(path, large ? 16 * 1024 * 1024 + 1 : 1024 * 1024);
         std::unique_ptr<gguf_context, decltype(&gguf_free)> context(
             gguf_init_from_buffer(bytes.data(), bytes.size(), { true, nullptr }), gguf_free);
         if (!context || gguf_get_n_kv(context.get()) > 64 || gguf_get_n_tensors(context.get()) > 427) {
@@ -1452,7 +1473,9 @@ static int test_selected_metadata(const char* path, const char* expected_path, b
                 }
             }
         }
-        if (joint) {
+        if (selected) {
+            std::puts("{\"selected_records\":30,\"policy_version\":3,\"tensor_data_allocated\":false,\"model_loaded\":false}");
+        } else if (joint) {
             std::puts("{\"selected_records\":3,\"policy_version\":2,\"tensor_data_allocated\":false,\"model_loaded\":false}");
         } else {
             std::puts("{\"selected_records\":29,\"tensor_data_allocated\":false,\"model_loaded\":false}");
@@ -1471,7 +1494,10 @@ int main(int argc, char** argv) {
         return test_selected_metadata(argv[2], argv[3]);
     }
     if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control-v2") == 0) {
-        return test_selected_metadata(argv[2], argv[3], true);
+        return test_selected_metadata(argv[2], argv[3], 2);
+    }
+    if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control-v3") == 0) {
+        return test_selected_metadata(argv[2], argv[3], 3);
     }
 #endif
 #ifdef JEV_TEST_FULL_RUNTIME

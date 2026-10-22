@@ -1988,7 +1988,7 @@ def test_profile_selected_metadata_writer_preflights_every_group_before_mutation
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
 
 
-@pytest.mark.parametrize("defect", [None, "duplicate-merges", "duplicate-types", "metadata-pin", "tokenizer-pin", "manifest"])
+@pytest.mark.parametrize("defect", [None, "duplicate-merges", "duplicate-types", "metadata-pin", "tokenizer-pin", "manifest", "profile", "template-pin"])
 def test_profile_selected_fast_metadata_joint_writer_preflight(monkeypatch, defect):
     from embedded_jev import prism_codec
 
@@ -2008,6 +2008,10 @@ def test_profile_selected_fast_metadata_joint_writer_preflight(monkeypatch, defe
         tokenizer_bytes += b" "
     elif defect == "manifest":
         manifest["payload_sha256"] = "0" * 64
+    elif defect == "profile":
+        manifest["profile_sha256"] = "0" * 64
+    elif defect == "template-pin":
+        metadata[profile.tokenization["template_file"]] += b" "
     before = json.dumps(writer.kv_data, sort_keys=True)
     arguments = dict(metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256, template_source="source",
         row_policy="pinned_prism_fast_rows_v2", merge_policy="pinned_prism_ranked_source_merges_v2", writer=writer)
@@ -2023,7 +2027,7 @@ def test_profile_selected_fast_metadata_joint_writer_preflight(monkeypatch, defe
 
 
 @pytest.mark.parametrize("defect", [None, "file-budget", "record-budget", "header-budget", "hash", "seconds",
-                                    "metadata-pin", "tokenizer-pin", "manifest", "selection", "preparation-deadline", "verification-deadline"])
+                                    "metadata-pin", "tokenizer-pin", "manifest", "profile", "template-pin", "selection", "preparation-deadline", "verification-deadline"])
 def test_profile_selected_fast_metadata_proof_identity_and_shared_deadline(monkeypatch, defect):
     from embedded_jev import prism_codec
 
@@ -2058,6 +2062,10 @@ def test_profile_selected_fast_metadata_proof_identity_and_shared_deadline(monke
         arguments["tokenizer_bytes"] += b" "
     elif defect == "manifest":
         manifest["payload_sha256"] = "0" * 64
+    elif defect == "profile":
+        manifest["profile_sha256"] = "0" * 64
+    elif defect == "template-pin":
+        metadata[profile.tokenization["template_file"]] += b" "
     elif defect == "selection":
         arguments["template_source"] = "guess"
     elif defect in ("preparation-deadline", "verification-deadline"):

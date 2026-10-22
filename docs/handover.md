@@ -10,9 +10,10 @@ original conversation. Read this first, then follow the links for detail.
 commits until stopped or genuinely blocked. Starting `62e59a3` matches
 `origin/main`; user editor settings remain untouched. The user separately selected
 **Approve Synthetic Composition** for the committed proposal below. Read the
-[Python composition checkpoint](#selected-fast-python-checkpoint-2026-10-22)
-before continuing: tiny selected-file proof is verified, native composition is
-not yet implemented. All four learned approvals remain consumed.
+[native composition checkpoint](#selected-fast-native-checkpoint-2026-10-22)
+before continuing: the approved tiny/intermediate/full 30-field parser scope is
+verified. All four learned approvals remain consumed; no tokenizer-engine/model
+loading or new learned execution is authorized.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -547,7 +548,99 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Selected Fast Native Checkpoint (2026-10-22)
+
+After Python checkpoint `e42a0f6`, completed the separately approved generated
+selected-fast composition. Added test-only `--selected-metadata-control-v3` with
+an exact **30-name/type whitelist** derived from the Python declarations. It
+compares policy/context/template plus fast tokens/INT32 types/ranked merges
+through pinned parser getters, before backend discovery and without tensor
+allocation/model/vocabulary loading. Limits remain explicit; large array bounds
+apply only to the three tokenizer arrays. Small scalar/rope arrays retain their
+own bounds. Old 29-field/v2 three-field commands and caps remain unchanged.
+
+Cached Release/clang++-18/Ninja prerequisites, exact target/two-job settings and
+the existing ownership/resource observer self-test passed. CMake Tools compiled
+only the loader-control object/executable: **two steps / 7.51 s**. Observer
+**15.95 s**, maximum observed build-tree RSS **350117888 bytes**, minimum host
+available **19696541696 bytes**, swap baseline/growth zero. No dependency rebuild,
+new checkout/install, variant/editor setting or source pin change occurred.
+
+Generated modes reuse the existing row worker, native exact-status fault loop
+and retained-file refusal controls. Source/copy sets, JSON/GGUF, one disposable
+fault/spool/report are reserved before copying; shared 180 s stage/60 s child,
+2 GiB observed RSS/host reserve, no swap growth and cleanup remain unchanged.
+Selected-native paths use the explicitly declared **generic fast-wrapper** row
+oracle; the earlier Qwen-specific `USER` normalization mismatch remains unresolved
+and must not be described as runtime tokenizer equivalence.
+
+Focused evidence, all learned flags unset and children serial:
+
+| Check | Result | Time |
+| --- | --- | --- |
+| `synthetic-joint-selected-native` | All 30 fields; exact version 3/no tensor allocation/no model result | 6.35 s |
+| `synthetic-joint-selected-native-controls` plus `synthetic-joint-selected-controls` | 30 native refusals and ten retained-file controls | 30.65 s total |
+| Extended writer/proof profile/template matrices | 22 unit cases | 0.60 s |
+| `synthetic-merges-intermediate-selected-native` then `synthetic-merges-full-selected-native-controls` | Both positives; full 30 native refusals | 49.50 s total |
+| Old selected native parser plus `synthetic-joint-native-controls` | Old 29-field positives/31 refusals at each old size and unchanged v2 three-field/25 refusals | 9.95 s total |
+
+Native faults cover first/last token strings/types/merges/ranks, policy endpoints,
+profile hash, context and template differences, duplicate/missing/unknown names,
+member duplication/depth/UTF-8, kinds, bool/INT32 over/underflow, independent
+count/content/string/NUL bounds and wrong GGUF integer-array element type.
+Fault artifacts are disposable, originals retain bytes/stat identity, descriptors
+recover exactly and no native success output is accepted for a refusal.
+Retained-file controls cover merge/type array disagreement, explicit count/
+content/record/header budgets, stale identity, copied map, closed map and a write
+restored before the second same-FD hash; stat freshness still refuses that last
+case. Profile/template unit cases refuse before mutation or file-verifier entry.
+Tiny positive and fault byte bounds are unchanged from the Python checkpoint.
+
+Intermediate generated source/copy sets: seven files/**365367 bytes** each,
+8193 rows/two pads/4097 pairs, GGUF **234912 bytes**, expected JSON **157606 bytes**,
+logical source/copy/GGUF/JSON plus reserved spool/report **17908660 bytes**.
+GGUF SHA-256 `d8c0947f890f4fcaec01859c2b3e84664c578332c8cecfe5574d08fd3b1a3647`.
+Full sets: seven files/**14852052 bytes** each, 248320 rows/243 tail pads and
+245760 generated pairs; source/output/merge content independently
+**2223602 / 2226284 / 2457600 bytes**. GGUF **9631552 bytes**, expected JSON
+**6665043 bytes**, logical **62786107 bytes** below 128 MiB with conservative
+separate fault reservation; SHA-256
+`dd0510b3bd2277e0d9cdf67ef21800455195a4ce67d0e38c820f8888e407fceb`.
+Each positive fresh proof checks all 30 fields with two same-FD hashes and
+pread <=65536. The full native positive and all 30 contradictions passed.
+
+Maximum observed full worker RSS **1751654400 bytes**, maximum observed native
+RSS **84475904 bytes**, minimum observed host available **17260953600 bytes**;
+process/host swap baseline and growth zero. All parent-owned fixture directories,
+copies, JSON, GGUF, faults, spool/maps/FDs/children cleaned; only small aggregate
+hash/count/resource evidence is retained. Sampling is not a hard peak or target
+guarantee, and these file proofs are not atomic against hostile concurrent writes.
+
+Required source gate, learned/native opt-ins unset: **1420 passed, 161 skipped
+in 23.25 s**, Ruff/whitespace/editor diagnostics clean. Optional skips are not
+native/model evidence; native checks above ran explicitly. Backend CTest controls
+were not rerun: this new parser branch neither discovers nor changes backends.
+From prior 320 s reservation, build observer/focused checks/default gate add
+136.25 s; conservatively reserve **470/600 s** including self-test/command and
+documentation overhead. **130 s remain**, not a reset/new allowance; earlier
+synthetic 425.19/600 s ledger remains independent. No unchanged successful gate
+was repeated for documentation.
+
+The approved synthetic **selected metadata composition** scope is complete.
+This is not complete metadata/tensor-table/tokenizer or native model acceptance:
+model/pre-tokenizer tags, special-ID policy, tokenizer-engine parity and the
+Qwen-specific wrapper difference remain separate boundaries. No learned/header/
+weight read, download, native vocabulary/model loader, refit/new retained
+candidate, quality scoring, other-profile/device work or deployment claim ran.
+All four learned approvals remain consumed. Any next vocabulary/engine or model
+execution needs a separately bounded proposal/approval, not remaining ledger
+time alone. Prepare prerequisites first and preserve these evidence limits.
+
 ## Selected Fast Python Checkpoint (2026-10-22)
+
+Initial Python-only state, followed by the
+[native composition checkpoint](#selected-fast-native-checkpoint-2026-10-22).
+The failed checks and wrapper limitation below remain part of the evidence.
 
 The user explicitly resumed autonomous work after `62e59a3`, then selected
 **Approve Synthetic Composition** for the exact committed proposal. Starting
@@ -697,7 +790,9 @@ learned/header/weight access, a native vocabulary/model loader, tokenizer-engine
 semantics, full conversion, refitting/new retained candidates, held-out scoring,
 representative quality, other-profile/device execution or deployment claims.
 The [Python checkpoint](#selected-fast-python-checkpoint-2026-10-22) records
-initial implementation and tiny proof; native composition remains pending.
+initial implementation and tiny proof; the
+[native checkpoint](#selected-fast-native-checkpoint-2026-10-22) completes the
+approved generated parser scope without tokenizer-engine/model acceptance.
 
 ## Native Joint Metadata Checkpoint (2026-10-21)
 

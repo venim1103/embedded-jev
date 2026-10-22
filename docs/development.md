@@ -3251,8 +3251,20 @@ tools to test a tiny generated file. Its row oracle is explicitly the generic
 `PreTrainedTokenizerFast` wrapper, not Qwen-specific AutoTokenizer acceptance.
 An observed synthetic Qwen-wrapper normalization difference remains recorded in
 the [checkpoint](handover.md#selected-fast-python-checkpoint-2026-10-22).
-Native 30-field composition is not yet implemented; neither API approves
-learned reads, native vocabulary/model loading or complete tokenizer semantics.
+The test-only native `--selected-metadata-control-v3 GGUF JSON` checks the exact
+30-name/type whitelist with the same pre-backend/no-tensor-context parser path.
+Old 29-field and v2 three-field commands/caps remain unchanged. Selected native
+modes include `synthetic-joint-selected-native`,
+`synthetic-merges-intermediate-selected-native` and
+`synthetic-merges-full-selected-native`, plus tiny/full `-native-controls`
+variants. `synthetic-joint-selected-controls` reuses retained-file refusal checks
+without invoking native. They use the same cached tool variables and explicit
+128 MiB/60 s child/180 s stage/2 GiB observed RSS/host reserve/no-swap controls;
+consult the finite retained ledger before another opt-in invocation. The
+[native checkpoint](handover.md#selected-fast-native-checkpoint-2026-10-22)
+records generated positive/refusal evidence and limits. Neither API nor native
+getter success approves learned reads, vocabulary/model loading or complete
+tokenizer semantics. No new model/pre tag or special-ID policy is inferred.
 
 ### Guarded Vocabulary Preflight
 
