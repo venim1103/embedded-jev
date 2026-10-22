@@ -30,6 +30,10 @@ The [native vocabulary checkpoint](#synthetic-native-vocabulary-checkpoint-2026-
 records direct generated lexical evidence; prior 575/600 s accounting is frozen,
 not reset. All four learned approvals remain consumed, and no model/backend or
 quality execution is authorized by this synthetic-only scope.
+Source checkpoint `3df4cfa` completes the direct native vocabulary scope. The
+[larger contextual proposal](#larger-synthetic-contextual-proposal-2026-10-22)
+is a separate unapproved Python-only capacity prerequisite, not permission to
+repeat learned diagnostics or widen the native vocabulary contract.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -569,6 +573,69 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Larger Synthetic Contextual Proposal (2026-10-22)
+
+Prepared after source checkpoint `3df4cfa`; **not approved or started**. The
+Python contextual v3 API has fixed 4096-row/64 KiB row content defaults and uses
+the old source-template/parser path with a 1 MiB tokenizer-JSON cap. Its genuine
+tiny contextual evidence cannot stand in for full-size preparation. Existing
+standalone v2 and composition internals already support explicit bounded larger
+rows/contents/source JSON, but no contextual API currently joins those paths.
+
+Hypothesis: explicit larger source preparation can preserve the exact contextual
+label checks without changing the old defaults, stored row/merge policies or
+wrapper semantics. Cheap discriminator: a new versioned route must forward only
+its explicit larger row/content/JSON budgets through existing pure helpers; old
+v3 must retain the original route/caps and refuse that unsupported larger input.
+Actual generated >1 MiB source JSON then distinguishes routing from a mocked
+forwarding test. Do not weaken the old path or claim Qwen-wrapper equivalence.
+
+Request **Python-only larger synthetic contextual preparation**, within the
+remaining **210 s of the retained additional 300 s ledger**; preserve the prior
+90 s reservation and older 575/600 and 425.19/600 ledgers, with no reset:
+
+- Add an explicit v4 contextual preparation entry point that reuses existing
+  pure standalone/source-template/parser/boundary helpers, with small public
+  row/content defaults and explicit ceilings of 262144 rows/4 MiB independent
+  source/output content, existing aggregate source metadata <=32 MiB and <=60 s
+  cooperative deadline. Share the owning composition where useful, but keep
+  v3 defaults/12 s cap/1 MiB source path/API/receipt version unchanged.
+- Keep one-to-four exact role/content messages, 4 KiB per content/16 KiB
+  serialized messages/template/rendered prompt, <=4096 prompt IDs with one-label
+  context reserve, declared source special/standalone/contextual labels and
+  generic wrapper policy unchanged. No GGUF writer, native call, processor,
+  tokenizer model/pre/special-ID tag inference or production model execution.
+- First local checks must discriminate version/budget forwarding, old caps,
+  invalid bool/range/count/content/deadline arguments and no partial mutation.
+  Reuse existing tests/mocks and retain the v3 boundary/refusal controls. Do not
+  rewrite the source fixture's labels/merges merely to bypass a failed boundary.
+- Use new generated 8193-row and one 248320-row source/copy fixture derived
+  from existing synthetic builders, with consistent two-special/A-P declarations
+  and the same pinned tiny text template. Explicit source/row/content caps only;
+  preserve old positive/fault fixture bytes/expectations and native <=512-row
+  policy. Fresh actual standalone and contextual checks must pass all 16 labels;
+  no output files and no retained large reports/token arrays/activations.
+- Reuse audited path-only workers and source/copy stat/hash checks, exact FD and
+  output-empty assertions/owned process/temporary cleanup. Each source/copy set
+  <=32 MiB, logical owned scratch <=128 MiB with existing conservative pre-copy
+  reservation; <=64 KiB stdin/<=8 KiB stdout+stderr/report, observed tree RSS
+  <=2 GiB/host reserve >=2 GiB and abort any process/host swap growth. No weaker
+  memory acceptance or host/environment workaround if full-size preparation fails.
+- Serial <=60 s children and <=70 s shared stage, combined optional stages
+  <=140 s and <=remaining allowance. Run medium only after focused checks;
+  full only after medium success and if **40 s remains reserved** for the required
+  default source gate. Every failed/attempted check consumes the same 210 s.
+  No C++ edit/rebuild/native invocation, old native-control rerun, learned
+  tokenizer/template/header/weight access, fingerprint/label rerun, download,
+  install/source-library change, refit/candidate, quality/device/other-profile work.
+
+If separately approved, make the smallest new routing edit and immediately run
+its focused discriminating test, then guarded medium before full, gate and a
+scoped checkpoint. Report exact resources/failures/cleanup and remaining budget.
+Success would prove generated capacity and the explicit generic source-template
+contract only, not real-model tokenizer semantics, native equivalence, calibrated
+decisions or representative model quality. All four learned approvals stay consumed.
 
 ## Synthetic Native Vocabulary Checkpoint (2026-10-22)
 
