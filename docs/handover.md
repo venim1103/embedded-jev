@@ -40,9 +40,11 @@ Source checkpoint `20a78a1` completes that scope. The
 [one-shot learned contextual proposal](#learned-contextual-proposal-2026-10-22)
 was separately approved through **Approve One Context Diagnostic** after
 `56cc706`. The [runner checkpoint](#learned-contextual-runner-checkpoint-2026-10-22)
-records implementation before the fifth learned attempt. The four earlier
-approvals stay consumed; this new approval permits only the exact one-shot scope,
-and an environment flag alone cannot authorize another invocation.
+records implementation before the fifth learned attempt. The
+[refusal checkpoint](#learned-contextual-refusal-checkpoint-2026-10-22) records
+its single completed diagnostic after runner `80a0b58`: the strict contract was
+refused before contextual rendering. **All five learned approvals are consumed**;
+no retry, relaxed predicate or further learned execution is authorized.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -582,6 +584,71 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Learned Contextual Refusal Checkpoint (2026-10-22)
+
+The fifth separately approved one-shot ran exactly once after committed runner
+`80a0b58`. The guarded diagnostic **completed, but the contract was refused**:
+`status=completed`, `contract_accepted=false`, `ValueError` from
+`prepare_profile_model_fast_tokenizer_contract_v2`, source line 493 at that
+checkpoint. The [strict predicate](../embedded_jev/prism_codec.py#L493)
+requires every profile `special_token_ids` entry to have a source special flag
+and a CONTROL selected row. The separately approved five-entry flag receipt is:
+
+```json
+{
+  "<|endoftext|>": true,
+  "<|im_start|>": true,
+  "<|im_end|>": true,
+  "<think>": false,
+  "</think>": false
+}
+```
+
+Both thinking markers are declared in the unchanged pinned profile's
+`special_token_ids` map, but their source added-token flags are false. Those
+flags suffice to explain refusal under the strict predicate; this receipt does
+not claim their selected row types were separately measured. No complete
+standalone contract acceptance, rendered prompt/hash/count or contextual
+continuation result was obtained. This is a source/profile classification
+conflict exposed by the new check, not a model quality failure, native result
+or permission to call all declared IDs source-special. The older ID/row proofs
+and generic/Qwen-wrapper difference are unchanged historical evidence.
+
+Exact command used only `MIMO_TOKENIZER_CONTEXT_APPROVED=1`, pinned cached
+Prism/converter and exact MiMo `MIMO_LOCAL_DIR`; all four older learned flags
+and native-build variable were unset. It ran only
+`tests/test_prism_native_control.py::test_pinned_profile_tokenizer_context_diagnostic`
+with `-q -s -p no:cacheprovider` under a 90 s outer wrapper, retaining the
+<=75 s stage/<=60 s child limits. **1 passed in 6.87 s** means the diagnostic
+and refusal-report/cleanup checks passed, not that contextual acceptance passed.
+No source changed, retry, fallback wrapper or predicate relaxation followed.
+
+Both children returned zero with empty stderr. Original/copy sets were exactly
+10 files/**30144444 bytes each**, retained pins/stable stats/read-only copies
+and final hashes passed; no other learned input was read. Logical reservation
+**93851512 <134217728 bytes**, no output files, exact FD restoration, empty
+output and owned scratch cleanup passed. Copy observed RSS **39682048 bytes**;
+preparation observed RSS **805724160 bytes**, worker high-water **804810752**;
+minimum host available **15989264384 bytes**, process/host swap baseline and
+observed **zero**. Host free disk before invocation **584096567296 bytes**.
+These are container/worker observations, not target-device guarantees.
+
+Post-run tracked worktree is clean and only user `.vscode/` is untracked;
+no owned diagnostic worker remains. A process-list helper first encountered
+missing `rg`, then used available `grep`; no diagnostic was repeated. No
+GGUF/native/backend/model/processor/download/refit/candidate/score/quality run.
+The source gate remains **1509 passed, 177 skipped/38.82 s**, Ruff/editor and
+whitespace clean, before `80a0b58`; do not rerun it for this docs-only result.
+
+Conservatively reserve **215/300 s** after the prior 200 s runner reservation,
+6.87 s diagnostic and overhead, leaving **85 s**. Older **575/600** and
+**425.19/600 s** ledgers remain frozen. **All five learned approvals are now
+consumed regardless of refusal.** The next useful work is a separately scoped
+source-faithful distinction between required marker IDs and actual source
+special/control tokens, first on generated fixtures. Do not silently change
+the frozen MiMo profile, old strict APIs or wrapper behavior to make this pass;
+any future learned validation needs another exact approval.
 
 ## Learned Contextual Runner Checkpoint (2026-10-22)
 
