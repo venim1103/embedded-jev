@@ -32,8 +32,10 @@ not reset. All four learned approvals remain consumed, and no model/backend or
 quality execution is authorized by this synthetic-only scope.
 Source checkpoint `3df4cfa` completes the direct native vocabulary scope. The
 [larger contextual proposal](#larger-synthetic-contextual-proposal-2026-10-22)
-is a separate unapproved Python-only capacity prerequisite, not permission to
-repeat learned diagnostics or widen the native vocabulary contract.
+was separately approved through **Approve Larger Contextual** after `8d3aea7`.
+The [capacity checkpoint](#larger-synthetic-contextual-checkpoint-2026-10-22)
+records medium/full generated Python evidence, not permission to repeat learned
+diagnostics, widen native policies or claim real-model contextual parity.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -574,9 +576,76 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Larger Synthetic Contextual Checkpoint (2026-10-22)
+
+The user selected **Approve Larger Contextual** for the exact `8d3aea7` scope
+within the remaining 210 s allowance. Added
+`prepare_profile_model_fast_context_contract_v4` through a shared private pure
+owner. V3 keeps its signature, 4096-row/64 KiB row-content defaults, 10 s default/
+12 s cap, old public template and 1 MiB parser route, and receipt version 3.
+V4 keeps small row/content defaults with explicit 262144-row/4 MiB independent
+source/output ceilings, 30 s default/60 s cooperative deadline, and reuses the
+existing private source-template/parser allowance of 32 MiB aggregate inputs.
+No old cap, row/merge policy, profile, native command or production tag policy
+was widened. Receipt distinguishes policy version 4 without runtime approval.
+
+Both versions retain exact role/content message bounds, declared special/label
+source IDs and flags, unchanged non-special label rows, pinned source-template
+rendering, exact contextual label continuations and explicit generic fast wrapper.
+Prompt/message text is not returned. Source-template/special/processor/native
+semantics remain separately bounded; generic/Qwen wrapper equivalence and
+real-model contextual validity are not established by generated capacity checks.
+Hard time/RSS limits remain parent-owned, not a claim about pure Jinja safety.
+
+First routing check failed at collection **0.29 s**, a single over-indented
+shared-helper condition. Fixed that line only. Same focused slice passes
+**108, skips 5 in 0.35 s**: the skips initially represented old-API row/content
+overrides it does not expose. Replaced those with explicit unexpected-keyword
+`TypeError` checks, not a signature expansion; same slice passes **113 in
+0.35 s**, no skips. This includes 56 version/budget/boundary composition cases
+and 57 unchanged boundary controls. Positive routing assertions distinguish
+v3 old caps/path/version from v4 explicit 8193-row/128 KiB budgets/32 MiB path;
+strict bool/range/zero/deadline arguments and immutable result boundaries remain.
+
+Only two new optional generated modes were run, after unit success, serially.
+`[synthetic-merges-intermediate-context-v4]` passes **3.17 s**: 8193 rows,
+ten source/copy files/**366223 bytes per set**, logical source/copy/report
+**740638 bytes**, observed RSS **277082112 bytes**. Then
+`[synthetic-merges-full-context-v4]` passes **8.54 s**: 248320 rows,
+ten files/**14852906 bytes per set**, tokenizer JSON **9759612 bytes**, explicitly
+greater than the old 1 MiB cap, logical **29714004 bytes <128 MiB**. Full observed
+RSS **767098880 bytes**, high-water **766328832 bytes**, minimum available host
+**16949370880 bytes**. All process/host swap baseline/growth zero, stderr empty.
+Each checks both specials, all **16 actual contextual labels**, one selected row
+normalization/space rewrite and a two-token source-template prompt. Original
+fixture modes/bytes/expectations were not changed; new declarations/templates
+are confined to the explicit new modes.
+
+Each stage <=70 s/shared children <=60 s, combined actual optional **11.71 s
+<140 s** and enough allowance reserved for the gate. Existing conservative
+pre-copy reservation, read-only copies/source stat/hash rechecks, exact FD count,
+empty output directories and parent temporary/process cleanup pass. No GGUF,
+tokenizer output, raw prompt/token arrays, large reports or activation/spill
+retained. No full-model conversion or model source execution. No source/cache
+download, install, library/settings change, C++ build, native control, processor,
+learned tokenizer/template/header/weight access or quality/device/other-profile run.
+
+Required root gate, all learned/native opt-ins unset: **1496 passed, 170 skipped
+in 24.93 s**, within the reserved 40 s cap; Ruff/whitespace/editor diagnostics
+clean. The 34 additional default passes reflect the extended versioned matrix;
+the two new explicit capacity modes add optional skips, not inferred native/model
+evidence. Native source/binary/contract is unchanged since `3df4cfa`, so its
+successful controls/build were not rerun. Additional ledger from previous 90 s
+reservation adds **37.63 s** observed failure/focused/capacity/gate time;
+conservatively reserve **145/300 s** with overhead, leaving **155 s**. Older
+575/600 s native/composition and 425.19/600 s synthetic ledgers remain frozen.
+All four learned approvals remain consumed. Approved generated capacity scope
+is complete; remaining time does not authorize another learned/native experiment.
+
 ## Larger Synthetic Contextual Proposal (2026-10-22)
 
-Prepared after source checkpoint `3df4cfa`; **not approved or started**. The
+Prepared after source checkpoint `3df4cfa`; **separately approved by the user
+after `8d3aea7`**. The checkpoint above records completed scope/evidence. The
 Python contextual v3 API has fixed 4096-row/64 KiB row content defaults and uses
 the old source-template/parser path with a 1 MiB tokenizer-JSON cap. Its genuine
 tiny contextual evidence cannot stand in for full-size preparation. Existing

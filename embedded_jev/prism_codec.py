@@ -507,11 +507,34 @@ def prepare_profile_model_fast_context_contract_v3(
     row_policy: str, messages: list[dict], maximum_seconds: float = 10,
 ):
     """Check bounded source-template continuations with the explicit generic fast wrapper."""
+    return _prepare_profile_model_fast_context_contract(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, messages=messages, maximum_seconds=maximum_seconds,
+        maximum_vocabulary_rows=4096, maximum_token_content_bytes=64 * 1024, policy_version=3)
+
+
+def prepare_profile_model_fast_context_contract_v4(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
+    row_policy: str, messages: list[dict], maximum_vocabulary_rows: int = 4096,
+    maximum_token_content_bytes: int = 64 * 1024, maximum_seconds: float = 30,
+):
+    """Explicit larger source capacity for generic contextual checks, not native/model approval."""
+    return _prepare_profile_model_fast_context_contract(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, messages=messages, maximum_seconds=maximum_seconds,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes, policy_version=4)
+
+
+def _prepare_profile_model_fast_context_contract(
+    profile, *, metadata_files, tokenizer_bytes, context_length, row_policy, messages, maximum_seconds,
+    maximum_vocabulary_rows, maximum_token_content_bytes, policy_version,
+):
     import json
 
     from embedded_jev.label_probe import LabelProbeError, probe_label_boundary
 
-    if (type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 12
+    if (type(policy_version) is not int or policy_version not in (3, 4)
+            or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= (12 if policy_version == 3 else 60)
+            or type(maximum_vocabulary_rows) is not int or not 0 < maximum_vocabulary_rows <= 262144
+            or type(maximum_token_content_bytes) is not int or not 0 < maximum_token_content_bytes <= 4 * 1024**2
             or type(context_length) is not int or context_length < 2
             or type(messages) is not list or not 1 <= len(messages) <= 4
             or any(type(message) is not dict or set(message) != {"role", "content"}
@@ -525,11 +548,17 @@ def prepare_profile_model_fast_context_contract_v3(
     messages = json.loads(serialized)
     deadline = time.monotonic() + maximum_seconds
     prepared = prepare_profile_model_fast_tokenizer_contract_v2(profile, metadata_files=metadata_files,
-        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy, maximum_seconds=maximum_seconds)
-    selected = prepare_profile_model_template_metadata(profile, metadata_files=metadata_files,
-        tokenizer_bytes=tokenizer_bytes, context_length=context_length, template_source="source")
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy, maximum_seconds=maximum_seconds,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes)
+    template_arguments = dict(metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes, context_length=context_length, template_source="source")
+    if policy_version == 3:
+        selected = prepare_profile_model_template_metadata(profile, **template_arguments)
+    else:
+        selected = _prepare_profile_model_template_metadata(profile, **template_arguments, gguf_template_bytes=None,
+            maximum_tokenizer_json_bytes=MODEL_METADATA_BYTES_V2)
     _, tokenizer, _ = _parse_profile_model_tokenizer_vocabulary(profile, metadata_files=metadata_files,
-        tokenizer_bytes=tokenizer_bytes, context_length=context_length)
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length,
+        **({"maximum_tokenizer_json_bytes": MODEL_METADATA_BYTES_V2} if policy_version == 4 else {}))
     if time.monotonic() > deadline:
         raise ValueError("contextual fast contract deadline exceeded")
     from transformers import PreTrainedTokenizerFast
@@ -552,7 +581,7 @@ def prepare_profile_model_fast_context_contract_v3(
         raise ValueError("contextual fast contract rendering changed between checks")
     if time.monotonic() > deadline:
         raise ValueError("contextual fast contract deadline exceeded")
-    return MappingProxyType({**prepared, "contextual_contract_policy_version": 3,
+    return MappingProxyType({**prepared, "contextual_contract_policy_version": policy_version,
                             "selected_template_sha256": selected["selected_template_sha256"],
                             "template_render_verification": "profile_pinned_generic_fast_wrapper",
                             "prompt_label_boundary_verification": "profile_pinned_generic_fast_contextual_labels",

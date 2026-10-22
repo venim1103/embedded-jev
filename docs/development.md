@@ -3309,6 +3309,23 @@ and isolate a cross-boundary A+A merge after valid standalone encoding. See
 the [checkpoint](handover.md#synthetic-contextual-boundary-checkpoint-2026-10-22)
 for actual evidence, warnings, cleanup, consumed ledger and scope restrictions.
 
+`prepare_profile_model_fast_context_contract_v4` is the explicit larger-source
+route. It shares the contextual owner but preserves the v3 signature/receipt,
+fixed small defaults, 12 s ceiling and 1 MiB source path. V4 defaults to 4096
+rows/64 KiB content/30 s, permits explicit <=262144 rows/4 MiB independent
+source/output content/60 s, and reuses the existing <=32 MiB aggregate source
+preparation path. Message/template/prompt/token/context bounds are unchanged.
+This is still generic-wrapper/source-template checking, not learned approval.
+
+`synthetic-merges-intermediate-context-v4` and
+`synthetic-merges-full-context-v4` use the cached row-diagnostic environment
+without `MIMO_PRISM_RUNTIME_BUILD`, producing no files. New stages <=70 s,
+children <=60 s, source/copy <=32 MiB each/logical <=128 MiB; unchanged resource,
+audit/FD/hash/output-empty cleanup controls apply. The
+[capacity checkpoint](handover.md#larger-synthetic-contextual-checkpoint-2026-10-22)
+records actual 8193/248320-row and >1 MiB source-JSON evidence, old-route tests
+and finite allowance. Full-size generated input is not full-model execution.
+
 ### Synthetic Direct Vocabulary Control
 
 The cached `prism_bitnet_loader_control --synthetic-vocab-control-v1` test branch

@@ -5627,6 +5627,7 @@ selected_fast = fixture.get("selected_fast", False)
 standalone_contract = fixture.get("standalone_contract", False)
 context_contract = fixture.get("context_contract", False)
 native_vocab = fixture.get("native_vocab", False)
+large_context = fixture.get("large_context", False)
 if native_joint or selected_fast or standalone_contract:
     assert row_mode and not learned_joint and profile.profile_id == "synthetic-profile"
     assert source.resolve().parent == scratch.resolve().parent and source.name == "source"
@@ -5647,8 +5648,10 @@ names = (tuple(profile.packaging["metadata_files"]) + ("tokenizer.json", "vocab.
     ("config.json", "tokenizer_config.json", "tokenizer.json", "vocab.json", "merges.txt"))
 total = sum(profile.files[name].bytes for name in names)
 assert len(set(names)) == len(names) and 0 < total < 32 * 1024**2
-if context_contract:
+if context_contract and not large_context:
     assert standalone_contract and profile.geometry["vocab_size"] == 32 and total <= 32 * 1024
+if large_context:
+    assert standalone_contract and context_contract and profile.geometry["vocab_size"] in (8193, 248320)
 row_scratch_cap = (16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 if native_vocab:
     assert standalone_contract and profile.geometry["vocab_size"] == 260 and total <= 65536
@@ -6130,6 +6133,25 @@ def run_rows():
         assert hashlib.sha256(memoryview(blocks)).hexdigest() == manifest["payload_sha256"]
         policy_arguments = dict(inventory=fixture["composition"]["inventory"], manifest=manifest, pq2_blocks=blocks, template_source="source")
     descriptors = len(os.listdir("/proc/self/fd"))
+    if large_context:
+        assert operation == "rows-contract" and root.is_dir() and not list(root.iterdir())
+        remaining = min(60, fixture["sequence_deadline"] - time.monotonic())
+        assert remaining > 0
+        with library_diagnostics():
+            receipt = prism_codec.prepare_profile_model_fast_context_contract_v4(profile, **arguments,
+                messages=[{"role": "user", "content": "B"}], maximum_seconds=remaining)
+        assert receipt["contextual_contract_policy_version"] == 4 and receipt["tokenizer_wrapper_policy"] == "generic_pretrained_fast"
+        assert receipt["prompt_label_boundary_verification"] == "profile_pinned_generic_fast_contextual_labels"
+        assert receipt["native_tokenizer_verification"] == receipt["processor_verification"] == "not_checked"
+        assert receipt["prompt_token_count"] == 2 and receipt["prompt_sha256"] == hashlib.sha256(b"BA").hexdigest()
+        assert len(receipt["special_token_ids"]) == 2 and len(receipt["label_token_ids"]) == 16
+        assert "prompt" not in receipt and "messages" not in receipt
+        assert len(os.listdir("/proc/self/fd")) == descriptors and not list(root.iterdir())
+        return dict(status="matched", phase=operation, token_rows=len(receipt["tokens"]),
+            source_tokenizer_json_bytes=profile.files["tokenizer.json"].bytes,
+            checked_special_tokens=2, checked_labels=16, contract_policy_version=4, no_output_files=True,
+            logical_source_copy_scratch_bytes=2 * total + 8192, logical_scratch_cap_bytes=row_scratch_cap,
+            normalized_rows=receipt["normalized_row_count"], rewritten_rows=receipt["space_rewritten_row_count"])
     if native_vocab:
         from embedded_jev.label_probe import LabelProbeError
         from tokenizers import Tokenizer
@@ -6439,7 +6461,8 @@ finish_report(report)
     "synthetic-joint-selected", "synthetic-joint-selected-native", "synthetic-joint-selected-controls", "synthetic-joint-selected-native-controls",
     "synthetic-merges-intermediate-selected-native", "synthetic-merges-full-selected-native", "synthetic-merges-full-selected-native-controls",
     "synthetic-joint-contract", "synthetic-merges-intermediate-contract", "synthetic-joint-context", "synthetic-joint-context-merge",
-    "synthetic-joint-vocab", "synthetic-joint-vocab-merge", "synthetic-joint-vocab-controls"])
+    "synthetic-joint-vocab", "synthetic-joint-vocab-merge", "synthetic-joint-vocab-controls",
+    "synthetic-merges-intermediate-context-v4", "synthetic-merges-full-context-v4"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6455,8 +6478,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     context_refusal = mode.endswith("-context-merge")
     native_vocab = "-vocab" in mode
     vocab_merge = mode.endswith("-vocab-merge")
+    large_context = mode.endswith("-context-v4")
     standalone_contract = mode.endswith("-contract") or context_contract or native_vocab
-    base_mode = mode.removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected").removesuffix("-contract").removesuffix("-context-merge").removesuffix("-context").removesuffix("-vocab-merge").removesuffix("-vocab")
+    base_mode = mode.removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected").removesuffix("-contract").removesuffix("-context-merge").removesuffix("-context").removesuffix("-vocab-merge").removesuffix("-vocab").removesuffix("-context-v4")
     if native_joint or native_vocab:
         runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
         if not runtime_build:
@@ -6598,6 +6622,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "standalone_contract": standalone_contract,
             "context_contract": context_contract, "context_refusal": context_refusal,
             "native_vocab": native_vocab, "vocab_merge": vocab_merge,
+            "large_context": large_context,
             "vocab_controls": mode.endswith("-vocab-controls"),
             "synthetic_refusals": refusal_mode, "unused_rows": 243 if full_scale or mode in ("approved", "approved-joint") else 2}
         if selected_fast:
@@ -6608,7 +6633,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             fixture["composition"] = {"inventory": build_inventory({name: files[name] for name in profile.packaging["metadata_files"]}, headers, profile=profile),
                 "manifest": {**manifest, "profile_sha256": profile.sha256}}
         if learned_joint or native_joint or selected_fast or standalone_contract:
-            fixture["sequence_deadline"] = started + (60 if native_vocab else 12 if context_contract else 60 if standalone_contract else 180)
+            fixture["sequence_deadline"] = started + (70 if large_context else 60 if native_vocab else 12 if context_contract else 60 if standalone_contract else 180)
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
@@ -6645,6 +6670,17 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == 16 * 1024**2
                 assert (output / "rows.gguf").stat().st_size == report["output_file_bytes"] <= 256 * 1024
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
+                reports.append(report)
+                continue
+            if operation == "rows-contract" and large_context:
+                assert report["contract_policy_version"] == 4 and report["token_rows"] == record["geometry"]["vocab_size"]
+                assert report["source_tokenizer_json_bytes"] == record["files"]["tokenizer.json"]["bytes"]
+                if full_scale:
+                    assert report["source_tokenizer_json_bytes"] > 1024**2
+                assert report["checked_special_tokens"] == 2 and report["checked_labels"] == 16
+                assert report["normalized_rows"] == report["rewritten_rows"] == 1 and report["no_output_files"]
+                assert not list(output.iterdir()) and time.monotonic() < fixture["sequence_deadline"]
+                assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == 128 * 1024**2
                 reports.append(report)
                 continue
             if operation == "rows-contract" and context_contract:

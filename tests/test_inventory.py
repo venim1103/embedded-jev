@@ -1988,10 +1988,12 @@ def test_profile_selected_metadata_writer_preflights_every_group_before_mutation
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
 
 
-@pytest.mark.parametrize("defect", [None, "boundary", "template-pin", "messages-type", "empty-messages", "message-count", "extra-field",
+@pytest.mark.parametrize("version", [3, 4])
+@pytest.mark.parametrize("defect", [None, "row-bool", "row-zero", "row-range", "bytes-bool", "bytes-range", "seconds-limit",
+    "boundary", "template-pin", "messages-type", "empty-messages", "message-count", "extra-field",
     "role", "content-type", "content-bytes", "message-bytes", "nul", "template-bytes", "empty-prompt", "prompt-bytes", "prompt-tokens",
     "context", "context-room", "render-changed", "seconds", "deadline", "late-deadline"])
-def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, defect):
+def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, defect, version):
     import hashlib
     import sys
     from types import SimpleNamespace
@@ -2040,17 +2042,47 @@ def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, 
         row_policy="pinned_prism_fast_rows_v2", messages=messages)
     if defect == "seconds":
         arguments["maximum_seconds"] = float("nan")
+    elif defect == "seconds-limit":
+        arguments["maximum_seconds"] = 13 if version == 3 else 61
+    elif defect in ("row-bool", "row-zero", "row-range", "bytes-bool", "bytes-range"):
+        parameter = "maximum_vocabulary_rows" if defect.startswith("row-") else "maximum_token_content_bytes"
+        arguments[parameter] = {"row-bool": True, "row-zero": 0, "row-range": 262145, "bytes-bool": True, "bytes-range": 4 * 1024**2 + 1}[defect]
+        if version == 3:
+            with pytest.raises(TypeError, match="unexpected keyword"):
+                prism_codec.prepare_profile_model_fast_context_contract_v3(profile, **arguments)
+            return
     elif defect in ("deadline", "late-deadline"):
-        clock = iter([0, 11] if defect == "deadline" else [0, 0, 11])
+        expiry = 11 if version == 3 else 31
+        clock = iter([0, expiry] if defect == "deadline" else [0, 0, expiry])
         monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    calls = []
+    def standalone(*args, **kwargs):
+        calls.append(("standalone", kwargs))
+        return prepared
+    def selected(*args, **kwargs):
+        calls.append(("template", kwargs))
+        return select(*args, **kwargs)
+    def parse(*args, **kwargs):
+        calls.append(("parse", kwargs))
+        return {}, object(), {}
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_tokenizer_contract_v2", standalone)
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_template_metadata" if version == 3 else "_prepare_profile_model_template_metadata", selected)
+    monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", parse)
+    prepare = prism_codec.prepare_profile_model_fast_context_contract_v3 if version == 3 else prism_codec.prepare_profile_model_fast_context_contract_v4
+    if version == 4 and defect is None:
+        arguments.update(maximum_vocabulary_rows=8193, maximum_token_content_bytes=128 * 1024)
     if defect:
         with pytest.raises(ValueError, match="contextual fast contract|template pin"):
-            prism_codec.prepare_profile_model_fast_context_contract_v3(profile, **arguments)
+            prepare(profile, **arguments)
     else:
-        receipt = prism_codec.prepare_profile_model_fast_context_contract_v3(profile, **arguments)
-        assert receipt["contextual_contract_policy_version"] == 3 and receipt["prompt_token_count"] == 1
+        receipt = prepare(profile, **arguments)
+        assert receipt["contextual_contract_policy_version"] == version and receipt["prompt_token_count"] == 1
         assert receipt["native_tokenizer_verification"] == receipt["processor_verification"] == "not_checked"
         assert "prompt" not in receipt and "messages" not in receipt and "contextual_contract_policy_version" not in prepared
+        assert calls[0][1]["maximum_vocabulary_rows"] == (4096 if version == 3 else 8193)
+        assert calls[0][1]["maximum_token_content_bytes"] == (64 * 1024 if version == 3 else 128 * 1024)
+        for _, kwargs in calls[1:]:
+            assert kwargs.get("maximum_tokenizer_json_bytes", 1024**2) == (1024**2 if version == 3 else prism_codec.MODEL_METADATA_BYTES_V2)
 
 
 @pytest.mark.parametrize("defect", [None, "special-flag", "source-id", "empty-encoding", "multiple-encoding", "label-special",
