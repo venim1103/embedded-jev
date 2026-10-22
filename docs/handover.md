@@ -45,6 +45,8 @@ records implementation before the fifth learned attempt. The
 its single completed diagnostic after runner `80a0b58`: the strict contract was
 refused before contextual rendering. **All five learned approvals are consumed**;
 no retry, relaxed predicate or further learned execution is authorized.
+The next [generated token-role proposal](#synthetic-token-role-proposal-2026-10-22)
+is unapproved and does not permit another learned invocation.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -584,6 +586,61 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Synthetic Token-Role Proposal (2026-10-22)
+
+Prepared after refusal checkpoint `8d3c186`; **not approved or started**.
+The fifth diagnostic exposed a distinction between required marker IDs and
+actual source special flags. Preserve that refusal, the frozen profiles and
+strict standalone v2/contextual v3/v4 behavior. Request one **generated-only
+standalone token-role contract** beside those APIs, not a relaxed v2 predicate,
+new model profile or learned retry.
+
+- Add a pure `prepare_profile_model_fast_token_role_contract_v1` with an exact
+  caller-supplied role map covering every ID/spelling in the profile's legacy
+  `special_token_ids` declaration. Roles are only `source_special` and
+  `ordinary_added_marker`; no implicit role inference, bool coercion, missing/
+  extra declarations, duplicate/conflicting IDs or unknown role names.
+- Reuse existing bounded fast-row preparation and trusted raw source parser.
+  For every declaration require matching source/selected row spelling and ID,
+  exact unchanged selected text and standalone single-ID encoding. Require
+  actual added-token special=true/CONTROL for `source_special`, and actual
+  added-token special=false/NORMAL-or-USER_DEFINED for `ordinary_added_marker`.
+  No flag mutation, profile rewriting, row relabeling or normalization fallback.
+  Continue independent unchanged/non-special/single-ID checks for all declared
+  labels, with distinct IDs and the existing declaration/time/content bounds.
+- Return separately named required-ID, actual source-special-ID and ordinary
+  marker-ID maps, explicit policy version and role-map identity bound to the
+  supplied profile. Do not call every required ID source-special or imply
+  runtime approval. The role map is an explicit new validation policy, not a
+  change to the pinned profile's identity or evidence from another model.
+- Keep the old strict APIs and all learned/native runners unchanged. Do not
+  construct a wrapper, render templates, probe contextual continuations or
+  integrate this into v3/v4. A future contextual role-aware contract needs its
+  own scope; another learned validation needs another exact one-shot approval.
+- Use existing test helpers/files for generated tiny vocabulary, true controls,
+  ordinary added markers and labels. The discriminating fixture must show
+  unchanged bytes/flags/profile: strict v2 refuses ordinary markers declared in
+  its special map, while the explicit new role contract accepts them only in
+  the ordinary role. Controls cover wrong/missing roles, flipped source flags,
+  ID/spelling/encoding/selected-row contradictions and all relevant bounds.
+- Run one bounded actual installed-library **generated-only** fixture, <=32 rows,
+  <=64 KiB source/copy sets, empty output and unchanged source/copy hashes/FDs,
+  <=20 s shared stage/<=15 s child/<=12 s cooperative preparation. Reuse cached
+  pinned libraries and source guards, <=2 GiB observed worker RSS/host reserve,
+  no process/host swap growth, <=64 KiB stdin/<=8 KiB combined output and owned
+  scratch cleanup. No retained artifact or additional dependency/source download.
+- Stay within **85 s remaining** of the same additional 300 s ledger, prior
+  reservation 215 s; reserve 40 s for the required source gate and account for
+  focused/fixture/failure/overhead time. Old 575/600 and 425.19/600 ledgers stay
+  frozen. Make the smallest API/test edit and immediately run a discriminating
+  focused check before fixture follow-up; diagnose failures rather than retrying
+  unchanged gates. Commit the tested standalone checkpoint and handover.
+
+No cached learned input/header/weight, profile/candidate mutation, contextual
+or native/model/backend execution, GGUF emission, processor, score, download,
+refit, quality/device/other-profile experiment. All **five** learned approvals
+remain consumed; this proposal cannot authorize a sixth learned read.
 
 ## Learned Contextual Refusal Checkpoint (2026-10-22)
 
