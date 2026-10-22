@@ -6293,19 +6293,34 @@ def run_rows():
         assert operation == "rows-contract" and root.is_dir() and not list(root.iterdir())
         remaining = min(60, fixture["sequence_deadline"] - time.monotonic())
         assert remaining > 0
+        prepare_context = prism_codec.prepare_profile_model_fast_context_contract_v5 if role_context else prism_codec.prepare_profile_model_fast_context_contract_v4
+        role_arguments = {"token_roles": {text: "ordinary_added_marker" if text == "<marker>" else "source_special"
+            for text in profile.tokenization["special_token_ids"]}} if role_context else {}
         with library_diagnostics():
-            receipt = prism_codec.prepare_profile_model_fast_context_contract_v4(profile, **arguments,
+            receipt = prepare_context(profile, **arguments, **role_arguments,
                 messages=[{"role": "user", "content": "B"}], maximum_seconds=remaining)
-        assert receipt["contextual_contract_policy_version"] == 4 and receipt["tokenizer_wrapper_policy"] == "generic_pretrained_fast"
+        assert receipt["contextual_contract_policy_version"] == (5 if role_context else 4) and receipt["tokenizer_wrapper_policy"] == "generic_pretrained_fast"
         assert receipt["prompt_label_boundary_verification"] == "profile_pinned_generic_fast_contextual_labels"
         assert receipt["native_tokenizer_verification"] == receipt["processor_verification"] == "not_checked"
-        assert receipt["prompt_token_count"] == 2 and receipt["prompt_sha256"] == hashlib.sha256(b"BA").hexdigest()
-        assert len(receipt["special_token_ids"]) == 2 and len(receipt["label_token_ids"]) == 16
+        assert receipt["prompt_token_count"] == (3 if role_context else 2)
+        assert receipt["prompt_sha256"] == hashlib.sha256(b"B<marker>A" if role_context else b"BA").hexdigest()
+        assert len(receipt["label_token_ids"]) == 16
+        if role_context:
+            assert receipt["required_token_ids"] == profile.tokenization["special_token_ids"]
+            assert len(receipt["source_special_token_ids"]) == 2 and receipt["ordinary_marker_token_ids"] == {"<marker>": 1}
+            assert receipt["profile_sha256"] == profile.sha256
+            assert receipt["wrapper_token_roles_verification"] == "before_and_after_contextual_encoding"
+            expected_roles_hash = hashlib.sha256(json.dumps({"profile_sha256": profile.sha256,
+                "token_roles": role_arguments["token_roles"]}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            assert receipt["token_roles_sha256"] == expected_roles_hash
+        else:
+            assert len(receipt["special_token_ids"]) == 2
         assert "prompt" not in receipt and "messages" not in receipt
         assert len(os.listdir("/proc/self/fd")) == descriptors and not list(root.iterdir())
         return dict(status="matched", phase=operation, token_rows=len(receipt["tokens"]),
             source_tokenizer_json_bytes=profile.files["tokenizer.json"].bytes,
-            checked_special_tokens=2, checked_labels=16, contract_policy_version=4, no_output_files=True,
+            checked_special_tokens=2, checked_labels=16, contract_policy_version=5 if role_context else 4, no_output_files=True,
+            **({"checked_ordinary_markers": 1, "token_roles_sha256": receipt["token_roles_sha256"]} if role_context else {}),
             logical_source_copy_scratch_bytes=2 * total + 8192, logical_scratch_cap_bytes=row_scratch_cap,
             normalized_rows=receipt["normalized_row_count"], rewritten_rows=receipt["space_rewritten_row_count"])
     if native_vocab:
@@ -6626,7 +6641,8 @@ finish_report(report)
     "synthetic-joint-contract", "synthetic-merges-intermediate-contract", "synthetic-joint-context", "synthetic-joint-context-merge",
     "synthetic-joint-vocab", "synthetic-joint-vocab-merge", "synthetic-joint-vocab-controls",
     "synthetic-merges-intermediate-context-v4", "synthetic-merges-full-context-v4", "synthetic-joint-roles",
-    "synthetic-joint-context-roles", "synthetic-joint-context-roles-merge"])
+    "synthetic-joint-context-roles", "synthetic-joint-context-roles-merge",
+    "synthetic-merges-intermediate-context-v5", "synthetic-merges-full-context-v5"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6639,14 +6655,14 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     native_joint = mode.endswith("-native") or native_refusals
     selected_fast = "-selected" in mode
     context_contract = "-context" in mode
-    role_context = "-context-roles" in mode
+    role_context = "-context-roles" in mode or mode.endswith("-context-v5")
     context_refusal = mode.endswith("-context-merge") or role_context and mode.endswith("-merge")
     native_vocab = "-vocab" in mode
     vocab_merge = mode.endswith("-vocab-merge")
-    large_context = mode.endswith("-context-v4")
+    large_context = mode.endswith(("-context-v4", "-context-v5"))
     token_roles_contract = mode == "synthetic-joint-roles"
     standalone_contract = mode.endswith("-contract") or context_contract or native_vocab or token_roles_contract
-    base_mode = mode.removesuffix("-context-roles-merge").removesuffix("-context-roles").removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected").removesuffix("-contract").removesuffix("-context-merge").removesuffix("-context").removesuffix("-vocab-merge").removesuffix("-vocab").removesuffix("-context-v4").removesuffix("-roles")
+    base_mode = mode.removesuffix("-context-roles-merge").removesuffix("-context-roles").removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected").removesuffix("-contract").removesuffix("-context-merge").removesuffix("-context").removesuffix("-vocab-merge").removesuffix("-vocab").removesuffix("-context-v4").removesuffix("-context-v5").removesuffix("-roles")
     if native_joint or native_vocab:
         runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
         if not runtime_build:
@@ -6851,7 +6867,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 reports.append(report)
                 continue
             if operation == "rows-contract" and large_context:
-                assert report["contract_policy_version"] == 4 and report["token_rows"] == record["geometry"]["vocab_size"]
+                assert report["contract_policy_version"] == (5 if role_context else 4) and report["token_rows"] == record["geometry"]["vocab_size"]
+                if role_context:
+                    assert report["checked_ordinary_markers"] == 1 and len(report["token_roles_sha256"]) == 64
                 assert report["source_tokenizer_json_bytes"] == record["files"]["tokenizer.json"]["bytes"]
                 if full_scale:
                     assert report["source_tokenizer_json_bytes"] > 1024**2

@@ -3393,6 +3393,18 @@ combined pair <=25 s. The [checkpoint](handover.md#synthetic-role-context-checkp
 records failures/repair, actual bounds and nonzero-but-unchanged host-swap
 baseline. This is not larger-capacity, learned or native validation.
 
+`synthetic-merges-intermediate-context-v5` and
+`synthetic-merges-full-context-v5` separately exercise the existing explicit
+row/content/source route with generated 8193/248320-row profiles. They preserve
+roles with the ordinary marker in the actual prompt and verify the profile-bound
+role hash and exact A-P continuations, without changing production policies.
+Each two-child stage <=70 s/child <=60 s, source/copy <=32 MiB each/logical
+scratch <=128 MiB, existing RSS/host-reserve/no-swap-growth/hash/stat/FD/empty-
+output/cleanup guards. The full generated tokenizer JSON must exceed 1 MiB.
+See the [capacity checkpoint](handover.md#synthetic-role-context-capacity-checkpoint-2026-10-22)
+for measured evidence and finite ledger. Neither mode is a learned read,
+native/tokenizer-engine/model validation or runtime approval.
+
 ### Synthetic Direct Vocabulary Control
 
 The cached `prism_bitnet_loader_control --synthetic-vocab-control-v1` test branch

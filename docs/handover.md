@@ -58,7 +58,9 @@ records generated positive/refusal evidence; all five learned approvals remain
 consumed and the learned refusal is unchanged.
 Source checkpoint `12ffdf8` completes the tiny scope. The next
 [generated v5 capacity proposal](#synthetic-role-context-capacity-proposal-2026-10-22)
-is unapproved; no larger role-aware fixture or sixth learned read has begun.
+was approved through **Approve Generated V5 Capacity** after `c2dc86f`.
+The [capacity checkpoint](#synthetic-role-context-capacity-checkpoint-2026-10-22)
+records generated medium/full evidence, not another learned invocation.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -599,10 +601,64 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Synthetic Role-Context Capacity Checkpoint (2026-10-22)
+
+The user selected **Approve Generated V5 Capacity** after `c2dc86f`, including
+a separate **200 s** ledger. Added only distinct intermediate/full v5 modes
+to the existing generated builder/worker. Production v5/role/strict APIs,
+profiles, source/row/merge/normalization policies and existing tiny/v4/native/
+learned modes are unchanged. No learned source input or new learned runner.
+
+First executable validation after the routing edit was the approved **8193-row
+case, 1 passed in 4.39 s**. Only after success ran the approved **248320-row
+case, 1 passed in 11.41 s**. No failed check, probe or retry. Both call v5
+with context 256, explicit generated-profile row allowance/content 4 MiB,
+source-pinned generated template/render arguments, explicit two-source-special/
+one-ordinary-marker role map and A-P labels. Actual prompt is `B<marker>A`,
+three IDs; selected/source spelling/IDs/flags, before/after contextual wrapper
+preservation, role-map/profile hash binding and all 16 exact contextual
+single-token continuations pass. Normalized and space-rewritten row counters
+remain one each; the ordinary marker is not promoted or rewritten. Padding
+and large ranked source merges remain the existing generated inputs, not a
+learned merge or native-engine validation.
+
+Medium: ten source/copy files **366243 bytes each**; tokenizer JSON **220481
+bytes**; logical source/copy/scratch **740678 bytes**; observed worker RSS/
+high-water **278192128 bytes**, host available minimum **13348196352 bytes**.
+Full: ten source/copy files **14852926 bytes each**; tokenizer JSON **9759620
+bytes**, independently asserted >1 MiB; logical source/copy/scratch
+**29714044 <134217728 bytes**; observed worker RSS **769601536**, high-water
+**768585728**, host available minimum **14579871744 bytes**. Before full
+execution root scratch disk available **583416344576 bytes**. These are
+container/worker observations, not target-device guarantees.
+
+All four children returned zero and empty stderr, with process swap zero.
+Host swap baseline was already **151552 bytes**, unchanged throughout all
+four children; this is no-growth, not zero-host-swap evidence. Each shared
+stage <=70 s/child <=60 s, serial jobs, source/copy pins/stable stats/read-only
+mode/final hashes/FD restoration/empty output/owned scratch cleanup passed.
+Every learned approval flag and native-build variable was unset. No template
+or weights from any learned model, model/backend/processor/native/C++/GGUF,
+download/install/candidate/refit/score/quality/device/other-model experiment.
+No unchanged capacity/native/fingerprint proof was repeated.
+
+Default source gate passed with all five learned flags and optional cached
+library/native variables unset: **1583 passed, 182 skipped in 26.40 s** under
+the 40 s wrapper; Ruff/editor/whitespace clean. Optional skips are not executed
+native/learned evidence. No source changed after that gate. Fixture/gate elapsed
+**42.20 s** measured; conservatively reserve **80/200 s**, including 15.80 s
+fixtures, 40 s gate reservation and overhead, leaving **120 s**. The remainder
+is a resource ceiling, not permission for another learned diagnostic or new
+scope. Prior 90/120, 270/300, 575/600 and 425.19/600 reservations
+remain frozen. All **five learned approvals remain consumed**. Medium/full
+generated source compatibility does not establish MiMo contextual acceptance,
+model quality, native agreement, BitNet dispatch or deployment readiness.
+
 ## Synthetic Role-Context Capacity Proposal (2026-10-22)
 
 Prepared after tested tiny contextual checkpoint `12ffdf8`; **not approved or
-started**. V5 verifies explicit roles and contextual continuations at 32 rows;
+started at proposal time**, subsequently approved through **Approve Generated
+V5 Capacity** after `c2dc86f`. V5 verifies explicit roles and contextual continuations at 32 rows;
 its existing larger row/source route has not been exercised with roles. Request
 only **two generated capacity fixtures**, 8193 and 248320 vocabulary rows,
 within a **new separately approved 200 s ledger**. Freeze prior 90/120,
