@@ -63,7 +63,10 @@ The [capacity checkpoint](#synthetic-role-context-capacity-checkpoint-2026-10-22
 records generated medium/full evidence, not another learned invocation.
 Source checkpoint `874a4f1` completes the approved capacity scope. The next
 [one-shot role-aware learned proposal](#learned-role-context-proposal-2026-10-22)
-is unapproved; no sixth learned invocation has begun.
+was separately approved through **Approve One Learned V5 Context** after
+`2b4d3c7`. The [runner checkpoint](#learned-role-context-runner-checkpoint-2026-10-22)
+records implementation before the sixth attempt; five older approvals remain
+consumed and a flag alone cannot authorize another learned read.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -604,10 +607,51 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Learned Role-Context Runner Checkpoint (2026-10-22)
+
+The user selected **Approve One Learned V5 Context** for the exact `2b4d3c7`
+proposal. Added a distinct `approved-role-context` mode requiring
+`MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED=1`, separate from the consumed v4-context
+flag. Controller and both children require exact canonical MiMo profile/cache
+path and the literal profile-bound role-policy hash from the proposal. No
+role inference or profile/source/old strict API change. No sixth learned
+source-read invocation has begun at this runner checkpoint.
+
+The shared controller/worker selects existing v5 only for the new route,
+preserving v4 behavior for the old flag. Exactly one API call, fixed user
+message/context/budgets/roles, success counts/role hash/wrapper preservation
+or bounded refusal, then allowed five source flags after releasing large
+exception/preparation state. Common guarded copy/rehash/read-only/stat/FD/
+empty-output/cleanup remains unchanged. No network/unlisted model/weights/
+GGUF/process creation allowed; two serial <=60 s children/**70 s shared stage**,
+2 GiB observed worker RSS/host reserve, no swap growth, 64 KiB stdin/8 KiB
+output and <128 MiB conservative logical scratch. Old mode stays 75 s.
+
+First focused check **2 failed/22 passed in 0.34 s**: the isolated generated
+receipt-function test namespace lacked the new route flag. Fixed that
+synthetic namespace only; same slice **24 passed in 0.20 s**. Extended exact
+new flag/target/path/role-policy and versioned one-call success/refusal controls
+then **50 passed in 0.21 s**. Six actual guarded prefix cases with trusted
+cached libraries **6 passed in 1.44 s**, denying all model-content opens and
+synthetically verifying process-creation audit rejection. No learned input,
+capacity/native/fingerprint proof or API predicate was changed/repeated.
+
+Default source gate passed with all six learned flags and optional cached
+library/native variables unset: **1603 passed, 189 skipped in 26.70 s** under
+the 40 s wrapper; Ruff/editor/whitespace clean. Optional skips are not executed
+native or learned evidence. No source changed after the gate. Measured focused
+checks **2.19 s**, failed test included. Reserve **125/200 s** before the one-shot: prior 80 s +40 s gate
+reservation +2.19 s focused checks +overhead, leaving **75 s** for <=70 s
+stage/controller/cleanup. Prior 90/120, 270/300, 575/600 and 425.19/600 stay
+frozen. Test/gate/commit this runner before the invocation; consume the sixth
+approval on attempted source-read invocation regardless of outcome, no retry
+or predicate/wrapper fallback. It is granted, not yet consumed here.
+
 ## Learned Role-Context Proposal (2026-10-22)
 
 Prepared after tested capacity checkpoint `874a4f1`; **not approved or
-started**. All five prior learned approvals remain consumed. Generated v5
+started at proposal time**, subsequently approved through **Approve One Learned
+V5 Context** after `2b4d3c7`. All five prior learned approvals remain consumed. Generated v5
 capacity/roles now pass, while the historical v4 learned refusal remains
 correct under its strict all-special predicate. Request **exactly one sixth,
 separate learned Python role-aware contextual diagnostic**, not a retry under

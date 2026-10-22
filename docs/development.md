@@ -3405,6 +3405,20 @@ See the [capacity checkpoint](handover.md#synthetic-role-context-capacity-checkp
 for measured evidence and finite ledger. Neither mode is a learned read,
 native/tokenizer-engine/model validation or runtime approval.
 
+`test_pinned_profile_tokenizer_role_context_diagnostic` is a distinct learned
+one-shot, not either generated v5 mode or the older v4 diagnostic. It requires
+a fresh exact approval plus `MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED=1`, the same
+pinned cached library variables and exact MiMo `MIMO_LOCAL_DIR`. Controller/
+children verify the explicit profile-bound role policy, not inferred roles.
+One v5 call uses the fixed message/context/budgets from its approved proposal;
+acceptance or bounded semantic refusal consumes the approval. No fallback or
+automatic retry using any old flag. See the
+[runner checkpoint](handover.md#learned-role-context-runner-checkpoint-2026-10-22)
+for current approval, resource ledger and evidence state. Runner gate/commit
+must precede learned source-read execution. Shared stage <=70 s, children
+<=60 s, inherited source/process/resource/hash/FD/empty-output cleanup controls;
+no native/model/processor, GGUF, weight/header, score or quality permission.
+
 ### Synthetic Direct Vocabulary Control
 
 The cached `prism_bitnet_loader_control --synthetic-vocab-control-v1` test branch

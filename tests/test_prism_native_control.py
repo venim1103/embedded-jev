@@ -5631,13 +5631,20 @@ large_context = fixture.get("large_context", False)
 token_roles_contract = fixture.get("token_roles_contract", False)
 role_context = fixture.get("role_context", False)
 learned_context = fixture.get("learned_context", False)
-if learned_context:
-    assert os.environ.get("MIMO_TOKENIZER_CONTEXT_APPROVED") == "1" and row_mode
+learned_role_context = fixture.get("learned_role_context", False)
+if learned_context or learned_role_context:
+    assert type(learned_context) is type(learned_role_context) is bool and learned_context is not learned_role_context
+    approval_flag = "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED" if learned_role_context else "MIMO_TOKENIZER_CONTEXT_APPROVED"
+    assert os.environ.get(approval_flag) == "1" and row_mode
     assert profile.sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
     assert source.resolve() == (Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177").resolve()
     assert not any((learned_joint, native_joint, selected_fast, standalone_contract, context_contract, native_vocab, large_context))
     assert fixture["operation"] in ("rows-copy", "rows-contract")
-    assert type(fixture["sequence_deadline"]) in (int, float) and 0 < fixture["sequence_deadline"] - time.monotonic() <= 75
+    assert type(fixture["sequence_deadline"]) in (int, float) and 0 < fixture["sequence_deadline"] - time.monotonic() <= (70 if learned_role_context else 75)
+    if learned_role_context:
+        assert type(fixture["token_roles"]) is dict
+        assert hashlib.sha256(json.dumps({"profile_sha256": profile.sha256, "token_roles": fixture["token_roles"]},
+            sort_keys=True, separators=(",", ":")).encode()).hexdigest() == "c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472"
     deadline = min(deadline, fixture["sequence_deadline"])
     assert tuple(version(name) for name in ("transformers", "tokenizers", "numpy")) == ("5.12.1", "0.22.2", "2.2.6")
 if native_joint or selected_fast or standalone_contract:
@@ -5667,7 +5674,7 @@ if large_context:
 if token_roles_contract:
     assert standalone_contract and profile.profile_id == "synthetic-profile" and profile.geometry["vocab_size"] == 32
     assert total <= 65536 and not any((context_contract, native_vocab, learned_joint, learned_context))
-row_scratch_cap = (128 if learned_context else 16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
+row_scratch_cap = (128 if learned_context or learned_role_context else 16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 if native_vocab:
     assert standalone_contract and profile.geometry["vocab_size"] == 260 and total <= 65536
     assert 2 * total + 3 * 256 * 1024 + 65536 + 8192 < row_scratch_cap
@@ -5683,12 +5690,12 @@ if row_mode:
     copy_paths = {scratch / name for name in names}
     models_root = Path.home() / ".cache/huggingface/embedded-jev/models"
     output_path = Path(fixture["output"]) / "rows.gguf" if fixture.get("output") else None
-    allowed_gguf_paths = set() if learned_context else {output_path}
+    allowed_gguf_paths = set() if learned_context or learned_role_context else {output_path}
     if native_vocab and fixture.get("vocab_controls", False):
         allowed_gguf_paths.add(Path(fixture["output"]) / "tensor-fault.gguf")
 
     def row_audit(event, args):
-        if learned_context and event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+        if (learned_context or learned_role_context) and event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
             raise RuntimeError("child processes prohibited in contextual diagnostic")
         if event in ("socket.connect", "socket.connect_ex", "socket.getaddrinfo", "socket.sendto", "socket.bind"):
             raise RuntimeError("network prohibited in tokenizer row diagnostic")
@@ -5965,10 +5972,11 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
 
 
 def _tokenizer_rows_diagnostic_environment(mode):
-    if mode not in ("synthetic", "approved", "approved-joint", "approved-context"):
+    if mode not in ("synthetic", "approved", "approved-joint", "approved-context", "approved-role-context"):
         raise ValueError("unknown tokenizer row diagnostic mode")
     source, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
-    flag = {"approved-context": "MIMO_TOKENIZER_CONTEXT_APPROVED", "approved-joint": "MIMO_TOKENIZER_JOINT_APPROVED"}.get(
+    flag = {"approved-context": "MIMO_TOKENIZER_CONTEXT_APPROVED", "approved-joint": "MIMO_TOKENIZER_JOINT_APPROVED",
+        "approved-role-context": "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED"}.get(
         mode, "MIMO_TOKENIZER_ROWS_APPROVED")
     if not source or not interpreter or mode != "synthetic" and os.environ.get(flag) != "1":
         pytest.skip("requires pinned cached libraries; learned rows need their own one-shot approval")
@@ -5982,6 +5990,22 @@ def _tokenizer_joint_target_profile(profile_bytes, local):
     expected = Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
     if profile.sha256 != "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a" or local.resolve() != expected.resolve():
         raise ValueError("joint tokenizer diagnostic requires exact pinned MiMo target")
+    return profile
+
+
+def _tokenizer_role_context_roles():
+    return {"<|endoftext|>": "source_special", "<|im_start|>": "source_special", "<|im_end|>": "source_special",
+        "<think>": "ordinary_added_marker", "</think>": "ordinary_added_marker"}
+
+
+def _tokenizer_role_context_target_profile(profile_bytes, local, token_roles):
+    import hashlib
+
+    profile = _tokenizer_joint_target_profile(profile_bytes, local)
+    if type(token_roles) is not dict or token_roles != _tokenizer_role_context_roles():
+        raise ValueError("role contextual diagnostic requires exact role policy")
+    assert hashlib.sha256(json.dumps({"profile_sha256": profile.sha256, "token_roles": token_roles},
+        sort_keys=True, separators=(",", ":")).encode()).hexdigest() == "c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472"
     return profile
 
 
@@ -6002,7 +6026,8 @@ def contextual_report():
         sys.stdout.flush()
         os.dup2(2, 1)
         try:
-            receipt = prism_codec.prepare_profile_model_fast_context_contract_v4(profile, **arguments)
+            prepare = prism_codec.prepare_profile_model_fast_context_contract_v5 if learned_role_context else prism_codec.prepare_profile_model_fast_context_contract_v4
+            receipt = prepare(profile, **arguments, **({"token_roles": fixture["token_roles"]} if learned_role_context else {}))
         except ValueError as error:
             trace = error.__traceback__
             while trace.tb_next is not None:
@@ -6011,13 +6036,22 @@ def contextual_report():
                 "refusal_function": trace.tb_frame.f_code.co_name, "refusal_line": trace.tb_lineno}
             del trace
         else:
-            assert receipt["contextual_contract_policy_version"] == 4 and len(receipt["tokens"]) == 248320
+            assert receipt["contextual_contract_policy_version"] == (5 if learned_role_context else 4) and len(receipt["tokens"]) == 248320
             assert receipt["prompt_label_boundary_verification"] == "profile_pinned_generic_fast_contextual_labels"
             assert receipt["tokenizer_wrapper_policy"] == "generic_pretrained_fast"
             assert receipt["native_tokenizer_verification"] == receipt["processor_verification"] == "not_checked"
-            assert len(receipt["special_token_ids"]) == 5 and len(receipt["label_token_ids"]) == 16
+            assert len(receipt["label_token_ids"]) == 16
+            if learned_role_context:
+                assert len(receipt["source_special_token_ids"]) == 3 and len(receipt["ordinary_marker_token_ids"]) == 2
+                assert receipt["token_roles_sha256"] == "c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472"
+                assert receipt["profile_sha256"] == profile.sha256
+                assert receipt["wrapper_token_roles_verification"] == "before_and_after_contextual_encoding"
+            else:
+                assert len(receipt["special_token_ids"]) == 5
             report = {"contract_accepted": True, "prompt_sha256": receipt["prompt_sha256"],
-                "prompt_token_count": receipt["prompt_token_count"], "checked_labels": 16, "checked_special_tokens": 5}
+                "prompt_token_count": receipt["prompt_token_count"], "checked_labels": 16,
+                "checked_special_tokens": 3 if learned_role_context else 5,
+                **({"checked_ordinary_markers": 2, "token_roles_sha256": receipt["token_roles_sha256"]} if learned_role_context else {})}
             del receipt
     finally:
         sys.stdout.flush()
@@ -6036,24 +6070,34 @@ def contextual_report():
     assert len(os.listdir("/proc/self/fd")) == descriptors
     assert not list(Path(fixture["output"]).iterdir())
     return {**report, "status": "completed", "phase": "rows-contract", "source_special_flags": flags,
-        "contract_policy_version": 4, "no_output_files": True,
+        "contract_policy_version": 5 if learned_role_context else 4, "no_output_files": True,
         "logical_source_copy_scratch_bytes": 2 * total + 32 * 1024**2 + 8192,
         "logical_scratch_cap_bytes": row_scratch_cap}
 
-assert learned_context
+assert learned_context or learned_role_context
 finish_report({"status": "matched", "phase": "rows-copy"} if fixture["operation"] == "rows-copy" else contextual_report())
 '''
 
 
 def test_pinned_profile_tokenizer_context_diagnostic():
+    _run_pinned_profile_tokenizer_context_diagnostic("approved-context")
+
+
+def test_pinned_profile_tokenizer_role_context_diagnostic():
+    _run_pinned_profile_tokenizer_context_diagnostic("approved-role-context")
+
+
+def _run_pinned_profile_tokenizer_context_diagnostic(mode):
     import ast
     from tempfile import TemporaryDirectory
     import time
 
-    source, interpreter = _tokenizer_rows_diagnostic_environment("approved-context")
+    source, interpreter = _tokenizer_rows_diagnostic_environment(mode)
+    role_context = mode == "approved-role-context"
     local = Path(os.environ["MIMO_LOCAL_DIR"])
     profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
-    profile = _tokenizer_joint_target_profile(profile_bytes, local)
+    roles = _tokenizer_role_context_roles() if role_context else None
+    profile = _tokenizer_role_context_target_profile(profile_bytes, local, roles) if role_context else _tokenizer_joint_target_profile(profile_bytes, local)
     assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     subprocess.check_output(["git", "-C", str(source), "diff", "--exit-code", PRISM_REVISION, "--", "conversion/base.py", "gguf-py"])
     code = _tokenizer_context_diagnostic_code()
@@ -6061,6 +6105,7 @@ def test_pinned_profile_tokenizer_context_diagnostic():
     names = tuple(profile.packaging["metadata_files"]) + ("tokenizer.json", "vocab.json", "merges.txt")
     assert len(names) == 10 and sum(profile.files[name].bytes for name in names) == 30144444
     started = time.monotonic()
+    stage_seconds = 70 if role_context else 75
     descriptors = len(list(Path("/proc/self/fd").iterdir()))
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
         "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
@@ -6075,12 +6120,13 @@ def test_pinned_profile_tokenizer_context_diagnostic():
         baseline_swap = None
         for operation in ("rows-copy", "rows-contract"):
             fixture = dict(profile_hex=profile_bytes.hex(), source=str(local), scratch=str(inputs), output=str(output),
-                operation=operation, learned_context=True, sequence_deadline=started + 75)
+                operation=operation, learned_context=not role_context, learned_role_context=role_context,
+                token_roles=roles, sequence_deadline=started + stage_seconds)
             result = _run_tokenizer_only_guard_v2(interpreter, code, json.dumps(fixture).encode(), env=env,
-                maximum_seconds=min(60, started + 75 - time.monotonic()))
+                maximum_seconds=min(60, started + stage_seconds - time.monotonic()))
             assert result["returncode"] == 0, result["stderr"]
             report = json.loads(result["stdout"])
-            print(json.dumps({**result, "tokenizer_context_diagnostic": "approved-context"}, sort_keys=True))
+            print(json.dumps({**result, "tokenizer_context_diagnostic": mode}, sort_keys=True))
             assert report["status"] == ("matched" if operation == "rows-copy" else "completed")
             assert report["profile_sha256"] == profile.sha256 and report["input_files"] == 10
             assert report["input_bytes"] == report["scratch_bytes"] == 30144444
@@ -6091,7 +6137,7 @@ def test_pinned_profile_tokenizer_context_diagnostic():
                 actual, before = (local / name).stat(), original[name]
                 assert (actual.st_dev, actual.st_ino, actual.st_size, actual.st_mtime_ns, actual.st_ctime_ns) == (
                     before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
-            assert not list(output.iterdir()) and time.monotonic() < started + 75
+            assert not list(output.iterdir()) and time.monotonic() < started + stage_seconds
             reports.append(report)
         assert set(reports[-1]["source_special_flags"]) == set(profile.tokenization["special_token_ids"])
         assert reports[-1]["logical_source_copy_scratch_bytes"] < reports[-1]["logical_scratch_cap_bytes"] == 128 * 1024**2
@@ -7115,11 +7161,15 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     ("approved-context", None), ("approved-context", "MIMO_TOKENIZER_ONLY_APPROVED"),
     ("approved-context", "MIMO_TOKENIZER_INVENTORY_APPROVED"), ("approved-context", "MIMO_TOKENIZER_ROWS_APPROVED"),
     ("approved-context", "MIMO_TOKENIZER_JOINT_APPROVED"), ("approved", "MIMO_TOKENIZER_CONTEXT_APPROVED"),
-    ("approved-joint", "MIMO_TOKENIZER_CONTEXT_APPROVED")])
+    ("approved-joint", "MIMO_TOKENIZER_CONTEXT_APPROVED"),
+    ("approved-role-context", None), ("approved-role-context", "MIMO_TOKENIZER_CONTEXT_APPROVED"),
+    ("approved-role-context", "MIMO_TOKENIZER_JOINT_APPROVED"), ("approved-role-context", "MIMO_TOKENIZER_ROWS_APPROVED"),
+    ("approved-role-context", "MIMO_TOKENIZER_ONLY_APPROVED"), ("approved-role-context", "MIMO_TOKENIZER_INVENTORY_APPROVED"),
+    ("approved-context", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED")])
 def test_tokenizer_rows_diagnostic_approval_refuses_before_source_access(monkeypatch, mode, wrong_flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
     monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
-    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED"):
+    for name in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED"):
         monkeypatch.delenv(name, raising=False)
     if wrong_flag:
         monkeypatch.setenv(wrong_flag, "1")
@@ -7130,11 +7180,12 @@ def test_tokenizer_rows_diagnostic_approval_refuses_before_source_access(monkeyp
 
 
 @pytest.mark.parametrize("mode,flag", [("synthetic", None), ("approved", "MIMO_TOKENIZER_ROWS_APPROVED"),
-    ("approved-joint", "MIMO_TOKENIZER_JOINT_APPROVED"), ("approved-context", "MIMO_TOKENIZER_CONTEXT_APPROVED")])
+    ("approved-joint", "MIMO_TOKENIZER_JOINT_APPROVED"), ("approved-context", "MIMO_TOKENIZER_CONTEXT_APPROVED"),
+    ("approved-role-context", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED")])
 def test_tokenizer_row_diagnostic_own_flag_is_checked_without_source_access(monkeypatch, mode, flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
     monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/not-run")
-    for name in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED"):
+    for name in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED"):
         monkeypatch.delenv(name, raising=False)
     if flag:
         monkeypatch.setenv(flag, "1")
@@ -7144,7 +7195,7 @@ def test_tokenizer_row_diagnostic_own_flag_is_checked_without_source_access(monk
 
 
 @pytest.mark.parametrize("mode,flag", [("approved-joint", "MIMO_TOKENIZER_JOINT_APPROVED"),
-    ("approved-context", "MIMO_TOKENIZER_CONTEXT_APPROVED")])
+    ("approved-context", "MIMO_TOKENIZER_CONTEXT_APPROVED"), ("approved-role-context", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED")])
 @pytest.mark.parametrize("value", ["0", "true", "1 "])
 def test_tokenizer_joint_diagnostic_flag_requires_exact_opt_in(monkeypatch, value, mode, flag):
     monkeypatch.setenv("PRISM_SOURCE_DIR", "/not-read")
@@ -7173,7 +7224,35 @@ def test_tokenizer_joint_target_is_exact_before_process_or_source_read(monkeypat
         assert _tokenizer_joint_target_profile(profile_bytes, local).sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
 
 
-@pytest.mark.parametrize("kind", ["joint", "context"])
+@pytest.mark.parametrize("defect", [None, "profile", "source", "policy", "missing", "extra", "bool"])
+def test_tokenizer_role_context_target_and_policy_refuse_before_source_io(monkeypatch, defect):
+    profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
+    local = Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
+    roles = _tokenizer_role_context_roles()
+    if defect == "profile":
+        record = json.loads(profile_bytes)
+        record["profile_id"] = "wrong-profile"
+        profile_bytes = json.dumps(record).encode()
+    elif defect == "source":
+        local = local.with_name("wrong-profile")
+    elif defect == "policy":
+        roles["<think>"] = "source_special"
+    elif defect == "missing":
+        del roles["<think>"]
+    elif defect == "extra":
+        roles["extra"] = "source_special"
+    elif defect == "bool":
+        roles["<think>"] = True
+    monkeypatch.setattr(Path, "read_bytes", lambda *args, **kwargs: pytest.fail("role target check read source contents"))
+    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: pytest.fail("role target check launched a process"))
+    if defect:
+        with pytest.raises(ValueError, match="exact pinned MiMo target|exact role policy"):
+            _tokenizer_role_context_target_profile(profile_bytes, local, roles)
+    else:
+        assert _tokenizer_role_context_target_profile(profile_bytes, local, roles).sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
+
+
+@pytest.mark.parametrize("kind", ["joint", "context", "role-context"])
 @pytest.mark.parametrize("defect", [None, "flag", "profile", "source", "faults", "deadline"])
 def test_pinned_joint_prefix_guard_without_model_content_reads(defect, kind):
     from tempfile import TemporaryDirectory
@@ -7198,7 +7277,7 @@ def deny_model_contents(event, args):
             raise AssertionError("metadata-only prefix opened model-data content")
 sys.addaudithook(deny_model_contents)
 ''' + prefix + r'''
-if learned_context:
+if learned_context or learned_role_context:
     for event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
         try:
             sys.audit(event)
@@ -7217,10 +7296,11 @@ print(json.dumps({"cap": row_scratch_cap, "files": len(names), "bytes": total}))
         fixture = {"profile_hex": profile_bytes.hex(), "source": str(local if defect != "source" else root / "not-read"),
             "scratch": str(inputs), "output": str(root), "operation": "rows-copy",
             "learned_joint": kind == "joint" or defect == "faults", "learned_context": kind == "context",
+            "learned_role_context": kind == "role-context", "token_roles": _tokenizer_role_context_roles(),
             "include_merges": True, "merge_version": 2, "joint_policy": True, "synthetic_refusals": False,
             "merge_faults": ["byte"] if defect == "faults" else [], "proof_case": None,
-            "sequence_deadline": time.monotonic() + (-1 if defect == "deadline" else 70 if kind == "context" else 175)}
-        approval_flag = "MIMO_TOKENIZER_CONTEXT_APPROVED" if kind == "context" else "MIMO_TOKENIZER_JOINT_APPROVED"
+            "sequence_deadline": time.monotonic() + (-1 if defect == "deadline" else 65 if kind == "role-context" else 70 if kind == "context" else 175)}
+        approval_flag = {"context": "MIMO_TOKENIZER_CONTEXT_APPROVED", "role-context": "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED"}.get(kind, "MIMO_TOKENIZER_JOINT_APPROVED")
         env = {**os.environ, approval_flag: "1", "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
         for flag in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED"):
@@ -7239,8 +7319,9 @@ print(json.dumps({"cap": row_scratch_cap, "files": len(names), "bytes": total}))
     assert not root.exists()
 
 
+@pytest.mark.parametrize("role_context", [False, True])
 @pytest.mark.parametrize("refused", [False, True])
-def test_contextual_diagnostic_receipt_is_synthetic_single_call_and_bounded(monkeypatch, tmp_path, refused):
+def test_contextual_diagnostic_receipt_is_synthetic_single_call_and_bounded(monkeypatch, tmp_path, refused, role_context):
     import ast
     import sys
     import time
@@ -7263,19 +7344,31 @@ def test_contextual_diagnostic_receipt_is_synthetic_single_call_and_bounded(monk
         assert actual == profile and arguments["context_length"] == 256
         assert arguments["maximum_vocabulary_rows"] == 248320 and arguments["maximum_token_content_bytes"] == 4 * 1024**2
         assert arguments["messages"] == [{"role": "user", "content": "A or B?"}]
+        if role_context:
+            assert arguments["token_roles"] == _tokenizer_role_context_roles()
         if refused:
             raise ValueError("synthetic contract refusal")
-        return dict(contextual_contract_policy_version=4, tokens=[None] * 248320,
+        receipt = dict(contextual_contract_policy_version=5 if role_context else 4, tokens=[None] * 248320,
             prompt_label_boundary_verification="profile_pinned_generic_fast_contextual_labels",
             tokenizer_wrapper_policy="generic_pretrained_fast", native_tokenizer_verification="not_checked",
             processor_verification="not_checked", special_token_ids=dict.fromkeys(specials), label_token_ids=dict.fromkeys("ABCDEFGHIJKLMNOP"),
             prompt_sha256="0" * 64, prompt_token_count=8)
+        if role_context:
+            receipt.update(source_special_token_ids={text: token_id for text, token_id in profile.tokenization["special_token_ids"].items()
+                if "think" not in text}, ordinary_marker_token_ids={text: token_id for text, token_id in profile.tokenization["special_token_ids"].items()
+                if "think" in text}, token_roles_sha256="c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472",
+                profile_sha256=profile.sha256, wrapper_token_roles_verification="before_and_after_contextual_encoding")
+        return receipt
 
     monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_context_contract_v4", prepare)
+    if role_context:
+        monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_context_contract_v5", prepare)
+        monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_context_contract_v4", lambda *args, **kwargs: pytest.fail("v5 diagnostic used v4"))
     function = next(node for node in ast.parse(_tokenizer_context_diagnostic_code()).body
         if isinstance(node, ast.FunctionDef) and node.name == "contextual_report")
     namespace = dict(os=os, sys=sys, json=json, time=time, Path=Path, scratch=tmp_path, profile=profile,
-        fixture={"output": str(output)}, deadline=time.monotonic() + 60, total=1024, row_scratch_cap=128 * 1024**2)
+        fixture={"output": str(output), "token_roles": _tokenizer_role_context_roles()}, learned_role_context=role_context,
+        deadline=time.monotonic() + 60, total=1024, row_scratch_cap=128 * 1024**2)
     exec(compile(ast.Module(body=[function], type_ignores=[]), "<synthetic-context-receipt>", "exec"), namespace)
     report = namespace["contextual_report"]()
     assert len(calls) == 1 and report["contract_accepted"] is not refused and report["status"] == "completed"
