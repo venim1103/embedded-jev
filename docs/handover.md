@@ -65,8 +65,11 @@ Source checkpoint `874a4f1` completes the approved capacity scope. The next
 [one-shot role-aware learned proposal](#learned-role-context-proposal-2026-10-22)
 was separately approved through **Approve One Learned V5 Context** after
 `2b4d3c7`. The [runner checkpoint](#learned-role-context-runner-checkpoint-2026-10-22)
-records implementation before the sixth attempt; five older approvals remain
-consumed and a flag alone cannot authorize another learned read.
+records implementation before the sixth attempt. The
+[learned v5 checkpoint](#learned-role-context-checkpoint-2026-10-22) records its
+single accepted Python role-aware contextual contract after runner `7d44e65`.
+**All six learned approvals are consumed**; no repeat or native/model/scoring
+execution is authorized. The earlier strict-v4 refusal remains valid.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -606,6 +609,68 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Learned Role-Context Checkpoint (2026-10-22)
+
+The sixth separately approved one-shot ran exactly once after committed runner
+`7d44e65`: **1 passed in 11.00 s**, with `status=completed` and
+**`contract_accepted=true`, contextual policy version 5**. Unlike the fifth
+diagnostic's unchanged strict-v4 refusal, this explicit role-aware policy
+accepted the pinned source's three actual specials and two ordinary added
+thinking markers without changing the profile, source flags or selected rows.
+No old predicate was weakened or repeated.
+
+Exact target `XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B`, revision
+`2367e865d009c13ac81713a2878291d33ab28177`, canonical profile
+`1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`,
+Prism `842b1880415d6f508f03b789e5ce70194def7bfd`, explicit role-policy hash
+`c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472`.
+Source added-token flags: endoftext/im_start/im_end true, think and /think
+false, exactly as the separately authorized fifth receipt. V5 verifies actual
+added-token presence, exact source/selected spelling and ID, unchanged selected
+text, singleton encoding, CONTROL rows for the three source specials and
+NORMAL/USER_DEFINED rows for the two ordinary markers. All 16 A-P standalone
+labels and exact contextual single-token continuations pass; contextual wrapper
+IDs/content/flags/special membership are preserved before/after encoding.
+
+Fixed user message `A or B?`, context length 256, explicit 248320-row/4 MiB
+content allowance, pinned source template/profile render arguments and generic
+fast wrapper. Rendered prompt count **13**, SHA-256
+`5442075a7fc8a2f8dda5691a3c4ae13cd0ad01a3e5ef1b71521a69a508c908f9`;
+no raw prompt or token arrays retained. This is one bounded source-template/
+generic-wrapper contract, not every prompt, the Qwen-specific wrapper, native
+engine parity, processor/multimodal compatibility, scoring/confidence/quality,
+BitNet dispatch, whole-model support or deployment readiness.
+
+Command invoked only
+`tests/test_prism_native_control.py::test_pinned_profile_tokenizer_role_context_diagnostic`
+with `-q -s --tb=short -p no:cacheprovider`, exact cached source/interpreter/
+MiMo paths and only `MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED=1`. All five older
+learned flags and native-build variable unset. Outer cap 75 s/shared stage
+70 s/children <=60 s, one API invocation, no fallback or diagnostic retry.
+Both children returned zero/empty stderr. Ten original/copy files
+**30144444 bytes each**, retained pin hashes/source stable stats/read-only
+copies/final source+copy hashes/exact FD counts/empty output and owned temporary
+cleanup passed; no output files or owned worker retained.
+
+Copy observed RSS **40030208 bytes**, high-water **39747584**; preparation
+observed RSS **832192512**, high-water **831369216**; host available minimum
+**14598156288 bytes**. Process swap **zero**; host swap baseline/observed
+**151552 bytes**, unchanged, not zero-host-swap evidence. Logical source/copy/
+transient/report reservation **93851512 <134217728 bytes**; scratch disk free
+before invocation **583873343488 bytes**. These are container/worker
+observations, not target-device guarantees. No resource/deadline fired or host
+setting changed. No GGUF/native/C++/model/backend/processor/header/weight,
+download/install/candidate/refit/score/quality/device/other-model experiment.
+
+No source change after runner gate **1603 passed, 189 skipped/26.70 s**, Ruff/
+editor/whitespace clean; no unchanged gate rerun for this docs-only result.
+Conservatively reserve **145/200 s** after prior 125 s, 11.00 s diagnostic and
+overhead, leaving **55 s**. Prior 90/120, 270/300, 575/600 and 425.19/600 stay
+frozen. **All six learned approvals are now consumed**. Any additional learned
+read or native tokenizer validation requires a fresh exact scope; this flag
+cannot authorize another call. Preserve the historical strict-v4 refusal as
+correct evidence under its different declared contract.
 
 ## Learned Role-Context Runner Checkpoint (2026-10-22)
 
