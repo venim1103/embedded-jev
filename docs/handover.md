@@ -36,6 +36,10 @@ was separately approved through **Approve Larger Contextual** after `8d3aea7`.
 The [capacity checkpoint](#larger-synthetic-contextual-checkpoint-2026-10-22)
 records medium/full generated Python evidence, not permission to repeat learned
 diagnostics, widen native policies or claim real-model contextual parity.
+Source checkpoint `20a78a1` completes that scope. The
+[one-shot learned contextual proposal](#learned-contextual-proposal-2026-10-22)
+is unapproved; no fifth learned read has begun. The four earlier approvals stay
+consumed, and an environment flag alone cannot authorize another invocation.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -575,6 +579,77 @@ it is not permission to promote a tag or repeat that learned diagnostic.
 Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
+
+## Learned Contextual Proposal (2026-10-22)
+
+Prepared after tested source checkpoint `20a78a1`; **not approved or started**.
+Generated full-size v4 preparation now passes exact contextual continuations,
+but that is not learned MiMo evidence. The repository profile declares five
+special IDs, including the two thinking markers; standalone v2 now requires
+source special flags and CONTROL selected rows, unlike the older ID-only
+contract. Their real source flags and generic-wrapper contextual behavior are
+not assumed. A refusal is useful diagnostic evidence, not permission to weaken
+the predicate, relabel tokens or promote a different candidate/wrapper.
+
+Request **exactly one learned Python contextual preparation/diagnostic** for
+`XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B` at revision
+`2367e865d009c13ac81713a2878291d33ab28177`, canonical profile hash
+`1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`,
+Prism `842b1880415d6f508f03b789e5ce70194def7bfd`. This would be a **fifth,
+separate one-shot approval**, not reuse of any consumed fingerprint/inventory/
+row/joint proof. It stays within **155 s remaining of the same additional 300 s
+ledger**, prior reservation 145 s, with old 575/600 and 425.19/600 ledgers frozen.
+
+- Add only one explicitly gated learned contextual mode using the existing
+  exact MiMo target/profile verifier, cached source pin/stat checks, trusted
+  installed tokenizers and source-copy/audit/worker guards. A distinct approval
+  flag must not bypass target/profile/revision/path checks. Unit synthetic
+  refusals prove wrong profile/path/unapproved mode fail before source I/O.
+- Commit the tested runner and default source gate **before the single actual
+  invocation**. Reuse completed 8193/248320 synthetic contextual evidence;
+  no repeated successful unchanged native/fingerprint/row/merge diagnostic.
+  The contextual API necessarily prepares rows as its dependency, not another
+  standalone learned artifact or separate quality experiment.
+- After approval, read only the exact ten pinned non-weight files: the seven
+  profile packaging metadata files plus tokenizer JSON/vocabulary/merges. Prior
+  pins total **30144444 bytes per original/copy set**, each <=32 MiB. No other
+  learned directory/profile, safetensor/header/tensor content, model/custom code,
+  processor execution or remote/download input. Use immutable read-only copies
+  and recheck source/copy hashes/stable stats before/after workers.
+- Run v4 once at context length 256, explicit row budget 248320/content 4 MiB,
+  one fixed synthetic role/content user message `A or B?`, pinned source template
+  and profile render arguments. Check five declared special IDs/source flags/
+  rows, all A-P standalone labels, exact contextual continuations, bounded prompt
+  hash/count and unchanged normalization policy. Wrapper is explicitly generic;
+  no Qwen-specific model/processor/native parity claim. No answer generation,
+  scores, dataset/held-out accuracy or confidence calibration.
+- Retain only small pins/counts/hash/resource evidence and, on acceptance or
+  semantic refusal, a five-entry vector of profile-declared added-token special
+  flags from the same immutable JSON (null if absent), not an unapproved tokenizer
+  scan/dump. Capture a bounded refusal category/function/line if preparation
+  refuses; release exception/large preparation state before that flag inspection.
+  Do not retry the API, swap to an older predicate/wrapper or refit to obtain green.
+- Two serial source-copy/preparation children <=60 s each/<=75 s shared stage,
+  limited by remaining allowance, observed tree RSS <=2 GiB/host reserve >=2 GiB,
+  abort any process/host swap growth. Existing <=64 KiB path-only input/<=8 KiB
+  output and exact FD/output-empty/owned temporary cleanup apply. No GGUF/native
+  output means a new explicitly scoped conservative scratch reservation of two
+  source sets +32 MiB transient allowance+8 KiB report within 128 MiB; preserve
+  all synthetic/native/old learned pre-copy policies unchanged. No retained
+  tokenizer/prompt/token arrays, compiler spill or large reports.
+- Reserve **40 s** for the default runner source gate before the single learned
+  attempt; every failed runner/focused/gate/learned invocation consumes the same
+  155 s remainder. The one-shot approval is consumed on attempted source-read
+  invocation regardless of success/resource/refusal; no automatic retry or new
+  flag/rebaseline. No source changes after the runner gate just to alter semantics.
+  Results are a documentation-only checkpoint if the runner remains unchanged.
+
+No C++ edit/build/native vocabulary/model call, backend/runtime initialization,
+whole-model conversion, new weight/source downloads, library/install change,
+refit/candidate/compensation promotion, scoring/quality/device/other-profile work.
+If this additional approval is declined, retain `20a78a1` and all learned inputs
+closed. If approved, implement the smallest explicit routing guard with immediate
+synthetic refusal tests, gate/commit the runner, then the single bounded invocation.
 
 ## Larger Synthetic Contextual Checkpoint (2026-10-22)
 
