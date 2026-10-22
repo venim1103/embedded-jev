@@ -1,12 +1,20 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-21. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-10-22. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-**Paused by user, 2026-10-21:** pause at completed source checkpoint `191c1b5`.
+**Resumed by user, 2026-10-22:** continue autonomously with periodic tested local
+commits until stopped or genuinely blocked. Starting `62e59a3` matches
+`origin/main`; user editor settings remain untouched. The user separately selected
+**Approve Synthetic Composition** for the committed proposal below. Read the
+[Python composition checkpoint](#selected-fast-python-checkpoint-2026-10-22)
+before continuing: tiny selected-file proof is verified, native composition is
+not yet implemented. All four learned approvals remain consumed.
+
+**Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
 are verified; the next composition proposal below is documentation only and
 **not approved or started**. Native ledger remains conservatively 250/600 s;
@@ -49,12 +57,12 @@ successful tiny/intermediate/full generated getter checks, strict refusals and
 old-command compatibility with zero swap. All four learned approvals remain
 consumed; no learned input or native model execution is authorized.
 
-**Next bounded proposal, not approved:** the
+**Next bounded proposal, approved 2026-10-22:** the
 [selected fast metadata composition proposal](#selected-fast-metadata-composition-proposal-2026-10-21)
 would join the verified fast rows/types/merges with the existing policy/context/
 template subset in one generated file. It changes the exact native selected-field
-contract and therefore requires separate approval before implementation or
-execution. No new learned, model-loading, download or quality work is proposed.
+contract; the separate synthetic-only approval is now recorded above. No new
+learned, model-loading, download or quality work is authorized.
 
 **Paused by user, 2026-10-20:** Pause after the current checkpoint. The
 [full-size merge checkpoint](#full-size-merge-checkpoint-2026-10-20) completes
@@ -539,9 +547,87 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Selected Fast Python Checkpoint (2026-10-22)
+
+The user explicitly resumed autonomous work after `62e59a3`, then selected
+**Approve Synthetic Composition** for the exact committed proposal. Starting
+tracked worktree/cache tools were intact, around 20 GiB RAM available, zero
+swap; no learned input/header/weight read or new download was needed. The prior
+250/600 s native ledger was retained, not reset.
+
+Added `write_profile_model_selected_fast_metadata_v3` and
+`verify_profile_gguf_selected_fast_metadata_v3`. Both reuse pure policy/source/
+fast-row declarations and the existing strict writer or retained-descriptor
+engine. The writer jointly preflights 29 emitted keys; the file proof includes
+`general.architecture`, giving 30 fields. Template parsing receives the existing
+explicit larger JSON allowance only through the new versioned path; old public
+template defaults remain 1 MiB. New proof defaults remain 8192-byte records,
+1 MiB header, 256 KiB file/30 s, with explicit caps of 16 MiB/180 s and the
+existing independently budgeted row/merge policies. It reports selected metadata
+agreement, not complete tokenizer/tensor/model/runtime acceptance.
+
+Unit checks prove positive emission, unchanged writer snapshots on final type/
+merge-key conflicts, source/tokenizer pin and manifest refusals, exact 30-field
+declarations, file/header/record/identity limits and one pre/post preparation
+deadline. Focused writer controls pass **32 cases in 1.18 s** after correcting
+one test expectation from `array` to the fixture's established `i32_array` tag;
+the initial check had 31 passes/one assertion failure in 0.86 s. New/old proof
+controls pass **24 cases in 0.57 s**.
+
+New `[synthetic-joint-selected]` reuses generated row workers, with an in-memory
+synthetic policy/inventory/payload and text-only profile. A small fixture-helper
+extension exports its record; no synthetic safetensors weights are materialized.
+The exact profile-derived input list is checked rather than assuming the older
+fixture's ten files. Source copies, emission/readback/fresh retained proof,
+shared stage deadline, reserve/RSS/swap and FD/map/parent cleanup remain guarded.
+
+Preserved failure history: script indentation failed before workers (0.31 s),
+then old hard-coded class/count assumptions refused setup/copy (0.29/0.34/0.56 s).
+The supported class allowlist was not widened. At the required three-repair
+checkpoint the user explicitly selected **Continue the Narrow Repair**. After
+the exact declared-count fix, a wrong packer-module import refused emission
+(0.96 s); it was corrected to the existing `prism_codec` export. Next emission
+failed on exact row agreement (5.90 s), before writing any GGUF. One additional
+guarded diagnostic printed only generated mismatch values; guards and equality
+assertions stayed active throughout. No resource failure was retried.
+
+**Important unresolved wrapper boundary:** the installed Qwen-specific
+AutoTokenizer wrapper left generated `USER` unchanged, while the explicit
+generic fast-row policy returned `user-normalized` at row 1. This is a genuine
+fixture-wrapper difference, not proof of interchangeable wrappers. The selected
+composition oracle now explicitly uses `PreTrainedTokenizerFast`, matching its
+declared generic-wrapper policy while preserving the token data and every
+equality/normalization assertion. Existing AutoTokenizer diagnostic modes are
+unchanged. Do not claim Qwen-specific AutoTokenizer or real-model tokenizer
+equivalence from this selected-field result.
+
+The repaired tiny **Python-only** selected check passes **5.92 s**: seven pinned
+source/copy files, 4609 bytes each set; 32 rows/two pads/two original ranked pairs;
+one normalization and one space rewrite. GGUF **2368 bytes**, expected JSON
+**2655 bytes**, SHA-256
+`fb5bcef7a5f2eda31f7780b2e485345662731b75d7b2b7fe69378f892c354fb1`;
+logical source/copy/GGUF/JSON plus reserved spool/report **16799649 bytes** below
+128 MiB. Typed readback and all 30 source-bound file records match; two hashes
+use the same retained descriptor, maximum read 2368 bytes. Maximum observed
+child RSS 337076224 bytes, minimum host available 20401451008 bytes, no process/
+host swap growth. All owned fixtures/FDs/maps/workers are removed. Failed
+diagnostic scratch was also cleaned; no artifact/candidate was retained.
+
+Source gate with all learned/native opt-ins unset: **1416 passed, 155 skipped in
+38.98 s**, Ruff/whitespace and Python editor diagnostics clean. This includes
+18 new unit cases; optional execution skips are not native evidence. No C++
+composition edit/build/getter invocation has begun. Conservatively reserve
+**320/600 s** including prior 250 s, focused checks/failed checks/instrumented
+diagnostic/default gate and overhead; **280 s remain**, not a new allowance.
+Next: exact versioned native 30-field parser with guarded target-only Release
+build, then tiny compiled check before intermediate/full positives and scoped
+refusals/compatibility. Preserve the Qwen wrapper limitation, all old command
+caps, no-model boundaries and the finite ledger.
+
 ## Selected Fast Metadata Composition Proposal (2026-10-21)
 
-Prepared after tested source checkpoint `191c1b5`; **not approved**. Local source
+Prepared after tested source checkpoint `191c1b5`; **separately approved by the
+user on 2026-10-22 after `62e59a3`**. Local source
 inspection, without learned/cache/model reads, identifies the next boundary:
 `write_profile_model_selected_metadata` jointly preflights policy/context/template
 with untransformed tokens/merges, not fast token types. The fast v3 writer jointly
@@ -610,7 +696,8 @@ All four learned approvals remain consumed. This proposal does **not** include
 learned/header/weight access, a native vocabulary/model loader, tokenizer-engine
 semantics, full conversion, refitting/new retained candidates, held-out scoring,
 representative quality, other-profile/device execution or deployment claims.
-No new native build, fixture execution or composition implementation has begun.
+The [Python checkpoint](#selected-fast-python-checkpoint-2026-10-22) records
+initial implementation and tiny proof; native composition remains pending.
 
 ## Native Joint Metadata Checkpoint (2026-10-21)
 

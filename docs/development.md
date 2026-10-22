@@ -3234,6 +3234,26 @@ The approved sequence is finite; consult its retained ledger before another
 opt-in run. No consumed learned approval enables another model-data read or
 native model loading.
 
+### Selected Fast Metadata
+
+The versioned Python selected-field APIs
+`write_profile_model_selected_fast_metadata_v3` and
+`verify_profile_gguf_selected_fast_metadata_v3` compose policy/context/template
+with explicitly budgeted fast tokens/types/ranked merges. The writer preflights
+all 29 keys together; the retained-file proof additionally checks
+`general.architecture` (30 fields). They preserve old selected APIs, template
+JSON defaults and tokenizer policy caps. The proof defaults are 256 KiB file,
+8192-byte selected records, 1 MiB header and 30 s; explicit file/record/header
+ceilings are 16 MiB and deadline ceiling 180 s.
+
+`[synthetic-joint-selected]` uses the existing guarded row diagnostic and cached
+tools to test a tiny generated file. Its row oracle is explicitly the generic
+`PreTrainedTokenizerFast` wrapper, not Qwen-specific AutoTokenizer acceptance.
+An observed synthetic Qwen-wrapper normalization difference remains recorded in
+the [checkpoint](handover.md#selected-fast-python-checkpoint-2026-10-22).
+Native 30-field composition is not yet implemented; neither API approves
+learned reads, native vocabulary/model loading or complete tokenizer semantics.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.

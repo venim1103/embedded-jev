@@ -474,7 +474,7 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32, metadata_output=None, tokenizer_bytes=None, headers_output=None):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32, metadata_output=None, tokenizer_bytes=None, headers_output=None, record_output=None):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -535,6 +535,8 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
                 remaining -= chunk_bytes
             record["files"][shard]["sha256"] = digest.hexdigest()
     record["runtime"].update(converter_revision=PRISM_SOURCE_REVISION, runtime_revision=PRISM_SOURCE_REVISION)
+    if record_output is not None:
+        record_output.update(record)
     profile = parse_model_profile(json.dumps(record).encode())
     report = build_inventory(metadata, headers, profile=profile)
     attention_target = target in ("q", "k", "v", "o")
@@ -1984,6 +1986,91 @@ def test_profile_selected_metadata_writer_preflights_every_group_before_mutation
     assert writer.kv_data[0]["tokenizer.ggml.merges"][1] == ["a b"]
     assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
     assert receipt["gguf_tokenizer_verification"] == receipt["gguf_token_type_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+
+
+@pytest.mark.parametrize("defect", [None, "duplicate-merges", "duplicate-types", "metadata-pin", "tokenizer-pin", "manifest"])
+def test_profile_selected_fast_metadata_joint_writer_preflight(monkeypatch, defect):
+    from embedded_jev import prism_codec
+
+    metadata = {}
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(metadata_output=metadata, tokenizer_bytes=tokenizer_bytes)
+    tokens = tuple(f"token{index}" for index in range(32))
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", lambda *args, **kwargs:
+        ({"tokens": tokens, "token_row_records": tuple({"token_type": "NORMAL"} for _ in tokens)},
+         {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("a b",)}, 3))
+    writer = _profile_metadata_writer_fixture()
+    if defect in ("duplicate-merges", "duplicate-types"):
+        writer.kv_data[0]["tokenizer.ggml." + ("merges" if defect == "duplicate-merges" else "token_type")] = ("str", ["keep"])
+    elif defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        tokenizer_bytes += b" "
+    elif defect == "manifest":
+        manifest["payload_sha256"] = "0" * 64
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    arguments = dict(metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256, template_source="source",
+        row_policy="pinned_prism_fast_rows_v2", merge_policy="pinned_prism_ranked_source_merges_v2", writer=writer)
+    if defect:
+        with pytest.raises(ValueError):
+            prism_codec.write_profile_model_selected_fast_metadata_v3(profile, report, manifest, blocks, **arguments)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+    else:
+        receipt = prism_codec.write_profile_model_selected_fast_metadata_v3(profile, report, manifest, blocks, **arguments)
+        assert receipt["metadata_count"] == len(writer.kv_data[0]) == 29
+        assert writer.kv_data[0]["tokenizer.ggml.token_type"] == ("i32_array", [1] * 32)
+        assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
+
+
+@pytest.mark.parametrize("defect", [None, "file-budget", "record-budget", "header-budget", "hash", "seconds",
+                                    "metadata-pin", "tokenizer-pin", "manifest", "selection", "preparation-deadline", "verification-deadline"])
+def test_profile_selected_fast_metadata_proof_identity_and_shared_deadline(monkeypatch, defect):
+    from embedded_jev import prism_codec
+
+    metadata = {}
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(metadata_output=metadata, tokenizer_bytes=tokenizer_bytes)
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", lambda *args, **kwargs:
+        ({"tokens": ("a", "b", "ab"), "token_row_records": ({"token_type": "NORMAL"},) * 3},
+         {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("a b",)}, 3))
+    calls = []
+
+    def verify(actual_profile, **kwargs):
+        assert actual_profile is profile and kwargs["model_owner"] is kwargs["descriptor"] is None
+        assert len(kwargs["declarations"]) == 30 and kwargs["declarations"][0]["name"] == "general.architecture"
+        assert kwargs["declarations"][-2]["kind"] == "i32_array" and kwargs["record_policy_version"] == 3
+        assert kwargs["maximum_numeric_array_parts"] == 37 and kwargs["maximum_metadata_bytes"] == 8192
+        calls.append(kwargs)
+        return {"metadata_names": tuple(record["name"] for record in kwargs["declarations"])}
+
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
+    arguments = dict(reader=object(), metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256,
+        template_source="source", row_policy="pinned_prism_fast_rows_v2", merge_policy="pinned_prism_ranked_source_merges_v2",
+        expected_file_bytes=100, expected_file_sha256="1" * 64)
+    if defect in ("file-budget", "record-budget", "header-budget", "hash", "seconds"):
+        name, value = {"file-budget": ("maximum_file_bytes", True), "record-budget": ("maximum_metadata_bytes", 16 * 1024**2 + 1),
+            "header-budget": ("maximum_header_bytes", 16 * 1024**2 + 1), "hash": ("expected_file_sha256", "bad"),
+            "seconds": ("maximum_seconds", float("nan"))}[defect]
+        arguments[name] = value
+    elif defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        arguments["tokenizer_bytes"] += b" "
+    elif defect == "manifest":
+        manifest["payload_sha256"] = "0" * 64
+    elif defect == "selection":
+        arguments["template_source"] = "guess"
+    elif defect in ("preparation-deadline", "verification-deadline"):
+        clock = iter([5, 40] if defect == "preparation-deadline" else [5, 6, 40])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    if defect:
+        with pytest.raises(ValueError):
+            prism_codec.verify_profile_gguf_selected_fast_metadata_v3(profile, report, manifest, blocks, **arguments)
+        assert len(calls) == (1 if defect == "verification-deadline" else 0)
+    else:
+        receipt = prism_codec.verify_profile_gguf_selected_fast_metadata_v3(profile, report, manifest, blocks, **arguments)
+        assert len(calls) == 1 and receipt["selected_fast_metadata_policy_version"] == 3
+        assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
 
 
 @pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "manifest", "selection", "file-budget", "record-budget",

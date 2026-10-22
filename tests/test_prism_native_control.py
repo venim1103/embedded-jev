@@ -5623,7 +5623,8 @@ profile = parse_model_profile(bytes.fromhex(fixture["profile_hex"]))
 source, scratch = Path(fixture["source"]), Path(fixture["scratch"])
 learned_joint = fixture.get("learned_joint", False)
 native_joint = fixture.get("native_joint", False)
-if native_joint:
+selected_fast = fixture.get("selected_fast", False)
+if native_joint or selected_fast:
     assert row_mode and not learned_joint and profile.profile_id == "synthetic-profile"
     assert source.resolve().parent == scratch.resolve().parent and source.name == "source"
     assert fixture["include_merges"] and fixture["merge_version"] == 2 and not fixture["merge_faults"]
@@ -5643,9 +5644,9 @@ names = (tuple(profile.packaging["metadata_files"]) + ("tokenizer.json", "vocab.
     ("config.json", "tokenizer_config.json", "tokenizer.json", "vocab.json", "merges.txt"))
 total = sum(profile.files[name].bytes for name in names)
 assert len(set(names)) == len(names) and 0 < total < 32 * 1024**2
-row_scratch_cap = (128 if learned_joint or native_joint else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
+row_scratch_cap = (128 if learned_joint or native_joint or selected_fast else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 assert (2 * total + 2 * 16 * 1024**2 + 8192 < row_scratch_cap if row_mode else 2 * total + 8192 < 64 * 1024**2)
-if native_joint:
+if native_joint or selected_fast:
     assert 2 * total + 3 * 16 * 1024**2 + 32 * 1024**2 + 8192 < row_scratch_cap
 assert scratch.is_dir() and (row_mode and fixture["operation"] != "rows-copy" or not list(scratch.iterdir()))
 
@@ -6095,6 +6096,18 @@ def run_rows():
         maximum_merge_content_bytes=4 * 1024**2) if expanded_merges else {}
     merge_values = tuple(pair if isinstance(pair, str) else " ".join(pair)
         for pair in json.loads(arguments["tokenizer_bytes"])["model"]["merges"]) if include_merges else ()
+    policy_arguments = {}
+    if selected_fast:
+        import numpy as np
+
+        manifest = fixture["composition"]["manifest"]
+        rows, columns = manifest["shape"]
+        assert rows == 128 and columns == 1024
+        codes = ((np.arange(rows * columns).reshape(rows, columns // 128, 128) * 7) % 3 - 1).astype(np.int8)
+        scales = ((np.arange(rows * columns // 128).reshape(rows, columns // 128) % 7 + 1) / 256).astype(np.float16)
+        blocks = prism_codec.pack_ternary_pq2_0(codes, scales)
+        assert hashlib.sha256(memoryview(blocks)).hexdigest() == manifest["payload_sha256"]
+        policy_arguments = dict(inventory=fixture["composition"]["inventory"], manifest=manifest, pq2_blocks=blocks, template_source="source")
     descriptors = len(os.listdir("/proc/self/fd"))
     if operation == "rows-emission":
         import numpy as np
@@ -6104,7 +6117,8 @@ def run_rows():
         assert root.is_dir() and not list(root.iterdir())
         with library_diagnostics():
             prepared = prism_codec.prepare_profile_model_tokenizer_rows_v2(profile, **arguments)
-            wrapper = AutoTokenizer.from_pretrained(str(scratch), local_files_only=True, trust_remote_code=False, use_fast=True)
+            wrapper_class = transformers.PreTrainedTokenizerFast if selected_fast else AutoTokenizer
+            wrapper = wrapper_class.from_pretrained(str(scratch), local_files_only=True, trust_remote_code=False, use_fast=True)
         assert wrapper.is_fast
         namespace = {"gguf": gguf, "logger": SimpleNamespace(info=lambda *args: None)}
         exec(compile(ast.parse(fixture["row_source"] + "\n" + fixture["special_source"]), "<pinned-row-reference>", "exec"), namespace)
@@ -6129,12 +6143,17 @@ def run_rows():
         writer = gguf.GGUFWriter(path, "qwen35")
         try:
             with library_diagnostics():
-                emitter = (prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v3 if expanded_merges else
+                emitter = (prism_codec.write_profile_model_selected_fast_metadata_v3 if selected_fast else
+                    prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v3 if expanded_merges else
                     prism_codec.write_profile_model_fast_tokenizer_rows_and_merges_v2 if include_merges else prism_codec.write_profile_model_fast_tokenizer_rows_v2)
-                emitted = emitter(profile, writer=writer, **arguments, **merge_arguments)
-            assert emitted["metadata_count"] == (3 if include_merges else 2) and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
-            if native_joint:
-                declarations = json.dumps([{key: record[key] for key in ("name", "kind", "values")} for record in emitted["records"]],
+                emitted = emitter(profile, writer=writer, **arguments, **merge_arguments, **policy_arguments)
+            assert emitted["metadata_count"] == (29 if selected_fast else 3 if include_merges else 2) and emitted["metadata_verification"] == "declared_records_emitted_not_file_verified"
+            if native_joint or selected_fast:
+                records = [{key: record[key] for key in ("name", "kind", "values")} for record in emitted["records"]]
+                if selected_fast:
+                    records = [{"name": "general.architecture", "kind": "string", "values": ["qwen35"]},
+                        *[{**record, "kind": "string" if record["kind"] == "str" else record["kind"]} for record in records]]
+                declarations = json.dumps(records,
                     ensure_ascii=True, separators=(",", ":")).encode()
                 assert 0 < len(declarations) <= 32 * 1024**2
                 (root / "expected.json").write_bytes(declarations)
@@ -6166,7 +6185,7 @@ def run_rows():
             normalized_rows=prepared["normalized_row_count"], rewritten_rows=prepared["space_rewritten_row_count"],
             source_content_bytes=prepared["source_token_content_bytes"], output_content_bytes=prepared["output_token_content_bytes"],
             output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-            metadata_records=3 if include_merges else 2, merge_rows=len(merge_values), merge_content_bytes=emitted.get("merge_content_bytes", 0))
+            metadata_records=30 if selected_fast else 3 if include_merges else 2, merge_rows=len(merge_values), merge_content_bytes=emitted.get("merge_content_bytes", 0))
         if native_joint:
             report.update(native_type_element_offset=native_type_element_offset, native_wrong_type_kind=native_wrong_type_kind)
     else:
@@ -6191,18 +6210,25 @@ def run_rows():
         try:
             streamed_text.bounded_gguf_descriptor_record_v2, os.pread = record_hash, record_read
             with library_diagnostics():
-                verifier = (prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v4 if expanded_merges else
+                verifier = (prism_codec.verify_profile_gguf_selected_fast_metadata_v3 if selected_fast else
+                    prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v4 if expanded_merges else
                     prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v3 if include_merges else prism_codec.verify_profile_gguf_fast_tokenizer_rows_v3)
                 receipt = verifier(profile, reader=reader,
                     maximum_file_bytes=16 * 1024**2, maximum_metadata_bytes=(16 if expanded_merges else 8) * 1024**2,
-                    maximum_header_bytes=(16 if expanded_merges else 8) * 1024**2, **arguments, **merge_arguments, **identity)
-            assert receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type") + (("tokenizer.ggml.merges",) if include_merges else ())
-            assert receipt["metadata_verification"] == ("selected_typed_fast_rows_and_merges_match_file" if include_merges else "selected_typed_fast_rows_match_file")
+                    maximum_header_bytes=(16 if expanded_merges else 8) * 1024**2, **arguments, **merge_arguments, **policy_arguments, **identity)
+            if selected_fast:
+                assert len(receipt["metadata_names"]) == 30 and receipt["metadata_names"][0] == "general.architecture"
+                assert receipt["selected_fast_metadata_policy_version"] == 3
+            else:
+                assert receipt["metadata_names"] == ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type") + (("tokenizer.ggml.merges",) if include_merges else ())
+            assert receipt["metadata_verification"] == ("selected_typed_policy_source_fast_rows_and_merges_match_file" if selected_fast else
+                "selected_typed_fast_rows_and_merges_match_file" if include_merges else "selected_typed_fast_rows_match_file")
             assert receipt["source_row_verification"] == "selected_pinned_fast_wrapper_declarations_match_file"
             assert receipt["model_file_access"] == "retained_reader_filename_descriptor"
             assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
             if expanded_merges:
-                assert receipt["tokenizer_row_file_policy_version"] == 4 and receipt["bpe_merge_policy_version"] == 2
+                assert (receipt["selected_fast_metadata_policy_version"] == 3 if selected_fast else receipt["tokenizer_row_file_policy_version"] == 4)
+                assert receipt["bpe_merge_policy_version"] == 2
                 assert receipt["bpe_merge_count"] == len(merge_values) <= fixture["merge_row_cap"]
                 if not fixture["joint_policy"]:
                     assert len(merge_values) > 4096
@@ -6245,9 +6271,9 @@ def run_rows():
         report = dict(status="matched", phase=operation, token_rows=len(receipt["tokens"]),
             unused_rows=receipt["unassigned_profile_token_rows"], output_file_bytes=path.stat().st_size,
             output_file_sha256=identity["expected_file_sha256"], retained_file_hashes=len(hashes), maximum_read=max(reads),
-            metadata_records=3 if include_merges else 2, merge_contradictions=contradictions, merge_rows=len(merge_values))
-    assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in root.iterdir()) == ({"rows.gguf", "expected.json"} if native_joint else {"rows.gguf"})
-    expected_bytes = (root / "expected.json").stat().st_size if native_joint else 0
+            metadata_records=30 if selected_fast else 3 if include_merges else 2, merge_contradictions=contradictions, merge_rows=len(merge_values))
+    assert len(os.listdir("/proc/self/fd")) == descriptors and set(entry.name for entry in root.iterdir()) == ({"rows.gguf", "expected.json"} if native_joint or selected_fast else {"rows.gguf"})
+    expected_bytes = (root / "expected.json").stat().st_size if native_joint or selected_fast else 0
     report["expected_declaration_bytes"] = expected_bytes
     report["logical_source_copy_scratch_bytes"] = 2 * total + path.stat().st_size + expected_bytes + 16 * 1024**2 + 8192
     assert report["logical_source_copy_scratch_bytes"] < row_scratch_cap
@@ -6269,7 +6295,8 @@ finish_report(report)
 @pytest.mark.parametrize("mode", ["synthetic", "synthetic-merges", "synthetic-merges-intermediate", "synthetic-merges-full", "approved",
     "synthetic-merges-intermediate-refusals", "synthetic-merges-full-refusals",
     "synthetic-merges-intermediate-controls", "synthetic-merges-full-controls", "synthetic-joint", "approved-joint", "synthetic-joint-native",
-    "synthetic-merges-intermediate-native", "synthetic-merges-full-native", "synthetic-joint-native-controls", "synthetic-merges-full-native-controls"])
+    "synthetic-merges-intermediate-native", "synthetic-merges-full-native", "synthetic-joint-native-controls", "synthetic-merges-full-native-controls",
+    "synthetic-joint-selected"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6280,7 +6307,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     source, interpreter = _tokenizer_rows_diagnostic_environment("synthetic" if mode.startswith("synthetic") else mode)
     native_refusals = mode.endswith("-native-controls")
     native_joint = mode.endswith("-native") or native_refusals
-    base_mode = mode.removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls")
+    selected_fast = "-selected" in mode
+    base_mode = mode.removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected")
     if native_joint:
         runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
         if not runtime_build:
@@ -6320,13 +6348,18 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         inputs.mkdir()
         output.mkdir()
         if mode.startswith("synthetic"):
-            from test_inventory import _packaging_fixture
+            from test_inventory import _packaging_fixture, _prefill_model_policy_fixture
 
             metadata, _, record = _packaging_fixture()
+            if selected_fast:
+                metadata, record, headers = {}, {}, {}
+                _, _, manifest, _ = _prefill_model_policy_fixture(target="o", vocab_size=248320 if full_scale else 8193 if large_fixture else 32,
+                    metadata_output=metadata, headers_output=headers, record_output=record)
             config = json.loads(metadata["config.json"])
-            config["text_config"]["max_position_embeddings"] = 512
+            text_config = config.get("text_config", config)
+            text_config["max_position_embeddings"] = 512
             if large_fixture:
-                record["geometry"]["vocab_size"] = config["text_config"]["vocab_size"] = 248320 if full_scale else 8193
+                record["geometry"]["vocab_size"] = text_config["vocab_size"] = 248320 if full_scale else 8193
                 prefixes = [f"A{index:03d}" for index in range(120)]
                 suffixes = [f"B{index:04d}" for index in range(2048)]
                 pairs = [(prefix, suffix) for prefix in prefixes for suffix in suffixes][:(245760 if full_scale else 4097)]
@@ -6352,6 +6385,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                         "continuing_subword_prefix": None, "end_of_word_suffix": None, "fuse_unk": False,
                         "byte_fallback": False, "ignore_merges": False}}).encode(),
                 "vocab.json": json.dumps(vocabulary).encode(), "merges.txt": b"#version: 0.2\n"}
+            if selected_fast:
+                files["tokenizer_config.json"] = json.dumps({"tokenizer_class": "Qwen2Tokenizer", "clean_up_tokenization_spaces": False,
+                    "unk_token": "<pad>", "eos_token": "<pad>", "pad_token": "<pad>"}).encode()
             record["files"].update({name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for name, data in files.items()})
             local = root / "source"
             local.mkdir()
@@ -6370,10 +6406,17 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "row_source": row_source, "special_source": special_source, "include_merges": include_merges,
             "merge_version": 2 if expanded_merges else 1, "merge_rows": None if learned_joint else len(pairs) if large_fixture else 2 if include_merges else 0,
             "merge_row_cap": 262144 if joint_policy else len(pairs) if large_fixture else 4096,
-            "merge_faults": [] if native_joint or full_scale or refusal_mode or joint_policy or not include_merges else ["byte", "rank"],
-            "joint_policy": joint_policy, "learned_joint": learned_joint, "native_joint": native_joint,
+            "merge_faults": [] if selected_fast or native_joint or full_scale or refusal_mode or joint_policy or not include_merges else ["byte", "rank"],
+            "joint_policy": joint_policy, "learned_joint": learned_joint, "native_joint": native_joint, "selected_fast": selected_fast,
             "synthetic_refusals": refusal_mode, "unused_rows": 243 if full_scale or mode in ("approved", "approved-joint") else 2}
-        if learned_joint or native_joint:
+        if selected_fast:
+            from embedded_jev.inventory import build_inventory
+            from embedded_jev.model_profile import parse_model_profile
+
+            profile = parse_model_profile(profile_bytes)
+            fixture["composition"] = {"inventory": build_inventory({name: files[name] for name in profile.packaging["metadata_files"]}, headers, profile=profile),
+                "manifest": {**manifest, "profile_sha256": profile.sha256}}
+        if learned_joint or native_joint or selected_fast:
             fixture["sequence_deadline"] = started + 180
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
@@ -6388,7 +6431,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         for operation, proof_case in operations:
             phase_started = time.monotonic()
             payload = json.dumps({**fixture, "operation": operation, "proof_case": proof_case}).encode()
-            child_seconds = min(60, fixture["sequence_deadline"] - phase_started) if learned_joint or native_joint else 60
+            child_seconds = min(60, fixture["sequence_deadline"] - phase_started) if learned_joint or native_joint or selected_fast else 60
             assert child_seconds > 0
             result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env=env, maximum_seconds=child_seconds)
             assert result["returncode"] == 0, result["stderr"]
@@ -6396,7 +6439,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             print(json.dumps({**result, "tokenizer_rows_diagnostic": mode}))
             assert report["status"] == "matched", report
             assert time.monotonic() - phase_started < 180 and time.monotonic() - started < (180 if learned_joint else 600 - prior_sequence_seconds)
-            assert report["input_files"] == 10 and report["input_bytes"] == report["scratch_bytes"] < 32 * 1024**2
+            assert report["input_files"] == len(names) and report["input_bytes"] == report["scratch_bytes"] < 32 * 1024**2
             assert report["transformers"] == "5.12.1" and report["tokenizers"] == "0.22.2"
             assert result["observed_process_swap_bytes"] == 0 and result["observed_host_swap_bytes"] == result["host_swap_baseline_bytes"]
             baseline_swap = result["host_swap_baseline_bytes"] if baseline_swap is None else baseline_swap
@@ -6410,12 +6453,12 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             else:
                 assert report["token_rows"] == record["geometry"]["vocab_size"]
                 assert report["unused_rows"] == fixture["unused_rows"]
-                assert report["metadata_records"] == (3 if include_merges else 2)
+                assert report["metadata_records"] == (30 if selected_fast else 3 if include_merges else 2)
                 if fixture["merge_rows"] is None:
                     assert learned_joint and operation == "rows-emission" and 0 < report["merge_rows"] <= fixture["merge_row_cap"]
                     fixture["merge_rows"] = report["merge_rows"]
                 assert report["merge_rows"] == fixture["merge_rows"]
-                assert report["logical_scratch_cap_bytes"] == (128 if learned_joint or native_joint else 64 if expanded_merges else 128) * 1024**2
+                assert report["logical_scratch_cap_bytes"] == (128 if learned_joint or native_joint or selected_fast else 64 if expanded_merges else 128) * 1024**2
                 if operation == "rows-emission":
                     fixture["identity"] = {"expected_file_bytes": report["output_file_bytes"], "expected_file_sha256": report["output_file_sha256"]}
                     if mode.startswith("synthetic"):
