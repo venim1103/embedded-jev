@@ -52,6 +52,11 @@ records and their nested values are immutable; a canonical record SHA-256 binds
 the declarations independently of JSON formatting. This is provenance parsing,
 not a compatibility or quality claim.
 
+Profile strings must be UTF-8 encodable after JSON decoding, so escaped unpaired
+surrogates refuse even when the record's raw bytes are valid UTF-8. Valid Unicode
+is preserved without normalization; escaped and literal representations retain
+the same canonical identity.
+
 `profile_text_config()` also validates configuration value types: integer and
 boolean geometry fields must keep their declared types, MRoPE interleaving must
 be boolean, and MRoPE sections must be integers. Booleans are never numeric

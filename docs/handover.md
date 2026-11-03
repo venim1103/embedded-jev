@@ -6,6 +6,33 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Decoded Profile Unicode Repair (2026-11-03)
+
+Continued model-free CPU work after `98b309a`. Raw UTF-8 decoding did not reject
+unpaired surrogates introduced through JSON escapes; the shared `_string` helper
+accepted them in source identity, paths, token names, suffixes, control markers,
+native-policy declarations and evidence. It now requires UTF-8 encodability and
+raises the established `ProfileError` category with `UnicodeEncodeError` cause.
+No string normalization, canonical-hash changes for valid records, schema/budget
+changes, profile updates or model execution permissions.
+
+Reused the existing inventory profile fixture: sixteen high/low surrogate
+refusals across eight fields and two valid accented/supplementary Unicode
+controls, each comparing escaped/literal JSON canonical identity. Initial
+**16 failed, 2 passed, 1408 deselected, 2.00 s**; every failure was invalid input
+not raising `ProfileError`. After the local repair the same **18 passed,
+1408 deselected, 0.19 s**. Required root gate with all six learned and cached
+native opt-ins unset: **1690 passed, 192 skipped, 23.80 s**; Ruff, touched-file
+diagnostics and whitespace clean. Documentation checks ran separately; no
+unchanged successful source gate is rerun for documentation-only additions.
+
+Both repairs are parsing/preflight evidence only. No learned/cache model inputs,
+cached optional native gate, actual GPU, conversion, refit, download, install or
+host changes; all consumed approvals and earlier ledgers remain frozen. GPU
+testing remains deferred, and user `.vscode/` settings are untouched. Continue
+existing-scope model-free prerequisites; source-frozen native tokenizer checks
+still require a precise separate allowance. No P5-P7 or other-model execution.
+
 ## Non-Finite Template Evidence Repair (2026-11-03)
 
 Continued CPU-only model-free work from `6ee1ff2`, now at `origin/main`.

@@ -79,6 +79,10 @@ def _fields(value, names, where):
 def _string(value, where):
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise ProfileError(f"invalid profile string: {where}")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ProfileError(f"invalid profile string: {where}") from exc
     return value
 
 

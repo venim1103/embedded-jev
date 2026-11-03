@@ -255,6 +255,42 @@ def _profile_fixture():
     }
 
 
+@pytest.mark.parametrize("value", ["\ud800", "\udfff"])
+@pytest.mark.parametrize("field", ["model", "license", "path", "special", "suffix", "control", "native", "evidence"])
+def test_profile_strings_refuse_escaped_unpaired_surrogates(value, field):
+    from embedded_jev.model_profile import ProfileError
+
+    record = _profile_fixture()
+    if field in ("model", "license"):
+        record["source"][field] = value
+    elif field == "path":
+        record["files"][value + ".json"] = {"bytes": 2, "sha256": "0" * 64}
+    elif field == "special":
+        special = record["tokenization"]["special_token_ids"]
+        special[value] = special.pop(next(iter(special)))
+    elif field == "suffix":
+        record["tokenization"]["non_thinking_suffix"] = value
+    elif field == "control":
+        record["tokenization"]["control_markers"] = [value]
+    elif field == "native":
+        record["runtime"]["native_policy"] = value
+    else:
+        record["evidence"] = [value]
+    with pytest.raises(ProfileError, match="invalid profile string") as failure:
+        parse_model_profile(json.dumps(record).encode())
+    assert isinstance(failure.value.__cause__, UnicodeEncodeError)
+
+
+@pytest.mark.parametrize("model", ["example/Mod\u00e8le", "example/\U0001f680"])
+def test_profile_strings_preserve_valid_unicode_and_canonical_identity(model):
+    record = _profile_fixture()
+    record["source"]["model"] = model
+    escaped = parse_model_profile(json.dumps(record).encode())
+    literal = parse_model_profile(json.dumps(record, ensure_ascii=False).encode("utf-8"))
+    assert escaped.model == literal.model == model
+    assert escaped.sha256 == literal.sha256
+
+
 def _packaging_fixture(*, text_only=False, shard_name="model-1-of-1.safetensors", dtype="BF16", mtp="absent", stale_total=False):
     metadata, headers = _model_fixture()
     record = _profile_fixture()
