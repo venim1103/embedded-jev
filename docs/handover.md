@@ -6,6 +6,114 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Learned Native Oracle Proposal (2026-11-03)
+
+**Prepared only; NOT approved, implemented or executed.** Generated v7 source
+checkpoint `30c26b1` is committed/pushed. All six earlier learned approvals and
+their flags are consumed. User autonomy/unused v7 allowance do not renew them.
+The next useful evidence is one source-frozen MiMo tokenizer-only native oracle
+comparison, not another generated capacity run or a full-model conversion.
+
+Local hypothesis: the source-faithful typed rows/ranked merges and role-aware
+source wrapper can agree with the pinned native Qwen3.5 vocabulary on the exact
+38 selected source cases. Existing learned row/file and contextual checks are
+separate historical evidence, not this native comparison. Discriminating check:
+one frozen source-produced38-case oracle must match all native singleton,
+prompt and one-token continuation IDs; any mismatch refuses without fallback.
+
+Proposed approval covers versioned runner/native-policy implementation and
+generated safety controls, then **exactly one new learned parent invocation**.
+Use a new independent `MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED` opt-in; keep every
+older learned flag unset and unable to enable this route or vice versa. Commit
+the tested runner/native implementation before opening any learned input.
+Use a separate proposed `--mimo-tokenizer-oracle-control-v8`, with explicit
+tokenizer-only scope; never relax the generated v1-v7 revision policies or use
+the MiMo full-model execution/`--vocab-only` paths as fallback.
+
+Freeze the exact target and identity in controller and native policy:
+
+- Model: `XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B`.
+- Revision: `2367e865d009c13ac81713a2878291d33ab28177`.
+- Canonical profile: `1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a`.
+- Prism converter/runtime: `842b1880415d6f508f03b789e5ce70194def7bfd`.
+- Tokenizer JSON: `06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523`.
+- Source template: `59a64ebb4df6d1489d09a91267cf3ceb106162d4a893c4f84833cfb8c897ff63`.
+- Explicit role policy: three source-special end-of-text/turn-start/turn-end
+  entries, two ordinary `<think>`/`</think>` entries, unchanged source flags,
+  IDs248044/248045/248046/248068/248069 and role hash
+  `c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472`.
+- Labels A-P IDs32..47; fixed user content `A or B?`, source template and pinned
+  non-thinking rendering arguments, context ceiling256. Expect38 cases from
+  16 singletons, one prompt,16 continuations and five required tokens, not an
+  assumed prompt token array or a substitute template.
+
+Allowed learned inputs: only the profile's seven packaging metadata files plus
+`tokenizer.json`, `vocab.json` and `merges.txt`, all pinned by repository profile
+size/SHA-256. Use the existing cached
+`models/mimo-2367e865d009c13ac81713a2878291d33ab28177` directory. Recheck source
+and read-only disposable copies before/after use. Never open model shards,
+their headers, weights, raw activations, another model or repository Python
+model/processing code. Reuse pinned installed libraries/local-only wrapper;
+no dependency/model/source download, `trust_remote_code`, GPU or network access.
+
+Stat-only prerequisites verified after `30c26b1`: all ten entries regular and
+expected-size, **30144444 B per source set**, cached CPU converter/source/native
+executable present. First stat probe failed on nonexistent `source_revision`
+accessor before cache access; actual `ModelProfile.revision` repaired it. No
+learned file opened/hashed. Linux free disk **382656778240 B**, time-sensitive,
+not host/Windows storage or next-job memory proof. Preflight must recheck pins,
+selected environments, available RAM/swap/disk and clean source before execution.
+
+The proposed output is a disposable **zero-tensor tokenizer scaffold**, not a
+model conversion/PTQ source. Use source-faithful rows and complete ranked merges,
+source-produced oracle, separately supplied expected profile and strict pinned
+identity/tag policy. Scaffold-only metadata mapping is explicitly end-of-text
+for pad/unknown, turn-start for BOS and turn-end for EOS, all declared source-
+special; it is not an assertion about absent/default model tokenizer settings.
+Disable added BOS/EOS. Native loading stops at the external vocabulary, with
+no model/backend/tensor-data allocation or native template rendering. Oracle
+UTF-8 and role-hash ASCII escaping remain distinct. Generated consumer controls
+are mock declarations, not learned/source-wrapper/profile acceptance evidence.
+
+Reuse the existing path-only guard, read-only copy/pin/audit/FD checks and
+serial phase workers. Bound the entire learned parent at **180 s**, each child
+at **60 s**, including copy, row/merge emission, source oracle and native check.
+Release emission/reader/token collections before source wrapper preparation;
+do not retain duplicate full vocabularies just to bridge phases. Observed owned
+group RSS/summed high-water <=2 GiB, available host reserve >=2 GiB, no worker/
+group swap or host-swap growth. If strict guards refuse, stop, do not rebaseline
+or retry. Stdin/envelope/oracle <=64 KiB, stdout/stderr <=8 KiB each, JSON
+depth<=5, case IDs<=64, text<=16 KiB each/64 KiB aggregate; rows248320,
+merges<=262144, independent row/merge content<=4 MiB. Proposed v8-only row/
+merge strings<=4096 B match the existing source declaration bound; v1-v7
+retain64 B. Required-token/label declaration text remains<=64 B. This is an
+explicit proposed policy distinction, not evidence of learned maximum length.
+Source/copy <=32 MiB each, GGUF/temporary file or spool<=16 MiB each, logical
+scratch<=128 MiB. Conservative source+copy+three16 MiB buffers+64 KiB report
+reservation **110686072 B**, not measured RSS. No retained candidate/artifact.
+
+Proposed **new 600 s execution ceiling**, separate from frozen v7/older ledgers:
+90 s observed CMake Tools loader-target build,100 s generated identity/role/
+lexical/approval/refusal checks,60 s focused legacy compatibility,40 s required
+source gate,180 s single learned invocation and130 s focused repairs/setup/
+review/docs/cleanup. Target-only cached Release/Ninja/clang++-18/two jobs,
+no unrelated dependency rebuild. If preparation exceeds its allowance, ask;
+do not borrow the180 s one-shot reservation or enlarge existing deadlines.
+
+Consume the new one-shot approval on the first actual invocation regardless of
+semantic/resource failure or unknown interrupted outcome. No automatic second
+learned diagnostic, tag search, source-row normalization change, refit or artifact
+promotion. Verify and delete all temporary inputs/oracle/GGUF/spill/owned workers;
+retain only a small identity/count/refusal/resource report outside Git and a
+non-sensitive handover summary. Do not publish learned prompt/token arrays.
+Native selected-case agreement is not issuer/source-file authentication,
+arbitrary Unicode/full-vocabulary parity, native rendering, model compatibility,
+BitNet dispatch, quality, calibrated confidence or device readiness. A refusal
+is useful evidence and remains a refusal.
+
+**Next action: ask explicit approval for this policy/runner plus exactly one
+learned invocation and the new600 s ceiling. No v8 edit/build/read yet.**
+
 ## Generated Qwen3.5 Role And Case Checkpoint (2026-11-03)
 
 Continued after `79fdcc8` within a separately disclosed model-free **600 s
