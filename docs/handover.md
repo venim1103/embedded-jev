@@ -6,6 +6,26 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Pinned Added-Row Classifier Correction (2026-11-03)
+
+A tooling-only static read of pinned Prism `conversion/base.py` at
+`842b1880415d6f508f03b789e5ce70194def7bfd` falsified the proposed NORMAL fixture
+route below. `TextModel.get_vocab_base` emits CONTROL or USER_DEFINED for any
+token in the wrapper's added-vocabulary map, including one also in base vocab;
+NORMAL is the other branch. The existing toy ordinary marker is already in both
+maps. Changing base membership or normalization alone cannot establish a
+source-faithful NORMAL row through this producer. No native probe was attempted.
+
+The NORMAL role-matrix case remains valid mocked API coverage, but is not evidence
+of a reachable pinned producer path or of the learned thinking-marker row type.
+The prospective NORMAL native scope below is **not justified by that unit case**
+and is not being implemented or requested. The development reference now makes
+this distinction explicit. Cached build settings read as Release/Ninja/clang++-18
+with ld.lld-18; this is configuration inspection, not a rebuild or runtime check.
+Next useful native work is source-frozen tokenizer equivalence under its own
+specific allowance, not a manufactured row rewrite. All learned approvals remain
+consumed; GPU work stays deferred. No learned/model input, install or download ran.
+
 ## CPU Role Row Boundary Checkpoint (2026-11-03)
 
 Reused the ordinary-role matrix in `tests/test_inventory.py` to add its missing

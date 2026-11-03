@@ -3297,6 +3297,14 @@ row). Missing/extra/unknown roles refuse; no role inference or flag/row mutation
 Both require unchanged source/selected spelling and ID plus single-ID standalone
 encoding. Declared labels retain independent unchanged/non-special checks.
 
+The pinned Prism `conversion/base.py::TextModel.get_vocab_base` classifies every
+token present in the wrapper's `get_added_vocab()` as CONTROL (source-special or
+its spelling heuristic) or USER_DEFINED. NORMAL is used only outside that map;
+presence in the base vocabulary does not change this branch. The role API's
+NORMAL allowance is therefore not evidence that this pinned producer emits a
+NORMAL ordinary-added row. Keep producer reachability, mocked role validation
+and native equivalence separate; never rewrite a row type to manufacture a path.
+
 Budgets match standalone v2: rows default4096/ceiling262144, independent
 content default64 KiB/ceiling4 MiB, declarations default64/ceiling4096,
 cooperative seconds default30/ceiling60; strict bool/range/deadline checks.
