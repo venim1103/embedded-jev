@@ -5739,6 +5739,7 @@ selected_fast = fixture.get("selected_fast", False)
 standalone_contract = fixture.get("standalone_contract", False)
 context_contract = fixture.get("context_contract", False)
 native_vocab = fixture.get("native_vocab", False)
+vocab_large = fixture.get("vocab_large", False)
 large_context = fixture.get("large_context", False)
 token_roles_contract = fixture.get("token_roles_contract", False)
 role_context = fixture.get("role_context", False)
@@ -5786,10 +5787,15 @@ if large_context:
 if token_roles_contract:
     assert standalone_contract and profile.profile_id == "synthetic-profile" and profile.geometry["vocab_size"] == 32
     assert total <= 65536 and not any((context_contract, native_vocab, learned_joint, learned_context))
-row_scratch_cap = (128 if learned_context or learned_role_context else 16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
+row_scratch_cap = (128 if vocab_large or learned_context or learned_role_context else 16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 if native_vocab:
-    assert standalone_contract and profile.geometry["vocab_size"] == (261 if fixture.get("vocab_roles", False) else 260) and total <= 65536
-    assert 2 * total + 3 * 256 * 1024 + 65536 + 8192 < row_scratch_cap
+    assert standalone_contract
+    if vocab_large:
+        assert type(vocab_large) is bool and fixture["vocab_roles"] and profile.geometry["vocab_size"] in (8193, 248320)
+        assert 2 * total + 3 * 16 * 1024**2 + 65536 + 8192 < row_scratch_cap
+    else:
+        assert profile.geometry["vocab_size"] == (261 if fixture.get("vocab_roles", False) else 260) and total <= 65536
+        assert 2 * total + 3 * 256 * 1024 + 65536 + 8192 < row_scratch_cap
 else:
     assert (2 * total + 2 * 16 * 1024**2 + 8192 < row_scratch_cap if row_mode else 2 * total + 8192 < 64 * 1024**2)
 if (native_joint or selected_fast or standalone_contract) and not native_vocab:
@@ -5805,6 +5811,8 @@ if row_mode:
     allowed_gguf_paths = set() if learned_context or learned_role_context else {output_path}
     if native_vocab and fixture.get("vocab_controls", False):
         allowed_gguf_paths.add(Path(fixture["output"]) / "tensor-fault.gguf")
+        if vocab_large:
+            allowed_gguf_paths.update(Path(fixture["output"]) / name for name in ("vocab-limit-rows.gguf", "vocab-limit-content.gguf"))
 
     def row_audit(event, args):
         if (learned_context or learned_role_context) and event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
@@ -6486,30 +6494,33 @@ def run_rows():
         from tokenizers import Tokenizer
 
         vocab_roles = fixture.get("vocab_roles", False)
+        vocab_count = profile.geometry["vocab_size"]
+        marker_id = profile.tokenization["special_token_ids"].get("<marker>", 0)
+        file_cap = 16 * 1024**2 if vocab_large else 256 * 1024
         assert operation == "rows-contract" and not list(root.iterdir())
-        arguments["maximum_token_content_bytes"] = 65536
-        remaining = lambda: min(30, fixture["sequence_deadline"] - time.monotonic())
+        arguments["maximum_token_content_bytes"] = 4 * 1024**2 if vocab_large else 65536
+        remaining = lambda: min(60 if vocab_large else 30, fixture["sequence_deadline"] - time.monotonic())
         with library_diagnostics():
             role_arguments = {"token_roles": {text: "ordinary_added_marker" if text == "<marker>" else "source_special"
                 for text in profile.tokenization["special_token_ids"]}} if vocab_roles else {}
             prepare_standalone = prism_codec.prepare_profile_model_fast_token_role_contract_v1 if vocab_roles else prism_codec.prepare_profile_model_fast_tokenizer_contract_v2
             standalone = prepare_standalone(profile, **arguments, **role_arguments, maximum_seconds=remaining())
-            contextual_arguments = {key: value for key, value in arguments.items() if key not in ("maximum_vocabulary_rows", "maximum_token_content_bytes")}
+            contextual_arguments = dict(arguments) if vocab_large else {key: value for key, value in arguments.items() if key not in ("maximum_vocabulary_rows", "maximum_token_content_bytes")}
             try:
                 prepare_context = prism_codec.prepare_profile_model_fast_context_contract_v5 if vocab_roles else prism_codec.prepare_profile_model_fast_context_contract_v3
                 context = prepare_context(profile, **contextual_arguments, **role_arguments,
-                    messages=[{"role": "user", "content": "B"}], maximum_seconds=min(12, remaining()))
+                    messages=[{"role": "user", "content": "B"}], maximum_seconds=min(60 if vocab_large else 12, remaining()))
             except ValueError as exc:
                 assert fixture["vocab_merge"] and str(exc) == "contextual fast contract boundary refused"
                 assert isinstance(exc.__cause__, LabelProbeError) and str(exc.__cause__) == "A does not extend the exact prompt by one token"
             else:
                 assert not fixture["vocab_merge"] and context["prompt_token_count"] == (3 if vocab_roles else 2)
                 if vocab_roles:
-                    assert context["ordinary_marker_token_ids"] == {"<marker>": 260}
+                    assert context["ordinary_marker_token_ids"] == {"<marker>": marker_id}
                     assert context["wrapper_token_roles_verification"] == "before_and_after_contextual_encoding"
             writer = gguf.GGUFWriter(str(path), arch="gpt2")
             rows, merges, _ = prism_codec._prepare_profile_fast_tokenizer_rows_and_merges(profile, **arguments,
-                merge_policy_version=2, merge_policy="pinned_prism_ranked_source_merges_v2", maximum_merge_rows=16, maximum_merge_content_bytes=65536)
+                merge_policy_version=2, merge_policy="pinned_prism_ranked_source_merges_v2", maximum_merge_rows=16, maximum_merge_content_bytes=4 * 1024**2 if vocab_large else 65536)
             records = [*prism_codec._profile_fast_tokenizer_row_records(rows), merges]
             for record in records:
                 writer.add_array(record["name"], list(record["values"]))
@@ -6538,7 +6549,42 @@ def run_rows():
                 tensor_writer.write_kv_data_to_file()
                 tensor_writer.write_tensors_to_file()
                 tensor_writer.close()
-                assert 0 < (root / "tensor-fault.gguf").stat().st_size <= 256 * 1024
+                assert 0 < (root / "tensor-fault.gguf").stat().st_size <= file_cap
+                if vocab_large:
+                    for limit_name, limit_count in (("rows", 262145), ("content", 262144)):
+                        original_tokens, original_types = list(records[0]["values"]), list(records[1]["values"])
+                        if limit_name == "rows":
+                            limit_tokens = original_tokens + [f"cap{number:06d}" for number in range(limit_count - len(original_tokens))]
+                        else:
+                            limit_tokens = [f"content{number:010d}" for number in range(limit_count)]
+                            limit_tokens[:258] = original_tokens[:258]
+                            for token_id in source_special.values():
+                                limit_tokens[token_id] = original_tokens[token_id]
+                        limit_types = original_types + [1] * (limit_count - len(original_types))
+                        content_bytes = sum(len(token.encode("utf-8")) for token in limit_tokens)
+                        assert len(limit_tokens) == len(limit_types) == limit_count
+                        assert max(len(token.encode("utf-8")) for token in limit_tokens) <= 64
+                        assert (content_bytes > 4 * 1024**2) is (limit_name == "content")
+                        limit_writer = gguf.GGUFWriter(str(root / f"vocab-limit-{limit_name}.gguf"), arch="gpt2")
+                        limit_writer.kv_data = copy.deepcopy(writer.kv_data)
+                        for token_record, values in zip(records[:2], (limit_tokens, limit_types), strict=True):
+                            del limit_writer.kv_data[0][token_record["name"]]
+                            limit_writer.add_array(token_record["name"], values)
+                        limit_writer.write_header_to_file()
+                        limit_writer.write_kv_data_to_file()
+                        limit_writer.write_tensors_to_file()
+                        limit_writer.close()
+                        limit_path = root / f"vocab-limit-{limit_name}.gguf"
+                        assert 0 < limit_path.stat().st_size <= 8 * 1024**2
+                        limit_reader = gguf.GGUFReader(limit_path)
+                        try:
+                            assert not limit_reader.tensors
+                            assert set(limit_reader.fields) == {"GGUF.version", "GGUF.tensor_count", "GGUF.kv_count"} | set(writer.kv_data[0])
+                            assert len(limit_reader.get_field("tokenizer.ggml.tokens").contents()) == limit_count
+                            assert len(limit_reader.get_field("tokenizer.ggml.token_type").contents()) == limit_count
+                        finally:
+                            limit_reader.data._mmap.close()
+                        del limit_writer, limit_tokens, limit_types, original_tokens, original_types
             reader = gguf.GGUFReader(str(path))
             try:
                 assert not reader.tensors
@@ -6554,7 +6600,7 @@ def run_rows():
                     if name == "tokenizer.ggml.token_type":
                         fault_offsets[name]["subtype"] = field.parts[3].__array_interface__["data"][0] - base_address
                     if name == "tokenizer.ggml.tokens" and vocab_roles:
-                        fault_offsets[name]["marker"] = field.parts[field.data[260]].__array_interface__["data"][0] - base_address
+                        fault_offsets[name]["marker"] = field.parts[field.data[marker_id]].__array_interface__["data"][0] - base_address
             finally:
                 reader.data._mmap.close()
             source_tokenizer = Tokenizer.from_str(arguments["tokenizer_bytes"].decode())
@@ -6563,16 +6609,16 @@ def run_rows():
             if vocab_roles:
                 texts.append("<marker>")
             expected = {"token_ids": [source_tokenizer.encode(text, add_special_tokens=False).ids for text in texts],
-                "special_ids": [258, 259], "boundary_refusal": fixture["vocab_merge"]}
+                "special_ids": [source_special["<pad>"], source_special["<|control|>"]], "boundary_refusal": fixture["vocab_merge"]}
             if vocab_roles:
-                expected["ordinary_marker_id"] = 260
-                assert standalone["ordinary_marker_token_ids"] == {"<marker>": 260}
+                expected["ordinary_marker_id"] = marker_id
+                assert standalone["ordinary_marker_token_ids"] == {"<marker>": marker_id}
             (root / "expected.json").write_text(json.dumps(expected))
-        assert len(standalone["tokens"]) == (261 if vocab_roles else 260) and len(os.listdir("/proc/self/fd")) == descriptors
-        assert 0 < path.stat().st_size <= 256 * 1024 and (root / "expected.json").stat().st_size <= 65536
-        logical = 2 * total + path.stat().st_size + (root / "expected.json").stat().st_size + 3 * 256 * 1024 + 65536 + 8192
+        assert len(standalone["tokens"]) == vocab_count and len(os.listdir("/proc/self/fd")) == descriptors
+        assert 0 < path.stat().st_size <= file_cap and (root / "expected.json").stat().st_size <= 65536
+        logical = 2 * total + path.stat().st_size + (root / "expected.json").stat().st_size + 3 * file_cap + 65536 + 8192
         assert logical < row_scratch_cap and time.monotonic() < fixture["sequence_deadline"]
-        return dict(status="matched", phase=operation, token_rows=261 if vocab_roles else 260, contextual_refusal=fixture["vocab_merge"],
+        return dict(status="matched", phase=operation, token_rows=vocab_count, contextual_refusal=fixture["vocab_merge"],
             fault_offsets=fault_offsets,
             output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
             logical_source_copy_scratch_bytes=logical, logical_scratch_cap_bytes=row_scratch_cap)
@@ -6817,7 +6863,9 @@ finish_report(report)
     "synthetic-joint-vocab-roles", "synthetic-joint-vocab-roles-merge", "synthetic-joint-vocab-roles-controls",
     "synthetic-merges-intermediate-context-v4", "synthetic-merges-full-context-v4", "synthetic-joint-roles",
     "synthetic-joint-context-roles", "synthetic-joint-context-roles-merge",
-    "synthetic-merges-intermediate-context-v5", "synthetic-merges-full-context-v5"])
+    "synthetic-merges-intermediate-context-v5", "synthetic-merges-full-context-v5",
+    "synthetic-joint-vocab-roles-medium-v3", "synthetic-joint-vocab-roles-full-v3",
+    "synthetic-joint-vocab-roles-full-controls-v3"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6834,12 +6882,16 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     context_refusal = mode.endswith("-context-merge") or role_context and mode.endswith("-merge")
     native_vocab = "-vocab" in mode
     vocab_roles = "-vocab-roles" in mode
-    vocab_controls = native_vocab and mode.endswith("-controls")
+    vocab_large = native_vocab and mode.endswith("-v3")
+    vocab_count = (8193 if "-medium-" in mode else 248320) if vocab_large else 261 if vocab_roles else 260
+    vocab_controls = native_vocab and mode.endswith(("-controls", "-controls-v3"))
     vocab_merge = mode.endswith(("-vocab-merge", "-vocab-roles-merge"))
     large_context = mode.endswith(("-context-v4", "-context-v5"))
     token_roles_contract = mode == "synthetic-joint-roles"
     standalone_contract = mode.endswith("-contract") or context_contract or native_vocab or token_roles_contract
     base_mode = mode.removesuffix("-context-roles-merge").removesuffix("-context-roles").removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected").removesuffix("-contract").removesuffix("-context-merge").removesuffix("-context").removesuffix("-vocab-roles-merge").removesuffix("-vocab-roles").removesuffix("-vocab-merge").removesuffix("-vocab").removesuffix("-context-v4").removesuffix("-context-v5").removesuffix("-roles")
+    if vocab_large:
+        base_mode = "synthetic-joint"
     if native_joint or native_vocab:
         runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
         if not runtime_build:
@@ -6929,23 +6981,28 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 alphabet_function = next(node for node in ast.parse(vocab_bytes).body if isinstance(node, ast.FunctionDef) and node.name == "bytes_to_unicode")
                 alphabet_namespace = {}
                 exec(compile(ast.Module(body=[alphabet_function], type_ignores=[]), "<pinned-byte-alphabet>", "exec"), alphabet_namespace)
-                tokens = list(alphabet_namespace["bytes_to_unicode"]().values()) + ["AA", "BB", "<pad>", "<|control|>"]
+                tokens = list(alphabet_namespace["bytes_to_unicode"]().values()) + ["AA", "BB"]
+                if vocab_large:
+                    tokens.extend(f"jev{number:06d}" for number in range(vocab_count - 261))
+                tokens.extend(["<pad>", "<|control|>"])
                 if vocab_roles:
                     tokens.append("<marker>")
-                assert len(tokens) == len(set(tokens)) == (261 if vocab_roles else 260)
+                assert len(tokens) == len(set(tokens)) == vocab_count
                 vocabulary = {token: index for index, token in enumerate(tokens)}
                 record["geometry"]["vocab_size"] = text_config["vocab_size"] = len(tokens)
                 record["tokenization"]["label_token_ids"] = {label: vocabulary[label] for label in "ABCDEFGHIJKLMNOP"}
-                record["tokenization"]["special_token_ids"] = {"<pad>": 258, "<|control|>": 259}
+                pad_id, control_id = vocabulary["<pad>"], vocabulary["<|control|>"]
+                record["tokenization"]["special_token_ids"] = {"<pad>": pad_id, "<|control|>": control_id}
                 record["tokenization"]["non_thinking_suffix"] = "A"
                 metadata[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}A"
                 added = [{"id": index, "content": tokens[index], "single_word": False, "lstrip": False, "rstrip": False,
-                    "normalized": False, "special": True} for index in (258, 259)]
+                    "normalized": False, "special": True} for index in (pad_id, control_id)]
                 if vocab_roles:
-                    record["tokenization"]["special_token_ids"]["<marker>"] = 260
+                    marker_id = vocabulary["<marker>"]
+                    record["tokenization"]["special_token_ids"]["<marker>"] = marker_id
                     record["tokenization"]["non_thinking_suffix"] = "<marker>A"
                     metadata[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}<marker>A"
-                    added.append({"id": 260, "content": "<marker>", "single_word": False, "lstrip": False, "rstrip": False,
+                    added.append({"id": marker_id, "content": "<marker>", "single_word": False, "lstrip": False, "rstrip": False,
                         "normalized": False, "special": False})
                 fixture_merges = ["B B"] + (["A A"] if vocab_merge else [])
             files = {**metadata, "config.json": json.dumps(config).encode(),
@@ -6992,6 +7049,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "standalone_contract": standalone_contract,
             "context_contract": context_contract, "context_refusal": context_refusal,
             "native_vocab": native_vocab, "vocab_merge": vocab_merge, "vocab_roles": vocab_roles,
+            "vocab_large": vocab_large,
             "large_context": large_context,
             "token_roles_contract": token_roles_contract,
             "role_context": role_context,
@@ -7005,7 +7063,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             fixture["composition"] = {"inventory": build_inventory({name: files[name] for name in profile.packaging["metadata_files"]}, headers, profile=profile),
                 "manifest": {**manifest, "profile_sha256": profile.sha256}}
         if learned_joint or native_joint or selected_fast or standalone_contract:
-            fixture["sequence_deadline"] = started + (20 if token_roles_contract else 70 if large_context else 60 if native_vocab else 12 if context_contract else 60 if standalone_contract else 180)
+            fixture["sequence_deadline"] = started + (90 if vocab_large else 20 if token_roles_contract else 70 if large_context else 60 if native_vocab else 12 if context_contract else 60 if standalone_contract else 180)
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0",
             "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py")))}
@@ -7020,9 +7078,10 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
         for operation, proof_case in operations:
             phase_started = time.monotonic()
             payload = json.dumps({**fixture, "operation": operation, "proof_case": proof_case}).encode()
-            child_seconds = min(15 if token_roles_contract else 30 if native_vocab else 60, fixture["sequence_deadline"] - phase_started) if learned_joint or native_joint or selected_fast or standalone_contract else 60
+            child_seconds = min(60 if vocab_large else 15 if token_roles_contract else 30 if native_vocab else 60, fixture["sequence_deadline"] - phase_started) if learned_joint or native_joint or selected_fast or standalone_contract else 60
             assert child_seconds > 0
-            result = _run_tokenizer_only_guard_v2(interpreter, code, payload, env=env, maximum_seconds=child_seconds)
+            guard = _run_tokenizer_only_guard_v3 if vocab_large else _run_tokenizer_only_guard_v2
+            result = guard(interpreter, code, payload, env=env, maximum_seconds=child_seconds)
             assert result["returncode"] == 0, result["stderr"]
             report = json.loads(result["stdout"])
             print(json.dumps({**result, "tokenizer_rows_diagnostic": mode}))
@@ -7045,9 +7104,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 reports.append(report)
                 continue
             if operation == "rows-contract" and native_vocab:
-                assert report["token_rows"] == (261 if vocab_roles else 260) and report["contextual_refusal"] == vocab_merge
-                assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == 16 * 1024**2
-                assert (output / "rows.gguf").stat().st_size == report["output_file_bytes"] <= 256 * 1024
+                assert report["token_rows"] == vocab_count and report["contextual_refusal"] == vocab_merge
+                assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == (128 if vocab_large else 16) * 1024**2
+                assert (output / "rows.gguf").stat().st_size == report["output_file_bytes"] <= (16 * 1024**2 if vocab_large else 256 * 1024)
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
                 reports.append(report)
                 continue
@@ -7115,14 +7174,20 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             if vocab_controls:
                 tensor_fault = (output / "tensor-fault.gguf").read_bytes()
                 (output / "tensor-fault.gguf").unlink()
+                limit_faults = {}
+                if vocab_large:
+                    for name in ("rows", "content"):
+                        limit_path = output / f"vocab-limit-{name}.gguf"
+                        limit_faults[name] = limit_path.read_bytes()
+                        limit_path.unlink()
             execute = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
-            vocab_command = "--synthetic-vocab-control-v2" if vocab_roles else "--synthetic-vocab-control-v1"
+            vocab_command = "--synthetic-vocab-control-v3" if vocab_large else "--synthetic-vocab-control-v2" if vocab_roles else "--synthetic-vocab-control-v1"
             arguments = [str(executable), vocab_command, str(path), str(expected_path)]
-            native = _run_tokenizer_only_guard_v2(sys.executable, execute, json.dumps(arguments).encode(), env=env,
-                maximum_seconds=min(30, fixture["sequence_deadline"] - time.monotonic()))
+            native = guard(sys.executable, execute, json.dumps(arguments).encode(), env=env,
+                maximum_seconds=min(60 if vocab_large else 30, fixture["sequence_deadline"] - time.monotonic()))
             assert native["returncode"] == 0, native
             assert json.loads(native["stdout"]) == {"checked_strings": 36 if vocab_roles else 35,
-                "policy_version": 2 if vocab_roles else 1, "token_rows": 261 if vocab_roles else 260,
+                "policy_version": 3 if vocab_large else 2 if vocab_roles else 1, "token_rows": vocab_count,
                 **({"ordinary_marker_verified": True} if vocab_roles else {}),
                 "contextual_refusal": vocab_merge, "model_loaded": False, "backend_initialized": False, "tensor_data_allocated": False}
             assert tuple(vocabulary_file_identity(entry) for entry in (path, expected_path)) == original_stats
@@ -7137,6 +7202,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
 
                 original_file, original_expected = path.read_bytes(), expected_path.read_bytes()
                 expected = json.loads(original_expected)
+                pad_id, control_id = expected["special_ids"]
+                marker_id = expected.get("ordinary_marker_id", control_id + 1)
                 offsets = reports[-1]["fault_offsets"]
                 descriptor_count = len(os.listdir("/proc/self/fd"))
                 refusals = 0
@@ -7145,13 +7212,13 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     assert (expected_bytes is None) != (gguf_bytes is None)
                     fault_path = output / ("vocab-fault.json" if expected_bytes is not None else "vocab-fault.gguf")
                     fault_bytes = expected_bytes if expected_bytes is not None else gguf_bytes
-                    assert 0 < len(fault_bytes) <= (65536 if expected_bytes is not None else 256 * 1024)
+                    assert 0 < len(fault_bytes) <= (65536 if expected_bytes is not None else 16 * 1024**2 + 1 if vocab_large else 256 * 1024)
                     fault_path.write_bytes(fault_bytes)
                     try:
                         command = [str(executable), command_name or vocab_command,
                             str(path if expected_bytes is not None else fault_path), str(fault_path if expected_bytes is not None else expected_path)]
-                        refused = _run_tokenizer_only_guard_v2(sys.executable, execute, json.dumps(command).encode(), env=env,
-                            maximum_seconds=min(30, fixture["sequence_deadline"] - time.monotonic()))
+                        refused = guard(sys.executable, execute, json.dumps(command).encode(), env=env,
+                            maximum_seconds=min(60 if vocab_large else 30, fixture["sequence_deadline"] - time.monotonic()))
                         assert refused["returncode"] == status and not refused["stdout"], refused
                         assert refused["host_swap_baseline_bytes"] == baseline_swap
                     finally:
@@ -7164,11 +7231,11 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 for defect in ("bool-token", "negative-token", "range-token", "wrong-token", "duplicate-special", "wrong-special", "boundary", "count", "unknown"):
                     changed = copy.deepcopy(expected)
                     if defect.endswith("token"):
-                        changed["token_ids"][0][0] = {"bool-token": True, "negative-token": -1, "range-token": 261 if vocab_roles else 260, "wrong-token": expected["token_ids"][1][0]}[defect]
+                        changed["token_ids"][0][0] = {"bool-token": True, "negative-token": -1, "range-token": vocab_count, "wrong-token": expected["token_ids"][1][0]}[defect]
                     elif defect == "duplicate-special":
-                        changed["special_ids"] = [258, 258]
+                        changed["special_ids"] = [pad_id, pad_id]
                     elif defect == "wrong-special":
-                        changed["special_ids"] = [1, 259]
+                        changed["special_ids"] = [1, control_id]
                     elif defect == "boundary":
                         changed["boundary_refusal"] = True
                     elif defect == "count":
@@ -7181,7 +7248,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 for name, replacement, member, status in (
                     ("tokenizer.ggml.model", b"none", "value", 42),
                     ("tokenizer.ggml.pre", b"bad-0", "value", 42),
-                    ("tokenizer.ggml.unknown_token_id", struct.pack("<I", 260), "value", 42),
+                    ("tokenizer.ggml.unknown_token_id", struct.pack("<I", marker_id), "value", 42),
                     ("tokenizer.ggml.add_bos_token", b"\x01", "value", 42),
                     ("tokenizer.ggml.add_bos_token", struct.pack("<I", 0), "kind", 41),
                     ("tokenizer.ggml.token_type", struct.pack("<I", 4), "subtype", 41),
@@ -7191,7 +7258,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     changed[offset:offset + len(replacement)] = replacement
                     refuse_vocab(gguf_bytes=bytes(changed), status=status)
                 changed = bytearray(original_file)
-                offset = offsets["tokenizer.ggml.token_type"]["value"] + 258 * 4
+                offset = offsets["tokenizer.ggml.token_type"]["value"] + pad_id * 4
                 changed[offset:offset + 4] = struct.pack("<i", 1)
                 refuse_vocab(gguf_bytes=bytes(changed), status=42)
                 refuse_vocab(gguf_bytes=tensor_fault, status=41)
@@ -7207,12 +7274,12 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                             changed["token_ids"][17][-1] = changed["token_ids"][1][0]
                         else:
                             changed["ordinary_marker_id"] = {"bool-marker": True, "negative-marker": -1,
-                                "range-marker": 261, "wrong-marker": expected["token_ids"][0][0], "colliding-marker": 258}[defect]
+                                "range-marker": vocab_count, "wrong-marker": expected["token_ids"][0][0], "colliding-marker": pad_id}[defect]
                         refuse_vocab(expected_bytes=json.dumps(changed).encode(), status=44 if defect.endswith("oracle") else
                             42 if defect in ("wrong-marker", "colliding-marker") else 40)
                     for token_type in (1, 3, 5):
                         changed = bytearray(original_file)
-                        offset = offsets["tokenizer.ggml.token_type"]["value"] + 260 * 4
+                        offset = offsets["tokenizer.ggml.token_type"]["value"] + marker_id * 4
                         changed[offset:offset + 4] = struct.pack("<i", token_type)
                         refuse_vocab(gguf_bytes=bytes(changed), status=42)
                     changed = bytearray(original_file)
@@ -7223,8 +7290,14 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     changed = copy.deepcopy(expected)
                     del changed["ordinary_marker_id"]
                     changed["token_ids"].pop()
-                    refuse_vocab(expected_bytes=json.dumps(changed).encode(), status=41, command_name="--synthetic-vocab-control-v1")
-                assert refusals == (33 if vocab_roles else 19) and time.monotonic() < fixture["sequence_deadline"]
+                    refuse_vocab(expected_bytes=json.dumps(changed).encode(), status=40 if vocab_large else 41, command_name="--synthetic-vocab-control-v1")
+                if vocab_large:
+                    refuse_vocab(expected_bytes=original_expected, status=40, command_name="--synthetic-vocab-control-v2")
+                    for name in ("rows", "content"):
+                        refuse_vocab(gguf_bytes=limit_faults[name], status=41)
+                    refuse_vocab(gguf_bytes=original_file + bytes(16 * 1024**2 + 1 - len(original_file)), status=40)
+                    limit_faults.clear()
+                assert refusals == (37 if vocab_large else 33 if vocab_roles else 19) and time.monotonic() < fixture["sequence_deadline"]
                 print(json.dumps({"synthetic_vocab_refusals": refusals, "original_files_preserved": True, "all_fault_copies_removed": True}))
         if native_joint:
             import struct

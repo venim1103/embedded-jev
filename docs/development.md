@@ -3495,6 +3495,42 @@ for commands/results, resource/failure/cleanup/warning evidence and pause.
 This does not transfer toy USER_DEFINED behavior to MiMo thinking markers or
 authorize another learned/native model experiment.
 
+`--synthetic-vocab-control-v3` is the separately versioned generated capacity
+contract. It reuses the same external zero-tensor loader and v2 role/oracle
+checks, allowing only v3 to increase rows to 262144, GGUF size to 16 MiB and
+independent token/merge content to 4 MiB. Exact twelve typed toy metadata fields,
+<=16 merges, <=64 UTF-8 bytes/string, strict <=64 KiB/depth-four/four-field JSON,
+36 strings and <=64 IDs/string remain unchanged. V1/v2 keep their old bounds
+and receipts. It does not construct a model, initialize a backend/runtime or
+allocate tensor data, and is not the historical `--vocab-only` path.
+
+Use `synthetic-joint-vocab-roles-medium-v3`,
+`synthetic-joint-vocab-roles-full-v3` and
+`synthetic-joint-vocab-roles-full-controls-v3` only within a separately approved
+generated diagnostic scope, with the same pinned cached variables and all
+learned approval flags unset. They generate 8193/248320 source-faithful rows,
+short NORMAL filler and high-ID source-special controls/non-special USER_DEFINED
+marker; standalone/v5 contextual contracts and typed readback precede native
+source-oracle comparisons. Refusal faults cover existing roles/oracles/types/
+tensors, row/content/file ceilings and v1/v2 rejection of large files. Fault
+fixtures are disposable, not a production model profile or new PTQ source.
+
+V3 workers use a shared <=90 s stage, children <=60 s with reserved cleanup,
+source/copy sets <=32 MiB each and conservative logical scratch <=128 MiB.
+The separate v3 guard samples the owned session group (inventory <=4096,
+members <=32), bounds aggregate RSS and summed member high-water values at
+2 GiB, requires >=2 GiB available host reserve and refuses worker/group/host
+swap growth. Process-local Linux subreaper handling reaps outliving owned
+children and restores the prior setting; pipes/FDs/fixtures close on refusal.
+It does not cover arbitrary escaped sessions or prove hard host/device memory
+limits; generated workers/native children must stay in the owned group.
+V1/v2 guard defaults are preserved. Stdin/oracle <=64 KiB and each captured
+stdout/stderr <=8 KiB; source/copy/file identities and cleanup are checked.
+See the [capacity checkpoint](handover.md#synthetic-native-vocabulary-capacity-checkpoint-2026-11-03)
+for build/results, the fixture failure and repair, resource ledger and evidence
+limits. These generated modes do not authorize learned tokenizer reads,
+Qwen/MiMo execution, backend CTests, GPU work or quality/BitNet claims.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.

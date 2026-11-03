@@ -6,6 +6,88 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Synthetic Native Vocabulary Capacity Checkpoint (2026-11-03)
+
+Completed the generated-only capacity scope explicitly approved after proposal
+`8260a56`, with guard source checkpoint `3d6ca43` and the native/test increment
+in this checkpoint. CPU autonomy remains active; GPU testing remains deferred.
+The historical proposal and guard-only state below are superseded by these
+results, not new authorization. All six learned approvals remain consumed and
+all earlier ledgers remain frozen.
+
+Added `--synthetic-vocab-control-v3` through the existing direct external
+metadata/`llama_vocab` checker, before backend discovery. V3 alone allows
+258..262144 rows, a 16 MiB GGUF and independent token/merge content <=4 MiB.
+Exact twelve typed metadata fields, zero tensors, <=16 merges, <=64 UTF-8 bytes
+per string, strict <=64 KiB/depth-four/four-field oracle and 36 strings with
+<=64 IDs each remain enforced. V1/v2 limits and receipts are unchanged. No
+model, backend, runtime graph or tensor-data allocation; no historical
+`--vocab-only` fallback. Production Qwen policies and source flags/types unchanged.
+
+One cached CMake Tools target-only Release/Ninja/clang 18/two-job build:
+**2 steps, 7.912 s, result 0**, no dependency rebuild. Existing 90 s observer
+finished in **45.138 s**, maximum observed build RSS **374181888 B**, minimum
+available host RAM **19090927616 B**, host swap baseline/growth zero. No second
+build or source/cache/environment change.
+
+Actual pinned-tool generated tests, all learned flags unset:
+
+- `synthetic-joint-vocab-roles-medium-v3`: **1 passed, 4.39 s**, 8193 rows,
+  controls 8190/8191 and ordinary marker 8192. Ten source/copy files total
+  **311538 B per set**, GGUF **170720 B**, logical scratch **51199727 B**.
+  GGUF SHA-256 `3adc3518ffd72b53595618b79571ea6de723987dd7f94d651f536b4d6621a234`.
+- `synthetic-joint-vocab-roles-full-v3`: **1 passed, 15.22 s**, 248320 rows,
+  controls 248317/248318 and ordinary marker 248319. Ten source/copy files
+  **10209652 B per set**, GGUF **5213408 B**, logical scratch **76038689 B**.
+  GGUF SHA-256 `171b9065a2ebd9da196ab75ddde427f717653dedc6ca52b2c9bc69b3ff4752fa`.
+- Both pass standalone role/v5 contextual preparation, exact typed GGUF
+  readback and all 36 actual source/native encodings, including high-ID
+  attributes/singletons and all sixteen continuations of `B<marker>A`.
+  Two actual source-special flags remain true; the USER_DEFINED ordinary
+  marker flag remains false. NORMAL filler is generated, not a marker rewrite.
+- `synthetic-joint-vocab-roles-full-controls-v3`: initially **1 failed,
+  20.68 s** in fixture readback before native checks: guessed thirteen reader
+  fields ignored the three `GGUF.*` header fields alongside twelve metadata
+  fields. Replaced only that count with exact header-plus-writer field names.
+  Same focused check then **1 passed, 38.21 s**, all **37 exact-status refusals**:
+  retained oracle/type/role/marker/tensor controls, well-formed 262145-row and
+  >4 MiB-content fixtures, 16 MiB+1-byte file refusal and old v1/v2 large-file
+  refusals. Failed+repaired checks **58.89 s**, within the reserved 90 s slot.
+- Legacy v1/v2 positive/merge/19- and 33-refusal compatibility group:
+  **6 passed, 18.29 s**, hard cap 93 s plus 2 s termination cleanup. No backend
+  CTests were needed or run for this pre-backend-only change.
+
+New capacity receipts report maximum rows-contract owned-group RSS/high-water
+sum **1722961920 B**, below 2 GiB; full positive native observed RSS
+**60661760 B**. Lowest reported available host RAM across the new capacity
+checks **16832311296 B**; worker/group/host swap baseline and growth zero.
+These sampled counters are not hard host/device RAM guarantees or escaped-session
+coverage. Source/copy pins, stable dev/inode/size/mtime/ctime and hashes, map/FD
+closure, owned-group reaping and disposable fault/directory cleanup passed.
+No generated GGUF, copied tokenizer, fault or large report retained. Toy EOG
+spelling warnings remain bounded and unsuppressed; not learned EOG evidence.
+
+Second required root gate with all learned and cached-native opt-ins unset,
+38 s plus 2 s termination cap: **1703 passed, 195 skipped, 34.12 s**; Ruff,
+editor diagnostics and whitespace clean. Skipped optional tests are not new
+native/full-model/GPU evidence. Documentation checks are separate; source gate
+is not repeated after documentation-only edits.
+
+Conservative separate capacity ledger: **560/600 s reserved** = 50 guard/first
+gate +90 build +90 medium +90 full +90 refusals (including the failed fixture)
++95 legacy +40 second gate +15 review/documentation/cleanup. Remaining **40 s**
+is unused, not permission for another experiment; prior 145/200, 90/120,
+270/300, 575/600, 425.19/600 and 100/400 ledgers remain frozen.
+
+This proves generated GPT2-vocabulary loading and bounded lexical/contextual
+agreement only, not learned Qwen/MiMo tokenizer acceptance, full-model runtime,
+BitNet dispatch/quality, calibrated confidence or target-device performance.
+No learned/cache model input, GPU, model/backend, download, conversion, refit,
+candidate or quality/device work occurred. User `.vscode/` remains untracked
+and untouched; no push/branch/delegation. Next project-facing integration step
+requires a precise separately approved source-frozen learned/native tokenizer
+scope and resource plan; prepare its prerequisites without another learned read.
+
 ## Approved Capacity Scope: Guard Checkpoint (2026-11-03)
 
 The user explicitly approved proposal `8260a56` and its separate **600 s**

@@ -1337,7 +1337,8 @@ static std::vector<char> selected_metadata_file(const char* path, std::size_t li
 
 static int test_synthetic_vocab(const char* path, const char* expected_path, int policy_version = 1) {
     using nlohmann::json;
-    const bool roles = policy_version == 2;
+    const bool large = policy_version == 3;
+    const bool roles = policy_version == 2 || large;
     try {
         const auto expected_bytes = selected_metadata_file(expected_path, 65537);
         std::vector<std::set<std::string>> object_keys(5);
@@ -1362,7 +1363,7 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
                 !expected["boundary_refusal"].is_boolean()) {
             return 40;
         }
-        const auto bytes = selected_metadata_file(path, 256 * 1024 + 1);
+        const auto bytes = selected_metadata_file(path, (large ? 16 * 1024 * 1024 : 256 * 1024) + 1);
         std::unique_ptr<gguf_context, decltype(&gguf_free)> context(
             gguf_init_from_buffer(bytes.data(), bytes.size(), { true, nullptr }), gguf_free);
         const std::set<std::string> fields{
@@ -1393,7 +1394,7 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
         }
         const auto token_key = key("tokenizer.ggml.tokens"), type_key = key("tokenizer.ggml.token_type"), merge_key = key("tokenizer.ggml.merges");
         const auto rows = gguf_get_arr_n(context.get(), token_key);
-        if (rows < 258 || rows > 512 || gguf_get_arr_type(context.get(), token_key) != GGUF_TYPE_STRING ||
+        if (rows < 258 || rows > (large ? 262144 : 512) || gguf_get_arr_type(context.get(), token_key) != GGUF_TYPE_STRING ||
                 gguf_get_arr_type(context.get(), type_key) != GGUF_TYPE_INT32 || gguf_get_arr_n(context.get(), type_key) != rows ||
                 gguf_get_arr_type(context.get(), merge_key) != GGUF_TYPE_STRING || gguf_get_arr_n(context.get(), merge_key) > 16) {
             return 41;
@@ -1404,7 +1405,7 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
             for (std::size_t index = 0; index < gguf_get_arr_n(context.get(), array_key); ++index) {
                 const std::string text(gguf_get_arr_str(context.get(), array_key, index));
                 total += text.size();
-                if (text.empty() || text.size() > 64 || text.find('\0') != std::string::npos || total > 65536 ||
+                if (text.empty() || text.size() > 64 || text.find('\0') != std::string::npos || total > (large ? 4 * 1024 * 1024 : 65536) ||
                         (array_key == token_key && types[index] != 1 && types[index] != 3 && types[index] != 5 && !(roles && types[index] == 4))) {
                     return 41;
                 }
@@ -1513,8 +1514,8 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
             return 44;
         }
         if (roles) {
-            std::printf("{\"checked_strings\":36,\"policy_version\":2,\"token_rows\":%zu,\"contextual_refusal\":%s,\"ordinary_marker_verified\":true,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
-                rows, boundary_refusal ? "true" : "false");
+            std::printf("{\"checked_strings\":36,\"policy_version\":%d,\"token_rows\":%zu,\"contextual_refusal\":%s,\"ordinary_marker_verified\":true,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
+                policy_version, rows, boundary_refusal ? "true" : "false");
         } else {
             std::printf("{\"checked_strings\":35,\"policy_version\":1,\"token_rows\":%zu,\"contextual_refusal\":%s,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
                 rows, boundary_refusal ? "true" : "false");
@@ -1687,6 +1688,9 @@ int main(int argc, char** argv) {
     }
     if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v2") == 0) {
         return test_synthetic_vocab(argv[2], argv[3], 2);
+    }
+    if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v3") == 0) {
+        return test_synthetic_vocab(argv[2], argv[3], 3);
     }
     if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control") == 0) {
         return test_selected_metadata(argv[2], argv[3]);
