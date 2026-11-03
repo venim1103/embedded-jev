@@ -6,9 +6,93 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Learned Native Oracle Runner Checkpoint (2026-11-03)
+
+**Approval ACTIVE and UNUSED; no new learned input opened.** User selected
+**Approve One Native Oracle** for the proposal at `d33e910`, including the new
+600 s execution ceiling, then explicitly resumed after the summary pause.
+All six historical learned approvals remain consumed. This checkpoint prepares
+the tested implementation for exactly one new invocation, not another model
+conversion, learned weight read, quality experiment or deployment claim.
+
+Separate native `--mimo-tokenizer-oracle-control-v8` requires the frozen MiMo
+profile/revision/tokenizer/template/role hashes, A-P IDs32..47, five exact
+required roles/IDs and38 cases. Uses the existing strict eight-field version-1
+envelope and source-oracle schema, not an envelope version8. Exact248320 rows,
+Qwen3.5 tag/pre-type and scaffold-only pad/unknown248044, BOS248045, EOS248046
+required. V8 alone permits4096 B row/merge strings; generated v1-v7 policies
+retain64 B and synthetic revisions. Vocabulary-only path remains before model,
+backend and tensor-data allocation; no full-model or vocab-only fallback.
+
+Native target compiled once through cached CMake Tools:12.722 s compilation/
+link, observed82.7467 s of90 s, peak owned RSS472453120 B, minimum host available
+13451005952 B, swap baseline757760 B unchanged, owned swap0. Tool restoration
+after arming used most observer time; load/list tools before future observers.
+No subsequent native edit/build. Compiled acceptance is established separately
+by the generated controls below, not by compilation or default pytest success.
+
+New Python route uses only `MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED`. Shared copy
+prefix retains exact pins, ten-file allowlist, read-only copies, audits and
+descriptor/stat/hash rechecks. Distinct native-oracle prefix checks exact
+profile/cache/roles/libraries/phases/deadline before learned content access.
+Parent preflight and four serial copy/emission/source-oracle/native phases share
+180 s; each group-aware child has at most60 s including cleanup. Emission uses
+source-faithful rows and complete original ranked merges, exact typed readback
+and zero tensors; its collections are released before the independent source
+oracle worker. Fixed user content/context/template and roles are unchanged.
+Native success requires tokenizer-only receipt identities/counts/no-model
+flags. Source/native refusal stops without retry. All disposable copies,
+GGUF/oracle/spill are owned by temporary scratch; report contains no prompt or
+token arrays. Same2 GiB group/host-reserve/no-swap-growth and128 MiB logical
+scratch boundaries remain; file/path identities are rechecked across native use.
+
+Verification and failed-check history:
+
+- Approval isolation:35 passed,0.06 s, no cache content reads.
+- Initial prefix controls:1 failed/5 passed,1.38 s, positive inherited64 MiB
+  scratch branch. Selected the explicitly approved128 MiB native-only branch;
+  same six passed,1.36 s. Final nine cache-denied prefix controls passed,1.78 s,
+  including wrong roles/phase/over-budget deadline; no learned opens permitted.
+- Mocked source-oracle phase:2 passed,0.47 s. Native-schema review found the
+  mock mirrored an incorrect envelope shape; corrected to the consumer's exact
+  version1/eight members, same two passed,0.23 s. This earlier green mock alone
+  was not native integration evidence.
+- Parent opt-in check:1 failed/2 passed,0.35 s, wrong descriptor-helper import
+  before approval/cache access; corrected to `streamed_text`, same2 passed/
+  1 skipped,0.24 s. Three mocked serial success/source-refusal/native-refusal
+  flows passed,0.15 s; strengthened deadline/identity/receipt controls passed,
+  0.14 s. Default learned route still skips without the fresh opt-in.
+- Generated248320-row consumer suite initially failed,9.99 s, because file-hash
+  refusal was expected40 instead of existing file/metadata41. Corrected only
+  the expectation; suite passed,10.65 s. Strengthened fixture invokes actual
+  emission function with explicitly mocked source declarations, typed readback,
+  4096 B unused row and no model-cache opens:1 passed,14.89 s. Two native
+  positives (GGUF v3/v2) and20 exact refusals include frozen identities, fresh
+  role/typed metadata hashes, bool/float IDs, lexical continuation,4097 B row,
+  old policy, wrong argument count and duplicate JSON. Mock declarations are
+  not learned-source authentication or source-wrapper evidence.
+- Legacy compiled v1/ranked-v4/v5/v6/two-v7 fixtures plus historical cache-denied
+  prefixes:24 passed,9 skipped/9 deselected,30.87 s under58 s plus2 s cleanup.
+  Skips are new-boundary cases in historical modes, not failed controls.
+- Required root gate with all seven learned flags and cached-native opt-ins
+  unset:1771 passed,227 skipped,27.62 s under unchanged38 s plus2 s cleanup;
+  Ruff/editor diagnostics/whitespace clean. Optional skipped gates are not
+  native/full-model evidence. No CTest/prefill/GPU/learned gate ran.
+
+Measured pytest including failures41.69 s +legacy30.87 s +gate27.62 s +observed
+build82.7467 s =182.93/600 s before the learned invocation, excluding lightweight
+syntax/setup/read/review/docs/cleanup. The180 s one-shot reservation remains
+untouched. Next: validate docs/review/stage only checkpoint files, commit/push
+the tested runner/native, then exactly one approved cached MiMo invocation.
+Consume approval on first actual invocation even on refusal/resource failure
+or unknown interruption; never rerun automatically or relax a guard. Selected
+native agreement remains distinct from full vocabulary/native rendering/model
+execution/BitNet dispatch/quality/calibration/device readiness.
+
 ## Learned Native Oracle Proposal (2026-11-03)
 
-**Prepared only; NOT approved, implemented or executed.** Generated v7 source
+**Historical proposal at d33e910; subsequently approved.** See the runner
+checkpoint above for current status. Generated v7 source
 checkpoint `30c26b1` is committed/pushed. All six earlier learned approvals and
 their flags are consumed. User autonomy/unused v7 allowance do not renew them.
 The next useful evidence is one source-frozen MiMo tokenizer-only native oracle
@@ -111,8 +195,9 @@ arbitrary Unicode/full-vocabulary parity, native rendering, model compatibility,
 BitNet dispatch, quality, calibrated confidence or device readiness. A refusal
 is useful evidence and remains a refusal.
 
-**Next action: ask explicit approval for this policy/runner plus exactly one
-learned invocation and the new600 s ceiling. No v8 edit/build/read yet.**
+**Historical next action:** ask explicit approval before implementation.
+That approval was subsequently granted; this proposal is preserved as scoped
+authorization context, not current pending status.
 
 ## Generated Qwen3.5 Role And Case Checkpoint (2026-11-03)
 

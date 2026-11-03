@@ -5746,6 +5746,20 @@ token_roles_contract = fixture.get("token_roles_contract", False)
 role_context = fixture.get("role_context", False)
 learned_context = fixture.get("learned_context", False)
 learned_role_context = fixture.get("learned_role_context", False)
+learned_native_oracle = fixture.get("learned_native_oracle", False)
+if learned_native_oracle:
+    assert type(learned_native_oracle) is bool and os.environ.get("MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED") == "1" and row_mode
+    assert profile.sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
+    assert profile.revision == "2367e865d009c13ac81713a2878291d33ab28177"
+    assert source.resolve() == (Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177").resolve()
+    assert not any((learned_context, learned_role_context, learned_joint, native_joint, selected_fast, standalone_contract, context_contract, native_vocab, large_context))
+    assert fixture["operation"] in ("rows-copy", "rows-emission", "rows-contract") and not fixture["merge_faults"]
+    assert type(fixture["sequence_deadline"]) in (int, float) and 0 < fixture["sequence_deadline"] - time.monotonic() <= 180
+    assert type(fixture["token_roles"]) is dict
+    assert hashlib.sha256(json.dumps({"profile_sha256": profile.sha256, "token_roles": fixture["token_roles"]},
+        sort_keys=True, separators=(",", ":")).encode()).hexdigest() == "c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472"
+    assert tuple(version(name) for name in ("transformers", "tokenizers", "numpy")) == ("5.12.1", "0.22.2", "2.2.6")
+    deadline = min(deadline, fixture["sequence_deadline"])
 if learned_context or learned_role_context:
     assert type(learned_context) is type(learned_role_context) is bool and learned_context is not learned_role_context
     approval_flag = "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED" if learned_role_context else "MIMO_TOKENIZER_CONTEXT_APPROVED"
@@ -5788,7 +5802,7 @@ if large_context:
 if token_roles_contract:
     assert standalone_contract and profile.profile_id == "synthetic-profile" and profile.geometry["vocab_size"] == 32
     assert total <= 65536 and not any((context_contract, native_vocab, learned_joint, learned_context))
-row_scratch_cap = (128 if vocab_large or learned_context or learned_role_context else 16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
+row_scratch_cap = (128 if vocab_large or learned_context or learned_role_context or learned_native_oracle else 16 if native_vocab else 128 if learned_joint or native_joint or selected_fast or standalone_contract else 64 if fixture.get("merge_version") == 2 else 128) * 1024**2
 if native_vocab:
     assert standalone_contract
     if vocab_large:
@@ -5799,6 +5813,8 @@ if native_vocab:
         assert 2 * total + 3 * 256 * 1024 + 65536 + 8192 < row_scratch_cap
 else:
     assert (2 * total + 2 * 16 * 1024**2 + 8192 < row_scratch_cap if row_mode else 2 * total + 8192 < 64 * 1024**2)
+if learned_native_oracle:
+    assert 2 * total + 3 * 16 * 1024**2 + 65536 < row_scratch_cap
 if (native_joint or selected_fast or standalone_contract) and not native_vocab:
     assert 2 * total + 3 * 16 * 1024**2 + 32 * 1024**2 + 8192 < row_scratch_cap
 assert scratch.is_dir() and (row_mode and fixture["operation"] != "rows-copy" or not list(scratch.iterdir()))
@@ -5820,7 +5836,7 @@ if row_mode:
         allowed_gguf_paths.update(Path(fixture["output"]) / name for name in ("role-file.gguf", "role-file-fault.gguf"))
 
     def row_audit(event, args):
-        if (learned_context or learned_role_context) and event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+        if (learned_context or learned_role_context or learned_native_oracle) and event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
             raise RuntimeError("child processes prohibited in contextual diagnostic")
         if event in ("socket.connect", "socket.connect_ex", "socket.getaddrinfo", "socket.sendto", "socket.bind"):
             raise RuntimeError("network prohibited in tokenizer row diagnostic")
@@ -6097,15 +6113,34 @@ def test_pinned_profile_tokenizer_only_diagnostic(mode):
 
 
 def _tokenizer_rows_diagnostic_environment(mode):
-    if mode not in ("synthetic", "approved", "approved-joint", "approved-context", "approved-role-context"):
+    if mode not in ("synthetic", "approved", "approved-joint", "approved-context", "approved-role-context", "approved-native-oracle"):
         raise ValueError("unknown tokenizer row diagnostic mode")
     source, interpreter = os.environ.get("PRISM_SOURCE_DIR"), os.environ.get("PRISM_CONVERTER_PYTHON")
     flag = {"approved-context": "MIMO_TOKENIZER_CONTEXT_APPROVED", "approved-joint": "MIMO_TOKENIZER_JOINT_APPROVED",
-        "approved-role-context": "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED"}.get(
+        "approved-role-context": "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED", "approved-native-oracle": "MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED"}.get(
         mode, "MIMO_TOKENIZER_ROWS_APPROVED")
     if not source or not interpreter or mode != "synthetic" and os.environ.get(flag) != "1":
         pytest.skip("requires pinned cached libraries; learned rows need their own one-shot approval")
     return Path(source), interpreter
+
+
+@pytest.mark.parametrize("enabled", ["MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED",
+    "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED", "MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED"])
+@pytest.mark.parametrize("mode,flag", [("approved", "MIMO_TOKENIZER_ROWS_APPROVED"), ("approved-joint", "MIMO_TOKENIZER_JOINT_APPROVED"),
+    ("approved-context", "MIMO_TOKENIZER_CONTEXT_APPROVED"), ("approved-role-context", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED"),
+    ("approved-native-oracle", "MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED")])
+def test_tokenizer_native_oracle_approval_is_independent(monkeypatch, enabled, mode, flag):
+    for name in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED",
+        "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED", "MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("PRISM_SOURCE_DIR", "/pinned")
+    monkeypatch.setenv("PRISM_CONVERTER_PYTHON", "/trusted/python")
+    monkeypatch.setenv(enabled, "1")
+    if enabled == flag:
+        assert _tokenizer_rows_diagnostic_environment(mode) == (Path("/pinned"), "/trusted/python")
+    else:
+        with pytest.raises(pytest.skip.Exception):
+            _tokenizer_rows_diagnostic_environment(mode)
 
 
 def _tokenizer_joint_target_profile(profile_bytes, local):
@@ -6269,6 +6304,593 @@ def _run_pinned_profile_tokenizer_context_diagnostic(mode):
         assert len(list(inputs.iterdir())) == 10
     assert not root.exists() and len(list(Path("/proc/self/fd").iterdir())) == descriptors
     print(json.dumps({"scratch_cleaned": True, "output_files": 0, "approval_consumed": True}))
+
+
+def _tokenizer_native_oracle_diagnostic_code():
+    return _tokenizer_source_copy_code() + r'''
+def native_emission_report():
+    import contextlib
+    import gc
+    import gguf
+    from embedded_jev import prism_codec
+
+    assert learned_native_oracle and fixture["operation"] == "rows-emission"
+    output = Path(fixture["output"])
+    assert not list(output.iterdir())
+    arguments = dict(metadata_files={name: (scratch / name).read_bytes() for name in profile.packaging["metadata_files"]},
+        tokenizer_bytes=(scratch / "tokenizer.json").read_bytes(), context_length=256,
+        row_policy="pinned_prism_fast_rows_v2", maximum_vocabulary_rows=248320,
+        maximum_token_content_bytes=4 * 1024**2, merge_policy_version=2,
+        merge_policy="pinned_prism_ranked_source_merges_v2", maximum_merge_rows=262144,
+        maximum_merge_content_bytes=4 * 1024**2)
+    path = output / "rows.gguf"
+    saved = os.dup(1)
+    try:
+        sys.stdout.flush()
+        os.dup2(2, 1)
+        with contextlib.redirect_stdout(sys.stderr):
+            rows, merges, merge_bytes = prism_codec._prepare_profile_fast_tokenizer_rows_and_merges(profile, **arguments)
+            records = [*prism_codec._profile_fast_tokenizer_row_records(rows), merges]
+            assert len(rows["tokens"]) == 248320 and 0 < len(merges["values"]) <= 262144
+            assert 0 < merge_bytes <= 4 * 1024**2
+            merge_rows = len(merges["values"])
+            writer = gguf.GGUFWriter(str(path), arch="gpt2")
+            try:
+                for record in records:
+                    writer.add_array(record["name"], list(record["values"]))
+                writer.add_tokenizer_model("gpt2")
+                writer.add_tokenizer_pre("qwen35")
+                writer.add_pad_token_id(248044)
+                writer.add_unk_token_id(248044)
+                writer.add_bos_token_id(248045)
+                writer.add_eos_token_id(248046)
+                writer.add_add_bos_token(False)
+                writer.add_add_eos_token(False)
+                writer.write_header_to_file()
+                writer.write_kv_data_to_file()
+                writer.write_tensors_to_file()
+            finally:
+                writer.close()
+            assert 0 < path.stat().st_size <= 16 * 1024**2
+            reader = gguf.GGUFReader(str(path), mode="r")
+            try:
+                assert not reader.tensors and len(reader.fields) == 15
+                for record in records:
+                    field = reader.fields[record["name"]]
+                    expected_type = gguf.GGUFValueType.STRING if record["kind"] == "str_array" else gguf.GGUFValueType.INT32
+                    assert field.types == [gguf.GGUFValueType.ARRAY, expected_type]
+                    assert len(field.data) == len(record["values"])
+                    for offset, expected in zip(field.data, record["values"]):
+                        part = field.parts[offset]
+                        assert (part.tobytes() == expected.encode() if expected_type == gguf.GGUFValueType.STRING else part.tolist() == [expected])
+                del field, part
+            finally:
+                reader.data._mmap.close()
+            del reader, writer, rows, merges, records, arguments
+            gc.collect()
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        before = os.fstat(descriptor)
+        record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=16 * 1024**2, deadline=deadline)
+        assert identity(os.fstat(descriptor)) == identity(before) == identity(path.stat())
+    finally:
+        os.close(descriptor)
+    path.chmod(0o400)
+    return {"status": "completed", "phase": "emission", "gguf_bytes": record["bytes"], "gguf_sha256": record["sha256"],
+        "token_rows": 248320, "merge_rows": merge_rows,
+        "typed_readback": True, "zero_tensors": True}
+
+def native_oracle_report():
+    import contextlib
+    import gc
+    from embedded_jev import prism_codec
+
+    assert learned_native_oracle and fixture["operation"] == "rows-contract"
+    output = Path(fixture["output"])
+    assert {path.name for path in output.iterdir()} == {"rows.gguf"}
+    arguments = dict(metadata_files={name: (scratch / name).read_bytes() for name in profile.packaging["metadata_files"]},
+        tokenizer_bytes=(scratch / "tokenizer.json").read_bytes(), context_length=256,
+        row_policy="pinned_prism_fast_rows_v2", maximum_vocabulary_rows=248320,
+        maximum_token_content_bytes=4 * 1024**2, token_roles=fixture["token_roles"],
+        messages=[{"role": "user", "content": "A or B?"}], maximum_seconds=min(60, deadline - time.monotonic()))
+    report = {"status": "completed", "phase": "source_oracle", "contract_accepted": False}
+    saved = os.dup(1)
+    try:
+        sys.stdout.flush()
+        os.dup2(2, 1)
+        with contextlib.redirect_stdout(sys.stderr):
+            try:
+                receipt = prism_codec.prepare_profile_model_fast_native_oracle_v1(profile, **arguments)
+            except ValueError as error:
+                trace = error.__traceback__
+                while trace.tb_next:
+                    trace = trace.tb_next
+                report.update(refusal_type=type(error).__name__, refusal_function=trace.tb_frame.f_code.co_name,
+                    refusal_line=trace.tb_lineno)
+            else:
+                encoded = receipt["source_native_oracle_json"]
+                assert type(encoded) is bytes and 0 < len(encoded) <= 65536
+                oracle = json.loads(encoded)
+                assert encoded == json.dumps(oracle, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+                assert len(oracle["cases"]) == 38 and oracle["profile_sha256"] == profile.sha256
+                assert oracle["source_revision"] == profile.revision and oracle["token_roles"] == fixture["token_roles"]
+                assert oracle["token_roles_sha256"] == "c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472"
+                assert oracle["tokenizer_sha256"] == "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+                assert oracle["template_sha256"] == "59a64ebb4df6d1489d09a91267cf3ceb106162d4a893c4f84833cfb8c897ff63"
+                oracle_sha256 = hashlib.sha256(encoded).hexdigest()
+                assert oracle_sha256 == receipt["source_native_oracle_sha256"]
+                envelope = {"policy_version": 1, "scope": "mimo_source_frozen_tokenizer_only", "profile_sha256": profile.sha256, "gguf_file_bytes": fixture["gguf_bytes"],
+                    "gguf_file_sha256": fixture["gguf_sha256"], "source_native_oracle_sha256": oracle_sha256,
+                    "pre_tokenizer_policy": "mimo_qwen35_source_oracle_v1", "source_oracle": oracle}
+                envelope_bytes = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+                assert 0 < len(envelope_bytes) <= 65536
+                with (output / "expected.json").open("xb") as destination:
+                    destination.write(envelope_bytes)
+                    os.fchmod(destination.fileno(), 0o400)
+                report.update(contract_accepted=True, source_native_oracle_sha256=oracle_sha256,
+                    source_native_oracle_bytes=len(encoded), envelope_bytes=len(envelope_bytes), checked_strings=38)
+                del envelope, envelope_bytes, oracle, encoded, receipt
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
+        del arguments
+        gc.collect()
+    return report
+
+if fixture["operation"] == "rows-copy":
+    finish_report({"status": "completed", "phase": "copy"})
+elif fixture["operation"] == "rows-emission":
+    finish_report(native_emission_report())
+else:
+    finish_report(native_oracle_report())
+'''
+
+
+@pytest.mark.parametrize("refused", [False, True])
+def test_native_oracle_phase_is_single_call_and_bounded(monkeypatch, tmp_path, refused):
+    import ast
+    import sys
+    import time
+    from embedded_jev import prism_codec
+    from embedded_jev.model_profile import parse_model_profile
+
+    profile = parse_model_profile((Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes())
+    for name in profile.packaging["metadata_files"]:
+        (tmp_path / name).write_bytes(b"{}")
+    (tmp_path / "tokenizer.json").write_bytes(b"{}")
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / "rows.gguf").write_bytes(b"synthetic-not-gguf")
+    calls = []
+
+    def prepare(actual, **arguments):
+        assert actual is profile and arguments["messages"] == [{"role": "user", "content": "A or B?"}]
+        assert arguments["context_length"] == 256 and arguments["maximum_vocabulary_rows"] == 248320
+        assert arguments["maximum_token_content_bytes"] == 4 * 1024**2 and 0 < arguments["maximum_seconds"] <= 60
+        assert arguments["token_roles"] == _tokenizer_role_context_roles()
+        calls.append(arguments)
+        if refused:
+            raise ValueError("synthetic refusal")
+        oracle = {"cases": [{}] * 38, "profile_sha256": profile.sha256, "source_revision": profile.revision,
+            "token_roles": arguments["token_roles"], "token_roles_sha256": "c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472",
+            "tokenizer_sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523",
+            "template_sha256": "59a64ebb4df6d1489d09a91267cf3ceb106162d4a893c4f84833cfb8c897ff63"}
+        encoded = json.dumps(oracle, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        return {"source_native_oracle_json": encoded, "source_native_oracle_sha256": __import__("hashlib").sha256(encoded).hexdigest()}
+
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_native_oracle_v1", prepare)
+    function = next(node for node in ast.parse(_tokenizer_native_oracle_diagnostic_code()).body
+        if isinstance(node, ast.FunctionDef) and node.name == "native_oracle_report")
+    namespace = dict(os=os, sys=sys, json=json, hashlib=__import__("hashlib"), time=time, Path=Path,
+        scratch=tmp_path, profile=profile, fixture={"output": str(output), "operation": "rows-contract",
+        "token_roles": _tokenizer_role_context_roles(), "gguf_bytes": 18, "gguf_sha256": "0" * 64},
+        learned_native_oracle=True, deadline=time.monotonic() + 60)
+    exec(compile(ast.Module(body=[function], type_ignores=[]), "<synthetic-native-oracle>", "exec"), namespace)
+    report = namespace["native_oracle_report"]()
+    assert len(calls) == 1 and report["contract_accepted"] is not refused
+    assert len(json.dumps(report).encode()) <= 8192
+    assert {path.name for path in output.iterdir()} == ({"rows.gguf"} if refused else {"rows.gguf", "expected.json"})
+    if not refused:
+        envelope = json.loads((output / "expected.json").read_bytes())
+        assert envelope["policy_version"] == 1 and envelope["scope"] == "mimo_source_frozen_tokenizer_only"
+        assert set(envelope) == {"policy_version", "scope", "profile_sha256", "gguf_file_bytes", "gguf_file_sha256",
+            "source_native_oracle_sha256", "pre_tokenizer_policy", "source_oracle"} and envelope["profile_sha256"] == profile.sha256
+        assert envelope["pre_tokenizer_policy"] == "mimo_qwen35_source_oracle_v1"
+
+
+def _run_pinned_profile_tokenizer_native_oracle_diagnostic():
+    import hashlib
+    import shutil
+    import sys
+    import time
+    from tempfile import TemporaryDirectory
+    from embedded_jev.streamed_text import bounded_source_descriptor_record_v2
+
+    started = time.monotonic()
+    deadline = started + 180
+    source, interpreter = _tokenizer_rows_diagnostic_environment("approved-native-oracle")
+    previous_flags = ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED",
+        "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED")
+    assert not any(os.environ.get(name) == "1" for name in previous_flags)
+    cache = Path.home() / ".cache/huggingface/embedded-jev"
+    local = Path(os.environ.get("MIMO_LOCAL_DIR", ""))
+    repository = Path(__file__).resolve().parents[1]
+    profile_bytes = (repository / "embedded_jev/profiles/mimo.json").read_bytes()
+    roles = _tokenizer_role_context_roles()
+    profile = _tokenizer_role_context_target_profile(profile_bytes, local, roles)
+    assert source.resolve() == (cache / "native/prism-source").resolve()
+    assert Path(interpreter).absolute() == cache / "dense-venv/bin/python"
+    build = Path(os.environ.get("MIMO_PRISM_RUNTIME_BUILD", ""))
+    assert build.resolve() == (cache / "native/jev-prism-runtime-v1-build").resolve()
+    executable = build / "bin/prism_bitnet_loader_control"
+    assert executable.is_file()
+    assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == "842b1880415d6f508f03b789e5ce70194def7bfd"
+    assert not subprocess.check_output(["git", "-C", str(source), "status", "--porcelain", "--untracked-files=no"], text=True).strip()
+    versions = subprocess.check_output([interpreter, "-c", "from importlib.metadata import version; import json; print(json.dumps([version(n) for n in ('transformers','tokenizers','numpy')]))"], text=True)
+    assert json.loads(versions) == ["5.12.1", "0.22.2", "2.2.6"]
+    names = (*profile.packaging["metadata_files"], "tokenizer.json", "vocab.json", "merges.txt")
+    originals = {name: (local / name).stat() for name in names}
+    assert len(names) == 10 and sum(profile.files[name].bytes for name in names) == 30144444
+    assert shutil.disk_usage("/tmp").free >= 128 * 1024**2
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": os.pathsep.join((str(repository), str(source / "gguf-py"))),
+        "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1", "TOKENIZERS_PARALLELISM": "false",
+        "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": ""}
+    for name in previous_flags:
+        env.pop(name, None)
+    reports = []
+    swap_baseline = None
+
+    def unchanged_sources():
+        for name, original in originals.items():
+            actual = (local / name).stat()
+            assert (actual.st_dev, actual.st_ino, actual.st_size, actual.st_mtime_ns, actual.st_ctime_ns) == (
+                original.st_dev, original.st_ino, original.st_size, original.st_mtime_ns, original.st_ctime_ns)
+
+    def file_record(path, cap):
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            before = os.fstat(descriptor)
+            assert 0 < before.st_size <= cap
+            record = bounded_source_descriptor_record_v2(descriptor, maximum_bytes=cap, deadline=deadline)
+            after = os.fstat(descriptor)
+            assert (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) == (
+                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            actual = path.stat(follow_symlinks=False)
+            identity = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            assert identity == (actual.st_dev, actual.st_ino, actual.st_size, actual.st_mtime_ns, actual.st_ctime_ns)
+            return {**record, "identity": identity}
+        finally:
+            os.close(descriptor)
+
+    with TemporaryDirectory(prefix="jev-mimo-native-oracle-") as directory:
+        root = Path(directory)
+        inputs, output = root / "inputs", root / "output"
+        inputs.mkdir()
+        output.mkdir()
+        fixture = {"profile_hex": profile_bytes.hex(), "source": str(local), "scratch": str(inputs), "output": str(output),
+            "learned_native_oracle": True, "token_roles": roles, "include_merges": True, "merge_version": 2,
+            "merge_faults": [], "sequence_deadline": deadline}
+        for operation in ("rows-copy", "rows-emission", "rows-contract", "native"):
+            remaining = min(60, deadline - time.monotonic())
+            assert remaining > 0
+            if operation == "native":
+                if not reports[-1]["report"]["contract_accepted"]:
+                    break
+                before_files = {name: file_record(output / name, cap) for name, cap in (("rows.gguf", 16 * 1024**2), ("expected.json", 65536))}
+                code = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
+                payload = json.dumps([str(executable), "--mimo-tokenizer-oracle-control-v8", str(output / "rows.gguf"),
+                    str(output / "expected.json"), profile.sha256]).encode()
+                result = _run_tokenizer_only_guard_v3(sys.executable, code, payload, env=env, maximum_seconds=remaining)
+                for name, before in before_files.items():
+                    assert file_record(output / name, 16 * 1024**2 if name == "rows.gguf" else 65536) == before
+                if result["returncode"]:
+                    assert result["returncode"] in (40, 41, 42, 43, 44)
+                    report = {"status": "refused", "phase": "native", "native_status": result["returncode"], "contract_accepted": False}
+                else:
+                    report = json.loads(result["stdout"])
+                    assert report["checked_strings"] == 38 and report["profile_sha256"] == profile.sha256
+                    assert report["policy_version"] == 8 and report["scope"] == "mimo_source_frozen_tokenizer_only"
+                    assert report["token_rows"] == 248320 and report["required_token_count"] == 5 and report["label_count"] == 16
+                    assert report["source_special_count"] == 3 and report["ordinary_marker_count"] == 2
+                    assert not report["model_loaded"] and not report["backend_initialized"] and not report["tensor_data_allocated"]
+                    assert report["runtime_approval"] == "not_granted_by_tokenizer_oracle_control"
+                    assert report["source_revision"] == profile.revision and report["gguf_file_sha256"] == fixture["gguf_sha256"]
+                    assert report["source_native_oracle_sha256"] == reports[-1]["report"]["source_native_oracle_sha256"]
+                    report = {"status": "matched", "phase": "native", "contract_accepted": True, "checked_strings": 38}
+            else:
+                payload = json.dumps({**fixture, "operation": operation}).encode()
+                result = _run_tokenizer_only_guard_v3(interpreter, _tokenizer_native_oracle_diagnostic_code(), payload, env=env, maximum_seconds=remaining)
+                assert result["returncode"] == 0, "native-oracle worker failed; bounded diagnostic withheld"
+                report = json.loads(result["stdout"])
+                assert report["status"] == "completed" and report["input_files"] == 10
+                assert report["input_bytes"] == report["scratch_bytes"] == 30144444
+                if operation == "rows-emission":
+                    fixture.update(gguf_bytes=report["gguf_bytes"], gguf_sha256=report["gguf_sha256"])
+                    assert file_record(output / "rows.gguf", 16 * 1024**2)["sha256"] == report["gguf_sha256"]
+            assert result["observed_process_swap_bytes"] == 0
+            swap_baseline = result["host_swap_baseline_bytes"] if swap_baseline is None else swap_baseline
+            assert result["host_swap_baseline_bytes"] == result["observed_host_swap_bytes"] == swap_baseline
+            assert result["observed_host_available_minimum_bytes"] >= 2 * 1024**3
+            assert time.monotonic() < deadline
+            unchanged_sources()
+            assert sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) + 30144444 + 3 * 16 * 1024**2 + 65536 < 128 * 1024**2
+            reports.append({"report": report, "observed_process_rss_bytes": result["observed_process_rss_bytes"],
+                "observed_host_available_minimum_bytes": result["observed_host_available_minimum_bytes"]})
+        summary = {"profile_sha256": profile.sha256, "source_revision": profile.revision,
+            "approval_consumed": True, "phases": len(reports), "result": reports[-1]["report"],
+            "elapsed_seconds": time.monotonic() - started, "host_swap_baseline_bytes": swap_baseline,
+            "maximum_observed_rss_bytes": max(item["observed_process_rss_bytes"] for item in reports),
+            "minimum_host_available_bytes": min(item["observed_host_available_minimum_bytes"] for item in reports)}
+        unchanged_sources()
+    assert not root.exists() and time.monotonic() < deadline
+    summary["cleanup_verified"] = True
+    assert len(json.dumps(summary).encode()) <= 8192
+    print(json.dumps(summary, sort_keys=True))
+    assert hashlib.sha256(profile_bytes).hexdigest() == "dd7ca2e74e658c17c764ba538822247c4e3d176e898e6f53c8131ae825ae2f98"
+    return summary
+
+
+def test_pinned_profile_tokenizer_native_oracle_diagnostic():
+    _run_pinned_profile_tokenizer_native_oracle_diagnostic()
+
+
+@pytest.mark.parametrize("refusal", [None, "source", "native"])
+def test_native_oracle_parent_is_serial_single_attempt_and_cleans(monkeypatch, refusal):
+    import hashlib
+    import stat
+    from types import SimpleNamespace
+    from embedded_jev.model_profile import parse_model_profile
+
+    repository = Path(__file__).resolve().parents[1]
+    profile = parse_model_profile((repository / "embedded_jev/profiles/mimo.json").read_bytes())
+    cache = Path.home() / ".cache/huggingface/embedded-jev"
+    local = cache / "models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
+    source, build = cache / "native/prism-source", cache / "native/jev-prism-runtime-v1-build"
+    monkeypatch.setenv("MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED", "1")
+    monkeypatch.setenv("PRISM_SOURCE_DIR", str(source))
+    monkeypatch.setenv("PRISM_CONVERTER_PYTHON", str(cache / "dense-venv/bin/python"))
+    monkeypatch.setenv("MIMO_LOCAL_DIR", str(local))
+    monkeypatch.setenv("MIMO_PRISM_RUNTIME_BUILD", str(build))
+    for flag in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED",
+        "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED"):
+        monkeypatch.delenv(flag, raising=False)
+    original_stat, original_read = Path.stat, Path.read_bytes
+
+    def path_stat(path, *args, **kwargs):
+        if path.parent == local and path.name in profile.files:
+            return SimpleNamespace(st_dev=1, st_ino=1, st_size=profile.files[path.name].bytes,
+                st_mtime_ns=1, st_ctime_ns=1, st_mode=stat.S_IFREG | 0o400)
+        if path == build / "bin/prism_bitnet_loader_control":
+            return SimpleNamespace(st_mode=stat.S_IFREG | 0o500)
+        return original_stat(path, *args, **kwargs)
+
+    def read_bytes(path):
+        assert not path.is_relative_to(cache / "models"), "mocked parent read learned inputs"
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "stat", path_stat)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(subprocess, "check_output", lambda arguments, **kwargs:
+        "842b1880415d6f508f03b789e5ce70194def7bfd\n" if "rev-parse" in arguments else "" if "status" in arguments else '["5.12.1","0.22.2","2.2.6"]')
+    calls, roots = [], []
+    gguf_sha256 = hashlib.sha256(b"mock").hexdigest()
+
+    def guard(interpreter, code, payload, *, env, maximum_seconds):
+        assert 0 < maximum_seconds <= 60 and env["MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED"] == "1"
+        assert env["HF_HUB_OFFLINE"] == "1" and env["USE_TORCH"] == "0"
+        arguments = json.loads(payload)
+        phase = "native" if isinstance(arguments, list) else arguments["operation"]
+        calls.append(phase)
+        report = {"status": "completed", "input_files": 10, "input_bytes": 30144444, "scratch_bytes": 30144444}
+        if phase != "native":
+            output = Path(arguments["output"])
+            roots.append(output.parent)
+        if phase == "rows-emission":
+            (output / "rows.gguf").write_bytes(b"mock")
+            report.update(gguf_bytes=4, gguf_sha256=gguf_sha256)
+        elif phase == "rows-contract":
+            if refusal != "source":
+                (output / "expected.json").write_bytes(b"{}")
+            report.update(contract_accepted=refusal != "source", source_native_oracle_sha256="1" * 64)
+        elif phase == "native":
+            assert arguments[1] == "--mimo-tokenizer-oracle-control-v8" and arguments[-1] == profile.sha256
+            report = {"checked_strings": 38, "profile_sha256": profile.sha256, "source_revision": profile.revision,
+                "gguf_file_sha256": gguf_sha256, "source_native_oracle_sha256": "1" * 64,
+                "policy_version": 8, "scope": "mimo_source_frozen_tokenizer_only", "token_rows": 248320,
+                "required_token_count": 5, "label_count": 16, "source_special_count": 3, "ordinary_marker_count": 2,
+                "model_loaded": False, "backend_initialized": False, "tensor_data_allocated": False,
+                "runtime_approval": "not_granted_by_tokenizer_oracle_control"}
+        return {"returncode": 44 if phase == "native" and refusal == "native" else 0,
+            "stdout": json.dumps(report), "stderr": "", "observed_process_swap_bytes": 0,
+            "host_swap_baseline_bytes": 4096, "observed_host_swap_bytes": 4096,
+            "observed_host_available_minimum_bytes": 4 * 1024**3, "observed_process_rss_bytes": 1024}
+
+    monkeypatch.setattr(__import__(__name__, fromlist=["_run_tokenizer_only_guard_v3"]), "_run_tokenizer_only_guard_v3", guard)
+    summary = _run_pinned_profile_tokenizer_native_oracle_diagnostic()
+    assert calls == ["rows-copy", "rows-emission", "rows-contract", *([] if refusal == "source" else ["native"])]
+    assert summary["result"]["contract_accepted"] is (refusal is None)
+    assert summary["approval_consumed"] and summary["cleanup_verified"] and all(not root.exists() for root in roots)
+
+
+def test_pinned_generated_mimo_native_oracle_policy():
+    import copy
+    import hashlib
+    import struct
+    import sys
+    import time
+    from tempfile import TemporaryDirectory
+
+    source, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
+    build = Path(os.environ.get("MIMO_PRISM_RUNTIME_BUILD", ""))
+    executable = build / "bin/prism_bitnet_loader_control"
+    if not executable.is_file():
+        pytest.skip("cached loader control is required")
+    profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
+    profile = _tokenizer_joint_target_profile(profile_bytes, Path.home() / ".cache/huggingface/embedded-jev/models/mimo-2367e865d009c13ac81713a2878291d33ab28177")
+    code = r'''
+import ast, hashlib, json, os, sys, time
+from pathlib import Path
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.streamed_text import bounded_source_descriptor_record_v2
+fixture = json.loads(sys.stdin.buffer.read(65537))
+models = Path.home() / ".cache/huggingface/embedded-jev/models"
+def deny_models(event, arguments):
+    if event == "open" and isinstance(arguments[0], (str, bytes, os.PathLike)) and Path(os.fsdecode(arguments[0])).absolute().is_relative_to(models):
+        raise RuntimeError("generated native control opened model cache")
+sys.addaudithook(deny_models)
+import gguf
+from gguf.vocab import bytes_to_unicode
+root = Path(fixture["root"])
+tokens = list(bytes_to_unicode().values()) + ["AA"]
+tokens.extend("[PAD" + str(index) + "]" for index in range(len(tokens), 248320))
+types = [1] * 257 + [5] * (248320 - 257)
+tokens[1000] = "x" * 4096
+required = {"<|endoftext|>": 248044, "<|im_start|>": 248045, "<|im_end|>": 248046, "<think>": 248068, "</think>": 248069}
+for text, token_id in required.items():
+    tokens[token_id], types[token_id] = text, 4 if "think" in text else 3
+assert tokens[32:48] == list("ABCDEFGHIJKLMNOP")
+profile = parse_model_profile(bytes.fromhex(fixture["profile_hex"]))
+scratch = root / "inputs"
+scratch.mkdir()
+for name in (*profile.packaging["metadata_files"], "tokenizer.json"):
+    (scratch / name).write_bytes(b"{}")
+output = root / "output"
+output.mkdir()
+from embedded_jev import prism_codec
+encodings = {1: "NORMAL", 3: "CONTROL", 4: "USER_DEFINED", 5: "UNUSED"}
+rows = {"tokens": tokens, "token_row_records": [{"token_type": encodings[value]} for value in types]}
+calls = []
+def prepare(actual, **arguments):
+    assert actual is profile and arguments["row_policy"] == "pinned_prism_fast_rows_v2"
+    assert arguments["maximum_vocabulary_rows"] == 248320 and arguments["maximum_token_content_bytes"] == 4 * 1024**2
+    assert arguments["merge_policy_version"] == 2 and arguments["maximum_merge_rows"] == 262144
+    calls.append(1)
+    return rows, {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("A A",)}, 3
+prism_codec._prepare_profile_fast_tokenizer_rows_and_merges = prepare
+def identity(value):
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+function = next(node for node in ast.parse(fixture["worker"]).body if isinstance(node, ast.FunctionDef) and node.name == "native_emission_report")
+namespace = dict(os=os, sys=sys, json=json, time=time, Path=Path, scratch=scratch, profile=profile, identity=identity,
+    fixture={"operation": "rows-emission", "output": str(output)}, learned_native_oracle=True,
+    deadline=time.monotonic() + 60, bounded_source_descriptor_record_v2=bounded_source_descriptor_record_v2)
+exec(compile(ast.Module(body=[function], type_ignores=[]), "<generated-emission-control>", "exec"), namespace)
+receipt = namespace["native_emission_report"]()
+assert calls == [1] and receipt["typed_readback"] and receipt["zero_tensors"] and receipt["merge_rows"] == 1
+(output / "rows.gguf").rename(root / "rows.gguf")
+reader = gguf.GGUFReader(str(root / "rows.gguf"), mode="r")
+base = reader.data.__array_interface__["data"][0]
+offsets = {}
+for name, index in (("tokenizer.ggml.token_type", 248068), ("tokenizer.ggml.bos_token_id", 0), ("tokenizer.ggml.tokens", 1000)):
+    field = reader.fields[name]
+    part = field.parts[field.data[index]]
+    offsets[name] = part.__array_interface__["data"][0] - base
+del field, part
+reader.data._mmap.close()
+print(json.dumps({"offsets": offsets, "gguf_bytes": (root / "rows.gguf").stat().st_size,
+    "gguf_sha256": hashlib.sha256((root / "rows.gguf").read_bytes()).hexdigest()}))
+'''
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source / "gguf-py"))), "CUDA_VISIBLE_DEVICES": ""}
+    for flag in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED",
+        "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED", "MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED"):
+        env.pop(flag, None)
+    started = time.monotonic()
+    with TemporaryDirectory(prefix="jev-generated-mimo-policy-") as directory:
+        root = Path(directory)
+        result = _run_tokenizer_only_guard_v3(interpreter, code, json.dumps({"root": str(root), "profile_hex": profile_bytes.hex(),
+            "worker": _tokenizer_native_oracle_diagnostic_code()}).encode(), env=env)
+        assert result["returncode"] == 0, result["stderr"]
+        generated = json.loads(result["stdout"])
+        original = (root / "rows.gguf").read_bytes()
+        assert generated["gguf_bytes"] == len(original) <= 16 * 1024**2
+        roles = _tokenizer_role_context_roles()
+        required = dict(profile.tokenization["special_token_ids"])
+        labels = {text: index + 32 for index, text in enumerate("ABCDEFGHIJKLMNOP")}
+        cases = [{"kind": "label", "text": text, "token_ids": [token_id]} for text, token_id in labels.items()]
+        cases += [{"kind": "prompt", "text": "B", "token_ids": [33]}]
+        cases += [{"kind": "continuation", "text": "B" + text, "token_ids": [33, token_id]} for text, token_id in labels.items()]
+        cases += [{"kind": "required_token", "text": text, "token_ids": [required[text]]} for text in sorted(required)]
+        oracle = {"policy_version": 1, "profile_sha256": profile.sha256, "source_revision": profile.revision,
+            "tokenizer_sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523",
+            "template_sha256": "59a64ebb4df6d1489d09a91267cf3ceb106162d4a893c4f84833cfb8c897ff63",
+            "token_roles_sha256": "c201417c764e7d070e00519326e9fde89bd70b1121613f24fcfe199a16bed472",
+            "token_roles": roles, "required_token_ids": required, "label_token_ids": labels, "cases": cases,
+            "prompt_sha256": hashlib.sha256(b"B").hexdigest(), "pre_tokenizer_tag_verification": "not_checked", "native_tokenizer_verification": "not_checked"}
+        envelope = {"policy_version": 1, "scope": "mimo_source_frozen_tokenizer_only", "profile_sha256": profile.sha256,
+            "gguf_file_bytes": len(original), "gguf_file_sha256": generated["gguf_sha256"],
+            "pre_tokenizer_policy": "mimo_qwen35_source_oracle_v1", "source_oracle": oracle}
+        execute = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
+        defects = (None, "version-two", "profile", "revision", "tokenizer", "template", "roles", "required", "labels",
+            "scope", "policy", "file-hash", "case-count", "boolean", "float", "continuation", "ordinary-type", "metadata-id",
+            "string-limit", "old-v7", "argument", "duplicate")
+        for defect in defects:
+            changed, expected = bytearray(original), copy.deepcopy(envelope)
+            declared = expected["source_oracle"]
+            status, argument, command = 40, profile.sha256, "--mimo-tokenizer-oracle-control-v8"
+            if defect == "version-two":
+                struct.pack_into("<I", changed, 4, 2)
+                status = 0
+            elif defect == "profile":
+                argument = "0" * 64
+            elif defect == "revision":
+                declared["source_revision"] = "1" * 40
+            elif defect in ("tokenizer", "template"):
+                declared[defect + "_sha256"] = "0" * 64
+            elif defect == "roles":
+                declared["token_roles"]["<think>"] = "source_special"
+                declared["token_roles_sha256"] = hashlib.sha256(json.dumps({"profile_sha256": profile.sha256, "token_roles": declared["token_roles"]}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            elif defect in ("required", "labels"):
+                declared["required_token_ids" if defect == "required" else "label_token_ids"]["<think>" if defect == "required" else "A"] = 123
+            elif defect == "scope":
+                expected["scope"] = "generated_qwen35_roles_only"
+            elif defect == "policy":
+                expected["pre_tokenizer_policy"] = "generated_qwen35_roles_v1"
+            elif defect == "file-hash":
+                status = 41
+            elif defect == "case-count":
+                declared["cases"].pop()
+            elif defect in ("boolean", "float"):
+                declared["cases"][16]["token_ids"] = [True if defect == "boolean" else 33.0]
+            elif defect == "continuation":
+                declared["cases"][17]["token_ids"] = [33, 34]
+                status = 44
+            elif defect in ("ordinary-type", "metadata-id"):
+                struct.pack_into("<I", changed, generated["offsets"]["tokenizer.ggml.token_type" if defect == "ordinary-type" else "tokenizer.ggml.bos_token_id"], 3 if defect == "ordinary-type" else 248044)
+                status = 42
+            elif defect == "string-limit":
+                offset = generated["offsets"]["tokenizer.ggml.tokens"]
+                struct.pack_into("<Q", changed, offset - 8, 4097)
+                changed[offset + 4096:offset + 4096] = b"x"
+                status = 41
+            elif defect == "old-v7":
+                command = "--synthetic-vocab-control-v7"
+            expected.update(gguf_file_bytes=len(changed), gguf_file_sha256="0" * 64 if defect == "file-hash" else hashlib.sha256(changed).hexdigest(),
+                source_native_oracle_sha256=hashlib.sha256(json.dumps(declared, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest())
+            (root / "fault.gguf").write_bytes(changed)
+            encoded = json.dumps(expected, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+            if defect == "duplicate":
+                encoded = encoded[:-1] + b',"scope":"mimo_source_frozen_tokenizer_only"}'
+            (root / "expected.json").write_bytes(encoded)
+            arguments = [str(executable), command, str(root / "fault.gguf"), str(root / "expected.json"), argument]
+            if defect == "argument":
+                arguments.pop()
+            result = _run_tokenizer_only_guard_v3(sys.executable, execute, json.dumps(arguments).encode(), env=env,
+                maximum_seconds=min(60, 60 - (time.monotonic() - started)))
+            assert result["returncode"] == (0 if defect is None else status), (defect, result["returncode"], result["stderr"])
+            if result["returncode"] == 0:
+                receipt = json.loads(result["stdout"])
+                assert receipt["policy_version"] == 8 and receipt["checked_strings"] == 38 and receipt["token_rows"] == 248320
+                assert not receipt["model_loaded"] and not receipt["backend_initialized"] and not receipt["tensor_data_allocated"]
+                assert receipt["token_roles_sha256"] == oracle["token_roles_sha256"]
+            assert result["observed_process_swap_bytes"] == 0 and result["host_swap_baseline_bytes"] == result["observed_host_swap_bytes"]
+            (root / "fault.gguf").unlink()
+            (root / "expected.json").unlink()
+        assert (root / "rows.gguf").read_bytes() == original and time.monotonic() - started < 60
+    assert not root.exists()
 
 
 def _tokenizer_rows_diagnostic_code():
@@ -8100,12 +8722,14 @@ def test_tokenizer_role_context_target_and_policy_refuse_before_source_io(monkey
         assert _tokenizer_role_context_target_profile(profile_bytes, local, roles).sha256 == "1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a"
 
 
-@pytest.mark.parametrize("kind", ["joint", "context", "role-context"])
-@pytest.mark.parametrize("defect", [None, "flag", "profile", "source", "faults", "deadline"])
+@pytest.mark.parametrize("kind", ["joint", "context", "role-context", "native-oracle"])
+@pytest.mark.parametrize("defect", [None, "flag", "profile", "source", "faults", "deadline", "roles", "operation", "deadline-upper"])
 def test_pinned_joint_prefix_guard_without_model_content_reads(defect, kind):
     from tempfile import TemporaryDirectory
     import time
 
+    if kind != "native-oracle" and defect in ("roles", "operation", "deadline-upper"):
+        pytest.skip("new native-oracle prefix boundary only")
     _, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
     profile_bytes = (Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes()
     if defect == "profile":
@@ -8125,7 +8749,7 @@ def deny_model_contents(event, args):
             raise AssertionError("metadata-only prefix opened model-data content")
 sys.addaudithook(deny_model_contents)
 ''' + prefix + r'''
-if learned_context or learned_role_context:
+if learned_context or learned_role_context or learned_native_oracle:
     for event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
         try:
             sys.audit(event)
@@ -8144,11 +8768,18 @@ print(json.dumps({"cap": row_scratch_cap, "files": len(names), "bytes": total}))
         fixture = {"profile_hex": profile_bytes.hex(), "source": str(local if defect != "source" else root / "not-read"),
             "scratch": str(inputs), "output": str(root), "operation": "rows-copy",
             "learned_joint": kind == "joint" or defect == "faults", "learned_context": kind == "context",
-            "learned_role_context": kind == "role-context", "token_roles": _tokenizer_role_context_roles(),
+            "learned_role_context": kind == "role-context", "learned_native_oracle": kind == "native-oracle", "token_roles": _tokenizer_role_context_roles(),
             "include_merges": True, "merge_version": 2, "joint_policy": True, "synthetic_refusals": False,
             "merge_faults": ["byte"] if defect == "faults" else [], "proof_case": None,
             "sequence_deadline": time.monotonic() + (-1 if defect == "deadline" else 65 if kind == "role-context" else 70 if kind == "context" else 175)}
-        approval_flag = {"context": "MIMO_TOKENIZER_CONTEXT_APPROVED", "role-context": "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED"}.get(kind, "MIMO_TOKENIZER_JOINT_APPROVED")
+        if defect == "roles":
+            fixture["token_roles"]["<think>"] = "source_special"
+        elif defect == "operation":
+            fixture["operation"] = "rows-proof"
+        elif defect == "deadline-upper":
+            fixture["sequence_deadline"] = time.monotonic() + 181
+        approval_flag = {"context": "MIMO_TOKENIZER_CONTEXT_APPROVED", "role-context": "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED",
+            "native-oracle": "MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED"}.get(kind, "MIMO_TOKENIZER_JOINT_APPROVED")
         env = {**os.environ, approval_flag: "1", "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
         for flag in ("MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED", "MIMO_TOKENIZER_ROWS_APPROVED"):

@@ -3724,6 +3724,58 @@ learned MiMo/Qwen parity, native template rendering, BitNet execution, quality
 or target-device readiness. Source provenance hashes remain identities rather
 than issuer authentication or runtime approval.
 
+### Source-Frozen MiMo Native Oracle Control
+
+`--mimo-tokenizer-oracle-control-v8 GGUF EXPECTED_JSON EXPECTED_PROFILE_SHA256`
+is a separate tokenizer-only control, never a full-model execution route.
+It requires the MiMo2367e865 profile, frozen tokenizer/template/role identities,
+exact A-P/five-role maps,38 source cases and248320 rows. The canonical envelope
+and source oracle are version1; the CLI/native policy is version8. Envelope
+members are policy_version, scope, profile_sha256, gguf_file_bytes,
+gguf_file_sha256, source_native_oracle_sha256, pre_tokenizer_policy and
+source_oracle. Scope is `mimo_source_frozen_tokenizer_only`; pre-policy is
+`mimo_qwen35_source_oracle_v1`. Existing generated v1-v7 policies remain separate.
+
+Only v8 raises row/merge string length to4096 B, matching source declaration
+bounds. Other bounds remain:16 MiB zero-tensor GGUF,64 KiB canonical envelope/
+oracle,262144 merges, independent4 MiB row/merge content,64 IDs per case and
+the existing strict JSON/type/text checks. Test-only GPT2 architecture selects
+the pinned Qwen3.5 pre-tokenizer. Scaffold metadata uses end-of-text248044 for
+pad/unknown, turn-start248045 for BOS and turn-end248046 for EOS; added BOS/EOS
+are disabled. This mapping does not claim source tokenizer default settings.
+Loading stops at the external vocabulary before model/backend/tensor allocation.
+
+The opt-in pytest node is
+`tests/test_prism_native_control.py::test_pinned_profile_tokenizer_native_oracle_diagnostic`.
+It needs separately granted, unused `MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED=1`,
+exact `MIMO_LOCAL_DIR`, `PRISM_SOURCE_DIR`, `PRISM_CONVERTER_PYTHON` and
+`MIMO_PRISM_RUNTIME_BUILD` cache paths. Unset every older learned flag. Do not
+run it merely because caches exist or copy a historical consumed command.
+Commit the tested runner/native before the first learned open; the one-shot
+is consumed on first invocation regardless of outcome or interrupted uncertainty.
+
+Four serial group-aware phases share an entire180 s parent deadline, each child
+at most60 s including cleanup: copy/pin, source-faithful emission/typed readback,
+one source-oracle preparation, then exact native comparison. Source and read-only
+copies include only ten profile-pinned nonweight files. Emission collections are
+released before source wrapper preparation. Fixed user content `A or B?`,
+context256, pinned non-thinking template/rendering arguments and explicit roles
+are not normalized or substituted. Native refusal stops without fallback/retry.
+Same2 GiB observed group RSS/high-water,2 GiB host reserve, no owned swap/host
+swap growth,32 MiB source/copy sets,128 MiB logical scratch and8 KiB stdout/
+stderr bounds apply. Temporary copies/GGUF/oracle/spill are deleted; report
+contains only bounded identities/counts/refusal/resources, no prompt/token arrays.
+
+`test_pinned_generated_mimo_native_oracle_policy` separately checks the compiled
+consumer and actual emission function using generated rows and explicitly
+mocked source declarations/pins, with all model-cache opens denied. It is not
+learned-source or profile authentication evidence. The native receipt proves
+only selected source-oracle lexical agreement, not issuer authenticity, full
+vocabulary/Unicode parity, native template rendering, model compatibility,
+BitNet dispatch, quality, calibrated confidence or device readiness.
+Changing results/approval consumption belong in the
+[handover](handover.md#learned-native-oracle-runner-checkpoint-2026-11-03).
+
 ### Generated Qwen3.5 Role And Case Control
 
 `--synthetic-vocab-control-v7` adds a separate generated-only role/case policy.
