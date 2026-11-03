@@ -6,6 +6,58 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## GPU Container Readiness Checkpoint (2026-11-03)
+
+Resumed explicitly from handoff `f19e617` and tested source `568642d` in the
+GPU container. The old pause below is historical; the new instruction authorizes
+small model-free implementation checkpoints, not new learned/model workloads.
+All six learned approvals and prior resource ledgers remain consumed/frozen.
+
+Fresh environment facts, before any installation or model/source access:
+
+- Terminal Python is `/opt/venv/bin/python`, Python 3.12.3; Ruff is 0.13.1.
+  NumPy 2.2.6 and pytest 8.4.2 are installed. Torch, Transformers, safetensors
+  and tokenizers are absent. Editor interpreter selection was not established;
+  the user requested terminal Python and allowed activation of the existing venv.
+  Editor settings are left untouched.
+- The writable `huggingface` child of the cache mount is empty. `findmnt`
+  identifies `/dev/sdd` backing the distinct GPU `embedded-jev-cache-10pf...`
+  volume. There is no `embedded-jev` directory, cached `dense-venv`,
+  `gpu/torch-cu128`, `native/prism-source` or `native/jev-prism-runtime-v1-build`.
+  Only `/opt/venv/pyvenv.cfg` was found in the bounded environment-root search.
+  Pinned source revisions therefore cannot be reverified here; no source or
+  artifact was read, fetched, copied or rebuilt to replace them.
+- `nvidia-smi` reports RTX A3000 12GB Laptop GPU, driver 595.95, 12,288 MiB
+  total and 12,108 MiB free VRAM. `/dev/dxg` and `/usr/lib/wsl` are exposed.
+  CUDA Driver API reports compute capability 8.6 and 12,884,377,600 bytes.
+- RAM is 29 GiB with 22-23 GiB available across the inventory/probes; swap is
+  8 GiB with zero use. Linux root, workspace, scratch and cache report 289 GiB
+  available on the 1,007 GiB filesystem. These are time-sensitive readings,
+  not a full-model resource budget or physical Windows free-space guarantee.
+- Windows drives and PowerShell/WSL/Podman host tools are not exposed here;
+  neither `/mnt/c` nor `/mnt/wsl` exists. Windows VHDX-drive free space remains
+  **unverified**, not inferred from Linux `df`. `nvcc` is also absent.
+
+Executed once each with terminal Python, `PYTHONDONTWRITEBYTECODE=1` and a
+20-second command deadline: `python -m embedded_jev.gpu_probe` and
+`python -m embedded_jev.gpu_probe --memory-round-trip`. Both pass; the latter
+returns `memory_round_trip_bytes: 4`. Post-probe swap remains unused and VRAM
+free remains 12,108 MiB. This is fresh driver/memory evidence only, not CUDA
+kernel computation, Torch compatibility, native BitNet dispatch or model quality.
+The documented Torch matmul was **skipped**, because its installed environment
+is missing. No packages, weights or sources were installed/downloaded, no learned
+diagnostic/native-model command was replayed, and frozen candidates were not
+available or touched. Existing user `.vscode/` settings remain untracked.
+
+Next model-free prerequisite: verify the driver's release symbols before the
+opt-in memory smoke creates resources, with offline refusal/cleanup tests.
+For later installed-stack work, the user must expose the existing CPU cache
+volume (do not copy/download it) and provide a Windows-host drive reading:
+`powershell.exe -NoProfile -Command 'Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free'`.
+Reverify pins/environments after a mount change; GPU visibility does not authorize
+new learned reads or execution. Any missing-stack installation still needs a
+separate exact prerequisite/budget request.
+
 ## GPU Container Handoff (2026-11-03)
 
 **Paused at the user's request:** finish the approved native-role control, update
