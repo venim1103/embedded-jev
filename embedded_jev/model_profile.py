@@ -342,7 +342,17 @@ def profile_text_config(profile: ModelProfile, config: dict) -> dict:
         raise ProfileError("missing profile text configuration")
     for name, expected in profile.geometry.items():
         actual = text.get(name)
-        if _freeze(actual) != expected or (type(expected) is int and type(actual) is not int):
+        if (
+            _freeze(actual) != expected
+            or (type(expected) in (int, bool) and type(actual) is not type(expected))
+            or (type(expected) is float and type(actual) not in (int, float))
+            or (name == "rope_parameters" and (
+                type(actual["mrope_interleaved"]) is not bool
+                or any(type(section) is not int for section in actual["mrope_section"])
+                or any(type(actual[parameter]) not in (int, float)
+                       for parameter in ("partial_rotary_factor", "rope_theta"))
+            ))
+        ):
             raise ProfileError(f"configuration geometry does not match the model profile: {name}")
     return text
 

@@ -6,6 +6,42 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Typed Offline Geometry Repair (2026-11-03)
+
+Continued model-free CPU work within the already implemented offline profile
+boundary. `model_profile.py::profile_text_config` previously compared frozen
+values while checking only top-level integer types. Python equality admitted
+`0`/`1` as profile booleans, floats as MRoPE section integers, and `True` as a
+continuous rotary parameter equal to `1.0`.
+
+The owning validator now requires declared integer/boolean types, integer MRoPE
+sections and actual bool interleaving, and excludes bool from continuous numeric
+parameters. Values must still match; no casts, tolerance changes, profile/hash
+updates or new model eligibility. Valid continuous int/float forms are retained.
+Reused the existing text-only/multimodal packaging fixtures in
+`tests/test_inventory.py`; no new test file, model data or external environment.
+
+Failure history: first regression **12 failed, 4 passed, 1382 deselected,
+1.53 s**, all failures were malformed inputs not raising `ProfileError`.
+After the local validator repair the same **16 passed, 0.22 s**. Extended the
+same matrix to 26 cases for isolated nested booleans, numeric positives and
+malformed structures; with nine neighboring packaging checks, **35 passed,
+1373 deselected, 0.28 s**. Default root gate with all six learned and cached
+native opt-ins unset: **1652 passed, 192 skipped, 26.25 s**; Ruff, touched-file
+editor diagnostics and whitespace clean. Documentation validation is separate.
+The unchanged successful source gate is not repeated for documentation edits.
+
+No learned/tokenizer/template/header/weight cache input, cached optional native
+gate, actual GPU, conversion, refit, download, install or host change ran. The
+historical learned evidence is not a fresh test of the repaired validator.
+All six learned allowances and earlier native budgets stay frozen; no new
+experimental ledger was started. User editor settings and other-chat work are
+preserved. The original CPU cache is available; GPU testing remains deferred.
+
+Next: further model-free fail-closed prerequisites are permitted within the
+existing scope. Source-frozen native tokenizer equivalence still needs a precise
+new learned/native allowance; P5-P7 and other-model execution remain unapproved.
+
 ## Pinned Added-Row Classifier Correction (2026-11-03)
 
 A tooling-only static read of pinned Prism `conversion/base.py` at

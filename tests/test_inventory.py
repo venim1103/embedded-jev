@@ -334,6 +334,57 @@ def test_profile_packaging_adapters_reconcile_declared_variations(text_only, sha
     assert stream_plan["embedding_name"] == profile.packaging["text_prefix"] + "embed_tokens.weight"
 
 
+@pytest.mark.parametrize("text_only", [False, True])
+@pytest.mark.parametrize("defect", [None, "tie-int", "gate-int", "mrope-int", "sections-float", "sections-bool",
+    "factor-bool", "nested-factor-bool", "theta-bool", "theta-float", "factor-int", "rope-missing", "sections-scalar"])
+def test_profile_text_geometry_refuses_boolean_and_section_type_aliases(text_only, defect):
+    from embedded_jev.model_profile import ProfileError, profile_text_config
+
+    metadata, _, record = _packaging_fixture(text_only=text_only)
+    config = json.loads(metadata["config.json"])
+    text = config if text_only else config["text_config"]
+    if defect in ("factor-bool", "nested-factor-bool", "factor-int"):
+        record["geometry"]["partial_rotary_factor"] = 1.0
+        record["geometry"]["rope_parameters"].update(partial_rotary_factor=1.0,
+            mrope_section=[record["geometry"]["head_dim"] // 2, 0, 0])
+        text.update(json.loads(json.dumps(record["geometry"])))
+    elif defect == "sections-bool":
+        record["geometry"]["rope_parameters"]["mrope_section"] = [sum(record["geometry"]["rope_parameters"]["mrope_section"]), 0, 0]
+        text.update(json.loads(json.dumps(record["geometry"])))
+    elif defect == "theta-bool":
+        record["geometry"]["rope_parameters"]["rope_theta"] = 1.0
+        text["rope_parameters"]["rope_theta"] = 1.0
+    profile = parse_model_profile(json.dumps(record).encode())
+    if defect in ("tie-int", "gate-int"):
+        field = "tie_word_embeddings" if defect == "tie-int" else "attn_output_gate"
+        text[field] = int(text[field])
+    elif defect == "mrope-int":
+        text["rope_parameters"]["mrope_interleaved"] = 1
+    elif defect == "sections-float":
+        text["rope_parameters"]["mrope_section"] = [float(section) for section in text["rope_parameters"]["mrope_section"]]
+    elif defect == "sections-bool":
+        text["rope_parameters"]["mrope_section"][2] = False
+    elif defect == "factor-bool":
+        text["partial_rotary_factor"] = text["rope_parameters"]["partial_rotary_factor"] = True
+    elif defect == "nested-factor-bool":
+        text["rope_parameters"]["partial_rotary_factor"] = True
+    elif defect == "theta-bool":
+        text["rope_parameters"]["rope_theta"] = True
+    elif defect == "theta-float":
+        text["rope_parameters"]["rope_theta"] = float(text["rope_parameters"]["rope_theta"])
+    elif defect == "factor-int":
+        text["partial_rotary_factor"] = text["rope_parameters"]["partial_rotary_factor"] = 1
+    elif defect == "rope-missing":
+        del text["rope_parameters"]["mrope_interleaved"]
+    elif defect == "sections-scalar":
+        text["rope_parameters"]["mrope_section"] = 0
+    if defect in (None, "theta-float", "factor-int"):
+        assert profile_text_config(profile, config) is text
+    else:
+        with pytest.raises(ProfileError, match="configuration geometry does not match the model profile"):
+            profile_text_config(profile, config)
+
+
 @pytest.mark.parametrize("defect", ["dtype", "mtp", "count", "geometry", "total"])
 def test_profile_packaging_adapters_refuse_undeclared_variations(defect):
     metadata, headers, record = _packaging_fixture(dtype="F32", mtp="complete", stale_total=True)

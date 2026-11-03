@@ -52,6 +52,13 @@ records and their nested values are immutable; a canonical record SHA-256 binds
 the declarations independently of JSON formatting. This is provenance parsing,
 not a compatibility or quality claim.
 
+`profile_text_config()` also validates configuration value types: integer and
+boolean geometry fields must keep their declared types, MRoPE interleaving must
+be boolean, and MRoPE sections must be integers. Booleans are never numeric
+rotary parameters; permitted matching int/float representations for continuous
+parameters remain accepted. Missing or malformed nested geometry refuses with
+`ProfileError`. This check does not authenticate files or grant execution.
+
 The [MiMo record](../embedded_jev/profiles/mimo.json) contains all 17 previously
 verified files, full shard hash pins plus separate header identities, canonical
 text geometry, packaging/dtype/template policies and pinned native/converter
