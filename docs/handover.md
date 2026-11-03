@@ -6,6 +6,43 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## GPU Memory Smoke Cleanup Checkpoint (2026-11-03)
+
+Model-free source follow-up after readiness commit `372146f`. The opt-in driver
+memory smoke now resolves `cuCtxDestroy_v2` and `cuMemFree_v2` before creating
+a context or allocating device memory. Existing enumeration-only behavior,
+four-byte payload, error messages and cleanup-status checks remain unchanged.
+This prevents starting the smoke when the loaded driver lacks a required release
+symbol; it does not guarantee successful release if a driver call itself fails.
+
+Synthetic regression first: both missing-release cases failed in **0.04 s**,
+showing context/allocation/copy events before the missing symbol was discovered.
+After the local repair, the same two cases pass in **0.01 s**, with no resource
+creation. The complete fake-driver file passes **5 tests in 0.01 s**, including
+the existing copy-failure cleanup and enumeration/error contracts. No GPU or
+learned inputs are used in those tests. Editor diagnostics are clean.
+
+Separate post-change GPU execution: one documented
+`python -m embedded_jev.gpu_probe --memory-round-trip`, with
+`PYTHONDONTWRITEBYTECODE=1` and a 20-second deadline, passes with exactly four
+bytes. This rerun validates the changed cleanup path, not an unchanged historical
+diagnostic. Post-run readings remain 22 GiB available RAM, zero swap use and
+12,108 MiB free VRAM. No Torch/CUDA kernel, native BitNet, tokenizer or model
+workload ran; the readiness limits below remain open.
+
+Required default source gate: **1605 passed, 192 skipped in 23.35 s**;
+`ruff check --no-cache embedded_jev tests` and `git diff --check` pass.
+Optional skips are not compiled native, learned, Torch or full-model evidence.
+No old approval/resource ledger was reset, no candidate/scales/settings changed,
+and no worker or generated artifact was retained. No install/download, push,
+branch or delegation occurred.
+
+Next concrete step is external prerequisite recovery: expose the existing CPU
+cache volume and obtain Windows VHDX-drive free space as described below. Do not
+replace the empty GPU cache by a download or artifact copy. The installed-stack
+GPU/Torch and pinned-source/native follow-ups are blocked until those inputs are
+available and reverified; new learned reads/execution still need separate approval.
+
 ## GPU Container Readiness Checkpoint (2026-11-03)
 
 Resumed explicitly from handoff `f19e617` and tested source `568642d` in the
@@ -21,12 +58,12 @@ Fresh environment facts, before any installation or model/source access:
   the user requested terminal Python and allowed activation of the existing venv.
   Editor settings are left untouched.
 - The writable `huggingface` child of the cache mount is empty. `findmnt`
-  identifies `/dev/sdd` backing the distinct GPU `embedded-jev-cache-10pf...`
+  identifies `/dev/sdd` backing the GPU `embedded-jev-cache-10pf...`
   volume. There is no `embedded-jev` directory, cached `dense-venv`,
   `gpu/torch-cu128`, `native/prism-source` or `native/jev-prism-runtime-v1-build`.
   Only `/opt/venv/pyvenv.cfg` was found in the bounded environment-root search.
-  Pinned source revisions therefore cannot be reverified here; no source or
-  artifact was read, fetched, copied or rebuilt to replace them.
+  Pinned source revisions therefore cannot be reverified here; no missing input
+  was fetched, copied or rebuilt to replace them.
 - `nvidia-smi` reports RTX A3000 12GB Laptop GPU, driver 595.95, 12,288 MiB
   total and 12,108 MiB free VRAM. `/dev/dxg` and `/usr/lib/wsl` are exposed.
   CUDA Driver API reports compute capability 8.6 and 12,884,377,600 bytes.
@@ -49,8 +86,8 @@ is missing. No packages, weights or sources were installed/downloaded, no learne
 diagnostic/native-model command was replayed, and frozen candidates were not
 available or touched. Existing user `.vscode/` settings remain untracked.
 
-Next model-free prerequisite: verify the driver's release symbols before the
-opt-in memory smoke creates resources, with offline refusal/cleanup tests.
+The model-free release-symbol prerequisite is now completed in the cleanup
+checkpoint above, with offline refusal/cleanup tests.
 For later installed-stack work, the user must expose the existing CPU cache
 volume (do not copy/download it) and provide a Windows-host drive reading:
 `powershell.exe -NoProfile -Command 'Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free'`.

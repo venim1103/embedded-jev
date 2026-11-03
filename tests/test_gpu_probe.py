@@ -119,6 +119,17 @@ def test_memory_round_trip_checks_bytes_and_releases_resources():
     assert driver.events == ["context", "allocate", "free", "destroy"]
 
 
+@pytest.mark.parametrize("symbol", ["cuMemFree_v2", "cuCtxDestroy_v2"])
+def test_memory_round_trip_refuses_missing_release_symbols_before_context_creation(symbol):
+    driver = fake_driver()
+    delattr(driver, symbol)
+    assert probe_cuda_driver(loader=lambda name: driver)["device_count"] == 1
+    assert driver.events == []
+    with pytest.raises(GPUProbeError, match=f"CUDA driver symbol is missing: {symbol}"):
+        probe_cuda_driver(loader=lambda name: driver, memory_round_trip=True)
+    assert driver.events == []
+
+
 def test_probe_rejects_missing_driver_and_errors():
     def unavailable(name):
         raise OSError("no libcuda")

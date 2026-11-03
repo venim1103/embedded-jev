@@ -4587,6 +4587,12 @@ do not automatically recreate environments, copy large artifacts or download
 weights when a path is missing. `/tmp` observers/validators and chat memory are
 disposable; reconstruct necessary tooling from these documented contracts rather
 than treating a vanished scratch file as a reason to loosen resource guards.
+If this mount is empty, use `podman volume ls --filter name=embedded-jev-cache`
+on the WSL host to identify existing volumes, then expose the previously used
+CPU cache through the host's container configuration. Do not guess a volume from
+its prefix, copy artifacts or change permissions. Recheck the actual mount,
+environments and pinned source revisions after reopening; file visibility alone
+does not authorize learned reads or model execution.
 The GPU/driver/Torch results below are historical, not fresh container readiness.
 
 On that host, from the workspace root, validate and launch explicitly:
@@ -4612,7 +4618,11 @@ For a separate, opt-in four-byte host/device memory round trip, append
 `--memory-round-trip` to that command. This mode creates and destroys a CUDA
 context and frees its allocation; it passed on the WSL/Podman GPU container,
 returning `"memory_round_trip_bytes": 4`. Offline fake-driver tests also cover
-cleanup on copy failure. Neither check runs CUDA kernels or proves a
+cleanup on copy failure. The opt-in memory path resolves the context-destroy and
+memory-free symbols before creating resources; missing release symbols refuse
+before context creation, while enumeration alone does not require those symbols.
+Nonzero release statuses remain errors, not proof of successful cleanup.
+Neither check runs CUDA kernels or proves a
 compatible GPU Torch wheel or usable full-model quantization.
 
 For an actual GPU compute gate, use a separate environment in the GPU profile's

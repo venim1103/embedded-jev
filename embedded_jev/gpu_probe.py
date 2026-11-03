@@ -15,14 +15,17 @@ def probe_cuda_driver(loader=ctypes.CDLL, *, memory_round_trip: bool = False) ->
     except OSError as exc:
         raise GPUProbeError("CUDA driver library libcuda.so.1 is unavailable") from exc
 
-    def call(name, argtypes, *args):
+    def resolve(name, argtypes):
         try:
             function = getattr(driver, name)
         except AttributeError as exc:
             raise GPUProbeError(f"CUDA driver symbol is missing: {name}") from exc
         function.argtypes = argtypes
         function.restype = ctypes.c_int
-        status = function(*args)
+        return function
+
+    def call(name, argtypes, *args):
+        status = resolve(name, argtypes)(*args)
         if status != 0:
             raise GPUProbeError(f"CUDA driver {name} failed with status {status}")
 
@@ -59,6 +62,8 @@ def probe_cuda_driver(loader=ctypes.CDLL, *, memory_round_trip: bool = False) ->
             "total_memory_bytes": total_bytes.value,
         })
         if memory_round_trip and index == 0:
+            resolve("cuCtxDestroy_v2", [ctypes.c_void_p])
+            resolve("cuMemFree_v2", [ctypes.c_uint64])
             context = ctypes.c_void_p()
             call(
                 "cuCtxCreate_v2", [ctypes.POINTER(ctypes.c_void_p), ctypes.c_uint, ctypes.c_int],
