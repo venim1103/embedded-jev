@@ -3121,6 +3121,35 @@ allowances are <=16 MiB, defaulting to 8 KiB/1 MiB; file cap stays 16 MiB. Priva
 record policy 3 permits 16 MiB selected records without increasing numeric part
 limits. Policies 1/2 and old row-only/joint v3 file APIs preserve their hard caps.
 
+`verify_profile_gguf_fast_tokenizer_rows_and_merges_v5(...)` adds required explicit
+`token_roles` to that retained-file contract without changing v3/v4 behavior or
+bounds. It prepares rows through `prepare_profile_model_fast_token_role_contract_v1`
+once, checks source IDs/flags/encodings and role-selected row types, then binds
+the same rows and source-ranked merges to the retained file. Role preparation
+uses at most 60 s within the shared deadline; defaults and all existing file/
+header/record/row/content/merge caps remain. Invalid roles refuse before row or
+reader access; invalid file budgets refuse before source preparation.
+
+The receipt includes file policy5, the canonical profile-bound role hash,
+`metadata_scope="role_bound_padded_transformed_rows_and_merges_subset"` and
+`token_role_file_verification="explicit_profile_roles_and_selected_typed_rows_match_file"`.
+Native tokenizer verification remains `not_checked`; file verification does not
+grant runtime approval, validate pre-tokenizer tags, render a native template or
+accept complete model metadata. This is not a native control-v5 command.
+
+The existing retained-file reader requires a tensor table with 1..427 tensors;
+do not relax that gate to reuse a direct zero-tensor vocabulary fixture. Optional
+`synthetic-joint-vocab-roles-merges-medium-file-v4` uses the pinned generated
+8193-row/32-merge fixture with a separate file containing one two-byte synthetic
+BF16 anchor. It checks v5 role/file receipts, incorrect control/marker roles and
+a fresh-hash incorrect marker type; anchor/fault files and readers are removed.
+The original zero-tensor GGUF separately retains native v4's 39 comparisons.
+Same learned-unset cached variables, <=90 s stage/<=60 s children, owned-group
+memory/swap/deadline/FD/identity checks and <=128 MiB logical scratch apply.
+See the [role-file checkpoint](handover.md#role-bound-fast-tokenizer-file-checkpoint-2026-11-03)
+for failure history, commands/results and evidence limits. No learned inputs,
+full-size v5 experiment, model/backend/GPU execution or quality claim is implied.
+
 Optional row diagnostic `[synthetic-merges-intermediate]` exercises 8193 rows/
 4097 valid pairs through these versions, including typed readback and fresh-hash
 byte/rank contradictions. `[synthetic-merges-full]` uses 248320 rows, 243 tail

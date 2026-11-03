@@ -6,6 +6,71 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Role-Bound Fast Tokenizer File Checkpoint (2026-11-03)
+
+Continued autonomous CPU implementation after pushed `0a3ea37`, with a separate
+model-free **300 s execution ceiling** disclosed before the first edit. Older
+ledgers and all six consumed learned approvals remain frozen; GPU is deferred.
+No learned/cache model inputs, real weights, download, conversion, refit,
+candidate promotion or quality work. Repository-only profile records and
+generated source files are distinct from cached learned inputs.
+
+Retained rows/merges v4 did not compose explicit source-special/ordinary-marker
+role verification. Added separate
+`verify_profile_gguf_fast_tokenizer_rows_and_merges_v5`: reuse the existing role
+owner as the row preparer once, then preserve source rank declarations and
+selected-file verification. No duplicate row-table preparation. V3/v4 calls,
+defaults, hard caps, descriptor/two-hash/selected-byte/mapping/deadline gates
+remain. File policy5 retains canonical profile-bound role identity and a
+role-bound selected-subset scope. Native verification stays `not_checked` and
+runtime approval remains not granted; this is not native vocabulary-control v5.
+
+First focused early-role refusals: **3 passed, 0.16 s**. Extended default checks:
+**13 passed, 0.15 s** = three invalid-role pre-row/pre-reader refusals, six early
+identity/budget refusals and four v4/v5 receipt/verification success/failure
+routing cases. Routing mocks prove composition, not source-tokenizer arithmetic.
+
+Initial actual pinned-tool medium integration: **1 failed, 3.28 s**, refused at
+`_verify_profile_gguf_metadata_records` reader-layout gate. The existing retained
+model-file metadata verifier requires 1..427 tensors, unlike the direct native
+zero-tensor vocabulary branch. Diagnosed that controlling condition; did not
+relax it. Repaired only the fixture with a separate generated GGUF containing
+one two-byte BF16 `synthetic.anchor`, retaining the original zero-tensor GGUF.
+No model construction, backend initialization or compiled-source change/build.
+
+Repaired same focused integration: **1 passed, 3.88 s**. Generated 8193 rows/
+32 ranked merges, same 10 source/copy files **311821 B per set**. V5 receipt role
+hash matches standalone role verification; actual wrong marker/control roles
+refuse before reader access with source-flag diagnostics. Hash-correct marker
+type4-to3 fault refuses exactly as a token-type declaration-byte mismatch,
+not stale hash or malformed layout. Anchor/fault readers close and files unlink;
+original bytes/hash, source/copy/output identities, FD baseline and deadlines
+remain checked. Original zero-tensor native v4 separately matches all39 strings,
+with explicit no-model/backend/tensor-data receipt. File receipt does not inherit
+that native acceptance or prove arbitrary text/template/pre-tokenizer agreement.
+
+Observed integration worker/group peak **339406848 B**, native **11468800 B**,
+minimum available host RAM **17389088768 B**, swap baseline/growth zero. Original
+native GGUF **171040 B**, conservative logical scratch **51200634 B** includes
+reserved room for the separate bounded anchor/fault copies. These observations
+are not host/device guarantees. No full-size v5 run or new peak-RSS claim for it.
+
+Shared-helper compatibility: exact old `synthetic-joint` retained-file path plus
+native v4 medium positive/refusal cases, **3 passed, 24.65 s**, under 58 s plus
+2 s termination cleanup. Required root gate with all learned/cached-native
+opt-ins unset: **1716 passed, 202 skipped, 32.96 s**, under 38 s plus 2 s cleanup;
+Ruff, source diagnostics and whitespace clean. Optional skips are not execution
+evidence. No unchanged successful gate repeated for documentation.
+
+Measured test/gate execution **65.08 s**, including the failed integration.
+Conservative **180/300 s reserved** =20 default focus +30 diagnosed/repaired
+integration +60 compatibility +40 root gate +30 setup/review/docs/cleanup;
+remaining120 s is not another experiment approval. Verified no owned fixture
+directories or workers remain. User editor settings and pinned sources unchanged.
+Next prerequisite remains a source-frozen profile-bound native vocabulary/tag/
+oracle plan before any newly approved learned diagnostic; these selected-role
+file checks do not accept a learned model, BitNet runtime, quality or deployment.
+
 ## Synthetic Native Ranked-Merge Capacity Checkpoint (2026-11-03)
 
 Continued the user's autonomous CPU implementation/periodic commit-push scope

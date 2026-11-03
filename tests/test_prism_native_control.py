@@ -5816,6 +5816,8 @@ if row_mode:
             allowed_gguf_paths.update(Path(fixture["output"]) / name for name in ("vocab-limit-rows.gguf", "vocab-limit-content.gguf"))
     if native_vocab and fixture.get("vocab_rank_controls", False):
         allowed_gguf_paths.update(Path(fixture["output"]) / f"vocab-merge-limit-{name}.gguf" for name in ("rows", "content"))
+    if native_vocab and fixture.get("vocab_role_file", False):
+        allowed_gguf_paths.update(Path(fixture["output"]) / name for name in ("role-file.gguf", "role-file-fault.gguf"))
 
     def row_audit(event, args):
         if (learned_context or learned_role_context) and event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
@@ -6620,6 +6622,72 @@ def run_rows():
                 for record in records:
                     assert tuple(reader.get_field(record["name"]).contents()) == tuple(record["values"])
                 base_address = reader.data.__array_interface__["data"][0]
+                if fixture.get("vocab_role_file", False):
+                    import copy
+                    import numpy as np
+                    import struct
+
+                    role_path = root / "role-file.gguf"
+                    role_writer = gguf.GGUFWriter(str(role_path), arch="gpt2")
+                    try:
+                        role_writer.kv_data = copy.deepcopy(writer.kv_data)
+                        role_writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
+                        role_writer.write_header_to_file()
+                        role_writer.write_kv_data_to_file()
+                        role_writer.write_tensors_to_file()
+                    finally:
+                        role_writer.close()
+                    role_reader = gguf.GGUFReader(role_path)
+                    try:
+                        assert len(role_reader.tensors) == 1 and role_reader.tensors[0].name == "synthetic.anchor"
+                        assert role_reader.tensors[0].n_bytes == 2 and 0 < role_path.stat().st_size <= file_cap
+                        file_arguments = dict(arguments, reader=role_reader, merge_policy="pinned_prism_ranked_source_merges_v2",
+                            token_roles=role_arguments["token_roles"], expected_file_bytes=role_path.stat().st_size,
+                            expected_file_sha256=hashlib.sha256(role_path.read_bytes()).hexdigest(), maximum_file_bytes=file_cap,
+                            maximum_metadata_bytes=file_cap, maximum_header_bytes=file_cap, maximum_merge_rows=262144,
+                            maximum_merge_content_bytes=4 * 1024**2, maximum_seconds=min(30, remaining()))
+                        role_file_receipt = prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v5(profile, **file_arguments)
+                        assert role_file_receipt["tokenizer_row_file_policy_version"] == 5
+                        assert role_file_receipt["token_roles_sha256"] == standalone["token_roles_sha256"]
+                        assert role_file_receipt["ordinary_marker_token_ids"] == {"<marker>": marker_id}
+                        assert role_file_receipt["metadata_scope"] == "role_bound_padded_transformed_rows_and_merges_subset"
+                        assert role_file_receipt["native_tokenizer_verification"] == "not_checked"
+                        assert role_file_receipt["runtime_approval"] == "not_granted_by_fast_rows_and_merges_file_verification"
+                        for text in ("<marker>", "<pad>"):
+                            changed_roles = dict(role_arguments["token_roles"])
+                            changed_roles[text] = "source_special" if text == "<marker>" else "ordinary_added_marker"
+                            try:
+                                prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v5(profile,
+                                    **{**file_arguments, "reader": object(), "token_roles": changed_roles, "maximum_seconds": min(30, remaining())})
+                            except ValueError as exc:
+                                assert str(exc) == "token role contract source flags or selected row mismatch"
+                            else:
+                                raise AssertionError("incorrect source role reached file acceptance")
+                        field = role_reader.get_field("tokenizer.ggml.token_type")
+                        offset = field.parts[field.data[0]].__array_interface__["data"][0] - role_reader.data.__array_interface__["data"][0] + 4 * marker_id
+                        original_file = role_path.read_bytes()
+                        changed = bytearray(original_file)
+                        assert struct.unpack_from("<i", changed, offset)[0] == 4
+                        struct.pack_into("<i", changed, offset, 3)
+                        fault_path = root / "role-file-fault.gguf"
+                        fault_path.write_bytes(changed)
+                        fault_reader = gguf.GGUFReader(fault_path)
+                        try:
+                            try:
+                                prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v5(profile,
+                                    **{**file_arguments, "reader": fault_reader, "expected_file_sha256": hashlib.sha256(changed).hexdigest(),
+                                        "maximum_seconds": min(30, remaining())})
+                            except ValueError as exc:
+                                assert str(exc) == "policy metadata declaration byte mismatch: tokenizer.ggml.token_type"
+                            else:
+                                raise AssertionError("hash-correct incorrect marker type accepted")
+                        finally:
+                            fault_reader.data._mmap.close()
+                            fault_path.unlink()
+                        assert role_path.read_bytes() == original_file
+                    finally:
+                        role_reader.data._mmap.close()
+                        role_path.unlink()
                 fault_offsets = {}
                 for name in ("tokenizer.ggml.model", "tokenizer.ggml.pre", "tokenizer.ggml.merges", "tokenizer.ggml.unknown_token_id",
                         "tokenizer.ggml.token_type", "tokenizer.ggml.tokens", "tokenizer.ggml.add_bos_token"):
@@ -6660,6 +6728,8 @@ def run_rows():
         assert logical < row_scratch_cap and time.monotonic() < fixture["sequence_deadline"]
         return dict(status="matched", phase=operation, token_rows=vocab_count, contextual_refusal=fixture["vocab_merge"],
             **({"merge_rows": len(merges["values"]), "ranked_source_merges_verified": True} if vocab_ranked else {}),
+            **({"role_file_policy_version": 5, "token_roles_sha256": role_file_receipt["token_roles_sha256"],
+                "role_file_refusals": 3} if fixture.get("vocab_role_file", False) else {}),
             fault_offsets=fault_offsets,
             output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
             logical_source_copy_scratch_bytes=logical, logical_scratch_cap_bytes=row_scratch_cap)
@@ -6910,7 +6980,7 @@ finish_report(report)
     "synthetic-joint-vocab-nul", "synthetic-joint-vocab-roles-nul",
     "synthetic-joint-vocab-roles-medium-nul-v3",
     "synthetic-joint-vocab-roles-merges-medium-v4", "synthetic-joint-vocab-roles-merges-full-v4",
-    "synthetic-joint-vocab-roles-merges-medium-controls-v4"])
+    "synthetic-joint-vocab-roles-merges-medium-controls-v4", "synthetic-joint-vocab-roles-merges-medium-file-v4"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6928,6 +6998,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     native_vocab = "-vocab" in mode
     vocab_roles = "-vocab-roles" in mode
     vocab_ranked = native_vocab and mode.endswith("-v4")
+    vocab_role_file = vocab_ranked and "-file-" in mode
     vocab_rank_controls = vocab_ranked and "-controls-" in mode
     vocab_large = native_vocab and mode.endswith(("-v3", "-v4"))
     vocab_nul = native_vocab and "-nul" in mode
@@ -7122,6 +7193,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "context_contract": context_contract, "context_refusal": context_refusal,
             "native_vocab": native_vocab, "vocab_merge": vocab_merge, "vocab_roles": vocab_roles,
             "vocab_large": vocab_large, "vocab_ranked": vocab_ranked, "vocab_rank_controls": vocab_rank_controls,
+            "vocab_role_file": vocab_role_file,
             "large_context": large_context,
             "token_roles_contract": token_roles_contract,
             "role_context": role_context,
@@ -7179,6 +7251,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 assert report["token_rows"] == vocab_count and report["contextual_refusal"] == vocab_merge
                 if vocab_ranked:
                     assert report["merge_rows"] == len(fixture_merges) and report["ranked_source_merges_verified"]
+                if vocab_role_file:
+                    assert report["role_file_policy_version"] == 5 and report["role_file_refusals"] == 3
+                    assert len(report["token_roles_sha256"]) == 64
                 assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == (128 if vocab_large else 16) * 1024**2
                 assert (output / "rows.gguf").stat().st_size == report["output_file_bytes"] <= (16 * 1024**2 if vocab_large else 256 * 1024)
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
@@ -7802,6 +7877,96 @@ def test_contextual_diagnostic_receipt_is_synthetic_single_call_and_bounded(monk
     if refused:
         assert report["refusal_type"] == "ValueError" and report["refusal_function"] == "prepare"
         assert "prompt_sha256" not in report and "checked_labels" not in report
+
+
+@pytest.mark.parametrize("roles", [None, {}, {"<pad>": "ordinary_marker"}])
+def test_role_bound_fast_file_refuses_roles_before_rows_or_reader(monkeypatch, roles):
+    from embedded_jev import prism_codec
+    from embedded_jev.model_profile import parse_model_profile
+
+    profile = parse_model_profile((Path(__file__).resolve().parents[1] / "embedded_jev/profiles/mimo.json").read_bytes())
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_tokenizer_rows_v2", lambda *args, **kwargs: pytest.fail("invalid roles reached rows"))
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", lambda *args, **kwargs: pytest.fail("invalid roles reached reader"))
+    with pytest.raises(ValueError, match="^invalid token role contract roles$"):
+        prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v5(profile, reader=object(), metadata_files={},
+            tokenizer_bytes=b"{}", context_length=256, row_policy="not-read", merge_policy="pinned_prism_ranked_source_merges_v2",
+            token_roles=roles, expected_file_bytes=1, expected_file_sha256="0" * 64)
+
+
+@pytest.mark.parametrize("version", [4, 5])
+@pytest.mark.parametrize("refused", [False, True])
+def test_role_bound_fast_file_routes_receipt_and_verification(monkeypatch, version, refused):
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    profile = SimpleNamespace(sha256="0" * 64, geometry={"vocab_size": 3})
+    roles = {"<marker>": "ordinary_added_marker"}
+    prepared = {"tokens": ("A", "B", "AB")}
+    if version == 5:
+        prepared.update(token_role_contract_policy_version=1, profile_sha256=profile.sha256,
+            token_roles=roles, token_roles_sha256="1" * 64, native_tokenizer_verification="not_checked")
+    merge = {"name": "tokenizer.ggml.merges", "values": ("A B",)}
+    row_records = [{"name": "tokenizer.ggml.tokens", "values": prepared["tokens"]},
+        {"name": "tokenizer.ggml.token_type", "values": (1, 1, 1)}]
+    calls = []
+
+    def prepare(actual, **arguments):
+        assert actual is profile and arguments.get("verify_token_roles", False) is (version == 5)
+        if version == 5:
+            assert arguments["token_roles"] == roles and 0 < arguments["maximum_seconds"] <= 30
+        else:
+            assert "token_roles" not in arguments
+        calls.append("prepare")
+        return prepared, merge, 3
+
+    def verify(actual, **arguments):
+        assert actual is profile and arguments["model_owner"] is None
+        assert arguments["record_policy_version"] == 3 and arguments["declarations"] == [*row_records, merge]
+        assert arguments["expected_file_sha256"] == "0" * 64
+        calls.append("reader")
+        if refused:
+            raise ValueError("synthetic selected-file refusal")
+        return {"policy_metadata_verification": "synthetic"}
+
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", prepare)
+    monkeypatch.setattr(prism_codec, "_profile_fast_tokenizer_row_records", lambda actual: row_records)
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
+    arguments = dict(reader=object(), metadata_files={}, tokenizer_bytes=b"{}", context_length=256,
+        row_policy="pinned_prism_fast_rows_v2", merge_policy="pinned_prism_ranked_source_merges_v2",
+        expected_file_bytes=1, expected_file_sha256="0" * 64)
+    if version == 5:
+        arguments["token_roles"] = roles
+    function = getattr(prism_codec, f"verify_profile_gguf_fast_tokenizer_rows_and_merges_v{version}")
+    if refused:
+        with pytest.raises(ValueError, match="^synthetic selected-file refusal$"):
+            function(profile, **arguments)
+    else:
+        receipt = function(profile, **arguments)
+        assert receipt["tokenizer_row_file_policy_version"] == version and receipt["merge_content_bytes"] == 3
+        assert receipt["runtime_approval"] == "not_granted_by_fast_rows_and_merges_file_verification"
+        if version == 5:
+            assert receipt["token_roles_sha256"] == "1" * 64 and receipt["profile_sha256"] == profile.sha256
+            assert receipt["token_role_file_verification"] == "explicit_profile_roles_and_selected_typed_rows_match_file"
+            assert receipt["native_tokenizer_verification"] == "not_checked"
+        else:
+            assert "token_role_file_verification" not in receipt and "token_roles_sha256" not in receipt
+    assert calls == ["prepare", "reader"]
+
+
+@pytest.mark.parametrize("name,value", [("maximum_seconds", True), ("maximum_seconds", float("nan")),
+    ("expected_file_bytes", True), ("expected_file_sha256", "not-a-hash"),
+    ("maximum_metadata_bytes", 16 * 1024**2 + 1), ("maximum_header_bytes", 16 * 1024**2 + 1)])
+def test_role_bound_fast_file_refuses_budgets_before_preparation(monkeypatch, name, value):
+    from embedded_jev import prism_codec
+
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", lambda *args, **kwargs: pytest.fail("invalid budget reached source preparation"))
+    arguments = dict(reader=object(), metadata_files={}, tokenizer_bytes=b"{}", context_length=256,
+        row_policy="not-read", merge_policy="pinned_prism_ranked_source_merges_v2", token_roles={},
+        expected_file_bytes=1, expected_file_sha256="0" * 64)
+    arguments[name] = value
+    with pytest.raises(ValueError, match="^invalid v3 fast-row file identity or budget$"):
+        prism_codec.verify_profile_gguf_fast_tokenizer_rows_and_merges_v5(object(), **arguments)
 
 
 def test_tokenizer_rows_diagnostic_refuses_unknown_mode():
