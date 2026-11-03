@@ -1354,10 +1354,11 @@ static std::string selected_sha256(const char* data, std::size_t size) {
 static int test_synthetic_vocab(
     const char* path, const char* expected_path, int policy_version = 1, const char* expected_profile_sha256 = nullptr) {
     using nlohmann::json;
-    const bool qwen35_oracle = policy_version == 6;
+    const bool generalized_roles = policy_version == 7;
+    const bool qwen35_oracle = policy_version == 6 || generalized_roles;
     const bool source_oracle = policy_version == 5 || qwen35_oracle;
-    const auto* oracle_scope = qwen35_oracle ? "generated_qwen35_only" : "generated_gpt2_only";
-    const auto* pre_policy = qwen35_oracle ? "generated_qwen35_bytelevel_v1" : "generated_bytelevel_gpt2_v1";
+    const auto* oracle_scope = generalized_roles ? "generated_qwen35_roles_only" : qwen35_oracle ? "generated_qwen35_only" : "generated_gpt2_only";
+    const auto* pre_policy = generalized_roles ? "generated_qwen35_roles_v1" : qwen35_oracle ? "generated_qwen35_bytelevel_v1" : "generated_bytelevel_gpt2_v1";
     const auto* pre_tag = qwen35_oracle ? "qwen35" : "gpt-2";
     const bool ranked = policy_version == 4 || source_oracle;
     const bool large = policy_version == 3 || ranked;
@@ -1381,6 +1382,7 @@ static int test_synthetic_vocab(
             });
         json envelope;
         std::vector<std::string> oracle_texts;
+        std::size_t label_count = 16, ordinary_marker_count = 0, source_special_count = 0;
         if (source_oracle) {
             envelope = expected;
             const auto exact_members = [](const json& value, const std::set<std::string>& names) {
@@ -1418,33 +1420,52 @@ static int test_synthetic_vocab(
                     !digest(oracle["tokenizer_sha256"]) || !digest(oracle["template_sha256"]) ||
                     !digest(oracle["prompt_sha256"]) || !digest(oracle["token_roles_sha256"]) ||
                     oracle["pre_tokenizer_tag_verification"] != "not_checked" || oracle["native_tokenizer_verification"] != "not_checked" ||
-                    !oracle["cases"].is_array() || oracle["cases"].size() != 36 ||
-                    !exact_members(oracle["token_roles"], {"<pad>", "<|control|>", "<marker>"}) ||
-                    !exact_members(oracle["required_token_ids"], {"<pad>", "<|control|>", "<marker>"}) ||
-                    !oracle["label_token_ids"].is_object() || oracle["label_token_ids"].size() != 16) {
+                    !oracle["cases"].is_array() || !oracle["label_token_ids"].is_object() ||
+                    (!generalized_roles && (oracle["cases"].size() != 36 ||
+                        !exact_members(oracle["token_roles"], {"<pad>", "<|control|>", "<marker>"}) ||
+                        !exact_members(oracle["required_token_ids"], {"<pad>", "<|control|>", "<marker>"}) ||
+                        oracle["label_token_ids"].size() != 16)) ||
+                    (generalized_roles && (oracle["label_token_ids"].empty() || oracle["label_token_ids"].size() > 16 ||
+                        !oracle["required_token_ids"].is_object() || oracle["required_token_ids"].empty() || oracle["required_token_ids"].size() > 31 ||
+                        !oracle["token_roles"].is_object() || oracle["token_roles"].size() != oracle["required_token_ids"].size() ||
+                        oracle["cases"].size() != 2 * oracle["label_token_ids"].size() + 1 + oracle["required_token_ids"].size() ||
+                        oracle["cases"].size() > 64))) {
                 return 40;
             }
             const auto oracle_json = oracle.dump();
-            const auto role_json = json{{"profile_sha256", expected_profile_sha256}, {"token_roles", oracle["token_roles"]}}.dump();
+            const auto role_json = json{{"profile_sha256", expected_profile_sha256}, {"token_roles", oracle["token_roles"]}}.dump(-1, ' ', generalized_roles);
             if (oracle_json.size() > 65536 || selected_sha256(oracle_json.data(), oracle_json.size()) != envelope["source_native_oracle_sha256"] ||
                     selected_sha256(role_json.data(), role_json.size()) != oracle["token_roles_sha256"]) {
                 return 40;
             }
-            if (oracle["token_roles"]["<pad>"] != "source_special" || oracle["token_roles"]["<|control|>"] != "source_special" ||
-                    oracle["token_roles"]["<marker>"] != "ordinary_added_marker") {
+            if (!generalized_roles && (oracle["token_roles"]["<pad>"] != "source_special" || oracle["token_roles"]["<|control|>"] != "source_special" ||
+                    oracle["token_roles"]["<marker>"] != "ordinary_added_marker")) {
                 return 42;
             }
-            expected = {{"special_ids", {oracle["required_token_ids"]["<pad>"], oracle["required_token_ids"]["<|control|>"]}},
-                {"ordinary_marker_id", oracle["required_token_ids"]["<marker>"]}, {"boundary_refusal", false}, {"token_ids", json::array()}};
+            expected = {{"boundary_refusal", false}, {"token_ids", json::array()}};
+            if (!generalized_roles) {
+                expected["special_ids"] = {oracle["required_token_ids"]["<pad>"], oracle["required_token_ids"]["<|control|>"]};
+                expected["ordinary_marker_id"] = oracle["required_token_ids"]["<marker>"];
+            }
             std::vector<std::pair<std::string, std::string>> ordered_cases;
-            for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
-                const std::string text(1, label);
+            std::vector<std::string> labels;
+            if (generalized_roles) {
+                label_count = oracle["label_token_ids"].size();
+                for (const auto& label : oracle["label_token_ids"].items()) {
+                    labels.push_back(label.key());
+                }
+            } else {
+                for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
+                    labels.emplace_back(1, label);
+                }
+            }
+            for (const auto& text : labels) {
                 if (!oracle["label_token_ids"].contains(text)) {
                     return 40;
                 }
                 ordered_cases.emplace_back("label", text);
             }
-            const auto& prompt_case = oracle["cases"][16];
+            const auto& prompt_case = oracle["cases"][label_count];
             if (!prompt_case.is_object() || !prompt_case.contains("text") || !prompt_case["text"].is_string()) {
                 return 40;
             }
@@ -1453,7 +1474,7 @@ static int test_synthetic_vocab(
                 return 40;
             }
             ordered_cases.emplace_back("prompt", prompt);
-            for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
+            for (const auto& label : labels) {
                 ordered_cases.emplace_back("continuation", prompt + label);
             }
             for (const auto& required : oracle["required_token_ids"].items()) {
@@ -1482,12 +1503,12 @@ static int test_synthetic_vocab(
                 expected["token_ids"].push_back(item["token_ids"]);
             }
         }
-        if (!expected.is_object() || expected.size() != (roles ? 4 : 3) || !expected.contains("token_ids") ||
+        if (!generalized_roles && (!expected.is_object() || expected.size() != (roles ? 4 : 3) || !expected.contains("token_ids") ||
                 !expected.contains("special_ids") || !expected.contains("boundary_refusal") ||
             (roles && !expected.contains("ordinary_marker_id")) ||
             !expected["token_ids"].is_array() || expected["token_ids"].size() != (ranked && !source_oracle ? 39 : roles ? 36 : 35) ||
                 !expected["special_ids"].is_array() || expected["special_ids"].size() != 2 ||
-                !expected["boundary_refusal"].is_boolean()) {
+                !expected["boundary_refusal"].is_boolean())) {
             return 40;
         }
         const auto bytes = selected_metadata_file(path, (large ? 16 * 1024 * 1024 : 256 * 1024) + 1);
@@ -1575,13 +1596,61 @@ static int test_synthetic_vocab(
                 }
             }
         }
-        if (!valid_id(expected["special_ids"][0]) || !valid_id(expected["special_ids"][1]) ||
-                expected["special_ids"][0] == expected["special_ids"][1]) {
+        if (!generalized_roles && (!valid_id(expected["special_ids"][0]) || !valid_id(expected["special_ids"][1]) ||
+                expected["special_ids"][0] == expected["special_ids"][1])) {
             return 40;
         }
-        const auto pad = expected["special_ids"][0].get<uint32_t>(), control = expected["special_ids"][1].get<uint32_t>();
+        const auto pad = generalized_roles ? gguf_get_val_u32(context.get(), key("tokenizer.ggml.padding_token_id")) : expected["special_ids"][0].get<uint32_t>();
+        const auto control = generalized_roles ? gguf_get_val_u32(context.get(), key("tokenizer.ggml.bos_token_id")) : expected["special_ids"][1].get<uint32_t>();
+        const auto unknown = generalized_roles ? gguf_get_val_u32(context.get(), key("tokenizer.ggml.unknown_token_id")) : pad;
+        const auto eos = generalized_roles ? gguf_get_val_u32(context.get(), key("tokenizer.ggml.eos_token_id")) : control;
+        if (generalized_roles) {
+            const auto& oracle = envelope["source_oracle"];
+            std::set<uint32_t> declared_ids, special_ids;
+            std::set<std::string> declared_texts;
+            for (const auto* map : {"label_token_ids", "required_token_ids"}) {
+                for (const auto& item : oracle[map].items()) {
+                    const auto& text = item.key();
+                    if (text.empty() || text.size() > 64 || text.find('\0') != std::string::npos || !valid_id(item.value()) ||
+                            !declared_ids.insert(item.value().get<uint32_t>()).second || !declared_texts.insert(text).second) {
+                        return 40;
+                    }
+                    const auto token_id = item.value().get<uint32_t>();
+                    if (std::strcmp(gguf_get_arr_str(context.get(), token_key, token_id), text.c_str()) != 0) {
+                        return 42;
+                    }
+                    if (std::strcmp(map, "label_token_ids") == 0) {
+                        if (types[token_id] != 1 && types[token_id] != 4) {
+                            return 42;
+                        }
+                        continue;
+                    }
+                    if (!oracle["token_roles"].contains(text) || (oracle["token_roles"][text] != "source_special" &&
+                            oracle["token_roles"][text] != "ordinary_added_marker")) {
+                        return 40;
+                    }
+                    if (oracle["token_roles"][text] == "source_special") {
+                        if (types[token_id] != 3) {
+                            return 42;
+                        }
+                        special_ids.insert(token_id);
+                        ++source_special_count;
+                    } else {
+                        if (types[token_id] != 1 && types[token_id] != 4) {
+                            return 42;
+                        }
+                        ++ordinary_marker_count;
+                    }
+                }
+            }
+            for (const auto token_id : {pad, control, unknown, eos}) {
+                if (special_ids.count(token_id) != 1) {
+                    return 42;
+                }
+            }
+        }
         uint32_t marker = 0;
-        if (roles) {
+        if (roles && !generalized_roles) {
             if (!valid_id(expected["ordinary_marker_id"])) {
                 return 40;
             }
@@ -1591,13 +1660,13 @@ static int test_synthetic_vocab(
                 return 42;
             }
         }
-        if (types[pad] != 3 || types[control] != 3 ||
+        if (!generalized_roles && (types[pad] != 3 || types[control] != 3 ||
                 std::strcmp(gguf_get_arr_str(context.get(), token_key, pad), "<pad>") != 0 ||
                 std::strcmp(gguf_get_arr_str(context.get(), token_key, control), "<|control|>") != 0 ||
                 gguf_get_val_u32(context.get(), key("tokenizer.ggml.padding_token_id")) != pad ||
                 gguf_get_val_u32(context.get(), key("tokenizer.ggml.unknown_token_id")) != pad ||
                 gguf_get_val_u32(context.get(), key("tokenizer.ggml.bos_token_id")) != control ||
-                gguf_get_val_u32(context.get(), key("tokenizer.ggml.eos_token_id")) != control) {
+                gguf_get_val_u32(context.get(), key("tokenizer.ggml.eos_token_id")) != control)) {
             return 42;
         }
         std::vector<std::string> splits;
@@ -1615,11 +1684,23 @@ static int test_synthetic_vocab(
         if (!empty_loader() || vocab.n_tokens() != rows || vocab.get_type() != LLAMA_VOCAB_TYPE_BPE ||
                 vocab.get_pre_type() != (qwen35_oracle ? LLAMA_VOCAB_PRE_TYPE_QWEN35 : LLAMA_VOCAB_PRE_TYPE_GPT2) ||
                 vocab.get_add_bos() || vocab.get_add_eos() ||
-                vocab.token_pad() != int32_t(pad) || vocab.token_unk() != int32_t(pad) ||
-                vocab.token_bos() != int32_t(control) || vocab.token_eos() != int32_t(control)) {
+                vocab.token_pad() != int32_t(pad) || vocab.token_unk() != int32_t(unknown) ||
+                vocab.token_bos() != int32_t(control) || vocab.token_eos() != int32_t(eos)) {
             return 43;
         }
-        if (roles && (!vocab.is_user_defined(marker) || vocab.is_control(marker) ||
+        if (generalized_roles) {
+            const auto& oracle = envelope["source_oracle"];
+            for (const auto& item : oracle["required_token_ids"].items()) {
+                const auto token_id = item.value().get<uint32_t>();
+                const bool special = oracle["token_roles"][item.key()] == "source_special";
+                if (std::strcmp(vocab.token_get_text(token_id), item.key().c_str()) != 0 ||
+                        (special ? !vocab.is_control(token_id) : vocab.is_control(token_id) ||
+                            (!vocab.is_normal(token_id) && !vocab.is_user_defined(token_id)))) {
+                    return 43;
+                }
+            }
+        }
+        if (roles && !generalized_roles && (!vocab.is_user_defined(marker) || vocab.is_control(marker) ||
                 std::strcmp(vocab.token_get_text(marker), "<marker>") != 0)) {
             return 43;
         }
@@ -1660,13 +1741,14 @@ static int test_synthetic_vocab(
             }
         }
         bool boundary_refusal = false;
-        for (std::size_t index = 0; index < 16; ++index) {
-            if (actual[index].size() != 1 || !vocab.is_normal(actual[index][0])) {
+        for (std::size_t index = 0; index < label_count; ++index) {
+            if (actual[index].size() != 1 || (!vocab.is_normal(actual[index][0]) &&
+                    !(generalized_roles && vocab.is_user_defined(actual[index][0]) && !vocab.is_control(actual[index][0])))) {
                 return 44;
             }
-            auto continuation = actual[16];
+            auto continuation = actual[label_count];
             continuation.insert(continuation.end(), actual[index].begin(), actual[index].end());
-            boundary_refusal = boundary_refusal || continuation != actual[17 + index];
+            boundary_refusal = boundary_refusal || continuation != actual[label_count + 1 + index];
         }
         if (boundary_refusal != expected["boundary_refusal"].get<bool>() || !empty_loader() ||
                 (roles && !source_oracle && (actual[35] != std::vector<llama_token>{int32_t(marker)} ||
@@ -1674,7 +1756,7 @@ static int test_synthetic_vocab(
             return 44;
         }
         if (source_oracle) {
-            const auto receipt = json{{"checked_strings", actual.size()}, {"policy_version", policy_version}, {"token_rows", rows},
+            auto receipt = json{{"checked_strings", actual.size()}, {"policy_version", policy_version}, {"token_rows", rows},
                 {"merge_rows", gguf_get_arr_n(context.get(), merge_key)}, {"profile_sha256", expected_profile_sha256},
                 {"source_native_oracle_sha256", envelope["source_native_oracle_sha256"]}, {"gguf_file_sha256", envelope["gguf_file_sha256"]},
                 {"gguf_file_bytes", bytes.size()}, {"source_native_oracle_policy_version", 1}, {"ordinary_marker_verified", true},
@@ -1683,8 +1765,18 @@ static int test_synthetic_vocab(
                     "generated_gpt2_declaration_and_selected_lexical_cases_match"},
                 {"native_tokenizer_verification", "selected_source_oracle_cases_match"},
                 {"runtime_approval", "not_granted_by_generated_native_oracle"},
-                {"model_loaded", false}, {"backend_initialized", false}, {"tensor_data_allocated", false}}.dump();
-            std::puts(receipt.c_str());
+                {"model_loaded", false}, {"backend_initialized", false}, {"tensor_data_allocated", false}};
+            if (generalized_roles) {
+                receipt.erase("ordinary_marker_verified");
+                receipt["required_token_roles_verified"] = true;
+                receipt["required_token_count"] = envelope["source_oracle"]["required_token_ids"].size();
+                receipt["source_special_count"] = source_special_count;
+                receipt["ordinary_marker_count"] = ordinary_marker_count;
+                receipt["label_count"] = label_count;
+                receipt["token_roles_sha256"] = envelope["source_oracle"]["token_roles_sha256"];
+                receipt["metadata_special_token_ids"] = {{"padding", pad}, {"unknown", unknown}, {"bos", control}, {"eos", eos}};
+            }
+            std::puts(receipt.dump().c_str());
         } else if (ranked) {
             std::printf("{\"checked_strings\":39,\"policy_version\":4,\"token_rows\":%zu,\"merge_rows\":%zu,\"contextual_refusal\":%s,\"ordinary_marker_verified\":true,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
                 rows, gguf_get_arr_n(context.get(), merge_key), boundary_refusal ? "true" : "false");
@@ -1859,8 +1951,9 @@ static int test_selected_metadata(const char* path, const char* expected_path, i
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_REAL_LOADER
     if (argc > 1 && (std::strcmp(argv[1], "--synthetic-vocab-control-v5") == 0 ||
-            std::strcmp(argv[1], "--synthetic-vocab-control-v6") == 0)) {
-        return argc == 5 ? test_synthetic_vocab(argv[2], argv[3], std::strcmp(argv[1], "--synthetic-vocab-control-v6") == 0 ? 6 : 5, argv[4]) : 40;
+            std::strcmp(argv[1], "--synthetic-vocab-control-v6") == 0 || std::strcmp(argv[1], "--synthetic-vocab-control-v7") == 0)) {
+        const int version = std::strcmp(argv[1], "--synthetic-vocab-control-v7") == 0 ? 7 : std::strcmp(argv[1], "--synthetic-vocab-control-v6") == 0 ? 6 : 5;
+        return argc == 5 ? test_synthetic_vocab(argv[2], argv[3], version, argv[4]) : 40;
     }
     if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v1") == 0) {
         return test_synthetic_vocab(argv[2], argv[3]);

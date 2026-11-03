@@ -6,6 +6,95 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Generated Qwen3.5 Role And Case Checkpoint (2026-11-03)
+
+Continued after `79fdcc8` within a separately disclosed model-free **600 s
+execution ceiling**. User explicitly resumed after the summary pause to finish
+this checkpoint. Older ledgers and all six consumed learned approvals stay
+frozen; GPU stays deferred. No learned inputs/weights, source/model/library
+download, model conversion, refit, retained candidate, quality or deployment
+work. Cached pinned sources/libraries and user editor settings preserved.
+
+Native `--synthetic-vocab-control-v7` is a separate generated Qwen3.5 role/case
+policy, not permission to pass real profiles through v7. Exact scope
+`generated_qwen35_roles_only`, pre-policy `generated_qwen35_roles_v1`, `qwen35`
+tag/native pre-type, forty-`1` revision and independently parsed external
+generated profile hash required. V1-v6 limits/schemas/receipts remain. V7
+accepts1..16 labels and1..31 required roles, exact role-map keys, globally
+unique/disjoint declaration text/IDs, typed/loaded row checks and independently
+declared padding/unknown/BOS/EOS references to source-special entries. Metadata
+references can alias; declaration maps cannot. Ordinary/label NORMAL1 or
+USER_DEFINED4 allowed, source-special CONTROL3 required. Derives sorted case
+ordering and label boundary offsets rather than assuming A-P/three roles.
+Case count `2 * labels + 1 + required` <=64; existing file/row/merge/independent
+content/JSON/depth/text/token bounds unchanged. Oracle canonical JSON remains
+UTF-8; v7 role hash uses source role producer's ASCII escaping. Receipt binds
+role counts/hash and all four metadata IDs, not one fixed marker flag.
+
+First focused action after native edit: cached CMake Tools loader-target build
+**11.609 s**, observed interval **17.94 s**, peak RSS **457318400 B**, host
+available minimum **14173736960 B**, host swap baseline **757760 B** unchanged,
+owned swap0. Same Release/Ninja/clang++-18/two jobs, <=90 s/2 GiB observer,
+no unrelated dependency compilation. No further native edit/rebuild occurred.
+
+Generated source fixture:8193 rows/45 merges, seven required tokens (five
+source-special, two ordinary), Unicode control and distinct metadata IDs:
+padding8187/BOS8188/EOS8189/unknown8190. Prompt has12 IDs, combining word1 ID;
+all40 source oracle cases independently match raw source before native v7.
+Initial check **failed, 3.58 s** before native at the old controller assertion
+40!=36. Local new-mode count repair preserved the older36 expectation;
+same positive **1 passed, 3.75 s**. Final count assertions are derived from
+actual source maps, not a hardcoded new fixture count.
+
+Strengthened controls **failed, 5.52 s** at the `normal-type` fixture assertion:
+source converter row `ordinary` was USER_DEFINED4, not assumed NORMAL1.
+This falsified source-NORMAL coverage. Preserved the source row/flags and
+replaced that faulty assumption with a strict source4->CONTROL3 refusal plus
+an explicitly native-only type4->NORMAL1 positive. Same suite **1 passed,
+5.00 s**, with46 refusals and three positives (GGUF v2, one-label native
+projection, native-only NORMAL variant). NORMAL variant is not a source-
+produced row or retained-file proof; one-label projection is not a new
+source wrapper/profile proof. Neither changes the frozen source contract.
+
+Added a second generated fixture reaching the declared ceiling:31 required
+tokens (29 source-special, two ordinary),16 labels,64 cases. Added24 controls
+to the generated source, not fault-only cases; metadata IDs are independently
+padding8163/BOS8164/EOS8165/unknown8166. Both fixtures and full controls:
+**2 passed, 10.31 s**, under88 s plus2 s cleanup. Each has46 exact-status
+refusals and three positives, including fresh-hash role/Unicode serialization,
+alias/text/type, metadata-reference, map/case/ID/JSON/NUL bounds, wrong GPT-2/
+Qwen2 lexical source oracles and v5/v6 policy refusal. Required-limit fault
+uses a one-label projection to isolate32 entries from the64-case ceiling.
+No assertions, numerical tolerances, token bounds or guards were relaxed.
+
+Seven-role oracle **4368 B**, GGUF **171136 B**, source/copy **312740 B per set**,
+logical scratch **51207505 B**. Ceiling oracle **6720 B**, GGUF **171040 B**,
+source/copy **315620 B per set**, logical scratch **51215761 B**. Ceiling run
+source group peak **299503616 B**, native positive RSS **15380480 B**, host
+available minimum **14880952320 B**. Host swap **757760 B** unchanged within
+stages/owned swap0. Counters are not hard target-device memory/performance
+guarantees. Toy EOG warnings remain bounded/unsuppressed. Original stat/hash
+identities, descriptors and every fault-copy cleanup checked; no retained
+oracle/artifact or owned fixture/worker remains.
+
+After final source changes, previous native v1/ranked-v4/v5/v6 compatibility:
+**4 passed, 13.31 s**, under28 s plus2 s cleanup. Required root gate with all
+six learned and cached-native opt-ins unset: **1731 passed, 207 skipped,
+31.94 s**, under unchanged38 s plus2 s cleanup; Ruff/diagnostics/whitespace
+clean. Skipped optional tests are not native or full-model evidence. No
+CTest/prefill/learned/GPU gates ran; the direct vocabulary checks above are
+the compiled controls. Successful source gate is not repeated for docs.
+
+Measured pytest including both failures **73.41 s** plus observed build
+**17.94 s** = **91.35/600 s**, excluding lightweight setup/read/review/docs/
+cleanup. Unused allowance is not a new learned experiment approval. See the
+[v7 operating contract](development.md#generated-qwen35-role-and-case-control).
+Next concrete step is preparation of a separately profile/source-frozen learned
+native oracle policy and precise one-shot approval, not another generated
+capacity run. Never reuse consumed flags or put real files through toy v7.
+Independent source-file/issuer authentication, native rendering, learned/full-
+vocabulary agreement, BitNet execution, quality and deployment remain open.
+
 ## Generated Qwen3.5 Pre-Tokenizer Checkpoint (2026-11-03)
 
 After committing/pushing `8934e2c`, continued within a new model-free **300 s

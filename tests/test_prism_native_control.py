@@ -6500,7 +6500,8 @@ def run_rows():
 
         vocab_roles = fixture.get("vocab_roles", False)
         vocab_count = profile.geometry["vocab_size"]
-        marker_id = profile.tokenization["special_token_ids"].get("<marker>", 0)
+        marker_name = fixture.get("vocab_marker_name", "<marker>")
+        marker_id = profile.tokenization["special_token_ids"].get(marker_name, 0)
         file_cap = 16 * 1024**2 if vocab_large else 256 * 1024
         assert operation == "rows-contract" and not list(root.iterdir())
         arguments["maximum_token_content_bytes"] = 4 * 1024**2 if vocab_large else 65536
@@ -6508,6 +6509,8 @@ def run_rows():
         with library_diagnostics():
             role_arguments = {"token_roles": {text: "ordinary_added_marker" if text == "<marker>" else "source_special"
                 for text in profile.tokenization["special_token_ids"]}} if vocab_roles else {}
+            if fixture.get("vocab_generalized_roles", False):
+                role_arguments = {"token_roles": fixture["vocab_token_roles"]}
             prepare_standalone = prism_codec.prepare_profile_model_fast_token_role_contract_v1 if vocab_roles else prism_codec.prepare_profile_model_fast_tokenizer_contract_v2
             standalone = prepare_standalone(profile, **arguments, **role_arguments, maximum_seconds=remaining())
             contextual_arguments = dict(arguments) if vocab_large else {key: value for key, value in arguments.items() if key not in ("maximum_vocabulary_rows", "maximum_token_content_bytes")}
@@ -6524,13 +6527,14 @@ def run_rows():
                 assert not fixture["vocab_merge"]
                 if fixture.get("vocab_qwen35", False):
                     expected_prompt_ids = Tokenizer.from_str(arguments["tokenizer_bytes"].decode()).encode(
-                        fixture["vocab_prompt_content"] + "<marker>A", add_special_tokens=False).ids
+                        fixture["vocab_prompt_content"] + profile.tokenization["non_thinking_suffix"], add_special_tokens=False).ids
                     assert 3 < len(expected_prompt_ids) <= 64 and context["prompt_token_count"] == len(expected_prompt_ids)
                     assert json.loads(context["source_native_oracle_json"])["cases"][16]["token_ids"] == expected_prompt_ids
                 else:
                     assert context["prompt_token_count"] == (3 if vocab_roles else 2)
                 if vocab_roles:
-                    assert context["ordinary_marker_token_ids"] == {"<marker>": marker_id}
+                    assert context["ordinary_marker_token_ids"] == {text: profile.tokenization["special_token_ids"][text]
+                        for text, role in role_arguments["token_roles"].items() if role == "ordinary_added_marker"}
                     assert context["wrapper_token_roles_verification"] == "before_and_after_contextual_encoding"
             writer = gguf.GGUFWriter(str(path), arch="gpt2")
             rows, merges, _ = prism_codec._prepare_profile_fast_tokenizer_rows_and_merges(profile, **arguments,
@@ -6721,7 +6725,8 @@ def run_rows():
                 oracle_bytes = context["source_native_oracle_json"]
                 oracle = json.loads(oracle_bytes)
                 assert context["source_native_oracle_policy_version"] == oracle["policy_version"] == 1
-                assert context["source_native_oracle_case_count"] == len(oracle["cases"]) == 36
+                expected_cases = 2 * len(profile.tokenization["label_token_ids"]) + 1 + len(profile.tokenization["special_token_ids"])
+                assert context["source_native_oracle_case_count"] == len(oracle["cases"]) == expected_cases <= 64
                 assert context["source_native_oracle_bytes"] == len(oracle_bytes) <= 65536
                 assert context["source_native_oracle_sha256"] == hashlib.sha256(oracle_bytes).hexdigest()
                 assert json.dumps(oracle, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode() == oracle_bytes
@@ -6763,15 +6768,17 @@ def run_rows():
                 for text in texts[-3:]:
                     assert source_tokenizer.encode(text, add_special_tokens=False).ids == [source_tokenizer.token_to_id(text)]
             expected = {"token_ids": [source_tokenizer.encode(text, add_special_tokens=False).ids for text in texts],
-                "special_ids": [source_special["<pad>"], source_special["<|control|>"]], "boundary_refusal": fixture["vocab_merge"]}
+                "special_ids": [source_special[source_config["pad_token"]], source_special[source_config["bos_token"]]], "boundary_refusal": fixture["vocab_merge"]}
             if vocab_roles:
                 expected["ordinary_marker_id"] = marker_id
-                assert standalone["ordinary_marker_token_ids"] == {"<marker>": marker_id}
+                assert standalone["ordinary_marker_token_ids"] == context["ordinary_marker_token_ids"]
             if fixture.get("vocab_native_oracle", False):
                 expected = {"policy_version": 1, "scope": "generated_qwen35_only" if fixture.get("vocab_qwen35", False) else "generated_gpt2_only", "profile_sha256": profile.sha256,
                     "gguf_file_bytes": path.stat().st_size, "gguf_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                     "source_native_oracle_sha256": context["source_native_oracle_sha256"],
                     "pre_tokenizer_policy": "generated_qwen35_bytelevel_v1" if fixture.get("vocab_qwen35", False) else "generated_bytelevel_gpt2_v1", "source_oracle": oracle}
+                if fixture.get("vocab_generalized_roles", False):
+                    expected.update(scope="generated_qwen35_roles_only", pre_tokenizer_policy="generated_qwen35_roles_v1")
             (root / "expected.json").write_text(json.dumps(expected))
         assert len(standalone["tokens"]) == vocab_count and len(os.listdir("/proc/self/fd")) == descriptors
         assert 0 < path.stat().st_size <= file_cap and (root / "expected.json").stat().st_size <= 65536
@@ -6786,6 +6793,8 @@ def run_rows():
                 "source_native_oracle_raw_ids_verified": True} if fixture.get("vocab_source_oracle", False) else {}),
             **({"wrong_pre_tokenizer_prompt_ids": wrong_prompt_ids, "qwen35_prompt_token_count": context["prompt_token_count"],
                 "combining_mark_token_count": len(combining_ids)} if fixture.get("vocab_qwen35", False) else {}),
+            **({"token_roles_sha256": standalone["token_roles_sha256"], "ordinary_marker_count": len(standalone["ordinary_marker_token_ids"]),
+                "source_special_count": len(standalone["source_special_token_ids"])} if fixture.get("vocab_generalized_roles", False) else {}),
             fault_offsets=fault_offsets,
             output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
             logical_source_copy_scratch_bytes=logical, logical_scratch_cap_bytes=row_scratch_cap)
@@ -7038,7 +7047,9 @@ finish_report(report)
     "synthetic-joint-vocab-roles-merges-medium-v4", "synthetic-joint-vocab-roles-merges-full-v4",
     "synthetic-joint-vocab-roles-merges-medium-controls-v4", "synthetic-joint-vocab-roles-merges-medium-file-v4",
     "synthetic-joint-vocab-roles-merges-medium-oracle-v4", "synthetic-joint-vocab-roles-merges-medium-oracle-native-v5",
-    "synthetic-joint-vocab-roles-merges-medium-oracle-qwen35-native-v6"])
+    "synthetic-joint-vocab-roles-merges-medium-oracle-qwen35-native-v6",
+    "synthetic-joint-vocab-roles-merges-medium-oracle-qwen35-roles-native-v7",
+    "synthetic-joint-vocab-roles-merges-medium-oracle-qwen35-roles-max-native-v7"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -7055,13 +7066,15 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     context_refusal = mode.endswith("-context-merge") or role_context and mode.endswith("-merge")
     native_vocab = "-vocab" in mode
     vocab_roles = "-vocab-roles" in mode
-    vocab_qwen35 = native_vocab and mode.endswith("-oracle-qwen35-native-v6")
-    vocab_native_oracle = native_vocab and mode.endswith(("-oracle-native-v5", "-oracle-qwen35-native-v6"))
-    vocab_ranked = native_vocab and mode.endswith(("-v4", "-v5", "-v6"))
+    vocab_generalized_roles = native_vocab and mode.endswith(("-oracle-qwen35-roles-native-v7", "-oracle-qwen35-roles-max-native-v7"))
+    vocab_roles_max = vocab_generalized_roles and "-max-" in mode
+    vocab_qwen35 = native_vocab and (mode.endswith("-oracle-qwen35-native-v6") or vocab_generalized_roles)
+    vocab_native_oracle = native_vocab and (mode.endswith("-oracle-native-v5") or vocab_qwen35)
+    vocab_ranked = native_vocab and mode.endswith(("-v4", "-v5", "-v6", "-v7"))
     vocab_role_file = vocab_ranked and "-file-" in mode
     vocab_source_oracle = vocab_ranked and "-oracle-" in mode
     vocab_rank_controls = vocab_ranked and "-controls-" in mode
-    vocab_large = native_vocab and mode.endswith(("-v3", "-v4", "-v5", "-v6"))
+    vocab_large = native_vocab and mode.endswith(("-v3", "-v4", "-v5", "-v6", "-v7"))
     vocab_nul = native_vocab and "-nul" in mode
     vocab_count = (8193 if "-medium-" in mode else 248320) if vocab_large else 261 if vocab_roles else 260
     vocab_controls = native_vocab and mode.endswith(("-controls", "-controls-v3"))
@@ -7197,28 +7210,51 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                                 fixture_merges.append(f"{encoded[:length - 1]} {encoded[length - 1]}")
                                 tokens.append(merged)
                                 generated.add(merged)
+                if vocab_generalized_roles:
+                    for length in range(2, len("ordinary") + 1):
+                        merged = "ordinary"[:length]
+                        assert merged not in generated
+                        fixture_merges.append(f"{'ordinary'[:length - 1]} {'ordinary'[length - 1]}")
+                        tokens.append(merged)
+                        generated.add(merged)
                 if vocab_large:
-                    tokens.extend(f"jev{number:06d}" for number in range(vocab_count - len(tokens) - 3))
-                tokens.extend(["<pad>", "<|control|>"])
-                if vocab_roles:
-                    tokens.append("<marker>")
+                    tokens.extend(f"jev{number:06d}" for number in range(vocab_count - len(tokens) - (30 if vocab_roles_max else 6 if vocab_generalized_roles else 3)))
+                if vocab_generalized_roles:
+                    tokens.extend(["<px>", "<bx>", "<ex>", "<ux>", "<mx>", "<\u505c\u6b62>"])
+                    if vocab_roles_max:
+                        tokens.extend(f"<x{index:02d}>" for index in range(24))
+                else:
+                    tokens.extend(["<pad>", "<|control|>"])
+                    if vocab_roles:
+                        tokens.append("<marker>")
                 assert len(tokens) == len(set(tokens)) == vocab_count
                 vocabulary = {token: index for index, token in enumerate(tokens)}
                 record["geometry"]["vocab_size"] = text_config["vocab_size"] = len(tokens)
                 record["tokenization"]["label_token_ids"] = {label: vocabulary[label] for label in "ABCDEFGHIJKLMNOP"}
-                pad_id, control_id = vocabulary["<pad>"], vocabulary["<|control|>"]
-                record["tokenization"]["special_token_ids"] = {"<pad>": pad_id, "<|control|>": control_id}
-                record["tokenization"]["non_thinking_suffix"] = "A"
-                metadata[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}A"
-                added = [{"id": index, "content": tokens[index], "single_word": False, "lstrip": False, "rstrip": False,
-                    "normalized": False, "special": True} for index in (pad_id, control_id)]
-                if vocab_roles:
-                    marker_id = vocabulary["<marker>"]
-                    record["tokenization"]["special_token_ids"]["<marker>"] = marker_id
-                    record["tokenization"]["non_thinking_suffix"] = "<marker>A"
-                    metadata[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}<marker>A"
-                    added.append({"id": marker_id, "content": "<marker>", "single_word": False, "lstrip": False, "rstrip": False,
-                        "normalized": False, "special": False})
+                if vocab_generalized_roles:
+                    declared_roles = {text: "ordinary_added_marker" if text in ("<mx>", "ordinary") else "source_special"
+                        for text in ("<px>", "<bx>", "<ex>", "<ux>", "<mx>", "ordinary", "<\u505c\u6b62>")}
+                    if vocab_roles_max:
+                        declared_roles.update({f"<x{index:02d}>": "source_special" for index in range(24)})
+                    record["tokenization"]["special_token_ids"] = {text: vocabulary[text] for text in declared_roles}
+                    record["tokenization"]["non_thinking_suffix"] = "<mx>ordinary<\u505c\u6b62>A"
+                    metadata[record["tokenization"]["template_file"]] = ("{{ messages[0]['content'] }}" + record["tokenization"]["non_thinking_suffix"]).encode()
+                    added = [{"id": vocabulary[text], "content": text, "single_word": False, "lstrip": False, "rstrip": False,
+                        "normalized": False, "special": role == "source_special"} for text, role in declared_roles.items()]
+                else:
+                    pad_id, control_id = vocabulary["<pad>"], vocabulary["<|control|>"]
+                    record["tokenization"]["special_token_ids"] = {"<pad>": pad_id, "<|control|>": control_id}
+                    record["tokenization"]["non_thinking_suffix"] = "A"
+                    metadata[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}A"
+                    added = [{"id": index, "content": tokens[index], "single_word": False, "lstrip": False, "rstrip": False,
+                        "normalized": False, "special": True} for index in (pad_id, control_id)]
+                    if vocab_roles:
+                        marker_id = vocabulary["<marker>"]
+                        record["tokenization"]["special_token_ids"]["<marker>"] = marker_id
+                        record["tokenization"]["non_thinking_suffix"] = "<marker>A"
+                        metadata[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}<marker>A"
+                        added.append({"id": marker_id, "content": "<marker>", "single_word": False, "lstrip": False, "rstrip": False,
+                            "normalized": False, "special": False})
             files = {**metadata, "config.json": json.dumps(config).encode(),
                 "tokenizer_config.json": b'{"tokenizer_class":"PreTrainedTokenizerFast","clean_up_tokenization_spaces":false}',
                 "tokenizer.json": json.dumps({"version": "1.0", "added_tokens": added,
@@ -7248,6 +7284,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             if native_vocab:
                 source_config = json.loads(files["tokenizer_config.json"])
                 source_config.update(bos_token="<|control|>", eos_token="<|control|>", add_bos_token=False, add_eos_token=False)
+                if vocab_generalized_roles:
+                    source_config.update(pad_token="<px>", unk_token="<ux>", bos_token="<bx>", eos_token="<ex>")
                 files["tokenizer_config.json"] = json.dumps(source_config).encode()
             record["files"].update({name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for name, data in files.items()})
             local = root / "source"
@@ -7277,6 +7315,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "vocab_source_oracle": vocab_source_oracle,
             "vocab_native_oracle": vocab_native_oracle,
             "vocab_qwen35": vocab_qwen35,
+            "vocab_generalized_roles": vocab_generalized_roles,
             "large_context": large_context,
             "token_roles_contract": token_roles_contract,
             "role_context": role_context,
@@ -7288,6 +7327,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             fixture["profile_sha256"] = parse_model_profile(profile_bytes).sha256
         if vocab_qwen35:
             fixture.update(vocab_prompt_content="1234 a\u0301b B", vocab_qwen2_pattern=qwen2_pattern)
+        if vocab_generalized_roles:
+            fixture.update(vocab_marker_name="<mx>", vocab_token_roles=declared_roles)
         if selected_fast:
             from embedded_jev.inventory import build_inventory
             from embedded_jev.model_profile import parse_model_profile
@@ -7344,7 +7385,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     assert report["role_file_policy_version"] == 5 and report["role_file_refusals"] == 3
                     assert len(report["token_roles_sha256"]) == 64
                 if vocab_source_oracle:
-                    assert report["source_native_oracle_policy_version"] == 1 and report["source_native_oracle_case_count"] == 36
+                    expected_cases = 2 * len(record["tokenization"]["label_token_ids"]) + 1 + len(record["tokenization"]["special_token_ids"])
+                    assert report["source_native_oracle_policy_version"] == 1 and report["source_native_oracle_case_count"] == expected_cases
                     assert report["source_native_oracle_raw_ids_verified"] and report["source_native_oracle_bytes"] <= 65536
                     assert len(report["source_native_oracle_sha256"]) == 64
                 assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == (128 if vocab_large else 16) * 1024**2
@@ -7435,7 +7477,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 assert reports[-1]["profile_sha256"] == fixture["profile_sha256"]
                 if vocab_qwen35:
                     assert 3 < reports[-1]["qwen35_prompt_token_count"] <= 64 and reports[-1]["combining_mark_token_count"] == 1
-                vocab_command = "--synthetic-vocab-control-v6" if vocab_qwen35 else "--synthetic-vocab-control-v5"
+                vocab_command = "--synthetic-vocab-control-v7" if vocab_generalized_roles else "--synthetic-vocab-control-v6" if vocab_qwen35 else "--synthetic-vocab-control-v5"
                 arguments = [str(executable), vocab_command, str(path), str(expected_path), fixture["profile_sha256"]]
             native = guard(sys.executable, execute, json.dumps(arguments).encode(), env=env,
                 maximum_seconds=min(60 if vocab_large else 30, fixture["sequence_deadline"] - time.monotonic()))
@@ -7453,6 +7495,14 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     pre_tokenizer_tag_verification="generated_qwen35_declaration_and_selected_lexical_cases_match" if vocab_qwen35 else "generated_gpt2_declaration_and_selected_lexical_cases_match",
                     native_tokenizer_verification="selected_source_oracle_cases_match",
                     runtime_approval="not_granted_by_generated_native_oracle")
+                if vocab_generalized_roles:
+                    expected_native.pop("ordinary_marker_verified")
+                    expected_native.update(policy_version=7, scope="generated_qwen35_roles_only", label_count=16,
+                        required_token_roles_verified=True, required_token_count=31 if vocab_roles_max else 7, ordinary_marker_count=2,
+                        source_special_count=29 if vocab_roles_max else 5,
+                        token_roles_sha256=reports[-1]["token_roles_sha256"],
+                        metadata_special_token_ids={name: vocabulary[text] for name, text in
+                            (("padding", "<px>"), ("unknown", "<ux>"), ("bos", "<bx>"), ("eos", "<ex>"))})
             assert json.loads(native["stdout"]) == expected_native
             assert tuple(vocabulary_file_identity(entry) for entry in (path, expected_path)) == original_stats
             assert tuple(hashlib.sha256(entry.read_bytes()).hexdigest() for entry in (path, expected_path)) == original_hashes
@@ -7466,6 +7516,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
 
                 original_file = path.read_bytes()
                 original_envelope = json.loads(expected_path.read_bytes())
+                marker_name = fixture.get("vocab_marker_name", "<marker>")
                 offsets = reports[-1]["fault_offsets"]
                 fault_path, fault_expected = output / "vocab-oracle-fault.gguf", output / "vocab-oracle-fault.json"
                 descriptors = len(os.listdir("/proc/self/fd"))
@@ -7476,10 +7527,67 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     "case-duplicate", "json-budget", "missing-argument")
                 if vocab_qwen35:
                     defects += ("source-gpt2", "source-qwen2", "v5-policy")
+                if vocab_generalized_roles:
+                    defects += ("one-label", "no-labels", "label-limit", "no-required", "required-limit", "role-missing", "role-unknown",
+                        "role-kind", "role-utf8-hash", "required-alias", "required-text", "ordinary-type", "ordinary-normal", "special-type",
+                        "metadata-ordinary", "metadata-range", "v6-policy")
                 for defect in defects:
                     changed, envelope = bytearray(original_file), copy.deepcopy(original_envelope)
                     oracle = envelope["source_oracle"]
                     profile_hash, status = fixture["profile_sha256"], 40
+                    if defect in ("one-label", "required-limit"):
+                        cases = oracle["cases"]
+                        oracle["label_token_ids"] = {"D": oracle["label_token_ids"]["D"]}
+                        oracle["cases"] = [cases[3], cases[16], cases[20], *cases[33:]]
+                        status = 0
+                    if defect == "no-labels":
+                        oracle["label_token_ids"] = {}
+                        oracle["cases"] = [oracle["cases"][16], *oracle["cases"][33:]]
+                    elif defect == "label-limit":
+                        oracle["label_token_ids"]["Q"] = vocabulary["Q"]
+                        prompt_case = oracle["cases"][16]
+                        oracle["cases"] = [*oracle["cases"][:16], {"kind": "label", "text": "Q", "token_ids": [vocabulary["Q"]]},
+                            prompt_case, *oracle["cases"][17:33], {"kind": "continuation", "text": prompt_case["text"] + "Q",
+                                "token_ids": [*prompt_case["token_ids"], vocabulary["Q"]]}, *oracle["cases"][33:]]
+                    elif defect == "no-required":
+                        oracle["required_token_ids"], oracle["token_roles"] = {}, {}
+                        oracle["cases"] = oracle["cases"][:33]
+                    elif defect == "required-limit":
+                        additions = 32 - len(oracle["required_token_ids"])
+                        oracle["required_token_ids"].update({f"extra{index:02d}": vocabulary[f"jev{index:06d}"] for index in range(additions)})
+                        oracle["token_roles"].update({f"extra{index:02d}": "source_special" for index in range(additions)})
+                        oracle["cases"] = [*oracle["cases"][:3], *[{"kind": "required_token", "text": text, "token_ids": [token_id]}
+                            for text, token_id in sorted(oracle["required_token_ids"].items())]]
+                        status = 40
+                    elif defect in ("role-missing", "role-unknown"):
+                        role = oracle["token_roles"].pop("<\u505c\u6b62>")
+                        if defect == "role-unknown":
+                            oracle["token_roles"]["<unknown-role>"] = role
+                    elif defect == "role-kind":
+                        oracle["token_roles"]["ordinary"] = "unknown-role-kind"
+                    elif defect == "required-alias":
+                        oracle["required_token_ids"]["<ux>"] = oracle["required_token_ids"]["<ex>"]
+                        for case in oracle["cases"]:
+                            if case["kind"] == "required_token" and case["text"] == "<ux>":
+                                case["token_ids"] = [oracle["required_token_ids"]["<ex>"]]
+                    elif defect == "required-text":
+                        token_id = oracle["required_token_ids"].pop("ordinary")
+                        oracle["required_token_ids"]["mismatch"] = token_id
+                        oracle["token_roles"]["mismatch"] = oracle["token_roles"].pop("ordinary")
+                        for case in oracle["cases"]:
+                            if case["kind"] == "required_token" and case["text"] == "ordinary":
+                                case["text"] = "mismatch"
+                        status = 42
+                    elif defect in ("ordinary-type", "ordinary-normal", "special-type"):
+                        text = "<\u505c\u6b62>" if defect == "special-type" else "ordinary"
+                        offset = offsets["tokenizer.ggml.token_type"]["value"] + 4 * oracle["required_token_ids"][text]
+                        assert struct.unpack_from("<i", changed, offset)[0] == (3 if defect == "special-type" else 4)
+                        struct.pack_into("<i", changed, offset, 1 if defect == "ordinary-normal" else 4 if defect == "special-type" else 3)
+                        status = 0 if defect == "ordinary-normal" else 42
+                    elif defect in ("metadata-ordinary", "metadata-range"):
+                        offset = offsets["tokenizer.ggml.unknown_token_id"]["value"]
+                        struct.pack_into("<I", changed, offset, oracle["required_token_ids"]["ordinary"] if defect == "metadata-ordinary" else vocab_count)
+                        status = 42
                     if defect == "version-two":
                         assert changed[4:8] == struct.pack("<I", 3)
                         changed[4:8] = struct.pack("<I", 2)
@@ -7505,7 +7613,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                             oracle["cases"][index]["token_ids"] = [*wrong_ids, oracle["label_token_ids"][label]]
                         status = 44
                     elif defect == "source-role":
-                        oracle["token_roles"]["<marker>"] = "source_special"
+                        oracle["token_roles"][marker_name] = "source_special"
                         role_bytes = json.dumps({"profile_sha256": profile_hash, "token_roles": oracle["token_roles"]},
                             sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
                         oracle["token_roles_sha256"] = hashlib.sha256(role_bytes).hexdigest()
@@ -7513,7 +7621,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     elif defect == "role-hash":
                         oracle["token_roles_sha256"] = "0" * 64
                     elif defect == "marker-type":
-                        offset = offsets["tokenizer.ggml.token_type"]["value"] + 4 * oracle["required_token_ids"]["<marker>"]
+                        offset = offsets["tokenizer.ggml.token_type"]["value"] + 4 * oracle["required_token_ids"][marker_name]
                         assert struct.unpack_from("<i", changed, offset)[0] == 4
                         struct.pack_into("<i", changed, offset, 3)
                         status = 42
@@ -7536,7 +7644,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     elif defect == "label-id":
                         oracle["label_token_ids"]["A"] = oracle["label_token_ids"]["B"]
                         oracle["cases"][0]["token_ids"] = [oracle["label_token_ids"]["B"]]
-                        status = 44
+                        status = 42 if vocab_generalized_roles else 44
                     elif defect in ("token-bool", "token-float", "token-negative", "token-range"):
                         value = {"token-bool": True, "token-float": 1.5, "token-negative": -1, "token-range": vocab_count}[defect]
                         oracle["label_token_ids"]["A"] = value
@@ -7549,6 +7657,10 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     envelope["gguf_file_sha256"] = "0" * 64 if defect == "file-hash" else hashlib.sha256(changed).hexdigest()
                     if defect in ("file-size", "file-hash"):
                         status = 41
+                    if vocab_generalized_roles and defect != "role-hash":
+                        role_bytes = json.dumps({"profile_sha256": profile_hash, "token_roles": oracle["token_roles"]},
+                            sort_keys=True, separators=(",", ":"), ensure_ascii=defect != "role-utf8-hash", allow_nan=False).encode()
+                        oracle["token_roles_sha256"] = hashlib.sha256(role_bytes).hexdigest()
                     oracle_bytes = json.dumps(oracle, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
                     envelope["source_native_oracle_sha256"] = "0" * 64 if defect == "oracle-hash" else hashlib.sha256(oracle_bytes).hexdigest()
                     envelope_bytes = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
@@ -7562,6 +7674,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     command = [str(executable), vocab_command, str(fault_path), str(fault_expected), profile_hash]
                     if defect == "v5-policy":
                         command[1] = "--synthetic-vocab-control-v5"
+                    elif defect == "v6-policy":
+                        command[1] = "--synthetic-vocab-control-v6"
                     if defect == "missing-argument":
                         command.pop()
                     try:
@@ -7569,7 +7683,10 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                             maximum_seconds=min(60, fixture["sequence_deadline"] - time.monotonic()))
                         assert result["returncode"] == status and result["host_swap_baseline_bytes"] == baseline_swap, (defect, result)
                         if status == 0:
-                            assert json.loads(result["stdout"]) == {**expected_native, "gguf_file_sha256": envelope["gguf_file_sha256"]}
+                            expected_result = {**expected_native, "gguf_file_sha256": envelope["gguf_file_sha256"],
+                                **({"source_native_oracle_sha256": envelope["source_native_oracle_sha256"], "checked_strings": len(oracle["cases"]),
+                                    "label_count": 1} if defect == "one-label" else {})}
+                            assert json.loads(result["stdout"]) == expected_result
                         else:
                             assert not result["stdout"], (defect, result)
                     finally:
@@ -7580,7 +7697,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     assert len(os.listdir("/proc/self/fd")) == descriptors
                     assert set(entry.name for entry in output.iterdir()) == {"rows.gguf", "expected.json"}
                     assert time.monotonic() < fixture["sequence_deadline"]
-                print(json.dumps({"synthetic_native_oracle_refusals": len(defects) - 1, "gguf_version_two_verified": True,
+                print(json.dumps({"synthetic_native_oracle_refusals": len(defects) - (3 if vocab_generalized_roles else 1), "gguf_version_two_verified": True,
+                    **({"one_label_native_projection_verified": True, "normal_row_native_variant_verified": True} if vocab_generalized_roles else {}),
                     "original_files_preserved": True, "all_fault_copies_removed": True}))
             if vocab_rank_controls:
                 import copy

@@ -3724,6 +3724,70 @@ learned MiMo/Qwen parity, native template rendering, BitNet execution, quality
 or target-device readiness. Source provenance hashes remain identities rather
 than issuer authentication or runtime approval.
 
+### Generated Qwen3.5 Role And Case Control
+
+`--synthetic-vocab-control-v7` adds a separate generated-only role/case policy.
+Invocation retains the GGUF, envelope and independently derived expected
+synthetic profile hash arguments. It selects only
+`scope=generated_qwen35_roles_only` and
+`pre_tokenizer_policy=generated_qwen35_roles_v1`, with the same exact `qwen35`
+tag and native Qwen3.5 pre-type. The eight-member envelope, thirteen-member
+source-oracle policy1 body, forty-`1` synthetic revision, hash/byte/text/ID
+bounds, twelve typed metadata fields and zero-tensor external loader remain.
+V1-v6 schemas, limits and receipts are unchanged; v5/v6 refuse v7 envelopes.
+
+V7 permits 1..16 label entries and 1..31 required-token entries. Role-map keys
+must exactly match the required map. Labels and required tokens must have
+nonempty, NUL-free UTF-8 text <=64 bytes, exact row text and globally unique,
+disjoint in-range IDs. Label rows and `ordinary_added_marker` required rows
+permit NORMAL(1) or USER_DEFINED(4), never CONTROL(3); `source_special` requires
+CONTROL(3). Loaded vocabulary attributes/text are checked independently.
+Padding, unknown, BOS and EOS metadata IDs must each reference a declared
+source-special token and agree with the loaded vocabulary. These four metadata
+references may alias, but required-token and label declarations may not.
+
+Cases are ordered by sorted label keys, the source prompt, sorted label
+continuations and sorted required-token keys. Count must equal
+`2 * label_count + 1 + required_token_count`, at most64. Each declared label and
+required token must encode to its singleton ID; every continuation must extend
+the exact prompt IDs by exactly its label singleton. Existing per-case64 IDs,
+per-text16 KiB, aggregate-text64 KiB, envelope64 KiB and JSON depth5 bounds
+remain. No native template rendering or model/backend/tensor-data path is used.
+
+The canonical oracle body/hash uses UTF-8 JSON (`ensure_ascii=False`). V7's
+profile-bound role-map/hash instead uses the Python role producer's default
+ASCII escaping (`ensure_ascii=True`); Unicode role keys discriminate these
+contracts. V5/v6 retain their earlier serialization. The v7 receipt replaces
+the fixed marker flag with `required_token_roles_verified`, role counts,
+`label_count`, `token_roles_sha256` and `metadata_special_token_ids`. Selected
+case/tag agreement and `runtime_approval=not_granted_by_generated_native_oracle`
+remain separate from source issuer authentication or runtime authorization.
+
+Optional modes `synthetic-joint-vocab-roles-merges-medium-oracle-qwen35-roles-native-v7`
+and `synthetic-joint-vocab-roles-merges-medium-oracle-qwen35-roles-max-native-v7`
+reuse the pinned source, environments, 8193-row fixture and guarded controls.
+The first has seven required roles (five source-special, two ordinary), the
+second31 (29 source-special, two ordinary), with 45 merges and 40/64 source
+cases. Both use distinct padding/unknown/BOS/EOS IDs, a Unicode control,
+digit/combining-word discrimination and literal ordinary `ordinary`.
+
+Each runs46 refusals, a GGUF v2 positive, a native-only one-label projection
+and a native-only NORMAL-row variant. The converter emits USER_DEFINED for
+the source `ordinary` row; the source contract is not changed to manufacture
+NORMAL. The separate type4->1 variant checks the native allowed alternative
+against the same captured lexical IDs, not a new source-produced NORMAL row
+or retained-file proof. Likewise, one-label projection is native schema/offset
+evidence, not a new source wrapper/profile proof. Fault identities are freshly
+rebound so typed/lexical refusals reach their intended checks.
+
+Same <=90 s stage/<=60 s child, <=32 MiB source/copy sets, <=128 MiB scratch,
+owned-group2 GiB/host-reserve2 GiB/no-swap-growth, audit/identity/FD/cleanup
+guards apply. Every consumed learned approval remains unset. See the
+[role/case checkpoint](handover.md#generated-qwen35-role-and-case-checkpoint-2026-11-03)
+for results and failed checks. Generated role/case capacity does not establish
+learned tokenizer parity, arbitrary Unicode/full-vocabulary agreement, native
+rendering, BitNet dispatch, quality, calibration or device deployment.
+
 All direct vocabulary controls also check that metadata survives a
 lossless reconstruction through the pinned GGUF C-string setters and serializer
 before vocabulary loading. This catches raw embedded NULs hidden by scalar/
