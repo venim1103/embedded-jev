@@ -5490,7 +5490,51 @@ def _run_tokenizer_only_guard_v2(interpreter, code, payload, *, env, maximum_sec
         maximum_rss_bytes=maximum_rss_bytes, minimum_available_bytes=2 * 1024**3)
 
 
-def _run_tokenizer_guard(interpreter, code, payload, *, env, maximum_seconds, maximum_rss_bytes, minimum_available_bytes):
+def _run_tokenizer_only_guard_v3(interpreter, code, payload, *, env, maximum_seconds=60, maximum_rss_bytes=2 * 1024**3):
+    import ctypes
+
+    if (type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 60
+            or type(maximum_rss_bytes) is not int or not 0 < maximum_rss_bytes <= 2 * 1024**3 or len(payload) > 65536):
+        raise ValueError("invalid v3 tokenizer diagnostic guard budget")
+    library = ctypes.CDLL(None, use_errno=True)
+    library.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+    library.prctl.restype = ctypes.c_int
+    previous = ctypes.c_int()
+    if library.prctl(37, ctypes.addressof(previous), 0, 0, 0) or library.prctl(36, 1, 0, 0, 0):
+        raise ValueError("tokenizer diagnostic subreaper setup failed")
+    cleanup_seconds = min(2, maximum_seconds / 4)
+    try:
+        return _run_tokenizer_guard(interpreter, code, payload, env=env,
+            maximum_seconds=maximum_seconds - cleanup_seconds, maximum_rss_bytes=maximum_rss_bytes,
+            minimum_available_bytes=2 * 1024**3, observe_group=True, cleanup_seconds=cleanup_seconds)
+    finally:
+        if library.prctl(36, previous.value, 0, 0, 0):
+            raise ValueError("tokenizer diagnostic subreaper restore failed")
+
+
+def _tokenizer_group_memory(group):
+    members = [entry for entry in Path("/proc").iterdir() if entry.name.isdecimal()]
+    if len(members) > 4096:
+        raise ValueError("tokenizer diagnostic process inventory exceeds bounds")
+    rss = high_water = swap = count = 0
+    for entry in members:
+        try:
+            if os.getpgid(int(entry.name)) != group:
+                continue
+            status = dict(line.split(":", 1) for line in (entry / "status").read_text().splitlines() if ":" in line)
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        count += 1
+        rss += int(status.get("VmRSS", "0 kB").split()[0]) * 1024
+        high_water += int(status.get("VmHWM", "0 kB").split()[0]) * 1024
+        swap += int(status.get("VmSwap", "0 kB").split()[0]) * 1024
+    if count > 32:
+        raise ValueError("tokenizer diagnostic process group exceeds bounds")
+    return rss, high_water, swap, count
+
+
+def _run_tokenizer_guard(interpreter, code, payload, *, env, maximum_seconds, maximum_rss_bytes, minimum_available_bytes,
+    observe_group=False, cleanup_seconds=2):
     import selectors
     import signal
     import time
@@ -5515,6 +5559,8 @@ def _run_tokenizer_guard(interpreter, code, payload, *, env, maximum_seconds, ma
     selector = selectors.DefaultSelector()
     output = {"stdout": bytearray(), "stderr": bytearray()}
     peak_rss, peak_swap, peak_host_swap = 0, 0, baseline_swap
+    group_alive = observe_group
+    group_rss = group_high_water = group_swap = group_processes = 0
     try:
         process.stdin.write(payload)
         process.stdin.close()
@@ -5522,7 +5568,7 @@ def _run_tokenizer_guard(interpreter, code, payload, *, env, maximum_seconds, ma
             pipe = getattr(process, name)
             os.set_blocking(pipe.fileno(), False)
             selector.register(pipe, selectors.EVENT_READ, name)
-        while selector.get_map() or process.poll() is None:
+        while selector.get_map() or process.poll() is None or group_alive:
             if time.monotonic() > deadline:
                 raise ValueError("tokenizer diagnostic child deadline exceeded")
             try:
@@ -5531,8 +5577,22 @@ def _run_tokenizer_guard(interpreter, code, payload, *, env, maximum_seconds, ma
                 peak_swap = max(peak_swap, int(status.get("VmSwap", "0 kB").split()[0]) * 1024)
             except FileNotFoundError:
                 pass
+            if observe_group:
+                if process.poll() is not None:
+                    while True:
+                        try:
+                            reaped, _ = os.waitpid(-process.pid, os.WNOHANG)
+                        except ChildProcessError:
+                            break
+                        if reaped == 0:
+                            break
+                rss, high_water, swap, count = _tokenizer_group_memory(process.pid)
+                group_alive = count > 0
+                group_rss, group_high_water = max(group_rss, rss), max(group_high_water, high_water)
+                group_swap, group_processes = max(group_swap, swap), max(group_processes, count)
             peak_host_swap = max(peak_host_swap, host_swap())
-            if peak_rss > maximum_rss_bytes or peak_swap > 0 or peak_host_swap > baseline_swap:
+            if (max(peak_rss, group_rss, group_high_water) > maximum_rss_bytes
+                    or max(peak_swap, group_swap) > 0 or peak_host_swap > baseline_swap):
                 raise ValueError("tokenizer diagnostic RSS or swap budget exceeded")
             for key, _ in selector.select(min(0.02, max(0, deadline - time.monotonic()))):
                 value = os.read(key.fd, 4096)
@@ -5548,17 +5608,66 @@ def _run_tokenizer_guard(interpreter, code, payload, *, env, maximum_seconds, ma
         return {"returncode": returncode, **{name: bytes(value).decode("utf-8", errors="replace") for name, value in output.items()},
                 "observed_rss_bytes": peak_rss, "observed_process_swap_bytes": peak_swap,
             "host_swap_baseline_bytes": baseline_swap, "observed_host_swap_bytes": peak_host_swap,
+            **({"observed_group_rss_bytes": group_rss, "observed_group_high_water_sum_bytes": group_high_water,
+                "observed_group_swap_bytes": group_swap, "observed_group_processes": group_processes} if observe_group else {}),
             **({"observed_host_available_minimum_bytes": minimum_host_available} if minimum_available_bytes else {})}
     finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
-        selector.close()
-        for pipe in (process.stdin, process.stdout, process.stderr):
-            pipe.close()
+        try:
+            if observe_group or process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    if not observe_group:
+                        raise
+            process.wait()
+            if observe_group:
+                cleanup_deadline = time.monotonic() + cleanup_seconds
+                while True:
+                    try:
+                        reaped, _ = os.waitpid(-process.pid, os.WNOHANG)
+                    except ChildProcessError:
+                        break
+                    if reaped == 0:
+                        if time.monotonic() > cleanup_deadline:
+                            raise ValueError("tokenizer diagnostic group cleanup deadline exceeded")
+                        selector.select(min(0.01, max(0, cleanup_deadline - time.monotonic())))
+        finally:
+            selector.close()
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                pipe.close()
 
 
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("mode", ["aggregate-rss", "early-exit"])
+def test_tokenizer_v3_guard_observes_and_reaps_owned_children(tmp_path, mode):
+    import ast
+    import ctypes
+    import sys
+
+    pid_file = tmp_path / "child-pid"
+    child = "data = bytearray(32 * 1024**2)\nwhile True: pass"
+    code = ("import subprocess, sys\nfrom pathlib import Path\n"
+        "sys.stdin.buffer.read()\n"
+        f"child = subprocess.Popen([sys.executable, '-c', {child!r}], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        f"Path({str(pid_file)!r}).write_text(str(child.pid))\n")
+    if mode == "aggregate-rss":
+        code += "data = bytearray(16 * 1024**2)\nwhile True: pass\n"
+    ast.parse(child)
+    ast.parse(code)
+    previous, restored = ctypes.c_int(), ctypes.c_int()
+    library = ctypes.CDLL(None)
+    assert library.prctl(37, ctypes.byref(previous), 0, 0, 0) == 0
+    before = len(list(Path("/proc/self/fd").iterdir()))
+    with pytest.raises(ValueError, match="RSS or swap" if mode == "aggregate-rss" else "deadline"):
+        _run_tokenizer_only_guard_v3(sys.executable, code, b"{}", env=os.environ,
+            maximum_seconds=2, maximum_rss_bytes=48 * 1024**2 if mode == "aggregate-rss" else 2 * 1024**3)
+    assert pid_file.is_file()
+    assert not Path(f"/proc/{int(pid_file.read_text())}").exists()
+    assert len(list(Path("/proc/self/fd").iterdir())) == before
+    assert library.prctl(37, ctypes.byref(restored), 0, 0, 0) == 0
+    assert restored.value == previous.value
+
+
+@pytest.mark.parametrize("version", [1, 2, 3])
 @pytest.mark.parametrize("mode", ["success", "output", "deadline", "closed-pipes", "rss", "budget"])
 def test_tokenizer_only_guard_controls_are_synthetic_and_bounded(mode, version):
     import sys
@@ -5570,15 +5679,18 @@ def test_tokenizer_only_guard_controls_are_synthetic_and_bounded(mode, version):
     arguments = {"env": os.environ, "maximum_seconds": 0.1 if mode in ("deadline", "closed-pipes") else 15,
                  "maximum_rss_bytes": 1 if mode == "rss" else 1024**3}
     if mode == "budget":
-        arguments["maximum_seconds"] = 61 if version == 2 else 16
-    guard = _run_tokenizer_only_guard_v2 if version == 2 else _run_tokenizer_only_guard
+        arguments["maximum_seconds"] = 16 if version == 1 else 61
+    guard = {1: _run_tokenizer_only_guard, 2: _run_tokenizer_only_guard_v2, 3: _run_tokenizer_only_guard_v3}[version]
     code = "import sys\nsys.stdin.buffer.read()\n" + body
     if mode == "success":
         report = guard(sys.executable, code, b"{}", **arguments)
         assert report["returncode"] == 0 and report["stdout"] == "ready\n"
         assert report["observed_process_swap_bytes"] == 0
-        if version == 2:
+        if version in (2, 3):
             assert report["observed_host_available_minimum_bytes"] >= 2 * 1024**3
+        if version == 3:
+            assert report["observed_group_swap_bytes"] == 0
+            assert 0 <= report["observed_group_rss_bytes"] <= report["observed_group_high_water_sum_bytes"] <= 1024**3
     else:
         match = {"output": "output budget", "deadline": "deadline", "closed-pipes": "deadline", "rss": "RSS or swap", "budget": "invalid"}[mode]
         with pytest.raises(ValueError, match=match):

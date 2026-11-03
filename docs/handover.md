@@ -6,7 +6,37 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
-## Proposed Generated Native Vocabulary Capacity (2026-11-03, Unapproved)
+## Approved Capacity Scope: Guard Checkpoint (2026-11-03)
+
+The user explicitly approved proposal `8260a56` and its separate **600 s**
+aggregate allowance. GPU/learned/model/backend work remains excluded; all older
+ledgers stay frozen. Native capacity implementation and runs are still pending.
+
+Added `_run_tokenizer_only_guard_v3` alongside unchanged v1/v2 defaults. It samples
+the owned session group (process inventory <=4096, members <=32), bounds observed
+aggregate RSS and a conservative sum of member high-water values, and records
+group swap/counts separately from worker-only counters. Temporary process-local
+Linux subreaper handling adopts/reaps outliving children; the prior setting is
+restored. No host/privilege change. Cleanup time is reserved inside the v3 child
+allowance, and pipes/selectors close on refusal. This covers the owned group,
+not arbitrary escaped sessions or a hard host/device memory guarantee; generated
+workers and pinned native children must remain in that group.
+
+First focused aggregate-RSS/early-worker-exit cases **2 passed, 245 deselected,
+1.59 s**; extended existing success/output/deadline/closed-pipe/RSS/budget matrix
+through v3, plus reaping/FD/subreaper restoration: **20 passed, 233 deselected,
+2.26 s**. First required root gate capped at 40 s (38 s plus 2 s termination),
+all six learned/cached native opt-ins unset: **1703 passed, 192 skipped,
+27.89 s**; Ruff, diagnostics and whitespace clean. No failure or guard relaxation.
+Generated scripts are parsed before execution. Documentation checks are separate.
+
+Conservatively reserve **50/600 s** for this focused/setup/first-gate checkpoint;
+**550 s remain** (90 build, 270 new stages, 95 legacy compatibility, 40 second
+gate, 55 remaining focused/setup/cleanup reserve). No native build/probe or
+learned input yet. Next: smallest v3-only native limit edit, immediately compiled
+with the existing guarded CMake target, then medium before full/refusals.
+
+## Proposed Generated Native Vocabulary Capacity (2026-11-03, Approved Above)
 
 The three tested CPU parser checkpoints are `98b309a`, `ad1e0a4`, `8aa188e`.
 Next project-facing prerequisite: the direct zero-tensor native vocabulary
