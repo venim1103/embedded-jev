@@ -385,6 +385,8 @@ def validate_template_input(profile: ModelProfile, value) -> None:
             if nodes + len(pending) + len(item) > 4096:
                 raise ProfileError("template input exceeds allowed structural bounds")
             pending.extend((part, depth + 1) for part in item)
+        elif type(item) is float and not math.isfinite(item):
+            raise ProfileError("non-finite number in untrusted template input")
         elif item is not None and type(item) not in (bool, int, float):
             raise ProfileError("unsupported untrusted template input type")
 

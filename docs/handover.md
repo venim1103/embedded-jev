@@ -6,6 +6,30 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Non-Finite Template Evidence Repair (2026-11-03)
+
+Continued CPU-only model-free work from `6ee1ff2`, now at `origin/main`.
+`validate_template_input` admitted non-finite floats in bounded untrusted fields;
+profile-bound label probes could then access the tokenizer. Added a float-only
+`math.isfinite` check at the owning validator, before unsupported-type handling.
+Finite integers, booleans, floats and nulls retain their behavior; limits and
+profile/native policies are unchanged. Legacy unbound probes are not expanded.
+
+Reused `tests/test_label_probe.py`: nine direct root/nested/key refusals, three
+pre-tokenizer access sentinels with chained `ProfileError`, and eight unchanged
+finite JSON scalar controls. Initial **12 failed, 8 passed, 57 deselected,
+0.22 s**; three failures proved tokenizer access. After the local repair the
+same **20 passed, 57 deselected, 0.05 s**. Required root gate with all six
+learned and cached native opt-ins unset: **1672 passed, 192 skipped, 29.89 s**;
+Ruff, touched-file diagnostics and whitespace clean. Documentation validation
+ran separately; no unchanged source gate is rerun for documentation edits.
+
+No learned/cache model inputs, cached optional native gate, actual CUDA,
+conversion, refit, download, installation or host change. All six learned
+approvals and prior native budgets remain frozen; GPU testing stays deferred.
+Preserve user `.vscode/` settings. This is pre-render input validation, not
+model quality, native tokenizer equivalence or calibrated score evidence.
+
 ## Typed Offline Geometry Repair (2026-11-03)
 
 Continued model-free CPU work within the already implemented offline profile

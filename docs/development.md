@@ -134,6 +134,10 @@ nodes, depth 32 and 1 MiB UTF-8 text, with pre-expansion/encoding checks and
 invalid-Unicode refusal. Errors return no score report. Mode arguments are
 profile-owned, not derived from evidence or case metadata.
 
+Non-finite floating-point evidence (`NaN` and either infinity) refuses in keys
+and nested values before tokenizer access. Finite JSON scalars remain unchanged;
+this profile-bound preflight does not alter legacy unbound-tokenizer behavior.
+
 Defiant Fable conservatively declares `{REASON:` and pins
 `enable_thinking=False`, `reasoning_effort="medium"` and
 `add_generation_prompt=True`. This protects both source and embedded-template

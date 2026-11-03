@@ -147,6 +147,42 @@ def test_template_untrusted_input_scanning_is_bounded(value, message):
         validate_template_input(mimo_profile(), value)
 
 
+@pytest.mark.parametrize("value", [None, True, False, 0, -42, 1.25, -0.0, 1e308])
+def test_template_untrusted_input_preserves_finite_json_scalars(value):
+    from embedded_jev.model_profile import validate_template_input
+
+    evidence = {"measurement": [value], "state": "ordinary"}
+    original = json.dumps(evidence, allow_nan=False)
+    assert validate_template_input(mimo_profile(), evidence) is None
+    assert json.dumps(evidence, allow_nan=False) == original
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("location", ["root", "nested", "key"])
+def test_template_untrusted_input_refuses_nonfinite_numbers(value, location):
+    from embedded_jev.model_profile import ProfileError, validate_template_input
+
+    evidence = value if location == "root" else {"metadata": [value]} if location == "nested" else {value: "ordinary"}
+    with pytest.raises(ProfileError, match="non-finite number"):
+        validate_template_input(mimo_profile(), evidence)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_template_evidence_refuses_before_tokenizer_access(value):
+    from embedded_jev.model_profile import ProfileError
+
+    class NeverAccessed(FakeTokenizer):
+        @property
+        def chat_template(self):
+            pytest.fail("non-finite evidence reached tokenizer access")
+
+    profile = parse_model_profile(json.dumps(_label_profile_record()).encode())
+    messages = [{"role": "user", "content": "Choice?", "evidence": {"measurement": value}}]
+    with pytest.raises(LabelProbeError, match="non-finite number") as failure:
+        probe_label_boundary(NeverAccessed(), messages, profile=profile)
+    assert isinstance(failure.value.__cause__, ProfileError)
+
+
 def test_rejects_ambiguous_or_unsupported_label_boundaries():
     class RetokenizingTokenizer(FakeTokenizer):
         def encode(self, text, *, add_special_tokens):
