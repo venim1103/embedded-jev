@@ -1412,6 +1412,24 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
                 json(text).dump();
             }
         }
+        {
+            std::unique_ptr<gguf_context, decltype(&gguf_free)> roundtrip(gguf_init_empty(), gguf_free);
+            if (!roundtrip) {
+                return 41;
+            }
+            gguf_set_kv(roundtrip.get(), context.get());
+            const auto metadata_size = gguf_get_meta_size(context.get());
+            if (metadata_size < 24 || metadata_size > (large ? 16 * 1024 * 1024 : 256 * 1024) ||
+                    gguf_get_meta_size(roundtrip.get()) != metadata_size) {
+                return 41;
+            }
+            std::vector<char> original_metadata(metadata_size), roundtrip_metadata(metadata_size);
+            gguf_get_meta_data(context.get(), original_metadata.data());
+            gguf_get_meta_data(roundtrip.get(), roundtrip_metadata.data());
+            if (std::memcmp(original_metadata.data() + 8, roundtrip_metadata.data() + 8, metadata_size - 8) != 0) {
+                return 41;
+            }
+        }
         const auto valid_id = [rows](const json& value) {
             return value.is_number_integer() && (value.is_number_unsigned() ? value.get<uint64_t>() < rows :
                 value.get<int64_t>() >= 0 && uint64_t(value.get<int64_t>()) < rows);

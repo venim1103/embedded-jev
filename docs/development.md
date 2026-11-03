@@ -3531,6 +3531,22 @@ for build/results, the fixture failure and repair, resource ledger and evidence
 limits. These generated modes do not authorize learned tokenizer reads,
 Qwen/MiMo execution, backend CTests, GPU work or quality/BitNet claims.
 
+All three direct vocabulary controls also check that metadata survives a
+lossless reconstruction through the pinned GGUF C-string setters and serializer
+before vocabulary loading. This catches raw embedded NULs hidden by scalar/
+array C-string getters; comparing getter strings alone cannot prove raw-byte
+validity. Reconstructed/original metadata must fit the existing versioned file
+bound and match after the magic/version header; valid GGUF v2/v3 inputs retain
+their existing vocabulary receipts. No backend/model/tensor data is allocated.
+
+The generated `synthetic-joint-vocab-nul`, `synthetic-joint-vocab-roles-nul`
+and `synthetic-joint-vocab-roles-medium-nul-v3` modes use the same pinned cached
+variables, source contracts and resource/cleanup guards. Each checks a valid
+format-v2 copy plus disposable token/merge/scalar NUL faults with exact status
+41, unchanged original files and closed descriptors. They do not authorize
+learned input reads. See the [repair checkpoint](handover.md#native-vocabulary-embedded-nul-repair-2026-11-03)
+for the reproduced acceptance bug, build/test evidence and finite ledger.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.

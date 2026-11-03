@@ -6592,7 +6592,7 @@ def run_rows():
                     assert tuple(reader.get_field(record["name"]).contents()) == tuple(record["values"])
                 base_address = reader.data.__array_interface__["data"][0]
                 fault_offsets = {}
-                for name in ("tokenizer.ggml.model", "tokenizer.ggml.pre", "tokenizer.ggml.unknown_token_id",
+                for name in ("tokenizer.ggml.model", "tokenizer.ggml.pre", "tokenizer.ggml.merges", "tokenizer.ggml.unknown_token_id",
                         "tokenizer.ggml.token_type", "tokenizer.ggml.tokens", "tokenizer.ggml.add_bos_token"):
                     field = reader.get_field(name)
                     fault_offsets[name] = {"kind": field.parts[2].__array_interface__["data"][0] - base_address,
@@ -6601,6 +6601,9 @@ def run_rows():
                         fault_offsets[name]["subtype"] = field.parts[3].__array_interface__["data"][0] - base_address
                     if name == "tokenizer.ggml.tokens" and vocab_roles:
                         fault_offsets[name]["marker"] = field.parts[field.data[marker_id]].__array_interface__["data"][0] - base_address
+                    if name == "tokenizer.ggml.tokens":
+                        target = 258 if vocab_large else 256
+                        fault_offsets[name]["nul"] = field.parts[field.data[target]].__array_interface__["data"][0] - base_address + (8 if vocab_large else 1)
             finally:
                 reader.data._mmap.close()
             source_tokenizer = Tokenizer.from_str(arguments["tokenizer_bytes"].decode())
@@ -6865,7 +6868,9 @@ finish_report(report)
     "synthetic-joint-context-roles", "synthetic-joint-context-roles-merge",
     "synthetic-merges-intermediate-context-v5", "synthetic-merges-full-context-v5",
     "synthetic-joint-vocab-roles-medium-v3", "synthetic-joint-vocab-roles-full-v3",
-    "synthetic-joint-vocab-roles-full-controls-v3"])
+    "synthetic-joint-vocab-roles-full-controls-v3",
+    "synthetic-joint-vocab-nul", "synthetic-joint-vocab-roles-nul",
+    "synthetic-joint-vocab-roles-medium-nul-v3"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6883,6 +6888,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     native_vocab = "-vocab" in mode
     vocab_roles = "-vocab-roles" in mode
     vocab_large = native_vocab and mode.endswith("-v3")
+    vocab_nul = native_vocab and "-nul" in mode
     vocab_count = (8193 if "-medium-" in mode else 248320) if vocab_large else 261 if vocab_roles else 260
     vocab_controls = native_vocab and mode.endswith(("-controls", "-controls-v3"))
     vocab_merge = mode.endswith(("-vocab-merge", "-vocab-roles-merge"))
@@ -6890,7 +6896,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     token_roles_contract = mode == "synthetic-joint-roles"
     standalone_contract = mode.endswith("-contract") or context_contract or native_vocab or token_roles_contract
     base_mode = mode.removesuffix("-context-roles-merge").removesuffix("-context-roles").removesuffix("-native-controls").removesuffix("-native").removesuffix("-refusals").removesuffix("-controls").removesuffix("-selected").removesuffix("-contract").removesuffix("-context-merge").removesuffix("-context").removesuffix("-vocab-roles-merge").removesuffix("-vocab-roles").removesuffix("-vocab-merge").removesuffix("-vocab").removesuffix("-context-v4").removesuffix("-context-v5").removesuffix("-roles")
-    if vocab_large:
+    if vocab_large or vocab_nul:
         base_mode = "synthetic-joint"
     if native_joint or native_vocab:
         runtime_build = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
@@ -7196,6 +7202,49 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             assert hashlib.sha256(path.read_bytes()).hexdigest() == reports[-1]["output_file_sha256"]
             assert time.monotonic() < fixture["sequence_deadline"] and set(entry.name for entry in output.iterdir()) == {"rows.gguf", "expected.json"}
             print(json.dumps({**native, "synthetic_vocab_diagnostic": mode, "logical_source_copy_scratch_bytes": reports[-1]["logical_source_copy_scratch_bytes"]}))
+            if vocab_nul:
+                import struct
+
+                original_file = path.read_bytes()
+                offsets = reports[-1]["fault_offsets"]
+                fault_path = output / "vocab-nul-fault.gguf"
+                descriptors = len(os.listdir("/proc/self/fd"))
+                for defect in ("version-two", "token", "merge", "scalar"):
+                    changed = bytearray(original_file)
+                    if defect == "version-two":
+                        assert changed[4:8] == struct.pack("<I", 3)
+                        changed[4:8] = struct.pack("<I", 2)
+                    elif defect == "scalar":
+                        offset = offsets["tokenizer.ggml.pre"]["value"]
+                        assert changed[offset:offset + 5] == b"gpt-2"
+                        assert struct.unpack_from("<Q", changed, offset - 8)[0] == 5
+                        suffix = b"\x00hidden"
+                        changed[offset + 5:offset + 5] = suffix
+                        struct.pack_into("<Q", changed, offset - 8, 5 + len(suffix))
+                    else:
+                        offset = offsets["tokenizer.ggml.tokens"]["nul"] if defect == "token" else offsets["tokenizer.ggml.merges"]["value"] + 2
+                        assert changed[offset] == ord("0" if vocab_large and defect == "token" else "A" if defect == "token" else "B")
+                        changed[offset] = 0
+                    assert 0 < len(changed) <= (16 * 1024**2 if vocab_large else 256 * 1024)
+                    fault_path.write_bytes(changed)
+                    try:
+                        command = [str(executable), vocab_command, str(fault_path), str(expected_path)]
+                        result = guard(sys.executable, execute, json.dumps(command).encode(), env=env,
+                            maximum_seconds=min(60 if vocab_large else 30, fixture["sequence_deadline"] - time.monotonic()))
+                        assert result["host_swap_baseline_bytes"] == baseline_swap
+                        if defect == "version-two":
+                            assert result["returncode"] == 0 and json.loads(result["stdout"]) == json.loads(native["stdout"]), result
+                        else:
+                            assert result["returncode"] == 41 and not result["stdout"], result
+                    finally:
+                        fault_path.unlink()
+                    assert tuple(vocabulary_file_identity(entry) for entry in (path, expected_path)) == original_stats
+                    assert tuple(hashlib.sha256(entry.read_bytes()).hexdigest() for entry in (path, expected_path)) == original_hashes
+                    assert len(os.listdir("/proc/self/fd")) == descriptors
+                    assert set(entry.name for entry in output.iterdir()) == {"rows.gguf", "expected.json"}
+                    assert time.monotonic() < fixture["sequence_deadline"]
+                print(json.dumps({"synthetic_vocab_nul_refusals": 3, "gguf_version_two_verified": True,
+                    "original_files_preserved": True, "all_fault_copies_removed": True}))
             if vocab_controls:
                 import copy
                 import struct

@@ -6,6 +6,68 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Native Vocabulary Embedded-NUL Repair (2026-11-03)
+
+Latest user authorized autonomous continuation and periodic commit/push.
+Pushed the six tested CPU checkpoints from `6ee1ff2` through `1d062ec` to the
+existing `origin/main`; no force push or branch creation. Continued with a
+local generated-only repair, not a new learned read or unrestricted experiment.
+GPU remains deferred; all older one-shot approvals/ledgers remain frozen.
+
+The pinned GGUF parser retains declared bytes in `std::string`, but scalar/array
+getters return `c_str()`. Native vocabulary validation reconstructed strings
+from those pointers, making its embedded-NUL predicate ineffective for hidden
+suffixes. A generated medium v3 filler-row mutation was actually accepted with
+status 0 and all 36 lexical comparisons matched: focused regression **1 failed,
+3.21 s**. Thus earlier capacity evidence did not prove that raw embedded NULs
+were refused, even though unchanged valid generated inputs matched.
+
+Added a bounded metadata losslessness check shared by v1/v2/v3 after existing
+typed shape/row/content checks and before vocabulary loading. Rebuild metadata
+through pinned `gguf_set_kv` (C-string setters), serialize original and rebuilt
+contexts with pinned GGUF APIs, require equal bounded sizes and identical bytes
+after the eight-byte magic/version header. Only accepted GGUF version differences
+are excluded; no hand-written string parser or pinned-source modification.
+Temporary contexts/buffers end before `llama_vocab` loading. Hidden NUL bytes
+now produce metadata refusal status 41. Existing field/type/string/file/row/
+oracle limits, valid receipts and no-model/backend/tensor-data guarantees remain.
+
+Fresh source/configuration checks: Prism
+`842b1880415d6f508f03b789e5ce70194def7bfd`, Release/Ninja/clang 18/two jobs,
+existing observer self-test passed. Exactly one CMake Tools loader-target build:
+**2 steps, 8.406 s, result 0**, no dependencies compiled. Observer **20.432 s**,
+maximum observed build RSS **374247424 B**, minimum available host RAM
+**18383511552 B**, swap baseline/growth zero. No repeated build.
+
+After the repair, token-only regressions across all three native vocabulary
+versions: **3 passed, 7.96 s**. Extended the same fixture to token-row NUL,
+merge NUL and length-correct scalar `gpt-2` plus hidden NUL suffix, with a valid
+GGUF v2 positive: **3 passed, 8.49 s**, nine exact-status refusals and three
+format-v2 positives. Generated 260/261/8193-row source/role/context/oracle checks
+precede faults; no source flags or row types rewritten. All original hashes/
+stable identities, FD baselines, shared deadlines, swap baselines and disposable
+fault/directory cleanup checked. No owned fixture directory remains.
+
+Shared-path compatibility, hard cap 58 s plus 2 s termination cleanup:
+**7 passed, 32.59 s** = six legacy v1/v2 positive/merge/19- and 33-refusal cases
+plus the 248320-row v3 positive. No new full refusal suite or backend CTest
+was run; full positive passed under the existing resource guard, but its quiet
+pytest output does not provide a new retained peak-RSS receipt.
+Required root gate with all learned/cached-native opt-ins unset, 38 s plus 2 s
+termination cap: **1703 passed, 198 skipped, 27.00 s**; Ruff, diagnostics and
+whitespace clean. Optional skips are not execution evidence. Documentation
+checks are separate; no unchanged successful source gate repeated for docs.
+
+Separate model-free repair execution ceiling **300 s**, disclosed before the
+first regression. Measured build-observer/test/gate time **99.68 s**, including
+the failing repro. Conservative **240/300 s reserved** = 90 build +30 focused
++60 compatibility +40 gate +20 setup/review/documentation/cleanup; unused 60 s
+is not another experiment approval. Previous capacity **560/600** and all six
+learned approvals stay frozen/consumed. User editor settings untouched; no
+model/cache learned inputs, weights, backend, GPU, download, conversion, refit,
+new candidate, scoring, quality or device work. This checkpoint is a native
+test-input validation repair, not learned tokenizer or full-model acceptance.
+
 ## Synthetic Native Vocabulary Capacity Checkpoint (2026-11-03)
 
 Completed the generated-only capacity scope explicitly approved after proposal
