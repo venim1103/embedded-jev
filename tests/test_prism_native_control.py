@@ -5740,6 +5740,7 @@ standalone_contract = fixture.get("standalone_contract", False)
 context_contract = fixture.get("context_contract", False)
 native_vocab = fixture.get("native_vocab", False)
 vocab_large = fixture.get("vocab_large", False)
+vocab_ranked = fixture.get("vocab_ranked", False)
 large_context = fixture.get("large_context", False)
 token_roles_contract = fixture.get("token_roles_contract", False)
 role_context = fixture.get("role_context", False)
@@ -5813,6 +5814,8 @@ if row_mode:
         allowed_gguf_paths.add(Path(fixture["output"]) / "tensor-fault.gguf")
         if vocab_large:
             allowed_gguf_paths.update(Path(fixture["output"]) / name for name in ("vocab-limit-rows.gguf", "vocab-limit-content.gguf"))
+    if native_vocab and fixture.get("vocab_rank_controls", False):
+        allowed_gguf_paths.update(Path(fixture["output"]) / f"vocab-merge-limit-{name}.gguf" for name in ("rows", "content"))
 
     def row_audit(event, args):
         if (learned_context or learned_role_context) and event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
@@ -6520,7 +6523,10 @@ def run_rows():
                     assert context["wrapper_token_roles_verification"] == "before_and_after_contextual_encoding"
             writer = gguf.GGUFWriter(str(path), arch="gpt2")
             rows, merges, _ = prism_codec._prepare_profile_fast_tokenizer_rows_and_merges(profile, **arguments,
-                merge_policy_version=2, merge_policy="pinned_prism_ranked_source_merges_v2", maximum_merge_rows=16, maximum_merge_content_bytes=4 * 1024**2 if vocab_large else 65536)
+                merge_policy_version=2, merge_policy="pinned_prism_ranked_source_merges_v2", maximum_merge_rows=262144 if vocab_ranked else 16, maximum_merge_content_bytes=4 * 1024**2 if vocab_large else 65536)
+            if vocab_ranked:
+                assert 16 < len(merges["values"]) <= 262144
+                assert tuple(merges["values"]) == tuple(json.loads(arguments["tokenizer_bytes"])["model"]["merges"])
             records = [*prism_codec._profile_fast_tokenizer_row_records(rows), merges]
             for record in records:
                 writer.add_array(record["name"], list(record["values"]))
@@ -6538,6 +6544,29 @@ def run_rows():
             writer.write_kv_data_to_file()
             writer.write_tensors_to_file()
             writer.close()
+            if fixture.get("vocab_rank_controls", False):
+                import copy
+
+                for limit_name, limit_count in (("rows", 262145), ("content", 262144)):
+                    limit_merges = ["B B"] * limit_count if limit_name == "rows" else [f"left{index:010d} right" for index in range(limit_count)]
+                    assert (sum(len(text.encode()) for text in limit_merges) > 4 * 1024**2) is (limit_name == "content")
+                    limit_path = root / f"vocab-merge-limit-{limit_name}.gguf"
+                    limit_writer = gguf.GGUFWriter(str(limit_path), arch="gpt2")
+                    limit_writer.kv_data = copy.deepcopy(writer.kv_data)
+                    del limit_writer.kv_data[0]["tokenizer.ggml.merges"]
+                    limit_writer.add_array("tokenizer.ggml.merges", limit_merges)
+                    limit_writer.write_header_to_file()
+                    limit_writer.write_kv_data_to_file()
+                    limit_writer.write_tensors_to_file()
+                    limit_writer.close()
+                    assert 0 < limit_path.stat().st_size <= file_cap
+                    limit_reader = gguf.GGUFReader(limit_path)
+                    try:
+                        assert not limit_reader.tensors and set(limit_reader.fields) == {"GGUF.version", "GGUF.tensor_count", "GGUF.kv_count"} | set(writer.kv_data[0])
+                        assert len(limit_reader.get_field("tokenizer.ggml.merges").contents()) == limit_count
+                    finally:
+                        limit_reader.data._mmap.close()
+                    del limit_reader, limit_writer, limit_merges
             if fixture["vocab_controls"]:
                 import copy
                 import numpy as np
@@ -6599,11 +6628,15 @@ def run_rows():
                         "value": field.parts[field.data[0]].__array_interface__["data"][0] - base_address}
                     if name == "tokenizer.ggml.token_type":
                         fault_offsets[name]["subtype"] = field.parts[3].__array_interface__["data"][0] - base_address
+                    if name == "tokenizer.ggml.merges" and vocab_ranked:
+                        for position, index in (("first_rank", 1), ("late_rank", -2), ("last_rank", -1)):
+                            fault_offsets[name][position] = field.parts[field.data[index]].__array_interface__["data"][0] - base_address
                     if name == "tokenizer.ggml.tokens" and vocab_roles:
                         fault_offsets[name]["marker"] = field.parts[field.data[marker_id]].__array_interface__["data"][0] - base_address
                     if name == "tokenizer.ggml.tokens":
                         target = 258 if vocab_large else 256
-                        fault_offsets[name]["nul"] = field.parts[field.data[target]].__array_interface__["data"][0] - base_address + (8 if vocab_large else 1)
+                        part = field.parts[field.data[target]]
+                        fault_offsets[name]["nul"] = part.__array_interface__["data"][0] - base_address + len(part) - 1
             finally:
                 reader.data._mmap.close()
             source_tokenizer = Tokenizer.from_str(arguments["tokenizer_bytes"].decode())
@@ -6611,6 +6644,10 @@ def run_rows():
             texts = list("ABCDEFGHIJKLMNOP") + [prompt] + [prompt + label for label in "ABCDEFGHIJKLMNOP"] + ["<pad>", "<|control|>"]
             if vocab_roles:
                 texts.append("<marker>")
+            if vocab_ranked:
+                texts.extend(("jaakaaa", "jabkaaa", "jzzkzzz"))
+                for text in texts[-3:]:
+                    assert source_tokenizer.encode(text, add_special_tokens=False).ids == [source_tokenizer.token_to_id(text)]
             expected = {"token_ids": [source_tokenizer.encode(text, add_special_tokens=False).ids for text in texts],
                 "special_ids": [source_special["<pad>"], source_special["<|control|>"]], "boundary_refusal": fixture["vocab_merge"]}
             if vocab_roles:
@@ -6622,6 +6659,7 @@ def run_rows():
         logical = 2 * total + path.stat().st_size + (root / "expected.json").stat().st_size + 3 * file_cap + 65536 + 8192
         assert logical < row_scratch_cap and time.monotonic() < fixture["sequence_deadline"]
         return dict(status="matched", phase=operation, token_rows=vocab_count, contextual_refusal=fixture["vocab_merge"],
+            **({"merge_rows": len(merges["values"]), "ranked_source_merges_verified": True} if vocab_ranked else {}),
             fault_offsets=fault_offsets,
             output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
             logical_source_copy_scratch_bytes=logical, logical_scratch_cap_bytes=row_scratch_cap)
@@ -6870,7 +6908,9 @@ finish_report(report)
     "synthetic-joint-vocab-roles-medium-v3", "synthetic-joint-vocab-roles-full-v3",
     "synthetic-joint-vocab-roles-full-controls-v3",
     "synthetic-joint-vocab-nul", "synthetic-joint-vocab-roles-nul",
-    "synthetic-joint-vocab-roles-medium-nul-v3"])
+    "synthetic-joint-vocab-roles-medium-nul-v3",
+    "synthetic-joint-vocab-roles-merges-medium-v4", "synthetic-joint-vocab-roles-merges-full-v4",
+    "synthetic-joint-vocab-roles-merges-medium-controls-v4"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6887,7 +6927,9 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     context_refusal = mode.endswith("-context-merge") or role_context and mode.endswith("-merge")
     native_vocab = "-vocab" in mode
     vocab_roles = "-vocab-roles" in mode
-    vocab_large = native_vocab and mode.endswith("-v3")
+    vocab_ranked = native_vocab and mode.endswith("-v4")
+    vocab_rank_controls = vocab_ranked and "-controls-" in mode
+    vocab_large = native_vocab and mode.endswith(("-v3", "-v4"))
     vocab_nul = native_vocab and "-nul" in mode
     vocab_count = (8193 if "-medium-" in mode else 248320) if vocab_large else 261 if vocab_roles else 260
     vocab_controls = native_vocab and mode.endswith(("-controls", "-controls-v3"))
@@ -6988,8 +7030,33 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 alphabet_namespace = {}
                 exec(compile(ast.Module(body=[alphabet_function], type_ignores=[]), "<pinned-byte-alphabet>", "exec"), alphabet_namespace)
                 tokens = list(alphabet_namespace["bytes_to_unicode"]().values()) + ["AA", "BB"]
+                fixture_merges = ["B B"] + (["A A"] if vocab_merge else [])
+                if vocab_ranked:
+                    import itertools
+
+                    prefix_count, suffix_count = (4, 4) if vocab_count == 8193 else (120, 2048)
+                    prefixes = ["j" + "".join(chars) for chars in itertools.islice(itertools.product("abcdefghijklmnopqrstuvwxyz", repeat=2), prefix_count - 1)] + ["jzz"]
+                    suffixes = ["k" + "".join(chars) for chars in itertools.islice(itertools.product("abcdefghijklmnopqrstuvwxyz", repeat=3), suffix_count - 1)] + ["kzzz"]
+                    generated = set(tokens)
+                    for operand in prefixes + suffixes:
+                        for length in range(2, len(operand) + 1):
+                            merged = operand[:length]
+                            if merged not in generated:
+                                fixture_merges.append(f"{operand[:length - 1]} {operand[length - 1]}")
+                                tokens.append(merged)
+                                generated.add(merged)
+                    for left, right in itertools.product(prefixes, suffixes):
+                        merged = left + right
+                        assert merged not in generated
+                        fixture_merges.append(f"{left} {right}")
+                        tokens.append(merged)
+                        generated.add(merged)
+                    assert "aa" not in generated
+                    tokens.append("aa")
+                    fixture_merges.append("a a")
+                    assert 16 < len(fixture_merges) <= 262144 and len(tokens) <= vocab_count - 3
                 if vocab_large:
-                    tokens.extend(f"jev{number:06d}" for number in range(vocab_count - 261))
+                    tokens.extend(f"jev{number:06d}" for number in range(vocab_count - len(tokens) - 3))
                 tokens.extend(["<pad>", "<|control|>"])
                 if vocab_roles:
                     tokens.append("<marker>")
@@ -7010,7 +7077,6 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                     metadata[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}<marker>A"
                     added.append({"id": marker_id, "content": "<marker>", "single_word": False, "lstrip": False, "rstrip": False,
                         "normalized": False, "special": False})
-                fixture_merges = ["B B"] + (["A A"] if vocab_merge else [])
             files = {**metadata, "config.json": json.dumps(config).encode(),
                 "tokenizer_config.json": b'{"tokenizer_class":"PreTrainedTokenizerFast","clean_up_tokenization_spaces":false}',
                 "tokenizer.json": json.dumps({"version": "1.0", "added_tokens": added,
@@ -7055,7 +7121,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "standalone_contract": standalone_contract,
             "context_contract": context_contract, "context_refusal": context_refusal,
             "native_vocab": native_vocab, "vocab_merge": vocab_merge, "vocab_roles": vocab_roles,
-            "vocab_large": vocab_large,
+            "vocab_large": vocab_large, "vocab_ranked": vocab_ranked, "vocab_rank_controls": vocab_rank_controls,
             "large_context": large_context,
             "token_roles_contract": token_roles_contract,
             "role_context": role_context,
@@ -7111,6 +7177,8 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 continue
             if operation == "rows-contract" and native_vocab:
                 assert report["token_rows"] == vocab_count and report["contextual_refusal"] == vocab_merge
+                if vocab_ranked:
+                    assert report["merge_rows"] == len(fixture_merges) and report["ranked_source_merges_verified"]
                 assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == (128 if vocab_large else 16) * 1024**2
                 assert (output / "rows.gguf").stat().st_size == report["output_file_bytes"] <= (16 * 1024**2 if vocab_large else 256 * 1024)
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
@@ -7177,6 +7245,12 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 return observed.st_dev, observed.st_ino, observed.st_size, observed.st_mtime_ns, observed.st_ctime_ns
             original_stats = tuple(vocabulary_file_identity(entry) for entry in (path, expected_path))
             original_hashes = tuple(hashlib.sha256(entry.read_bytes()).hexdigest() for entry in (path, expected_path))
+            if vocab_rank_controls:
+                merge_limit_faults = {}
+                for name in ("rows", "content"):
+                    limit_path = output / f"vocab-merge-limit-{name}.gguf"
+                    merge_limit_faults[name] = limit_path.read_bytes()
+                    limit_path.unlink()
             if vocab_controls:
                 tensor_fault = (output / "tensor-fault.gguf").read_bytes()
                 (output / "tensor-fault.gguf").unlink()
@@ -7187,13 +7261,14 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                         limit_faults[name] = limit_path.read_bytes()
                         limit_path.unlink()
             execute = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
-            vocab_command = "--synthetic-vocab-control-v3" if vocab_large else "--synthetic-vocab-control-v2" if vocab_roles else "--synthetic-vocab-control-v1"
+            vocab_command = "--synthetic-vocab-control-v4" if vocab_ranked else "--synthetic-vocab-control-v3" if vocab_large else "--synthetic-vocab-control-v2" if vocab_roles else "--synthetic-vocab-control-v1"
             arguments = [str(executable), vocab_command, str(path), str(expected_path)]
             native = guard(sys.executable, execute, json.dumps(arguments).encode(), env=env,
                 maximum_seconds=min(60 if vocab_large else 30, fixture["sequence_deadline"] - time.monotonic()))
             assert native["returncode"] == 0, native
-            assert json.loads(native["stdout"]) == {"checked_strings": 36 if vocab_roles else 35,
-                "policy_version": 3 if vocab_large else 2 if vocab_roles else 1, "token_rows": vocab_count,
+            assert json.loads(native["stdout"]) == {"checked_strings": 39 if vocab_ranked else 36 if vocab_roles else 35,
+                "policy_version": 4 if vocab_ranked else 3 if vocab_large else 2 if vocab_roles else 1, "token_rows": vocab_count,
+                **({"merge_rows": len(fixture_merges)} if vocab_ranked else {}),
                 **({"ordinary_marker_verified": True} if vocab_roles else {}),
                 "contextual_refusal": vocab_merge, "model_loaded": False, "backend_initialized": False, "tensor_data_allocated": False}
             assert tuple(vocabulary_file_identity(entry) for entry in (path, expected_path)) == original_stats
@@ -7202,6 +7277,63 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             assert hashlib.sha256(path.read_bytes()).hexdigest() == reports[-1]["output_file_sha256"]
             assert time.monotonic() < fixture["sequence_deadline"] and set(entry.name for entry in output.iterdir()) == {"rows.gguf", "expected.json"}
             print(json.dumps({**native, "synthetic_vocab_diagnostic": mode, "logical_source_copy_scratch_bytes": reports[-1]["logical_source_copy_scratch_bytes"]}))
+            if vocab_rank_controls:
+                import copy
+                import struct
+
+                original_file = path.read_bytes()
+                original_expected = json.loads(expected_path.read_bytes())
+                offsets = reports[-1]["fault_offsets"]["tokenizer.ggml.merges"]
+                fault_path, fault_expected = output / "vocab-merge-fault.gguf", output / "vocab-merge-expected.json"
+                descriptors = len(os.listdir("/proc/self/fd"))
+                for defect in ("version-two", "rank-swap", "late-merge", "merge-nul", "oracle", "rows", "content", "v3"):
+                    changed, oracle = bytearray(original_file), copy.deepcopy(original_expected)
+                    command, status = vocab_command, 41
+                    if defect == "version-two":
+                        assert changed[4:8] == struct.pack("<I", 3)
+                        changed[4:8] = struct.pack("<I", 2)
+                        status = 0
+                    elif defect in ("rows", "content"):
+                        changed = merge_limit_faults[defect]
+                    elif defect == "v3":
+                        oracle["token_ids"] = oracle["token_ids"][:36]
+                        command = "--synthetic-vocab-control-v3"
+                    elif defect == "oracle":
+                        oracle["token_ids"][-1] = oracle["token_ids"][0]
+                        status = 44
+                    elif defect == "rank-swap":
+                        first, last = offsets["first_rank"], offsets["last_rank"]
+                        assert changed[first:first + 3] == b"j a" and changed[last:last + 3] == b"a a"
+                        changed[first:first + 3], changed[last:last + 3] = changed[last:last + 3], changed[first:first + 3]
+                        status = 44
+                    else:
+                        offset = offsets["late_rank"] + (7 if defect == "merge-nul" else 0)
+                        assert changed[offset] == ord("z" if defect == "merge-nul" else "j")
+                        changed[offset] = 0 if defect == "merge-nul" else ord("a")
+                        status = 41 if defect == "merge-nul" else 44
+                    assert 0 < len(changed) <= 16 * 1024**2
+                    fault_path.write_bytes(changed)
+                    oracle_bytes = json.dumps(oracle).encode()
+                    assert len(oracle_bytes) <= 65536
+                    fault_expected.write_bytes(oracle_bytes)
+                    try:
+                        result = guard(sys.executable, execute, json.dumps([str(executable), command, str(fault_path), str(fault_expected)]).encode(),
+                            env=env, maximum_seconds=min(60, fixture["sequence_deadline"] - time.monotonic()))
+                        assert result["returncode"] == status and result["host_swap_baseline_bytes"] == baseline_swap, result
+                        if status == 0:
+                            assert json.loads(result["stdout"]) == json.loads(native["stdout"])
+                        else:
+                            assert not result["stdout"], result
+                    finally:
+                        fault_path.unlink()
+                        fault_expected.unlink()
+                    assert tuple(vocabulary_file_identity(entry) for entry in (path, expected_path)) == original_stats
+                    assert tuple(hashlib.sha256(entry.read_bytes()).hexdigest() for entry in (path, expected_path)) == original_hashes
+                    assert len(os.listdir("/proc/self/fd")) == descriptors
+                    assert set(entry.name for entry in output.iterdir()) == {"rows.gguf", "expected.json"}
+                    assert time.monotonic() < fixture["sequence_deadline"]
+                print(json.dumps({"synthetic_vocab_ranked_refusals": 7, "gguf_version_two_verified": True,
+                    "original_files_preserved": True, "all_fault_copies_removed": True}))
             if vocab_nul:
                 import struct
 

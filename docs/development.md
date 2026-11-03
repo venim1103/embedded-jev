@@ -3531,7 +3531,39 @@ for build/results, the fixture failure and repair, resource ledger and evidence
 limits. These generated modes do not authorize learned tokenizer reads,
 Qwen/MiMo execution, backend CTests, GPU work or quality/BitNet claims.
 
-All three direct vocabulary controls also check that metadata survives a
+`--synthetic-vocab-control-v4` is a separate generated ranked-merge capacity
+contract. Only v4 increases merge rows to 262144; independent merge content
+remains <=4 MiB. All v3 file/row/string/typed-metadata/JSON/depth/ID bounds,
+external zero-tensor loading and no-model/backend guarantees remain. V1-v3
+keep their limits and receipts. V4's same four-field expected JSON contains
+39 `token_ids` arrays: the existing 36 role/context strings plus `jaakaaa`,
+`jabkaaa` and `jzzkzzz`. The extra encodings must match source singleton NORMAL
+IDs. Its receipt reports 39 strings, policy version4 and `merge_rows`.
+
+Use `synthetic-joint-vocab-roles-merges-medium-v4`,
+`synthetic-joint-vocab-roles-merges-full-v4` and
+`synthetic-joint-vocab-roles-merges-medium-controls-v4` only within a separately
+bounded generated scope, with the same pinned cached variables and every
+learned approval flag unset. The fixture builds byte-reachable prefix/suffix
+operands, Cartesian product merges and a late `a a` conflict, preserving exact
+source ranks through emission and complete typed readback. The final tables
+have 8193/248320 rows and 32/248021 merges. Swapping the early `j a` rank with
+late `a a` genuinely changes tokenization, rather than merely permuting
+disjoint pairs. Medium faults cover that swap, a late merge, the late oracle,
+merge NUL, well-formed merge row/content ceilings and v3 refusal; a valid
+format-v2 copy preserves the receipt. No source roles/types are rewritten.
+
+V4 reuses the <=90 s stage/<=60 s child, v3 owned-group memory/swap/cleanup
+guard, <=32 MiB source/copy sets and <=128 MiB logical scratch. Full generated
+preparation can approach the 2 GiB observed group limit; this is not a device
+memory or performance claim. Complete source-rank/readback verification is a
+Python fixture check; native lexical agreement covers only the 39 oracle
+strings, not arbitrary text or every merge. See the
+[ranked capacity checkpoint](handover.md#synthetic-native-ranked-merge-capacity-checkpoint-2026-11-03).
+These toy GPT-2 modes do not authorize learned/Qwen/MiMo execution or establish
+BitNet dispatch, model quality or target-device readiness.
+
+All direct vocabulary controls also check that metadata survives a
 lossless reconstruction through the pinned GGUF C-string setters and serializer
 before vocabulary loading. This catches raw embedded NULs hidden by scalar/
 array C-string getters; comparing getter strings alone cannot prove raw-byte

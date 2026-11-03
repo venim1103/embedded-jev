@@ -1337,7 +1337,8 @@ static std::vector<char> selected_metadata_file(const char* path, std::size_t li
 
 static int test_synthetic_vocab(const char* path, const char* expected_path, int policy_version = 1) {
     using nlohmann::json;
-    const bool large = policy_version == 3;
+    const bool ranked = policy_version == 4;
+    const bool large = policy_version == 3 || ranked;
     const bool roles = policy_version == 2 || large;
     try {
         const auto expected_bytes = selected_metadata_file(expected_path, 65537);
@@ -1358,7 +1359,7 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
         if (!expected.is_object() || expected.size() != (roles ? 4 : 3) || !expected.contains("token_ids") ||
                 !expected.contains("special_ids") || !expected.contains("boundary_refusal") ||
             (roles && !expected.contains("ordinary_marker_id")) ||
-            !expected["token_ids"].is_array() || expected["token_ids"].size() != (roles ? 36 : 35) ||
+            !expected["token_ids"].is_array() || expected["token_ids"].size() != (ranked ? 39 : roles ? 36 : 35) ||
                 !expected["special_ids"].is_array() || expected["special_ids"].size() != 2 ||
                 !expected["boundary_refusal"].is_boolean()) {
             return 40;
@@ -1396,7 +1397,7 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
         const auto rows = gguf_get_arr_n(context.get(), token_key);
         if (rows < 258 || rows > (large ? 262144 : 512) || gguf_get_arr_type(context.get(), token_key) != GGUF_TYPE_STRING ||
                 gguf_get_arr_type(context.get(), type_key) != GGUF_TYPE_INT32 || gguf_get_arr_n(context.get(), type_key) != rows ||
-                gguf_get_arr_type(context.get(), merge_key) != GGUF_TYPE_STRING || gguf_get_arr_n(context.get(), merge_key) > 16) {
+                gguf_get_arr_type(context.get(), merge_key) != GGUF_TYPE_STRING || gguf_get_arr_n(context.get(), merge_key) > (ranked ? 262144 : 16)) {
             return 41;
         }
         const auto* types = static_cast<const int32_t*>(gguf_get_arr_data(context.get(), type_key));
@@ -1505,6 +1506,11 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
         if (roles) {
             texts.emplace_back("<marker>");
         }
+        if (ranked) {
+            for (const auto* text : {"jaakaaa", "jabkaaa", "jzzkzzz"}) {
+                texts.emplace_back(text);
+            }
+        }
         std::vector<std::vector<llama_token>> actual;
         for (std::size_t index = 0; index < texts.size(); ++index) {
             llama_token tokens[64];
@@ -1514,6 +1520,9 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
             }
             actual.emplace_back(tokens, tokens + count);
             if (actual.back() != expected["token_ids"][index].get<std::vector<llama_token>>()) {
+                return 44;
+            }
+            if (ranked && index >= 36 && (actual.back().size() != 1 || !vocab.is_normal(actual.back()[0]))) {
                 return 44;
             }
         }
@@ -1527,11 +1536,14 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
             boundary_refusal = boundary_refusal || continuation != actual[17 + index];
         }
         if (boundary_refusal != expected["boundary_refusal"].get<bool>() || !empty_loader() ||
-                (roles && (actual.back() != std::vector<llama_token>{int32_t(marker)} ||
+                (roles && (actual[35] != std::vector<llama_token>{int32_t(marker)} ||
                     !vocab.is_user_defined(marker) || vocab.is_control(marker)))) {
             return 44;
         }
-        if (roles) {
+        if (ranked) {
+            std::printf("{\"checked_strings\":39,\"policy_version\":4,\"token_rows\":%zu,\"merge_rows\":%zu,\"contextual_refusal\":%s,\"ordinary_marker_verified\":true,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
+                rows, gguf_get_arr_n(context.get(), merge_key), boundary_refusal ? "true" : "false");
+        } else if (roles) {
             std::printf("{\"checked_strings\":36,\"policy_version\":%d,\"token_rows\":%zu,\"contextual_refusal\":%s,\"ordinary_marker_verified\":true,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
                 policy_version, rows, boundary_refusal ? "true" : "false");
         } else {
@@ -1709,6 +1721,9 @@ int main(int argc, char** argv) {
     }
     if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v3") == 0) {
         return test_synthetic_vocab(argv[2], argv[3], 3);
+    }
+    if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v4") == 0) {
+        return test_synthetic_vocab(argv[2], argv[3], 4);
     }
     if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control") == 0) {
         return test_selected_metadata(argv[2], argv[3]);

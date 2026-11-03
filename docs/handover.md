@@ -6,6 +6,78 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Synthetic Native Ranked-Merge Capacity Checkpoint (2026-11-03)
+
+Continued the user's autonomous CPU implementation/periodic commit-push scope
+after pushed NUL repair `c0c6b18`. Disclosed a separate generated-only **600 s**
+ceiling before the first build. Older capacity/NUL ledgers and all six consumed
+learned approvals remain frozen; GPU remains deferred. No learned model inputs,
+weights, downloads, conversion, refit, candidate promotion or quality work.
+
+V3 proved row capacity with one merge, not a full ranked merge table. Added
+separate `--synthetic-vocab-control-v4`: <=262144 merges, unchanged v3 row/file/
+independent-content/string/typed-metadata/strict-JSON bounds and external
+zero-tensor `llama_vocab` path before backend discovery. Existing v1-v3 limits
+and receipts remain. V4 extends the same role/context oracle from 36 to 39
+strings with three fixed reachable first/later/final Cartesian-product merges;
+each must encode as the exact source singleton NORMAL ID. Receipt adds merge
+count. Marker verification remains at its original index before extra probes.
+No model construction, backend/runtime initialization or tensor-data allocation.
+
+Reused the existing pinned converter and Prism source; freshly verified Prism
+HEAD `842b1880415d6f508f03b789e5ce70194def7bfd`, Release/Ninja/clang 18 and build
+observer self-test. One CMake Tools target-only build: **2 steps, 9.029 s,
+result 0**, no dependency rebuild. Observer **34.401 s**, maximum observed RSS
+**375492608 B**, minimum available host RAM **17127608320 B**, swap zero.
+
+Existing fixture now generates every operand through byte-reachable prefix/
+suffix chains and product merges, preserving source ranks in emission and
+complete typed readback. Initial prototype without the late rank conflict:
+medium 8193 rows/31 merges **1 passed, 3.05 s**; full 248320 rows/248020 merges
+**1 passed, 26.06 s**, all 39 native comparisons matched. Prototype full group
+peak **1738346496 B**, native **98598912 B**, no swap growth. These are not the
+final fixture identity. Added late `a a`/NORMAL `aa` so swapping its rank with
+early `j a` changes reachable prefix tokenization. Final source has 32/248021
+merges; no source-special flags or ordinary-marker row types are rewritten.
+
+Final medium refusal stage: **1 passed, 11.66 s**, seven exact-status/empty-output
+refusals: rank swap, late merge and late oracle (44); merge NUL, well-formed
+262145 merge rows, well-formed 262144 rows/>4 MiB content and v3 old-merge-limit
+refusal (41). A valid GGUF v2 copy matched the original v4 receipt. Limit files
+were independently read back as zero-tensor typed metadata before execution;
+all fault copies/FDs closed and original hashes/stable identities preserved.
+Worker/group peak **687730688 B**, host minimum **17345654784 B**, swap zero.
+
+Final medium/full positives together: **2 passed, 27.10 s**, under outer 88 s
+plus 2 s termination cleanup; each retains its <=90 s stage/<=60 s children.
+Medium GGUF **171040 B**, source/copy **311821 B per set**, logical scratch
+**51200634 B**, group peak **297725952 B**. Full GGUF **8671680 B**, source/copy
+**14397976 B per set**, logical scratch **87873635 B**; full worker/group peak
+**1695469568 B**, native **98525184 B**, host minimum **16427286528 B**, swap
+baseline/growth zero. All39 encodings, source ranks/readback, role/context,
+source/copy/output identity, FD and cleanup assertions passed. Group observation
+is not a hard host/target-device guarantee; native oracle coverage is bounded,
+not arbitrary-text agreement or complete behavioral validation of every merge.
+
+Legacy v1/v2 positives/merge/refusals/NULs plus v3 medium positive/NUL control:
+**10 passed, 29.02 s**, under 58 s plus 2 s cleanup. Required root gate with all
+six learned and cached-native opt-ins unset: **1703 passed, 201 skipped, 28.58 s**,
+under 38 s plus 2 s cleanup; Ruff, source diagnostics and whitespace clean.
+Default skips are not native/GPU/model evidence. No failed checks or relaxed
+assertions/bounds; final positives were rerun only after the substantive rank-
+conflict addition. No second build or unchanged gate repeated for documentation.
+
+Measured observer/test/gate execution **159.87 s**. Conservative **460/600 s
+reserved** =90 build +60 prototype positives +90 refusals +90 final positives
++60 compatibility +40 root gate +30 setup/review/docs/cleanup; remaining140 s
+is not another experiment approval. Verified no owned fixture directories or
+workers remain; no retained model/quantized artifact or pinned-source changes.
+Next prerequisite is a separately profile-bound learned/native tokenizer plan
+with precise source identity, role policy and resource budget, not substitution
+of these toy controls or reuse of consumed learned flags. This checkpoint proves
+generated ranked-table capacity/selected lexical agreement, not learned parity,
+BitNet execution, conditional-score quality or deployment readiness.
+
 ## Native Vocabulary Embedded-NUL Repair (2026-11-03)
 
 Latest user authorized autonomous continuation and periodic commit/push.
