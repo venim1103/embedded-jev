@@ -1354,7 +1354,11 @@ static std::string selected_sha256(const char* data, std::size_t size) {
 static int test_synthetic_vocab(
     const char* path, const char* expected_path, int policy_version = 1, const char* expected_profile_sha256 = nullptr) {
     using nlohmann::json;
-    const bool source_oracle = policy_version == 5;
+    const bool qwen35_oracle = policy_version == 6;
+    const bool source_oracle = policy_version == 5 || qwen35_oracle;
+    const auto* oracle_scope = qwen35_oracle ? "generated_qwen35_only" : "generated_gpt2_only";
+    const auto* pre_policy = qwen35_oracle ? "generated_qwen35_bytelevel_v1" : "generated_bytelevel_gpt2_v1";
+    const auto* pre_tag = qwen35_oracle ? "qwen35" : "gpt-2";
     const bool ranked = policy_version == 4 || source_oracle;
     const bool large = policy_version == 3 || ranked;
     const bool roles = policy_version == 2 || large;
@@ -1396,8 +1400,8 @@ static int test_synthetic_vocab(
             if (!exact_members(envelope, {"policy_version", "scope", "profile_sha256", "gguf_file_bytes",
                     "gguf_file_sha256", "source_native_oracle_sha256", "pre_tokenizer_policy", "source_oracle"}) ||
                     !envelope["policy_version"].is_number_integer() || envelope["policy_version"] != 1 ||
-                    envelope["scope"] != "generated_gpt2_only" ||
-                    envelope["pre_tokenizer_policy"] != "generated_bytelevel_gpt2_v1" ||
+                    envelope["scope"] != oracle_scope ||
+                    envelope["pre_tokenizer_policy"] != pre_policy ||
                     !expected_profile_sha256 || !digest(json(expected_profile_sha256)) ||
                     envelope["profile_sha256"] != expected_profile_sha256 ||
                     !envelope["gguf_file_bytes"].is_number_unsigned() || envelope["gguf_file_bytes"] == 0 ||
@@ -1514,7 +1518,7 @@ static int test_synthetic_vocab(
         const auto key = [&context](const char* name) { return gguf_find_key(context.get(), name); };
         if (std::strcmp(gguf_get_val_str(context.get(), key("general.architecture")), "gpt2") != 0 ||
                 std::strcmp(gguf_get_val_str(context.get(), key("tokenizer.ggml.model")), "gpt2") != 0 ||
-                std::strcmp(gguf_get_val_str(context.get(), key("tokenizer.ggml.pre")), "gpt-2") != 0 ||
+                std::strcmp(gguf_get_val_str(context.get(), key("tokenizer.ggml.pre")), pre_tag) != 0 ||
                 gguf_get_val_bool(context.get(), key("tokenizer.ggml.add_bos_token")) ||
                 gguf_get_val_bool(context.get(), key("tokenizer.ggml.add_eos_token"))) {
             return 42;
@@ -1609,7 +1613,8 @@ static int test_synthetic_vocab(
         llama_vocab vocab;
         vocab.load(loader, loader.llm_kv);
         if (!empty_loader() || vocab.n_tokens() != rows || vocab.get_type() != LLAMA_VOCAB_TYPE_BPE ||
-                vocab.get_pre_type() != LLAMA_VOCAB_PRE_TYPE_GPT2 || vocab.get_add_bos() || vocab.get_add_eos() ||
+                vocab.get_pre_type() != (qwen35_oracle ? LLAMA_VOCAB_PRE_TYPE_QWEN35 : LLAMA_VOCAB_PRE_TYPE_GPT2) ||
+                vocab.get_add_bos() || vocab.get_add_eos() ||
                 vocab.token_pad() != int32_t(pad) || vocab.token_unk() != int32_t(pad) ||
                 vocab.token_bos() != int32_t(control) || vocab.token_eos() != int32_t(control)) {
             return 43;
@@ -1669,12 +1674,13 @@ static int test_synthetic_vocab(
             return 44;
         }
         if (source_oracle) {
-            const auto receipt = json{{"checked_strings", actual.size()}, {"policy_version", 5}, {"token_rows", rows},
+            const auto receipt = json{{"checked_strings", actual.size()}, {"policy_version", policy_version}, {"token_rows", rows},
                 {"merge_rows", gguf_get_arr_n(context.get(), merge_key)}, {"profile_sha256", expected_profile_sha256},
                 {"source_native_oracle_sha256", envelope["source_native_oracle_sha256"]}, {"gguf_file_sha256", envelope["gguf_file_sha256"]},
                 {"gguf_file_bytes", bytes.size()}, {"source_native_oracle_policy_version", 1}, {"ordinary_marker_verified", true},
-                {"contextual_refusal", false}, {"scope", "generated_gpt2_only"},
-                {"pre_tokenizer_tag_verification", "generated_gpt2_declaration_and_selected_lexical_cases_match"},
+                {"contextual_refusal", false}, {"scope", oracle_scope},
+                {"pre_tokenizer_tag_verification", qwen35_oracle ? "generated_qwen35_declaration_and_selected_lexical_cases_match" :
+                    "generated_gpt2_declaration_and_selected_lexical_cases_match"},
                 {"native_tokenizer_verification", "selected_source_oracle_cases_match"},
                 {"runtime_approval", "not_granted_by_generated_native_oracle"},
                 {"model_loaded", false}, {"backend_initialized", false}, {"tensor_data_allocated", false}}.dump();
@@ -1852,8 +1858,9 @@ static int test_selected_metadata(const char* path, const char* expected_path, i
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_REAL_LOADER
-    if (argc > 1 && std::strcmp(argv[1], "--synthetic-vocab-control-v5") == 0) {
-        return argc == 5 ? test_synthetic_vocab(argv[2], argv[3], 5, argv[4]) : 40;
+    if (argc > 1 && (std::strcmp(argv[1], "--synthetic-vocab-control-v5") == 0 ||
+            std::strcmp(argv[1], "--synthetic-vocab-control-v6") == 0)) {
+        return argc == 5 ? test_synthetic_vocab(argv[2], argv[3], std::strcmp(argv[1], "--synthetic-vocab-control-v6") == 0 ? 6 : 5, argv[4]) : 40;
     }
     if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v1") == 0) {
         return test_synthetic_vocab(argv[2], argv[3]);

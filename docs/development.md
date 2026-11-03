@@ -3682,6 +3682,48 @@ for evidence and failed-check history. This is neither whole-vocabulary/ranked
 merge parity nor a learned Qwen/MiMo tag policy, native template rendering,
 model/backend execution, BitNet dispatch, quality or deployment approval.
 
+### Generated Qwen3.5 Pre-Tokenizer Control
+
+`--synthetic-vocab-control-v6` preserves v5 and all earlier policies, using the
+same bounded envelope/source-oracle schema and separate expected synthetic
+profile hash. Only this version selects `scope=generated_qwen35_only`,
+`pre_tokenizer_policy=generated_qwen35_bytelevel_v1`, metadata `qwen35` and the
+pinned native `LLAMA_VOCAB_PRE_TYPE_QWEN35`. The synthetic forty-`1` revision,
+A-P/three-role/36-case shape, typed zero-tensor vocabulary loader, identity/
+NUL/JSON/text/ID bounds and no-model/backend/runtime safeguards remain. The
+receipt reports version6 and
+`pre_tokenizer_tag_verification=generated_qwen35_declaration_and_selected_lexical_cases_match`.
+This is a generated tag policy, not a learned profile execution route.
+
+Optional `synthetic-joint-vocab-roles-merges-medium-oracle-qwen35-native-v6`
+reuses the pinned tools and 8193-row fixture, with 38 ranked merges. Source
+pre-tokenization is a tokenizers `Split` regex followed by byte-level mapping
+without another regex pass. Both Qwen3.5 and the contrasting Qwen2 regex literals
+are independently anchored to the clean pinned native source. Qwen3.5 groups
+Unicode combining marks with letters; Qwen2 does not. Both split individual
+digits, unlike this fixture's GPT-2 path. Do not guess another model's tag from
+its family name or apply this synthetic revision to a real checkpoint.
+
+Generated digit and combining-mark merge chains make the prompt discriminate
+these policies: `1234 a\u0301b B<marker>A` (the escape denotes U+0301). Source
+Qwen3.5 uses individual digit IDs and one merged combining-mark word; its prompt
+count/exact IDs independently match the raw source tokenizer and native v6.
+Separate raw GPT-2 and Qwen2 encodings differ; fresh-hash oracle copies containing
+those prompt/continuation IDs must refuse with lexical status44, not a stale
+hash refusal. V5 rejects the v6 envelope, while valid hash-rebound GGUF v2 works.
+Existing v5 refusal controls also run in v6 with tag-specific faults.
+
+Same <=90 s stage/<=60 s child, <=128 MiB scratch and observed group-memory,
+host reserve/swap, source/copy/stat/hash/audit/FD/cleanup guards apply. All learned
+flags must remain unset; no library/model download, repository-supplied model
+code or learned input is executed. See the
+[Qwen3.5 control checkpoint](handover.md#generated-qwen35-pre-tokenizer-checkpoint-2026-11-03)
+for failed-check history and measured evidence. This checks selected generated
+regex/byte-map/BPE/role/context behavior, not arbitrary Unicode/full vocabulary,
+learned MiMo/Qwen parity, native template rendering, BitNet execution, quality
+or target-device readiness. Source provenance hashes remain identities rather
+than issuer authentication or runtime approval.
+
 All direct vocabulary controls also check that metadata survives a
 lossless reconstruction through the pinned GGUF C-string setters and serializer
 before vocabulary loading. This catches raw embedded NULs hidden by scalar/

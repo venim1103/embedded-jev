@@ -6,6 +6,78 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Generated Qwen3.5 Pre-Tokenizer Checkpoint (2026-11-03)
+
+After committing/pushing `8934e2c`, continued within a new model-free **300 s
+execution ceiling**, disclosed before the edit. Previous 600 s native-oracle
+scope and older ledgers/all six consumed learned approvals remain frozen.
+No learned files/weights, model/source/library download, conversion, refit,
+retained candidate, quality, GPU or deployment work. User editor settings and
+cached pinned source/libraries preserved.
+
+Pinned native source has separate Qwen2 and Qwen3.5 pre-tokenizers: both split
+individual digits; Qwen3.5 includes Unicode combining marks with letters.
+Added a separate generated-only `--synthetic-vocab-control-v6`, not a relaxation
+of v5. It selects only generated Qwen3.5 scope/policy, exact `qwen35` metadata tag
+and actual `LLAMA_VOCAB_PRE_TYPE_QWEN35`. Existing strict synthetic revision,
+external expected profile, canonical oracle/GGUF/role/prompt hashes, exact case
+shape/bounds, typed metadata/NUL/role checks and empty external vocabulary loader
+remain. No model/backend/tensor-data/template-rendering path is entered; runtime
+approval is not granted. Source identity is not issuer/runtime authorization.
+
+Extended the existing generated 8193-row fixture with six digit/combining-word
+merge-chain entries, **38 merges** total. Source tokenizers Split+ByteLevel graph
+uses normalized regex literals independently matched to the clean pinned native
+source, not learned tokenizer files or an assumed family tag. Prompt has `1234`,
+an `a`+U+0301+`b` word and the ordinary marker. Verified raw source and contextual
+wrapper exact IDs/count; source Qwen3.5 emits individual digits and one merged
+combining word. Independently parsed GPT-2 and Qwen2 graphs emit different IDs.
+Fresh canonical/hash-rebound oracle copies using those wrong prefix/continuation
+IDs must reach native lexical status44, not identity refusal.
+
+First focused action after native edit: CMake Tools loader-target build
+**12.545 s**, observed interval **23.83 s**, peak RSS **444493824 B**, host available
+minimum **15448576000 B**, baseline host swap **548864 B** unchanged/owned swap0.
+Cached pinned Release/Ninja/clang++-18/two jobs and existing <=90 s/2 GiB host+
+owned-memory/swap observer unchanged; no unrelated dependency compilation.
+
+Failure: initial generated check **failed, 3.46 s**, before native execution at
+worker `run_rows` line446: older GPT-2 fixture asserted fixed three-token prompt.
+Repaired the new longer Qwen3.5 branch to compare exact independently parsed raw
+source IDs/count with the verified oracle; old two/three-token assertions stay.
+No numerical/token/deadline limit was relaxed. Same focused check **1 passed,
+5.20 s**. Added explicit combining-word singleton/prompt membership and Qwen2
+non-membership assertions plus small count evidence; focused check **1 passed,
+4.64 s**, with **31 refusals** and a hash-rebound GGUF v2 positive. This includes
+all prior identity/role/schema/ID/JSON/NUL controls, wrong GPT-2/Qwen2 source
+lexical oracles and v5 policy refusal, under 88 s plus 2 s cleanup.
+
+Final source oracle **36 cases / 3638 B**, prompt **10 IDs**, combining word
+**1 ID**, GGUF **171104 B**, 10 source/copy files **312205 B per set**, logical
+scratch **51205477 B**. Native consumed all36; group peak **299188224 B**, native
+positive RSS **15380480 B**, minimum available host RAM **15467130880 B**.
+Host swap baseline **548864 B**, unchanged within all stages; worker/group swap0.
+Observed counters are not hard device-memory or performance guarantees. Original
+stat/hash identities and FD checks preserved; every disposable fault removed;
+no retained oracle/artifact, fixture directory or owned worker remains.
+
+Focused previous GPT-2 v1/v4/v5 compatibility, including all v5 refusals:
+**3 passed, 10.25 s**, under 28 s plus 2 s cleanup. Required root gate, all learned
+and cached-native opt-ins unset: **1731 passed, 205 skipped, 31.88 s**, under
+unchanged 38 s plus 2 s cleanup; Ruff/diagnostics/whitespace clean. Optional
+skips are not compiled/full-model evidence. No CTest, prefill, GPU or learned
+gates ran; direct vocabulary controls are the actual compiled checks.
+
+Measured pytest including failure **55.43 s** plus observed build **23.83 s**
+=**79.26/300 s**, excluding lightweight setup/introspection/review/docs/cleanup.
+No unchanged successful gate repeated for docs or new learned approval inferred
+from unused allowance. Full-model/learned compatibility, native rendering,
+arbitrary Unicode/full-vocabulary agreement, BitNet dispatch, representative
+quality and device deployment remain open. Next concrete step is a strict
+profile-bound role/case generalization using generated inputs, then a separately
+approved source-frozen learned diagnostic; never put a real checkpoint through
+the toy revision/role schema or reuse consumed learned approval flags.
+
 ## Generated Native Source-Oracle Checkpoint (2026-11-03)
 
 Continued autonomous CPU work after `94ebbcf` within a newly disclosed model-free
