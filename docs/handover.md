@@ -1,10 +1,80 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-10-22. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-11-03. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
+
+## GPU Container Handoff (2026-11-03)
+
+**Paused at the user's request:** finish the approved native-role control, update
+the handover and stop for a new chat in the GPU container. The
+[native-role checkpoint](#synthetic-native-role-vocabulary-checkpoint-2026-11-03)
+is complete. This pause supersedes every historical autonomy/resume note below;
+do not begin a new implementation slice or experiment in this chat. No new
+learned/native-model/GPU workload or seventh learned approval was requested.
+
+Current evidence, kept separate:
+
+- Native **generated GPT-2** v2 checks an ordinary USER_DEFINED marker, 36
+  source-matched strings, exact contextual positive/merge disagreement, 33
+  refusals and unchanged compiled v1 controls. No model/backend/tensor-data path.
+- Learned Python v5 was accepted **once** after runner `7d44e65`, with result
+  `2a8aac4`: three source-special tokens, two ordinary thinking markers and all
+  16 contextual labels on the exact pinned MiMo source/generic wrapper. The
+  earlier strict-v4 refusal remains valid; profiles and strict APIs were not
+  silently changed. **All six learned approvals are consumed.**
+- Selected storage/parser, actual native lexical semantics, BitNet arithmetic,
+  model execution and quality are different gates. No native MiMo role-aware
+  tokenizer acceptance, whole-model ternary, calibrated confidence, representative
+  quality, GPU-model run or target-device performance follows from this checkpoint.
+  Preserve the frozen candidate and independent row/group FP16 scales.
+
+The selected [GPU profile](../.devcontainer/gpu/devcontainer.json) is specifically
+Podman/WSL: NVIDIA CDI, `/dev/dxg`, read-only `/usr/lib/wsl`, shared CPU image.
+It does not install CUDA Torch or `nvcc`. The cache mount name contains
+`${devcontainerId}`; selecting another configuration may expose a different
+volume. A familiar path is not proof that it contains the CPU container's cache.
+Do not create another weight/source download, copy large artifacts, replace a
+venv or change mount/host permissions to work around missing inputs implicitly.
+
+In the **new chat**, first read this section, the checkpoint below and
+[ML and GPU Work](development.md#ml-and-gpu-work). Then:
+
+1. Verify worktree/commit and preserve user `.vscode/` settings. Re-read
+   `AGENTS.md`; no push, branch, subagents or scope expansion by default.
+2. Inventory the actual controller/editor interpreter separately, visible cache
+   volume/permissions, cached environments/pinned sources, available RAM/swap,
+   Linux free space and Windows VHDX drive free space. CPU cache root was
+   `/home/vscode/.cache/huggingface/embedded-jev`; `dense-venv`, `native/prism-source`
+   and `native/jev-prism-runtime-v1-build` were verified here. They are not verified
+   in the future GPU container. `/tmp` validators/observers and agent memory may
+   disappear on rebuild; durable evidence is in these docs, not those files.
+3. Establish fresh GPU visibility and library/environment compatibility with the
+   existing bounded probes, using only already installed environments if present.
+   Historical September 28 RTX A3000/12 GiB/CC8.6/Torch2.10.0+cu128 results in the
+   development guide are not current validation. Do not reinstall a missing stack
+   or load a model automatically; prepare an exact prerequisite/budget request.
+4. Use GPU environment readiness as the first new checkpoint. Keep GPU setup,
+   synthetic arithmetic/native controls and learned/model quality evidence
+   separate. Do not rerun consumed learned diagnostics, native model commands or
+   unchanged successful gates merely for reassurance. Select the next smallest
+   useful prerequisite only after current environment facts are known.
+5. Obtain separate approval for any new learned read, complete-model conversion,
+   weight/source download, native learned execution, refit/candidate/compensation,
+   held-out/scoring/quality or target-device experiment. GPU availability is not
+   such approval. Keep no-generation typed scores and model-specific provenance.
+
+The native-role allowance is conservatively **100/400 s** consumed/reserved;
+unused 300 s does not authorize another slice after this pause. Prior reservations
+**145/200, 90/120, 270/300, 575/600 and 425.19/600 s** stay frozen, not reset.
+All owned fixture/fault files and workers were cleaned. Only the small disposable
+build observer/report and document validator remain outside Git. No push or
+branch was made. The user had already advanced `origin/main` to `8c15951` before
+this work; preserve subsequent external changes rather than reverting them.
+
+## Historical Timeline
 
 **Resumed by user, 2026-10-22:** continue autonomously with periodic tested local
 commits until stopped or genuinely blocked. Starting `62e59a3` matches
@@ -72,7 +142,9 @@ single accepted Python role-aware contextual contract after runner `7d44e65`.
 execution is authorized. The earlier strict-v4 refusal remains valid.
 Result checkpoint `2a8aac4` completes the one-shot scope. The next
 [generated native-role proposal](#synthetic-native-role-vocabulary-proposal-2026-10-22)
-is unapproved and cannot authorize another learned read or model load.
+was separately approved before the interruption, then explicitly limited by the
+November 3 request to finishing that scope and pausing for the GPU handoff.
+It cannot authorize another learned read or model load.
 
 **Paused by user, 2026-10-21 (historical):** pause at completed source checkpoint `191c1b5`.
 The synthetic native three-field integration, refusals and old-command controls
@@ -613,10 +685,76 @@ Static follow-up identifies native selected-record capacity as a separate
 integration boundary; see the proposal below before any new native work.
 Do not repeat any consumed invocation or enlarge a resource limit implicitly.
 
+## Synthetic Native Role Vocabulary Checkpoint (2026-11-03)
+
+Finished the separately approved proposal at `8c15951`, then paused as requested.
+New `--synthetic-vocab-control-v2` reuses the direct external zero-tensor metadata/
+`llama_vocab` owner before backend discovery. V2 alone accepts USER_DEFINED type4,
+requires exact ordinary marker ID/text distinct from CONTROL IDs, verifies loaded
+USER_DEFINED/non-CONTROL attributes and singleton encoding before/after lexical
+checks. Its strict JSON adds `ordinary_marker_id` to the old three fields and
+checks exactly 36 strings. V1 retains 35 strings, schema/types/status/receipt,
+limits and fixed BA prompt. No runtime/model/backend/tensor-data initialization.
+
+New generated modes `synthetic-joint-vocab-roles`, `-roles-merge` and
+`-roles-controls` use 261 rows: pinned pure generated byte alphabet, AA/BB,
+two controls and non-special `<marker>`. Source role/standalone and v5 contextual
+checks precede exact typed GGUF readback and native comparison. B<marker>A
+positive accepts all 16 labels; adding only the A+A merge preserves standalone
+marker acceptance but causes the precise contextual discrepancy in both engines.
+The ordinary marker remains non-special in the installed generic Python wrapper.
+Original v1 fixture bytes and expectations remain unchanged.
+
+Pinned cached Prism `842b1880415d6f508f03b789e5ce70194def7bfd`, Release/Ninja/
+clang++-18, target-only CMake Tools/two jobs: **two steps, 8.696 s**. Existing
+90 s observer completed in **23.287 s** including arming, build-tree RSS
+**372797440 bytes**, host minimum **23477522432 bytes**, swap baseline/growth
+zero; no unrelated dependencies compiled or cached sources/settings changed.
+
+First positive failed **0.51 s** in source-copy preamble, before vocabulary work:
+the old exact 260-row assertion and parent receipt needed explicit v2's 261-row
+branch. Repaired only those versioned counts; same positive passes **3.96 s**.
+Merge passes **2.58 s**. Positive source/copy ten files/**11596 bytes per set**,
+GGUF **4160 bytes**, logical **888044 bytes**, SHA-256
+`393b3cdb954bc7dbdc23e6464c48fbf20563f306022f30c23849b627481de6a8`.
+Merge ten files/**11607 bytes per set**, GGUF **4160 bytes**, logical **888062**,
+SHA-256 `15b4eb616765cb6afbcf47f4c5ab42c1bdaca64f59df929c7ff2fe549dc6e47d`.
+All kept only as small receipts; generated GGUF/token arrays were not retained.
+
+V2 controls pass **2.94 s**, **33 exact refusals**: old 19 plus marker bool/
+negative/range/wrong/CONTROL-colliding ID, missing field, wrong marker/context
+oracle, NORMAL/CONTROL/UNUSED marker type, wrong marker text, v1 schema rejection
+(40) and v1 USER_DEFINED-row rejection (41). Nonzero four-byte tensor fault is
+rejected before vocabulary construction. Disposable faults preserve original
+device/inode/size/mtime/ctime plus hashes, restore exact FDs and remove all copies.
+Compiled v1 positive/merge/19-controls pass **3 tests in 7.36 s**. No unchanged
+large/parser/backend/model control was added or rerun for reassurance.
+
+Stages <=60 s, children <=30 s, <=64 KiB input/copy sets, <=256 KiB GGUF,
+<=64 KiB expected JSON, <=16 MiB logical scratch and existing <=2 GiB RSS/
+>=2 GiB host reserve/no swap growth/64 KiB stdin/8 KiB output/audited-path rules.
+Largest observed successful Python worker RSS **264617984 bytes**; successful
+native comparison RSS <=**9973760 bytes**; minimum reported fixture host available
+**23081930752 bytes**, process/host swap baseline/growth zero. Refusal workers
+also passed their guards; their individual peak counts were not retained.
+Existing artificial EOG spelling/config warnings are bounded and unsuppressed,
+not proof of learned EOG compatibility. Source/copy rechecks, typed maps/FDs,
+temporary roots/children/fault cleanup pass; no large artifact/candidate retained.
+
+Required default gate, all six learned/native opt-ins unset: **1603 passed,
+192 skipped in 23.84 s**, within reserved40 s; Ruff/whitespace/editor diagnostics
+clean. Three new optional modes explain added skips; default success is not
+native evidence, which is listed separately above. Observed build/failure/tests/
+gate total **64.48 s**; conservatively reserve **100/400 s** with overhead. Prior
+ledgers are frozen. No learned files, GPU/model computation, backend CTest,
+download/install/refit/quality/other-profile/target-device work occurred. This
+closes only the approved generated native-role lexical slice.
+
 ## Synthetic Native Role Vocabulary Proposal (2026-10-22)
 
-Prepared after accepted learned Python checkpoint `2a8aac4`; **not approved or
-started**. Python v5 acceptance is not native agreement. The existing direct
+Prepared after accepted learned Python checkpoint `2a8aac4`; **separately
+approved before interruption, completed November 3** as recorded above.
+Python v5 acceptance is not native agreement. The existing direct
 zero-tensor toy GPT-2 vocabulary v1 command accepts only NORMAL/CONTROL/UNUSED
 rows and fixed `BA`; it does not cover an ordinary USER_DEFINED added marker
 in a contextual prompt. Request a **generated-only native v2 role control**,

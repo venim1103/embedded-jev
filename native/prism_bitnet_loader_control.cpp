@@ -1335,8 +1335,9 @@ static std::vector<char> selected_metadata_file(const char* path, std::size_t li
     return bytes;
 }
 
-static int test_synthetic_vocab_v1(const char* path, const char* expected_path) {
+static int test_synthetic_vocab(const char* path, const char* expected_path, int policy_version = 1) {
     using nlohmann::json;
+    const bool roles = policy_version == 2;
     try {
         const auto expected_bytes = selected_metadata_file(expected_path, 65537);
         std::vector<std::set<std::string>> object_keys(5);
@@ -1353,9 +1354,10 @@ static int test_synthetic_vocab_v1(const char* path, const char* expected_path) 
                 }
                 return true;
             });
-        if (!expected.is_object() || expected.size() != 3 || !expected.contains("token_ids") ||
+        if (!expected.is_object() || expected.size() != (roles ? 4 : 3) || !expected.contains("token_ids") ||
                 !expected.contains("special_ids") || !expected.contains("boundary_refusal") ||
-                !expected["token_ids"].is_array() || expected["token_ids"].size() != 35 ||
+            (roles && !expected.contains("ordinary_marker_id")) ||
+            !expected["token_ids"].is_array() || expected["token_ids"].size() != (roles ? 36 : 35) ||
                 !expected["special_ids"].is_array() || expected["special_ids"].size() != 2 ||
                 !expected["boundary_refusal"].is_boolean()) {
             return 40;
@@ -1403,7 +1405,7 @@ static int test_synthetic_vocab_v1(const char* path, const char* expected_path) 
                 const std::string text(gguf_get_arr_str(context.get(), array_key, index));
                 total += text.size();
                 if (text.empty() || text.size() > 64 || text.find('\0') != std::string::npos || total > 65536 ||
-                        (array_key == token_key && types[index] != 1 && types[index] != 3 && types[index] != 5)) {
+                        (array_key == token_key && types[index] != 1 && types[index] != 3 && types[index] != 5 && !(roles && types[index] == 4))) {
                     return 41;
                 }
                 json(text).dump();
@@ -1428,6 +1430,17 @@ static int test_synthetic_vocab_v1(const char* path, const char* expected_path) 
             return 40;
         }
         const auto pad = expected["special_ids"][0].get<uint32_t>(), control = expected["special_ids"][1].get<uint32_t>();
+        uint32_t marker = 0;
+        if (roles) {
+            if (!valid_id(expected["ordinary_marker_id"])) {
+                return 40;
+            }
+            marker = expected["ordinary_marker_id"].get<uint32_t>();
+            if (marker == pad || marker == control || types[marker] != 4 ||
+                    std::strcmp(gguf_get_arr_str(context.get(), token_key, marker), "<marker>") != 0) {
+                return 42;
+            }
+        }
         if (types[pad] != 3 || types[control] != 3 ||
                 std::strcmp(gguf_get_arr_str(context.get(), token_key, pad), "<pad>") != 0 ||
                 std::strcmp(gguf_get_arr_str(context.get(), token_key, control), "<|control|>") != 0 ||
@@ -1455,16 +1468,24 @@ static int test_synthetic_vocab_v1(const char* path, const char* expected_path) 
                 vocab.token_bos() != int32_t(control) || vocab.token_eos() != int32_t(control)) {
             return 43;
         }
+        if (roles && (!vocab.is_user_defined(marker) || vocab.is_control(marker) ||
+                std::strcmp(vocab.token_get_text(marker), "<marker>") != 0)) {
+            return 43;
+        }
         std::vector<std::string> texts;
         for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
             texts.emplace_back(1, label);
         }
-        texts.emplace_back("BA");
+        const std::string prompt = roles ? "B<marker>A" : "BA";
+        texts.push_back(prompt);
         for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
-            texts.push_back(std::string("BA") + label);
+            texts.push_back(prompt + label);
         }
         texts.emplace_back("<pad>");
         texts.emplace_back("<|control|>");
+        if (roles) {
+            texts.emplace_back("<marker>");
+        }
         std::vector<std::vector<llama_token>> actual;
         for (std::size_t index = 0; index < texts.size(); ++index) {
             llama_token tokens[64];
@@ -1486,11 +1507,18 @@ static int test_synthetic_vocab_v1(const char* path, const char* expected_path) 
             continuation.insert(continuation.end(), actual[index].begin(), actual[index].end());
             boundary_refusal = boundary_refusal || continuation != actual[17 + index];
         }
-        if (boundary_refusal != expected["boundary_refusal"].get<bool>() || !empty_loader()) {
+        if (boundary_refusal != expected["boundary_refusal"].get<bool>() || !empty_loader() ||
+                (roles && (actual.back() != std::vector<llama_token>{int32_t(marker)} ||
+                    !vocab.is_user_defined(marker) || vocab.is_control(marker)))) {
             return 44;
         }
-        std::printf("{\"checked_strings\":35,\"policy_version\":1,\"token_rows\":%zu,\"contextual_refusal\":%s,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
-            rows, boundary_refusal ? "true" : "false");
+        if (roles) {
+            std::printf("{\"checked_strings\":36,\"policy_version\":2,\"token_rows\":%zu,\"contextual_refusal\":%s,\"ordinary_marker_verified\":true,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
+                rows, boundary_refusal ? "true" : "false");
+        } else {
+            std::printf("{\"checked_strings\":35,\"policy_version\":1,\"token_rows\":%zu,\"contextual_refusal\":%s,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
+                rows, boundary_refusal ? "true" : "false");
+        }
         return 0;
     } catch (const std::exception&) {
         std::fputs("synthetic vocabulary input refused\n", stderr);
@@ -1655,7 +1683,10 @@ static int test_selected_metadata(const char* path, const char* expected_path, i
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_REAL_LOADER
     if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v1") == 0) {
-        return test_synthetic_vocab_v1(argv[2], argv[3]);
+        return test_synthetic_vocab(argv[2], argv[3]);
+    }
+    if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v2") == 0) {
+        return test_synthetic_vocab(argv[2], argv[3], 2);
     }
     if (argc == 4 && std::strcmp(argv[1], "--selected-metadata-control") == 0) {
         return test_selected_metadata(argv[2], argv[3]);

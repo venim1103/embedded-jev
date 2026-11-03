@@ -3448,6 +3448,25 @@ for actual build/35-case/19-refusal/legacy compatibility evidence, failure histo
 warnings and separate finite ledger. Synthetic GPT-2 lexical agreement is not
 Qwen/MiMo parity, calibrated decisions, BitNet execution or whole-model quality.
 
+`--synthetic-vocab-control-v2` is a separate generated ordinary-marker contract.
+It preserves v1 and all its bounds, adding only USER_DEFINED type4 and the exact
+fourth expected-JSON member `ordinary_marker_id`. That ID must identify literal
+`<marker>` in a USER_DEFINED/non-CONTROL row, differ from the two controls and
+preserve its singleton native encoding/loaded attributes. V2 checks 36 strings:
+A-P, B<marker>A, its 16 label continuations, two controls and the marker alone.
+Its receipt adds policy version2 and `ordinary_marker_verified=true`; it does
+not initialize a backend, construct a model or allocate tensor data.
+
+Use only new `synthetic-joint-vocab-roles`, `synthetic-joint-vocab-roles-merge`
+and `synthetic-joint-vocab-roles-controls` modes with the same cached variables.
+They use source-faithful role/standalone and Python v5 contextual preparation,
+generated261-row typed readback and direct native comparison. All33 refusals,
+including v1 rejection of the v2 schema/row type, and old v1 compatibility are
+verified. Read the [checkpoint](handover.md#synthetic-native-role-vocabulary-checkpoint-2026-11-03)
+for commands/results, resource/failure/cleanup/warning evidence and pause.
+This does not transfer toy USER_DEFINED behavior to MiMo thinking markers or
+authorize another learned/native model experiment.
+
 ### Guarded Vocabulary Preflight
 
 The lightweight `native/converter-venv` lacks Transformers for the full CLI.
@@ -4558,6 +4577,17 @@ CPU image and requests the same `nvidia.com/gpu=all` CDI device, `/dev/dxg`,
 It does not mount WSLg, forward ports, clone llama.cpp, or replace the CPU
 default. Only choose it on a host with those WSL paths and Podman NVIDIA CDI
 configured; it is not a generic Docker or native-Linux GPU profile.
+
+Before switching configurations, read the
+[GPU handoff](handover.md#gpu-container-handoff-2026-11-03). Both profiles use a
+cache volume name containing `${devcontainerId}`; a GPU reopen may therefore
+expose a different cache. Verify the actual volume, writable paths and cached
+venvs/source pins before using the commands below. Reuse installed inputs;
+do not automatically recreate environments, copy large artifacts or download
+weights when a path is missing. `/tmp` observers/validators and chat memory are
+disposable; reconstruct necessary tooling from these documented contracts rather
+than treating a vanished scratch file as a reason to loosen resource guards.
+The GPU/driver/Torch results below are historical, not fresh container readiness.
 
 On that host, from the workspace root, validate and launch explicitly:
 

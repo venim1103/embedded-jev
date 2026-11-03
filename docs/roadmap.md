@@ -5,7 +5,12 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the latest tested implementation at `db002c1`, read the
+For the current stop/resume boundary and latest tested native-role slice, read
+the [GPU-container handoff](handover.md#gpu-container-handoff-2026-11-03) and
+[native-role checkpoint](handover.md#synthetic-native-role-vocabulary-checkpoint-2026-11-03).
+Generated lexical controls and one-shot learned Python contracts do not close
+native learned-model, full-model quality, calibration or target-device gates.
+For the historical geometry implementation at `db002c1`, read the
 [projection checkpoint](handover.md#projection-geometry-checkpoint-2026-10-09).
 The [historical real-model checkpoint](handover.md#current-checkpoint-2026-10-08)
 at `9408f3f` retains its separate MiMo inference and numerical evidence.
