@@ -6,9 +6,65 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Learned Native Oracle Attempt And Receipt Repair (2026-11-03)
+
+**All SEVEN learned approvals are now CONSUMED. No retry authorized.** Tested
+runner/native checkpoint `b27d468` was committed/pushed before exactly one
+approved MiMo parent invocation. It failed in0.66 s after the verified copy
+phase at parent resource collection: `KeyError: observed_process_rss_bytes`.
+Emission, source-oracle preparation and native comparison did NOT run. This is
+a runner integration failure, not a learned lexical refusal or acceptance.
+
+The copy worker completed the ten allowed profile-pinned nonweight files and
+read-only copies,30144444 B per set, including source/copy hash/stat rechecks.
+Parent source identity, group/swap/reserve and logical-scratch assertions passed
+before the receipt lookup. Actual RSS/high-water/minimum host reserve/swap
+baseline values were not retained after the failure; do not reconstruct them
+from a preflight or synthetic run. Preflight available11939438592 B and swap
+913408 B were time-sensitive snapshots, not failed-attempt resource aggregates.
+TemporaryDirectory exception cleanup ran; `/tmp/jev-mimo-native-oracle-*`
+was verified absent, the copy guard returned/reaped its worker, and no owned
+model/oracle/GGUF/spill remains. Only the874 B failure log outside Git remains:
+`/tmp/jev-mimo-native-oracle-20261103.log`, SHA-256
+`e3accf10aa09ba3ceec3895d4b783794d1468dbd26421e064c377a40af0e176d`.
+No learned prompt/token arrays were produced or retained.
+
+Root cause: mocked parent controls fabricated a nonexistent guard RSS key.
+The real v3 guard exposes `observed_group_rss_bytes` and
+`observed_group_high_water_sum_bytes`. Repaired only the parent resource lookup/
+aggregation, and made its three phase-flow mocks inherit the receipt from an
+actual model-free child that prints empty JSON. No new learned file read,
+native-policy edit/build, source transform or assertion/guard relaxation.
+Focused real-receipt integration:3 passed,0.22 s. Required repair gate, all seven
+learned flags and cached-native opt-ins unset:1771 passed,227 skipped,27.38 s
+under unchanged38 s plus2 s cleanup; Ruff/whitespace clean. Earlier compiled
+consumer/legacy evidence below remains applicable; no unchanged native suite
+rerun. Successful default gate still does not establish learned comparison.
+
+Measured execution ledger now211.19/600 s: earlier182.93 +one consumed0.66 s
+attempt +0.22 s focused repair +27.38 s new repair gate. Lightweight syntax/
+setup/read/review/docs/cleanup excluded. Additional gate is charged to focused
+repair allowance, not a reset/enlarged deadline. Remaining388.81 s is NOT
+authorization for another learned read. Next commit/push this tested repair and
+failure handover; a separately approved retry can reserve180 s within the same
+remaining600 s ledger, without a new native build or source gate if unchanged.
+
+Prepared bounded retry request, not approved: exactly one invocation of the
+repaired committed parent, same frozen MiMo2367/profile/tokenizer/template/roles,
+ten cached nonweight inputs, fixed content/context/rendering, source-faithful
+scaffold/oracle38 cases and unchanged native v8. Same180 s entire parent/60 s
+serial children/2 GiB group+host reserve/no swap growth/128 MiB logical scratch/
+16 MiB files/64 KiB envelopes/8 KiB output and full identity/cleanup checks.
+Explicit fresh retry approval must renew this attempt; a historical opt-in
+command cannot do so. Consume on invocation regardless of failure/refusal/
+unknown interruption; no automatic second retry, normalization change,
+fallback, model/weights/download/refit/quality/GPU/device work. Retain only a
+bounded identity/count/refusal/resource report outside Git, then delete scratch.
+
 ## Learned Native Oracle Runner Checkpoint (2026-11-03)
 
-**Approval ACTIVE and UNUSED; no new learned input opened.** User selected
+**Historical pre-invocation checkpoint at b27d468.** Approval was active/unused
+here and was subsequently consumed as recorded above. User selected
 **Approve One Native Oracle** for the proposal at `d33e910`, including the new
 600 s execution ceiling, then explicitly resumed after the summary pause.
 All six historical learned approvals remain consumed. This checkpoint prepares

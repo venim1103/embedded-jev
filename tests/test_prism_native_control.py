@@ -6619,12 +6619,12 @@ def _run_pinned_profile_tokenizer_native_oracle_diagnostic():
             assert time.monotonic() < deadline
             unchanged_sources()
             assert sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) + 30144444 + 3 * 16 * 1024**2 + 65536 < 128 * 1024**2
-            reports.append({"report": report, "observed_process_rss_bytes": result["observed_process_rss_bytes"],
+            reports.append({"report": report, "observed_group_rss_bytes": result["observed_group_rss_bytes"],
                 "observed_host_available_minimum_bytes": result["observed_host_available_minimum_bytes"]})
         summary = {"profile_sha256": profile.sha256, "source_revision": profile.revision,
             "approval_consumed": True, "phases": len(reports), "result": reports[-1]["report"],
             "elapsed_seconds": time.monotonic() - started, "host_swap_baseline_bytes": swap_baseline,
-            "maximum_observed_rss_bytes": max(item["observed_process_rss_bytes"] for item in reports),
+            "maximum_observed_rss_bytes": max(item["observed_group_rss_bytes"] for item in reports),
             "minimum_host_available_bytes": min(item["observed_host_available_minimum_bytes"] for item in reports)}
         unchanged_sources()
     assert not root.exists() and time.monotonic() < deadline
@@ -6643,6 +6643,7 @@ def test_pinned_profile_tokenizer_native_oracle_diagnostic():
 def test_native_oracle_parent_is_serial_single_attempt_and_cleans(monkeypatch, refusal):
     import hashlib
     import stat
+    import sys
     from types import SimpleNamespace
     from embedded_jev.model_profile import parse_model_profile
 
@@ -6679,6 +6680,8 @@ def test_native_oracle_parent_is_serial_single_attempt_and_cleans(monkeypatch, r
         "842b1880415d6f508f03b789e5ce70194def7bfd\n" if "rev-parse" in arguments else "" if "status" in arguments else '["5.12.1","0.22.2","2.2.6"]')
     calls, roots = [], []
     gguf_sha256 = hashlib.sha256(b"mock").hexdigest()
+    actual_guard_receipt = _run_tokenizer_only_guard_v3(sys.executable, 'print("{}")', b"{}", env=os.environ, maximum_seconds=15)
+    assert actual_guard_receipt["returncode"] == 0 and actual_guard_receipt["stdout"] == "{}\n"
 
     def guard(interpreter, code, payload, *, env, maximum_seconds):
         assert 0 < maximum_seconds <= 60 and env["MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED"] == "1"
@@ -6705,10 +6708,8 @@ def test_native_oracle_parent_is_serial_single_attempt_and_cleans(monkeypatch, r
                 "required_token_count": 5, "label_count": 16, "source_special_count": 3, "ordinary_marker_count": 2,
                 "model_loaded": False, "backend_initialized": False, "tensor_data_allocated": False,
                 "runtime_approval": "not_granted_by_tokenizer_oracle_control"}
-        return {"returncode": 44 if phase == "native" and refusal == "native" else 0,
-            "stdout": json.dumps(report), "stderr": "", "observed_process_swap_bytes": 0,
-            "host_swap_baseline_bytes": 4096, "observed_host_swap_bytes": 4096,
-            "observed_host_available_minimum_bytes": 4 * 1024**3, "observed_process_rss_bytes": 1024}
+        return {**actual_guard_receipt, "returncode": 44 if phase == "native" and refusal == "native" else 0,
+            "stdout": json.dumps(report)}
 
     monkeypatch.setattr(__import__(__name__, fromlist=["_run_tokenizer_only_guard_v3"]), "_run_tokenizer_only_guard_v3", guard)
     summary = _run_pinned_profile_tokenizer_native_oracle_diagnostic()

@@ -3765,6 +3765,10 @@ Same2 GiB observed group RSS/high-water,2 GiB host reserve, no owned swap/host
 swap growth,32 MiB source/copy sets,128 MiB logical scratch and8 KiB stdout/
 stderr bounds apply. Temporary copies/GGUF/oracle/spill are deleted; report
 contains only bounded identities/counts/refusal/resources, no prompt/token arrays.
+Group-aware guard resource fields are `observed_group_rss_bytes` and
+`observed_group_high_water_sum_bytes`; do not fabricate a process-RSS key in
+caller mocks. The parent uses an actual model-free guard receipt for its mocked
+phase-flow controls.
 
 `test_pinned_generated_mimo_native_oracle_policy` separately checks the compiled
 consumer and actual emission function using generated rows and explicitly
