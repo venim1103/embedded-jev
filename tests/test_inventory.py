@@ -2218,7 +2218,7 @@ def test_profile_fast_standalone_contract_refuses_source_and_row_conflicts(monke
         assert receipt["prompt_label_boundary_verification"] == receipt["native_tokenizer_verification"] == "not_checked"
 
 
-@pytest.mark.parametrize("defect", [None, "missing-role", "extra-role", "unknown-role", "bool-role", "role-type",
+@pytest.mark.parametrize("defect", [None, "marker-normal", "missing-role", "extra-role", "unknown-role", "bool-role", "role-type",
     "control-flag", "marker-flag", "marker-missing", "marker-control", "control-normal", "label-special", "label-unused",
     "source-id", "row-spelling", "selected-spelling", "encoding", "duplicate-id", "conflict", "bool-id", "range", "content",
     "count", "bool-count", "rows", "bool-rows", "content-budget", "bool-content", "seconds", "bool-seconds", "deadline", "late-deadline"])
@@ -2247,6 +2247,8 @@ def test_profile_fast_token_roles_preserve_strict_contract_and_source_flags(monk
         roles = list(roles)
     elif defect == "marker-missing":
         del added[1]
+    elif defect == "marker-normal":
+        rows[1]["token_type"] = "NORMAL"
     elif defect in ("marker-control", "control-normal", "label-unused"):
         index, kind = {"marker-control": (1, "CONTROL"), "control-normal": (0, "NORMAL"), "label-unused": (2, "UNUSED")}[defect]
         rows[index]["token_type"] = kind
@@ -2277,11 +2279,12 @@ def test_profile_fast_token_roles_preserve_strict_contract_and_source_flags(monk
     if defect in ("deadline", "late-deadline"):
         clock = iter([0, 31] if defect == "deadline" else [0, 0, 0, 0, 0, 31])
         monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
-    if defect:
+    if defect not in (None, "marker-normal"):
         with pytest.raises(ValueError, match="token role contract"):
             prism_codec.prepare_profile_model_fast_token_role_contract_v1(profile, **arguments, token_roles=roles)
     else:
         original = json.dumps(profile.tokenization, sort_keys=True)
+        original_rows = json.dumps(rows, sort_keys=True)
         with pytest.raises(ValueError, match="standalone fast contract flags or selected row mismatch"):
             prism_codec.prepare_profile_model_fast_tokenizer_contract_v2(profile, **arguments)
         receipt = prism_codec.prepare_profile_model_fast_token_role_contract_v1(profile, **arguments, token_roles=roles)
@@ -2292,6 +2295,8 @@ def test_profile_fast_token_roles_preserve_strict_contract_and_source_flags(monk
         assert receipt["source_special_token_ids"] == {texts[0]: 0} and receipt["ordinary_marker_token_ids"] == {texts[1]: 1}
         assert receipt["prompt_label_boundary_verification"] == receipt["native_tokenizer_verification"] == "not_checked"
         assert json.dumps(profile.tokenization, sort_keys=True) == original and added[0].special and not added[1].special
+        assert json.dumps(rows, sort_keys=True) == original_rows
+        assert receipt["token_row_records"][1]["token_type"] == ("NORMAL" if defect == "marker-normal" else "USER_DEFINED")
         roles[texts[1]] = "source_special"
         assert receipt["token_roles"][texts[1]] == "ordinary_added_marker"
 

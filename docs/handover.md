@@ -6,6 +6,66 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## CPU Role Row Boundary Checkpoint (2026-11-03)
+
+Reused the ordinary-role matrix in `tests/test_inventory.py` to add its missing
+NORMAL positive alongside USER_DEFINED. Both retain row types, source flags,
+profile identity and explicit role hashing; both still fail strict standalone
+v2. The explicit role receipt still says native/context verification is
+`not_checked`. Production APIs, native policies and profiles are unchanged.
+
+Focused matrix: **33 passed, 1349 deselected, 0.22 s**. Default root gate with
+all six learned and cached native opt-ins unset: **1626 passed, 192 skipped,
+23.04 s**; Ruff, editor diagnostics and whitespace clean. Documentation checks
+ran separately. No optional native, learned, actual CUDA or model gate ran.
+This is a mocked Python policy control, not native tokenizer equivalence.
+
+The native v2 owner expressly requires USER_DEFINED for its ordinary marker
+before loading vocabulary; NORMAL is an existing refusal control. Do not
+reinterpret a source-faithful NORMAL row as USER_DEFINED merely to enter v2.
+A useful next discriminator would isolate NORMAL through native vocabulary
+loading and compare the same generated source oracle without changing v1/v2.
+That is a **new native scope**, not reuse of the consumed native-role approval.
+Prepare a separate bounded proposal/allowance before implementation or execution;
+the six learned approvals and prior ledgers remain frozen. GPU work is deferred.
+
+## CPU Cache Resume (2026-11-03)
+
+The user explicitly resumed autonomous work in the existing CPU container,
+deferring GPU testing. This supersedes the GPU-switch pause and the empty-cache
+block below **for this container only**. Shared workspace HEAD on resume was
+`44748b6`, with `c4dc721` at `origin/main`; tracked files were clean
+and user `.vscode/` settings remain untouched. Preserve the other chat's GPU
+readiness/cleanup/host-preflight commits; no revert or replay was requested.
+
+Fresh `findmnt` identifies the CPU cache as
+`embedded-jev-cache-1j50hchf0rp0goajrlp70q3mmmut6jfm9c33us2k2pk11vhudgii`.
+Directory-only checks confirm `huggingface/embedded-jev/dense-venv`,
+`native/prism-source` and `native/jev-prism-runtime-v1-build` exist beneath it;
+`gpu/torch-cu128` is absent. No learned file was opened, and existence is not
+source-pin, environment-version or artifact-content verification. The GPU
+`10pf...` cache remains distinct; the third reported volume is unclassified.
+No mount/permissions/environment changes, copy or download occurred.
+
+Tooling-only verification then recovered the exact pinned Prism HEAD
+`842b1880415d6f508f03b789e5ce70194def7bfd` and dense converter Python **3.12.3**
+with installed Transformers **5.12.1**, tokenizers **0.22.2**, NumPy **2.2.6**,
+Torch **2.10.0+cpu** using package metadata. This was not an import of model code,
+a Torch execution check or a verification of cached learned files/build settings.
+
+Fresh available RAM **23289424 KiB**, swap use zero; the Linux filesystem reports
+**365 GiB free**. These are CPU-container readings, not Windows physical capacity,
+GPU readiness or a model-workload allowance. The supplied C: counter and unknown
+VHDX-drive location below remain relevant and unresolved. GPU experiments are
+deferred; do not replay GPU smokes or install a GPU stack here.
+
+Next: continue small model-free CPU prerequisites with focused checks and periodic
+scoped commits; see the row-boundary checkpoint above. All six learned approvals
+remain consumed; old ledgers stay frozen. Cache availability or renewed autonomy
+does not authorize a learned read,
+model conversion/native execution, refit, scoring/quality/device experiment,
+new download or ledger reset. Obtain a precise separate allowance when needed.
+
 ## Host Preflight Report Received (2026-11-03)
 
 The user ran the read-only host preflight from `c4dc721` and supplied its JSON.
