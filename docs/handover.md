@@ -14,6 +14,10 @@ the handover and stop for a new chat in the GPU container. The
 is complete. This pause supersedes every historical autonomy/resume note below;
 do not begin a new implementation slice or experiment in this chat. No new
 learned/native-model/GPU workload or seventh learned approval was requested.
+Tested source checkpoint: **`568642d`**. The tracked worktree is clean after
+that commit; only untouched user `.vscode/` settings are untracked. Controller
+tools resolve to `/opt/venv/bin/python` (**Python3.12.3**) and `/opt/venv/bin/ruff`;
+this does not prove the next editor's selected interpreter. No push was made.
 
 Current evidence, kept separate:
 
@@ -73,6 +77,28 @@ All owned fixture/fault files and workers were cleaned. Only the small disposabl
 build observer/report and document validator remain outside Git. No push or
 branch was made. The user had already advanced `origin/main` to `8c15951` before
 this work; preserve subsequent external changes rather than reverting them.
+
+### Suggested Resume Prompt
+
+```text
+I am now in the GPU devcontainer. Resume from tested source checkpoint 568642d.
+Read AGENTS.md and the newest GPU Container Handoff in docs/handover.md first,
+then the relevant development, design and roadmap sections.
+
+First verify the actual worktree/interpreters, cache mounts and pinned inputs,
+GPU/driver/VRAM, RAM/swap, and Linux plus Windows VHDX-drive free space.
+Reuse existing caches/environments. Run only the existing bounded GPU/Torch
+smokes whose prerequisites are already installed; ask for precise help if missing.
+Do not download weights, duplicate artifacts or reinstall environments implicitly.
+
+Then continue autonomously with small verified local checkpoints toward the
+experimental no-generation decision engine. Preserve user settings, frozen
+candidates and independent FP16 row/group scales. All six learned approvals
+are consumed; new learned reads, model conversion/native execution, refitting,
+scoring/quality or device experiments require separate exact approval and budgets.
+Keep synthetic, native, learned and GPU evidence distinct; do not replay finished
+diagnostics or reset old ledgers. Do not push, create branches or delegate.
+```
 
 ## Historical Timeline
 
