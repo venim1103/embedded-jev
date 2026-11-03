@@ -6,6 +6,70 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Profile-Bound Source Oracle Checkpoint (2026-11-03)
+
+User again approved autonomous continuation and periodic commit/push after
+`eeb0dcc`. Continued with a separate model-free **300 s execution ceiling**,
+disclosed before editing. Older ledgers and all six consumed learned approvals
+remain frozen; GPU remains deferred. No learned model files, real weights,
+download, conversion, refit, retained candidate, quality or deployment work.
+
+Existing contextual receipts had hashes/counts, but no exact texts/IDs for a
+future native comparison. Added separate
+`prepare_profile_model_fast_native_oracle_v1` using the verified v5 source
+wrapper, not reconstruction from a receipt or guessed model-specific prompts.
+Captures sorted labels, exact rendered prompt, prompt+label continuations and
+sorted required controls/ordinary markers. Re-encodings must match verified IDs
+and exact one-token extension; final wrapper-role verification still applies.
+Old contextual v3/v4/v5 outputs/defaults/limits and native code are unchanged.
+
+Canonical UTF-8 JSON binds profile/source revision, tokenizer/template/prompt
+hashes, explicit role identity/maps and per-case kind/text/strict integer IDs.
+Receipt includes canonical-byte SHA-256, byte/case count and policy1. Enforces
+64 cases, 16 KiB per text, 64 KiB aggregate text/JSON independently and 64 IDs
+per case, with shared deadline checks. Native/tag verification remains
+`not_checked`; runtime approval is not granted. Oracle identity does not bind a
+GGUF file or authorize execution. API writes no files; real user-containing
+oracle bytes must remain out of Git/logs/public evidence.
+
+First focused wrapper/encoding/role tests: **6 passed, 0.27 s**. Extended bounds:
+**15 passed, 0.19 s**, covering label/prompt/continuation/required encoding changes,
+role mutation during capture, bool/non-list/oversized/out-of-range IDs, case/
+per-text/aggregate-text limits, JSON escaping that passes text caps but exceeds
+serialized bytes, and deadline expiry between encodings. These use synthetic
+wrappers, not learned-tokenizer evidence. Shared contextual v3/v4/v5 bounds and
+role-mutation compatibility plus oracle checks: **113 passed, 0.26 s**.
+
+Actual pinned-tool generated medium oracle fixture: **1 passed, 2.81 s**, 8193
+rows/32 ranked merges. Source oracle **36 cases / 3060 B**, canonical serialization
+and source/profile/role hashes checked; every case matched an independently
+parsed raw source tokenizer. Original zero-tensor GGUF **171040 B**, 10 source/
+copy files **311821 B per set**, logical scratch **51200634 B**. Existing native
+v4 separately passed its fixed39 comparisons without loading a model/backend or
+allocating tensor data; it did not consume the new source-oracle schema.
+
+Observed worker/group peak **298307584 B**, native group peak **11624448 B**,
+minimum available host RAM **16923189248 B**. Host swap baseline was **339968 B**,
+unchanged across all stages; worker/group swap zero. Do not rewrite this as a
+zero host baseline or target-device guarantee. Output/source/copy identities,
+hashes, FD and temporary-directory cleanup passed; no retained oracle/file or
+owned worker remains. No CMake build, pinned-source or environment change.
+
+Actual pinned-tool old v3 small context, v4 intermediate-capacity context and
+v5 ordinary-role context: **3 passed, 7.03 s**, under 58 s plus 2 s cleanup.
+Required root gate with all learned/cached-native opt-ins unset: **1731 passed,
+203 skipped, 31.28 s**, under 38 s plus 2 s cleanup; Ruff, diagnostics and
+whitespace clean. Optional skips are not runtime evidence. No failed checks or
+relaxed bounds; no unchanged successful source gate repeated for docs.
+
+Measured test/gate execution **41.84 s**. Conservative **240/300 s reserved**
+=20 focus +90 generated oracle +60 pinned contextual compatibility +40 root
+gate +30 setup/review/docs/cleanup; remaining60 s is not another experiment
+approval. Next concrete step is a versioned generated-only native consumer with
+explicit file identity and pre-tokenizer/tag policy, before a precise newly
+approved source-frozen learned diagnostic. This is source-oracle preparation,
+not native learned parity, BitNet dispatch, quality or deployment acceptance.
+
 ## Role-Bound Fast Tokenizer File Checkpoint (2026-11-03)
 
 Continued autonomous CPU implementation after pushed `0a3ea37`, with a separate

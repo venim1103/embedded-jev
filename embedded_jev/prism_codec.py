@@ -600,13 +600,14 @@ def prepare_profile_model_fast_context_contract_v5(
 
 def _prepare_profile_model_fast_context_contract(
     profile, *, metadata_files, tokenizer_bytes, context_length, row_policy, messages, maximum_seconds,
-    maximum_vocabulary_rows, maximum_token_content_bytes, policy_version, token_roles=None,
+    maximum_vocabulary_rows, maximum_token_content_bytes, policy_version, token_roles=None, emit_native_oracle=False,
 ):
     import json
 
     from embedded_jev.label_probe import LabelProbeError, probe_label_boundary
 
     if (type(policy_version) is not int or policy_version not in (3, 4, 5)
+            or type(emit_native_oracle) is not bool or emit_native_oracle and policy_version != 5
             or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= (12 if policy_version == 3 else 60)
             or type(maximum_vocabulary_rows) is not int or not 0 < maximum_vocabulary_rows <= 262144
             or type(maximum_token_content_bytes) is not int or not 0 < maximum_token_content_bytes <= 4 * 1024**2
@@ -668,11 +669,44 @@ def _prepare_profile_model_fast_context_contract(
     if (boundary["prompt_sha256"] != hashlib.sha256(prompt.encode("utf-8")).hexdigest()
             or boundary["prompt_token_count"] != len(prompt_ids)):
         raise ValueError("contextual fast contract rendering changed between checks")
+    oracle_receipt = {}
+    if emit_native_oracle:
+        labels = sorted(prepared["label_token_ids"].items())
+        required = sorted(prepared["required_token_ids"].items())
+        texts = [("label", text, token_id) for text, token_id in labels] + [("prompt", prompt, None)]
+        texts += [("continuation", prompt + text, token_id) for text, token_id in labels]
+        texts += [("required_token", text, token_id) for text, token_id in required]
+        if (len(texts) > 64 or any(len(text.encode("utf-8")) > 16384 for _, text, _ in texts)
+                or sum(len(text.encode("utf-8")) for _, text, _ in texts) > 65536):
+            raise ValueError("source native oracle text or case budget exceeded")
+        cases = []
+        for kind, text, token_id in texts:
+            if time.monotonic() > deadline:
+                raise ValueError("source native oracle deadline exceeded")
+            ids = wrapper.encode(text, add_special_tokens=False)
+            if (type(ids) is not list or not 0 < len(ids) <= 64
+                    or any(type(value) is not int or not 0 <= value < profile.geometry["vocab_size"] for value in ids)):
+                raise ValueError("source native oracle token IDs or budget invalid")
+            expected_ids = prompt_ids if kind == "prompt" else [*prompt_ids, token_id] if kind == "continuation" else [token_id]
+            if ids != expected_ids:
+                raise ValueError("source native oracle encoding changed: " + kind)
+            cases.append({"kind": kind, "text": text, "token_ids": ids})
+        oracle = {"policy_version": 1, "profile_sha256": prepared["profile_sha256"], "source_revision": profile.revision,
+            "tokenizer_sha256": hashlib.sha256(tokenizer_bytes).hexdigest(), "template_sha256": selected["selected_template_sha256"],
+            "token_roles_sha256": prepared["token_roles_sha256"], "token_roles": dict(prepared["token_roles"]),
+            "required_token_ids": dict(required), "label_token_ids": dict(labels), "prompt_sha256": boundary["prompt_sha256"],
+            "pre_tokenizer_tag_verification": "not_checked", "native_tokenizer_verification": "not_checked", "cases": cases}
+        oracle_bytes = json.dumps(oracle, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        if len(oracle_bytes) > 65536:
+            raise ValueError("source native oracle JSON budget exceeded")
+        oracle_receipt = {"source_native_oracle_policy_version": 1, "source_native_oracle_json": oracle_bytes,
+            "source_native_oracle_sha256": hashlib.sha256(oracle_bytes).hexdigest(), "source_native_oracle_bytes": len(oracle_bytes),
+            "source_native_oracle_case_count": len(cases)}
     if policy_version == 5:
         verify_wrapper_roles()
     if time.monotonic() > deadline:
         raise ValueError("contextual fast contract deadline exceeded")
-    return MappingProxyType({**prepared, "contextual_contract_policy_version": policy_version,
+    return MappingProxyType({**prepared, **oracle_receipt, "contextual_contract_policy_version": policy_version,
                             **({"tokenizer_wrapper_policy": "generic_pretrained_fast",
                                 "wrapper_token_roles_verification": "before_and_after_contextual_encoding"} if policy_version == 5 else {}),
                             "selected_template_sha256": selected["selected_template_sha256"],
@@ -680,7 +714,19 @@ def _prepare_profile_model_fast_context_contract(
                             "prompt_label_boundary_verification": "profile_pinned_generic_fast_contextual_labels",
                             "prompt_sha256": boundary["prompt_sha256"], "prompt_token_count": boundary["prompt_token_count"],
                             "native_tokenizer_verification": "not_checked", "processor_verification": "not_checked",
-                            "runtime_approval": "not_granted_by_contextual_fast_contract"})
+                            "runtime_approval": "not_granted_by_source_native_oracle" if emit_native_oracle else "not_granted_by_contextual_fast_contract"})
+
+
+def prepare_profile_model_fast_native_oracle_v1(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+    messages: list[dict], token_roles: dict, maximum_vocabulary_rows: int = 4096,
+    maximum_token_content_bytes: int = 64 * 1024, maximum_seconds: float = 30,
+):
+    """Capture bounded profile-bound source texts/IDs for a future native check, without granting acceptance."""
+    return _prepare_profile_model_fast_context_contract(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
+        context_length=context_length, row_policy=row_policy, messages=messages, maximum_seconds=maximum_seconds,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
+        policy_version=5, token_roles=token_roles, emit_native_oracle=True)
 
 
 def prepare_profile_model_bpe_metadata(

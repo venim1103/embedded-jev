@@ -2217,6 +2217,87 @@ def test_profile_fast_context_contract_bounds_and_boundary_refusal(monkeypatch, 
             assert receipt["wrapper_token_roles_verification"] == "before_and_after_contextual_encoding"
 
 
+@pytest.mark.parametrize("defect", [None, "label", "prompt", "continuation", "required_token", "roles",
+    "token-bool", "token-type", "token-count", "token-range", "case-count", "case-text", "text-total", "json-bytes", "deadline"])
+def test_profile_source_native_oracle_uses_verified_wrapper(monkeypatch, defect):
+    import hashlib
+    import sys
+    from types import SimpleNamespace
+
+    from embedded_jev import label_probe, prism_codec
+
+    roles = {"<control>": "source_special", "<marker>": "ordinary_added_marker"}
+    required = {"<control>": 0, "<marker>": 1}
+    labels = {"A": 2, "B": 3}
+    prompt, prompt_ids = "B<marker>A", [3, 1, 2]
+    if defect == "case-count":
+        labels = {f"label{index}": index + 2 for index in range(32)}
+    elif defect in ("text-total", "json-bytes"):
+        labels = {text: index + 2 for index, text in enumerate("ABCDEFGHIJKLMNOP")}
+        prompt = "x" * 4096 if defect == "text-total" else "\\" * 1900
+    elif defect == "case-text":
+        prompt = "x" * 16384
+    records = {token_id: SimpleNamespace(content=text, special=token_id == 0) for text, token_id in required.items()}
+    encodings = {**{text: [token_id] for text, token_id in {**required, **labels}.items()}, prompt: prompt_ids,
+        **{prompt + text: [*prompt_ids, token_id] for text, token_id in labels.items()}}
+    calls = []
+    expired = [False]
+
+    def encode(text, **arguments):
+        assert arguments == {"add_special_tokens": False}
+        calls.append(text)
+        if defect == "deadline" and text == "A":
+            expired[0] = True
+        if text == "A" and defect in ("token-bool", "token-type", "token-count", "token-range"):
+            return {"token-bool": [True], "token-type": (2,), "token-count": [2] * 65, "token-range": [4]}[defect]
+        if defect == "roles" and text == "<marker>":
+            records[1].special = True
+        changed = ((defect == "label" and text == "A") or (defect == "prompt" and text == prompt and calls.count(prompt) > 1)
+            or (defect == "continuation" and text == prompt + "A") or (defect == "required_token" and text == "<control>"))
+        return [3] if changed else list(encodings[text])
+
+    wrapper = SimpleNamespace(added_tokens_decoder=records, convert_tokens_to_ids=lambda text: required[text],
+        backend_tokenizer=SimpleNamespace(token_to_id=lambda text: required[text]), all_special_ids=[0],
+        apply_chat_template=lambda *args, **kwargs: prompt, encode=encode)
+    prepared = dict(required_token_ids=required, label_token_ids=labels, source_special_token_ids={"<control>": 0},
+        token_roles=roles, token_roles_sha256="1" * 64, profile_sha256="0" * 64)
+    profile = SimpleNamespace(sha256="0" * 64, revision="2" * 40, geometry={"vocab_size": len(labels) + 2},
+        tokenization={"template_file": "chat_template.jinja", "render_arguments": {}})
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(PreTrainedTokenizerFast=lambda **kwargs: wrapper))
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_token_role_contract_v1", lambda *args, **kwargs: prepared)
+    monkeypatch.setattr(prism_codec, "_prepare_profile_model_template_metadata", lambda *args, **kwargs:
+        {"template": prompt, "selected_template_sha256": "3" * 64})
+    monkeypatch.setattr(prism_codec, "_parse_profile_model_tokenizer_vocabulary", lambda *args, **kwargs: ({}, object(), {}))
+    monkeypatch.setattr(label_probe, "probe_label_boundary", lambda *args, **kwargs:
+        {"prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(), "prompt_token_count": 3})
+    arguments = dict(metadata_files={"chat_template.jinja": b"template"}, tokenizer_bytes=b"{}", context_length=256,
+        row_policy="pinned_prism_fast_rows_v2", messages=[{"role": "user", "content": "B"}], token_roles=roles)
+    if defect == "deadline":
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 31 if expired[0] else 0)
+    if defect:
+        expected = ("wrapper token role changed" if defect == "roles" else "source native oracle token IDs or budget invalid" if defect.startswith("token-")
+            else "source native oracle text or case budget exceeded" if defect in ("case-count", "case-text", "text-total")
+            else "source native oracle JSON budget exceeded" if defect == "json-bytes" else "source native oracle deadline exceeded" if defect == "deadline"
+            else "source native oracle encoding changed")
+        with pytest.raises(ValueError, match=expected):
+            prism_codec.prepare_profile_model_fast_native_oracle_v1(profile, **arguments)
+    else:
+        receipt = prism_codec.prepare_profile_model_fast_native_oracle_v1(profile, **arguments)
+        body = json.loads(receipt["source_native_oracle_json"])
+        assert receipt["source_native_oracle_policy_version"] == 1 and receipt["source_native_oracle_case_count"] == 7
+        assert receipt["source_native_oracle_sha256"] == hashlib.sha256(receipt["source_native_oracle_json"]).hexdigest()
+        assert receipt["source_native_oracle_bytes"] == len(receipt["source_native_oracle_json"]) <= 65536
+        assert body["profile_sha256"] == profile.sha256 and body["source_revision"] == profile.revision
+        assert body["tokenizer_sha256"] == hashlib.sha256(b"{}").hexdigest() and body["token_roles_sha256"] == "1" * 64
+        assert [(case["kind"], case["text"]) for case in body["cases"]] == [
+            ("label", "A"), ("label", "B"), ("prompt", prompt), ("continuation", prompt + "A"),
+            ("continuation", prompt + "B"), ("required_token", "<control>"), ("required_token", "<marker>")]
+        assert all(case["token_ids"] == encodings[case["text"]] for case in body["cases"])
+        assert receipt["native_tokenizer_verification"] == body["pre_tokenizer_tag_verification"] == "not_checked"
+        assert receipt["runtime_approval"] == "not_granted_by_source_native_oracle"
+        assert calls == [prompt, *[case["text"] for case in body["cases"]]]
+
+
 @pytest.mark.parametrize("phase", ["before", "after"])
 @pytest.mark.parametrize("defect", ["id", "backend-id", "marker-special", "control-ordinary", "missing", "content", "special-set"])
 def test_profile_fast_context_roles_refuse_wrapper_changes(monkeypatch, phase, defect):

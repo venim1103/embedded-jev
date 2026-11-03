@@ -3450,6 +3450,40 @@ combined pair <=25 s. The [checkpoint](handover.md#synthetic-role-context-checkp
 records failures/repair, actual bounds and nonzero-but-unchanged host-swap
 baseline. This is not larger-capacity, learned or native validation.
 
+`prepare_profile_model_fast_native_oracle_v1(...)` is a separate source-only
+capture route using the same v5 contextual wrapper, explicit roles and source
+pins. It does not change existing contextual receipts. After boundary validation,
+it re-encodes sorted label singletons, the exact rendered prompt, each prompt+
+label continuation and sorted required tokens, then rechecks wrapper roles.
+Each encoding must equal its verified source ID or exact prompt-prefix plus
+one label ID; changed encodings or flags withhold the oracle.
+
+The returned `source_native_oracle_json` is canonical UTF-8 JSON bytes, with
+SHA-256/byte-count/case-count receipt fields. Policy1 binds profile hash/source
+revision, tokenizer/template/prompt hashes, explicit role identity/maps and
+`cases` containing `kind`, `text` and `token_ids`. The kinds are `label`,
+`prompt`, `continuation` and `required_token`. The body marks native/tokenizer
+tag verification `not_checked`; its hash is identity, not an authorization or
+GGUF-file binding. The receipt grants no runtime approval. No native consumer,
+model/backend execution or native template rendering occurs in this API.
+
+Hard bounds are <=64 cases, <=16 KiB UTF-8 per text, <=64 KiB aggregate text,
+<=64 strict non-boolean integer IDs per case within profile vocabulary and
+<=64 KiB serialized JSON, under the existing shared <=60 s contextual deadline
+(30 s default). Continuations must also fit that ID bound. The new explicit
+capture may contain user text; keep real oracle bytes out of Git/logs/public
+reports. The API writes no files and old v3/v4/v5 routes still omit texts/IDs.
+
+Optional `synthetic-joint-vocab-roles-merges-medium-oracle-v4` uses the existing
+generated 8193-row/32-merge fixture and pinned tools, all learned flags unset.
+It checks canonical bytes/provenance/role identity and every case against an
+independent raw source tokenizer. The existing native v4's fixed 39 comparisons
+are separate evidence, not consumption of this new 36-case source oracle.
+Same <=90 s stage/<=60 s children, group-memory/swap/audit/identity/cleanup and
+<=128 MiB scratch bounds apply. See the
+[source-oracle checkpoint](handover.md#profile-bound-source-oracle-checkpoint-2026-11-03)
+for measured results and limits. No learned read or broader experiment is implied.
+
 `synthetic-merges-intermediate-context-v5` and
 `synthetic-merges-full-context-v5` separately exercise the existing explicit
 row/content/source route with generated 8193/248320-row profiles. They preserve

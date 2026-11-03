@@ -6513,6 +6513,8 @@ def run_rows():
             contextual_arguments = dict(arguments) if vocab_large else {key: value for key, value in arguments.items() if key not in ("maximum_vocabulary_rows", "maximum_token_content_bytes")}
             try:
                 prepare_context = prism_codec.prepare_profile_model_fast_context_contract_v5 if vocab_roles else prism_codec.prepare_profile_model_fast_context_contract_v3
+                if fixture.get("vocab_source_oracle", False):
+                    prepare_context = prism_codec.prepare_profile_model_fast_native_oracle_v1
                 context = prepare_context(profile, **contextual_arguments, **role_arguments,
                     messages=[{"role": "user", "content": "B"}], maximum_seconds=min(60 if vocab_large else 12, remaining()))
             except ValueError as exc:
@@ -6708,6 +6710,24 @@ def run_rows():
             finally:
                 reader.data._mmap.close()
             source_tokenizer = Tokenizer.from_str(arguments["tokenizer_bytes"].decode())
+            if fixture.get("vocab_source_oracle", False):
+                oracle_bytes = context["source_native_oracle_json"]
+                oracle = json.loads(oracle_bytes)
+                assert context["source_native_oracle_policy_version"] == oracle["policy_version"] == 1
+                assert context["source_native_oracle_case_count"] == len(oracle["cases"]) == 36
+                assert context["source_native_oracle_bytes"] == len(oracle_bytes) <= 65536
+                assert context["source_native_oracle_sha256"] == hashlib.sha256(oracle_bytes).hexdigest()
+                assert json.dumps(oracle, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode() == oracle_bytes
+                assert oracle["profile_sha256"] == profile.sha256 and oracle["source_revision"] == profile.revision
+                assert oracle["tokenizer_sha256"] == hashlib.sha256(arguments["tokenizer_bytes"]).hexdigest()
+                assert oracle["token_roles_sha256"] == standalone["token_roles_sha256"]
+                assert oracle["token_roles"] == role_arguments["token_roles"]
+                assert oracle["required_token_ids"] == dict(profile.tokenization["special_token_ids"])
+                assert oracle["label_token_ids"] == dict(profile.tokenization["label_token_ids"])
+                for case in oracle["cases"]:
+                    assert case["token_ids"] == source_tokenizer.encode(case["text"], add_special_tokens=False).ids
+                assert context["runtime_approval"] == "not_granted_by_source_native_oracle"
+                assert oracle["native_tokenizer_verification"] == oracle["pre_tokenizer_tag_verification"] == "not_checked"
             prompt = "B<marker>A" if vocab_roles else "BA"
             texts = list("ABCDEFGHIJKLMNOP") + [prompt] + [prompt + label for label in "ABCDEFGHIJKLMNOP"] + ["<pad>", "<|control|>"]
             if vocab_roles:
@@ -6730,6 +6750,9 @@ def run_rows():
             **({"merge_rows": len(merges["values"]), "ranked_source_merges_verified": True} if vocab_ranked else {}),
             **({"role_file_policy_version": 5, "token_roles_sha256": role_file_receipt["token_roles_sha256"],
                 "role_file_refusals": 3} if fixture.get("vocab_role_file", False) else {}),
+            **({"source_native_oracle_policy_version": 1, "source_native_oracle_case_count": len(oracle["cases"]),
+                "source_native_oracle_bytes": len(oracle_bytes), "source_native_oracle_sha256": context["source_native_oracle_sha256"],
+                "source_native_oracle_raw_ids_verified": True} if fixture.get("vocab_source_oracle", False) else {}),
             fault_offsets=fault_offsets,
             output_file_bytes=path.stat().st_size, output_file_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
             logical_source_copy_scratch_bytes=logical, logical_scratch_cap_bytes=row_scratch_cap)
@@ -6980,7 +7003,8 @@ finish_report(report)
     "synthetic-joint-vocab-nul", "synthetic-joint-vocab-roles-nul",
     "synthetic-joint-vocab-roles-medium-nul-v3",
     "synthetic-joint-vocab-roles-merges-medium-v4", "synthetic-joint-vocab-roles-merges-full-v4",
-    "synthetic-joint-vocab-roles-merges-medium-controls-v4", "synthetic-joint-vocab-roles-merges-medium-file-v4"])
+    "synthetic-joint-vocab-roles-merges-medium-controls-v4", "synthetic-joint-vocab-roles-merges-medium-file-v4",
+    "synthetic-joint-vocab-roles-merges-medium-oracle-v4"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -6999,6 +7023,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     vocab_roles = "-vocab-roles" in mode
     vocab_ranked = native_vocab and mode.endswith("-v4")
     vocab_role_file = vocab_ranked and "-file-" in mode
+    vocab_source_oracle = vocab_ranked and "-oracle-" in mode
     vocab_rank_controls = vocab_ranked and "-controls-" in mode
     vocab_large = native_vocab and mode.endswith(("-v3", "-v4"))
     vocab_nul = native_vocab and "-nul" in mode
@@ -7194,6 +7219,7 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "native_vocab": native_vocab, "vocab_merge": vocab_merge, "vocab_roles": vocab_roles,
             "vocab_large": vocab_large, "vocab_ranked": vocab_ranked, "vocab_rank_controls": vocab_rank_controls,
             "vocab_role_file": vocab_role_file,
+            "vocab_source_oracle": vocab_source_oracle,
             "large_context": large_context,
             "token_roles_contract": token_roles_contract,
             "role_context": role_context,
@@ -7254,6 +7280,10 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
                 if vocab_role_file:
                     assert report["role_file_policy_version"] == 5 and report["role_file_refusals"] == 3
                     assert len(report["token_roles_sha256"]) == 64
+                if vocab_source_oracle:
+                    assert report["source_native_oracle_policy_version"] == 1 and report["source_native_oracle_case_count"] == 36
+                    assert report["source_native_oracle_raw_ids_verified"] and report["source_native_oracle_bytes"] <= 65536
+                    assert len(report["source_native_oracle_sha256"]) == 64
                 assert report["logical_source_copy_scratch_bytes"] < report["logical_scratch_cap_bytes"] == (128 if vocab_large else 16) * 1024**2
                 assert (output / "rows.gguf").stat().st_size == report["output_file_bytes"] <= (16 * 1024**2 if vocab_large else 256 * 1024)
                 assert hashlib.sha256((output / "rows.gguf").read_bytes()).hexdigest() == report["output_file_sha256"]
