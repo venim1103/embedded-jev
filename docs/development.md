@@ -4593,6 +4593,23 @@ CPU cache through the host's container configuration. Do not guess a volume from
 its prefix, copy artifacts or change permissions. Recheck the actual mount,
 environments and pinned source revisions after reopening; file visibility alone
 does not authorize learned reads or model execution.
+For one structured read-only report, run from the repository root on the WSL
+host with its existing standard-library Python (no package installation):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m embedded_jev.gpu_probe --host-cache-preflight
+```
+
+This mode queries only project cache volume names and Windows filesystem
+used/free byte counters, with a 10-second timeout per command. Its parser
+refuses JSON above 32 KiB or 128 records, malformed/duplicate names, invalid
+integer counters and command failures. The output size check follows capture;
+it is not a hard subprocess capture-memory limit. Missing tools report
+`unavailable`, not an empty successful inventory. The mode does not load CUDA,
+read cache contents, select/reconfigure a volume or authorize model execution.
+It leaves `cache_contents_verified` and `vhdx_drive_identified` false: the user
+must identify the correct existing cache and the Windows drive storing its data.
+`--host-cache-preflight` cannot be combined with `--memory-round-trip`.
 The GPU/driver/Torch results below are historical, not fresh container readiness.
 
 On that host, from the workspace root, validate and launch explicitly:

@@ -6,6 +6,52 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Read-Only Host Cache Preflight Checkpoint (2026-11-03)
+
+Continued autonomously after `c401cd5`, within the unchanged model-free scope.
+The cache is still empty, and Podman/Windows host tools remain unavailable in
+this container. New `python -m embedded_jev.gpu_probe --host-cache-preflight`
+prepares the external prerequisite without touching mounts, certificates,
+settings, source pins, model files or installed environments.
+
+This opt-in mode runs only `podman volume ls` filtered to project cache names
+and a noninteractive PowerShell filesystem-counter query. Each command has a
+10-second timeout. JSON parsing refuses payloads above 32 KiB or 128 records,
+malformed/duplicate names, invalid drive counters and failed/timed-out commands;
+the size check is after subprocess output capture, not a hard capture-memory cap.
+Missing tools are explicitly `unavailable`, distinct from empty successful
+listings. Engine diagnostics are not copied into the report. It never selects
+a volume, opens its contents, identifies the VHDX drive or authorizes model work.
+The host mode and GPU memory mode are mutually exclusive; host mode does not
+load CUDA. Existing CUDA execution behavior is unchanged and was not replayed.
+
+First focused host tests: **16 passed, 5 deselected in 0.01 s**. Added raw JSON
+size/parse and conflicting-mode checks plus an empty-suffix refusal; full probe
+file: **25 passed in 0.02 s**. These are synthetic runner/parser/CLI contracts,
+not execution of Podman or Windows PowerShell. One actual invocation here,
+with bytecode disabled and a 25-second outer deadline, reports both tools
+`unavailable`, empty lists and all three verification/authorization flags false.
+No actual Windows drive or existing CPU cache contents have been verified.
+
+Default source gate: **1625 passed, 192 skipped in 24.49 s**; Ruff,
+`git diff --check` and editor diagnostics pass. No failed test gate, source/model
+download, install, learned read, native execution, GPU workload, refit, quality
+experiment, ledger reset, push, branch or delegation occurred. No generated
+artifact or worker is retained; user editor settings remain untouched.
+
+Next required action is on the WSL host, from this repository root:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m embedded_jev.gpu_probe --host-cache-preflight
+```
+
+Use that report to identify the previously used CPU cache volume and establish
+which Windows drive stores the VHDX/Podman data. Expose that existing volume
+through the host's container configuration, without copying/downloading inputs
+or changing permissions. Reverify mounts/environments/upstream pins afterward;
+new learned reads or execution still require separate approval and budgets.
+Installed-stack/native follow-ups remain blocked at this external boundary.
+
 ## GPU Memory Smoke Cleanup Checkpoint (2026-11-03)
 
 Model-free source follow-up after readiness commit `372146f`. The opt-in driver

@@ -1,11 +1,120 @@
 """Offline CUDA driver probe contracts; no GPU is required."""
 
 import ctypes
+import json
+import subprocess
 from types import SimpleNamespace
 
 import pytest
 
-from embedded_jev.gpu_probe import GPUProbeError, probe_cuda_driver
+from embedded_jev import gpu_probe
+from embedded_jev.gpu_probe import GPUProbeError, probe_cuda_driver, probe_host_cache
+
+
+def host_runner(volumes, drives):
+    commands = []
+
+    def run(command, **kwargs):
+        assert kwargs == {"check": True, "capture_output": True, "text": True, "timeout": 10}
+        commands.append(command)
+        if command[0] == "podman":
+            assert command == [
+                "podman", "volume", "ls", "--filter", "name=embedded-jev-cache", "--format", "json",
+            ]
+            result = volumes
+        else:
+            assert command == [
+                "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+                "ConvertTo-Json -Compress -InputObject @(Get-PSDrive -PSProvider FileSystem "
+                "| Select-Object Name,Used,Free)",
+            ]
+            result = drives
+        if isinstance(result, Exception):
+            raise result
+        return SimpleNamespace(stdout=json.dumps(result))
+
+    return run, commands
+
+
+def test_host_preflight_lists_metadata_without_selecting_or_verifying_cache():
+    run, commands = host_runner(
+        [{"Name": "embedded-jev-cache-existing", "Mountpoint": "never inspected"}],
+        [{"Name": "C", "Used": 1024, "Free": 4096}],
+    )
+    assert probe_host_cache(run) == {
+        "operation": "read_only_host_cache_preflight",
+        "cache_volumes": {"status": "listed", "names": ["embedded-jev-cache-existing"]},
+        "windows_filesystems": {
+            "status": "reported", "drives": [{"name": "C", "used_bytes": 1024, "free_bytes": 4096}],
+        },
+        "cache_contents_verified": False,
+        "vhdx_drive_identified": False,
+        "model_execution_authorized": False,
+    }
+    assert len(commands) == 2
+
+
+def test_host_preflight_keeps_unavailable_tools_distinct_from_empty_results():
+    run, commands = host_runner(FileNotFoundError(), FileNotFoundError())
+    report = probe_host_cache(run)
+    assert report["cache_volumes"] == {"status": "unavailable", "names": []}
+    assert report["windows_filesystems"] == {"status": "unavailable", "drives": []}
+    assert len(commands) == 2
+    run, _ = host_runner([], [])
+    report = probe_host_cache(run)
+    assert report["cache_volumes"]["status"] == "listed"
+    assert report["windows_filesystems"]["status"] == "reported"
+
+
+@pytest.mark.parametrize("volumes,drives", [
+    ({}, []), ([{}], []), ([{"Name": "another-project"}], []),
+    ([{"Name": "embedded-jev-cache-"}], []),
+    ([{"Name": "embedded-jev-cache-../escape"}], []),
+    ([{"Name": "embedded-jev-cache-same"}] * 2, []),
+    ([{"Name": "embedded-jev-cache-many"}] * 129, []),
+    ([], {}), ([], [None]), ([], [{"Name": "C", "Used": 1, "Free": True}]),
+    ([], [{"Name": "C", "Used": 1, "Free": -1}]),
+    ([], [{"Name": "C", "Used": 1, "Free": 2}] * 2),
+])
+def test_host_preflight_refuses_malformed_or_ambiguous_metadata(volumes, drives):
+    run, _ = host_runner(volumes, drives)
+    with pytest.raises(GPUProbeError):
+        probe_host_cache(run)
+
+
+@pytest.mark.parametrize("failure", [
+    subprocess.TimeoutExpired("podman", 10), subprocess.CalledProcessError(1, "podman"),
+])
+def test_host_preflight_refuses_command_failure_without_exposing_output(failure):
+    run, commands = host_runner(failure, [])
+    with pytest.raises(GPUProbeError, match="host preflight command"):
+        probe_host_cache(run)
+    assert len(commands) == 1
+
+
+@pytest.mark.parametrize("output,error", [
+    ("not JSON", "invalid JSON"), (" " * 32769, "exceeds 32 KiB"),
+])
+def test_host_preflight_refuses_invalid_or_oversized_json(output, error):
+    with pytest.raises(GPUProbeError, match=error):
+        probe_host_cache(lambda *args, **kwargs: SimpleNamespace(stdout=output))
+
+
+def test_host_preflight_cli_never_loads_cuda(monkeypatch, capsys):
+    run, _ = host_runner([], [])
+    monkeypatch.setattr(gpu_probe.subprocess, "run", run)
+    monkeypatch.setattr("sys.argv", ["gpu_probe", "--host-cache-preflight"])
+    monkeypatch.setattr(gpu_probe, "probe_cuda_driver", lambda **kwargs: pytest.fail("CUDA accessed"))
+    gpu_probe.main()
+    assert json.loads(capsys.readouterr().out)["operation"] == "read_only_host_cache_preflight"
+
+
+def test_host_preflight_cli_refuses_combination_with_gpu_memory_mode(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["gpu_probe", "--host-cache-preflight", "--memory-round-trip"])
+    with pytest.raises(SystemExit) as error:
+        gpu_probe.main()
+    assert error.value.code == 2
+    assert "not allowed with argument" in capsys.readouterr().err
 
 
 def fake_driver():

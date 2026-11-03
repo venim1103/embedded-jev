@@ -3,10 +3,82 @@
 import argparse
 import ctypes
 import json
+import subprocess
 
 
 class GPUProbeError(RuntimeError):
-    """CUDA driver access or device enumeration failed."""
+    """CUDA driver access or host resource preflight failed."""
+
+
+def probe_host_cache(run=None) -> dict:
+    """Read host metadata without opening cache files or selecting a volume."""
+    if run is None:
+        run = subprocess.run
+
+    def query(command):
+        try:
+            result = run(
+                command, check=True, capture_output=True, text=True, timeout=10,
+            )
+        except FileNotFoundError:
+            return None
+        except subprocess.TimeoutExpired as exc:
+            raise GPUProbeError(f"host preflight command timed out: {command[0]}") from exc
+        except subprocess.CalledProcessError as exc:
+            raise GPUProbeError(f"host preflight command failed: {command[0]}") from exc
+        if len(result.stdout.encode("utf-8")) > 32768:
+            raise GPUProbeError("host preflight metadata exceeds 32 KiB")
+        try:
+            records = json.loads(result.stdout)
+        except ValueError as exc:
+            raise GPUProbeError("host preflight command returned invalid JSON") from exc
+        if not isinstance(records, list) or len(records) > 128:
+            raise GPUProbeError("host preflight requires at most 128 metadata records")
+        return records
+
+    volumes = query([
+        "podman", "volume", "ls", "--filter", "name=embedded-jev-cache", "--format", "json",
+    ])
+    names = []
+    for record in volumes or []:
+        name = record.get("Name") if isinstance(record, dict) else None
+        if (
+            not isinstance(name, str) or not name.startswith("embedded-jev-cache-")
+            or len(name) <= len("embedded-jev-cache-") or len(name) > 255 or name in names
+            or not name.isascii()
+            or any(not (character.isalnum() or character in "_.-") for character in name)
+        ):
+            raise GPUProbeError("host preflight received an invalid cache volume name")
+        names.append(name)
+
+    drives = query([
+        "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+        "ConvertTo-Json -Compress -InputObject @(Get-PSDrive -PSProvider FileSystem "
+        "| Select-Object Name,Used,Free)",
+    ])
+    filesystems = []
+    drive_names = set()
+    for record in drives or []:
+        if not isinstance(record, dict):
+            raise GPUProbeError("host preflight received an invalid Windows drive record")
+        name = record.get("Name")
+        if not isinstance(name, str) or not name or len(name) > 64 or name in drive_names:
+            raise GPUProbeError("host preflight received an invalid Windows drive name")
+        if any(type(record.get(field)) is not int or record[field] < 0 for field in ("Used", "Free")):
+            raise GPUProbeError("host preflight requires nonnegative integer drive byte counts")
+        drive_names.add(name)
+        filesystems.append({"name": name, "used_bytes": record["Used"], "free_bytes": record["Free"]})
+
+    return {
+        "operation": "read_only_host_cache_preflight",
+        "cache_volumes": {"status": "unavailable" if volumes is None else "listed", "names": sorted(names)},
+        "windows_filesystems": {
+            "status": "unavailable" if drives is None else "reported", "drives": filesystems,
+        },
+        "cache_contents_verified": False,
+        "vhdx_drive_identified": False,
+        "model_execution_authorized": False,
+    }
 
 
 def probe_cuda_driver(loader=ctypes.CDLL, *, memory_round_trip: bool = False) -> dict:
@@ -99,13 +171,19 @@ def probe_cuda_driver(loader=ctypes.CDLL, *, memory_round_trip: bool = False) ->
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Check CUDA driver access without Torch")
-    parser.add_argument("--memory-round-trip", action="store_true")
+    parser = argparse.ArgumentParser(description="Check CUDA driver access or read-only host cache metadata")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--memory-round-trip", action="store_true")
+    modes.add_argument("--host-cache-preflight", action="store_true")
     args = parser.parse_args()
     try:
-        result = probe_cuda_driver(memory_round_trip=args.memory_round_trip)
+        if args.host_cache_preflight:
+            result = probe_host_cache()
+        else:
+            result = probe_cuda_driver(memory_round_trip=args.memory_round_trip)
     except GPUProbeError as exc:
-        raise SystemExit(f"CUDA driver probe failed: {exc}") from exc
+        prefix = "Host cache preflight" if args.host_cache_preflight else "CUDA driver probe"
+        raise SystemExit(f"{prefix} failed: {exc}") from exc
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
