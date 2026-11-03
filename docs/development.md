@@ -57,6 +57,10 @@ surrogates refuse even when the record's raw bytes are valid UTF-8. Valid Unicod
 is preserved without normalization; escaped and literal representations retain
 the same canonical identity.
 
+Decoder `ValueError`s, including interpreter integer-conversion refusals, become
+`ProfileError` with the original cause. Specific duplicate-key and non-finite
+constant diagnostics remain unchanged; interpreter guards are not relaxed.
+
 `profile_text_config()` also validates configuration value types: integer and
 boolean geometry fields must keep their declared types, MRoPE interleaving must
 be boolean, and MRoPE sections must be integers. Booleans are never numeric

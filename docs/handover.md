@@ -6,6 +6,32 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Profile Decoder Error Boundary Repair (2026-11-03)
+
+Continued bounded CPU parser work after `ad1e0a4`. A 5 KiB synthetic integer
+token hit the controller's existing **4300-digit** conversion limit and leaked
+plain `ValueError` from `parse_model_profile`, outside its declared error family.
+The parser now re-raises callback `ProfileError`s unchanged before normalizing
+other decoder `ValueError`s and retaining recursion handling. No interpreter
+limit, schema, numerical value, source identity or runtime permission changed.
+
+Portable injected decoder regression plus four duplicate/non-finite callback
+controls: initial **1 failed, 4 passed, 1426 deselected, 0.39 s**; after the local
+repair the same **5 passed, 1426 deselected, 0.20 s**. The original synthetic
+integer probe then returned `ProfileError` caused by `ValueError`, with the
+digit limit still **4300**. No large integer conversion or limit override.
+Required root gate with all six learned and cached native opt-ins unset:
+**1695 passed, 192 skipped, 24.09 s**; Ruff, diagnostics and whitespace clean.
+Documentation checks are separate; no unchanged source gate is repeated for
+documentation-only additions.
+
+All three CPU checkpoints strengthen existing parsing/preflight boundaries.
+No model/learned cache input, cached optional native gate, actual GPU,
+conversion/refit/download/install, host change or new experimental ledger.
+Consumed allowances stay frozen; GPU work remains deferred and user editor
+settings untouched. Source-frozen native tokenizer equivalence still needs a
+precise separate allowance; no P5-P7 or other-model execution was begun.
+
 ## Decoded Profile Unicode Repair (2026-11-03)
 
 Continued model-free CPU work after `98b309a`. Raw UTF-8 decoding did not reject

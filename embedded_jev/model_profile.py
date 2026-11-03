@@ -142,7 +142,9 @@ def parse_model_profile(data: bytes) -> ModelProfile:
         raise ProfileError("profile record exceeds allowed byte bounds")
     try:
         record = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_keys, parse_constant=_reject_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+    except ProfileError:
+        raise
+    except (ValueError, RecursionError) as exc:
         raise ProfileError("invalid profile JSON") from exc
     _fields(record, (
         "schema_version", "profile_id", "source", "files", "packaging", "geometry",

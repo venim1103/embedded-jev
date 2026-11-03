@@ -291,6 +291,35 @@ def test_profile_strings_preserve_valid_unicode_and_canonical_identity(model):
     assert escaped.sha256 == literal.sha256
 
 
+def test_profile_json_decoder_value_error_is_normalized(monkeypatch):
+    from embedded_jev import model_profile
+    from embedded_jev.model_profile import ProfileError
+
+    failure = ValueError("integer conversion guard")
+
+    def refuse(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(model_profile.json, "loads", refuse)
+    with pytest.raises(ProfileError, match="invalid profile JSON") as caught:
+        parse_model_profile(b"{}")
+    assert caught.value.__cause__ is failure
+
+
+@pytest.mark.parametrize("data,message", [
+    (b'{"schema_version":1,"schema_version":1}', "duplicate profile JSON key: schema_version"),
+    (b'{"schema_version":NaN}', "invalid profile JSON constant: NaN"),
+    (b'{"schema_version":Infinity}', "invalid profile JSON constant: Infinity"),
+    (b'{"schema_version":-Infinity}', "invalid profile JSON constant: -Infinity"),
+])
+def test_profile_json_callbacks_preserve_specific_diagnostics(data, message):
+    from embedded_jev.model_profile import ProfileError
+
+    with pytest.raises(ProfileError, match=message) as caught:
+        parse_model_profile(data)
+    assert caught.value.__cause__ is None
+
+
 def _packaging_fixture(*, text_only=False, shard_name="model-1-of-1.safetensors", dtype="BF16", mtp="absent", stale_total=False):
     metadata, headers = _model_fixture()
     record = _profile_fixture()
