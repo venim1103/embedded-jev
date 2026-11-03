@@ -37,6 +37,7 @@ RUN sed -i 's|^URIs: http://|URIs: https://|' /etc/apt/sources.list.d/ubuntu.sou
         libcurl4-openssl-dev \
         libopenblas-dev \
         libomp-18-dev \
+        libssl-dev \
         lld-18 \
         ninja-build \
         numactl \

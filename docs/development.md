@@ -3464,7 +3464,7 @@ revision, tokenizer/template/prompt hashes, explicit role identity/maps and
 `cases` containing `kind`, `text` and `token_ids`. The kinds are `label`,
 `prompt`, `continuation` and `required_token`. The body marks native/tokenizer
 tag verification `not_checked`; its hash is identity, not an authorization or
-GGUF-file binding. The receipt grants no runtime approval. No native consumer,
+GGUF-file binding. The receipt grants no runtime approval. No native consumption,
 model/backend execution or native template rendering occurs in this API.
 
 Hard bounds are <=64 cases, <=16 KiB UTF-8 per text, <=64 KiB aggregate text,
@@ -3595,7 +3595,7 @@ limits. These generated modes do not authorize learned tokenizer reads,
 Qwen/MiMo execution, backend CTests, GPU work or quality/BitNet claims.
 
 `--synthetic-vocab-control-v4` is a separate generated ranked-merge capacity
-contract. Only v4 increases merge rows to 262144; independent merge content
+contract. V4 increases merge rows to 262144; independent merge content
 remains <=4 MiB. All v3 file/row/string/typed-metadata/JSON/depth/ID bounds,
 external zero-tensor loading and no-model/backend guarantees remain. V1-v3
 keep their limits and receipts. V4's same four-field expected JSON contains
@@ -3625,6 +3625,62 @@ strings, not arbitrary text or every merge. See the
 [ranked capacity checkpoint](handover.md#synthetic-native-ranked-merge-capacity-checkpoint-2026-11-03).
 These toy GPT-2 modes do not authorize learned/Qwen/MiMo execution or establish
 BitNet dispatch, model quality or target-device readiness.
+
+### Generated Source-Oracle Consumer
+
+`--synthetic-vocab-control-v5` separately consumes the source-oracle policy1
+schema, not v4's fixed expected JSON. It is generated GPT-2 only and is not
+the contextual-v5 or retained-file-v5 API. Invocation requires four arguments:
+
+```text
+prism_bitnet_loader_control --synthetic-vocab-control-v5 GENERATED_GGUF GENERATED_ENVELOPE EXPECTED_SYNTHETIC_PROFILE_SHA256
+```
+
+The bounded JSON envelope has exactly eight members: integer `policy_version=1`,
+`scope=generated_gpt2_only`, `profile_sha256`, positive integer `gguf_file_bytes`,
+`gguf_file_sha256`, `source_native_oracle_sha256`,
+`pre_tokenizer_policy=generated_bytelevel_gpt2_v1` and `source_oracle` containing
+the policy1 body above. The external expected profile must be independently
+derived from the generated profile, not copied from the envelope. Both envelope
+and oracle must match it; source revision must be the generated fixture's forty
+`1` characters. Source tokenizer/template hashes remain declared identities,
+not native reads or independent source-file verification.
+
+OpenSSL 3 EVP verifies exact loaded GGUF bytes/size, the canonical parsed oracle
+digest, profile-bound role-map digest and prompt digest before vocabulary
+loading. The native executable links `OpenSSL::Crypto`; the container explicitly
+provisions `libssl-dev`. No dependency installation/download is implicit in a
+test. Hashes are identities, not issuer authentication, runtime approval or
+proof that source declarations correspond to arbitrary file contents.
+
+This version requires the generated 36-case shape: A-P label singletons, source
+prompt, A-P continuations, and sorted required `<marker>`, `<pad>` and control
+tokens. Cases have exactly `kind`, `text`, `token_ids`; label/required IDs must
+match their maps. Explicit marker/source-special roles must match the toy typed
+rows. V4's GGUF/row/merge/content bounds remain; envelope <=64 KiB, JSON nesting
+<=5, per-text <=16 KiB, aggregate text <=64 KiB and <=64 strict integer IDs per
+case within loaded vocabulary. Duplicate/unknown members, invalid IDs and
+missing CLI arguments refuse; no legacy `--vocab-only` fallback is taken.
+
+All v1-v4 limits/receipts remain unchanged. V5 still checks the twelve typed
+metadata fields, zero tensors, GPT-2 tag/pre-type, no added BOS/EOS, raw NUL
+roundtrip, special/ordinary row roles and empty external loader state. It then
+compares every source case and the exact one-token continuation boundary.
+Receipt binds profile/oracle/GGUF identities and reports
+`native_tokenizer_verification=selected_source_oracle_cases_match`,
+`pre_tokenizer_tag_verification=generated_gpt2_declaration_and_selected_lexical_cases_match`
+and `runtime_approval=not_granted_by_generated_native_oracle`.
+
+Optional `synthetic-joint-vocab-roles-merges-medium-oracle-native-v5` uses the
+existing pinned generated source/byte-level GPT-2 fixture, with all learned flags
+unset. Same <=90 s stage/<=60 s child, observed group-memory/host-reserve/swap,
+source/copy/audit/FD/identity/cleanup and <=128 MiB scratch guards apply. Controls
+include fresh-hash schema/role/tag/lexical faults, stale identities, hidden NUL,
+ID/depth/JSON bounds and missing argument; a hash-rebound GGUF v2 copy succeeds.
+See the [consumer checkpoint](handover.md#generated-native-source-oracle-checkpoint-2026-11-03)
+for evidence and failed-check history. This is neither whole-vocabulary/ranked
+merge parity nor a learned Qwen/MiMo tag policy, native template rendering,
+model/backend execution, BitNet dispatch, quality or deployment approval.
 
 All direct vocabulary controls also check that metadata survives a
 lossless reconstruction through the pinned GGUF C-string setters and serializer

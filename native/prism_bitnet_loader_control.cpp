@@ -7,6 +7,7 @@
 #include "llama-model-loader.h"
 #include "llama-vocab.h"
 #include "nlohmann/json.hpp"
+#include <openssl/evp.h>
 #include <set>
 #endif
 #ifdef JEV_TEST_FULL_RUNTIME
@@ -1335,17 +1336,35 @@ static std::vector<char> selected_metadata_file(const char* path, std::size_t li
     return bytes;
 }
 
-static int test_synthetic_vocab(const char* path, const char* expected_path, int policy_version = 1) {
+static std::string selected_sha256(const char* data, std::size_t size) {
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_size = 0;
+    if (EVP_Digest(data, size, digest, &digest_size, EVP_sha256(), nullptr) != 1 || digest_size != 32) {
+        throw std::runtime_error("selected input digest failed");
+    }
+    std::string result;
+    result.reserve(64);
+    for (std::size_t index = 0; index < digest_size; ++index) {
+        result.push_back("0123456789abcdef"[digest[index] >> 4]);
+        result.push_back("0123456789abcdef"[digest[index] & 15]);
+    }
+    return result;
+}
+
+static int test_synthetic_vocab(
+    const char* path, const char* expected_path, int policy_version = 1, const char* expected_profile_sha256 = nullptr) {
     using nlohmann::json;
-    const bool ranked = policy_version == 4;
+    const bool source_oracle = policy_version == 5;
+    const bool ranked = policy_version == 4 || source_oracle;
     const bool large = policy_version == 3 || ranked;
     const bool roles = policy_version == 2 || large;
     try {
         const auto expected_bytes = selected_metadata_file(expected_path, 65537);
-        std::vector<std::set<std::string>> object_keys(5);
-        const auto expected = json::parse(expected_bytes.begin(), expected_bytes.end(),
-            [&object_keys](int depth, json::parse_event_t event, json& value) {
-                if (depth > 4) {
+        const int maximum_depth = source_oracle ? 5 : 4;
+        std::vector<std::set<std::string>> object_keys(maximum_depth + 1);
+        auto expected = json::parse(expected_bytes.begin(), expected_bytes.end(),
+            [&object_keys, maximum_depth](int depth, json::parse_event_t event, json& value) {
+                if (depth > maximum_depth) {
                     throw std::runtime_error("vocabulary JSON nesting exceeds bound");
                 }
                 if (event == json::parse_event_t::object_start) {
@@ -1356,15 +1375,122 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
                 }
                 return true;
             });
+        json envelope;
+        std::vector<std::string> oracle_texts;
+        if (source_oracle) {
+            envelope = expected;
+            const auto exact_members = [](const json& value, const std::set<std::string>& names) {
+                if (!value.is_object() || value.size() != names.size()) {
+                    return false;
+                }
+                for (const auto& name : names) {
+                    if (!value.contains(name)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            const auto digest = [](const json& value) {
+                return value.is_string() && std::regex_match(value.get<std::string>(), std::regex("[0-9a-f]{64}"));
+            };
+            if (!exact_members(envelope, {"policy_version", "scope", "profile_sha256", "gguf_file_bytes",
+                    "gguf_file_sha256", "source_native_oracle_sha256", "pre_tokenizer_policy", "source_oracle"}) ||
+                    !envelope["policy_version"].is_number_integer() || envelope["policy_version"] != 1 ||
+                    envelope["scope"] != "generated_gpt2_only" ||
+                    envelope["pre_tokenizer_policy"] != "generated_bytelevel_gpt2_v1" ||
+                    !expected_profile_sha256 || !digest(json(expected_profile_sha256)) ||
+                    envelope["profile_sha256"] != expected_profile_sha256 ||
+                    !envelope["gguf_file_bytes"].is_number_unsigned() || envelope["gguf_file_bytes"] == 0 ||
+                    envelope["gguf_file_bytes"].get<uint64_t>() > 16 * 1024 * 1024 ||
+                    !digest(envelope["gguf_file_sha256"]) || !digest(envelope["source_native_oracle_sha256"])) {
+                return 40;
+            }
+            const auto& oracle = envelope["source_oracle"];
+            if (!exact_members(oracle, {"policy_version", "profile_sha256", "source_revision", "tokenizer_sha256",
+                    "template_sha256", "token_roles_sha256", "token_roles", "required_token_ids", "label_token_ids",
+                    "prompt_sha256", "pre_tokenizer_tag_verification", "native_tokenizer_verification", "cases"}) ||
+                    !oracle["policy_version"].is_number_integer() || oracle["policy_version"] != 1 ||
+                    oracle["profile_sha256"] != expected_profile_sha256 || oracle["source_revision"] != std::string(40, '1') ||
+                    !digest(oracle["tokenizer_sha256"]) || !digest(oracle["template_sha256"]) ||
+                    !digest(oracle["prompt_sha256"]) || !digest(oracle["token_roles_sha256"]) ||
+                    oracle["pre_tokenizer_tag_verification"] != "not_checked" || oracle["native_tokenizer_verification"] != "not_checked" ||
+                    !oracle["cases"].is_array() || oracle["cases"].size() != 36 ||
+                    !exact_members(oracle["token_roles"], {"<pad>", "<|control|>", "<marker>"}) ||
+                    !exact_members(oracle["required_token_ids"], {"<pad>", "<|control|>", "<marker>"}) ||
+                    !oracle["label_token_ids"].is_object() || oracle["label_token_ids"].size() != 16) {
+                return 40;
+            }
+            const auto oracle_json = oracle.dump();
+            const auto role_json = json{{"profile_sha256", expected_profile_sha256}, {"token_roles", oracle["token_roles"]}}.dump();
+            if (oracle_json.size() > 65536 || selected_sha256(oracle_json.data(), oracle_json.size()) != envelope["source_native_oracle_sha256"] ||
+                    selected_sha256(role_json.data(), role_json.size()) != oracle["token_roles_sha256"]) {
+                return 40;
+            }
+            if (oracle["token_roles"]["<pad>"] != "source_special" || oracle["token_roles"]["<|control|>"] != "source_special" ||
+                    oracle["token_roles"]["<marker>"] != "ordinary_added_marker") {
+                return 42;
+            }
+            expected = {{"special_ids", {oracle["required_token_ids"]["<pad>"], oracle["required_token_ids"]["<|control|>"]}},
+                {"ordinary_marker_id", oracle["required_token_ids"]["<marker>"]}, {"boundary_refusal", false}, {"token_ids", json::array()}};
+            std::vector<std::pair<std::string, std::string>> ordered_cases;
+            for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
+                const std::string text(1, label);
+                if (!oracle["label_token_ids"].contains(text)) {
+                    return 40;
+                }
+                ordered_cases.emplace_back("label", text);
+            }
+            const auto& prompt_case = oracle["cases"][16];
+            if (!prompt_case.is_object() || !prompt_case.contains("text") || !prompt_case["text"].is_string()) {
+                return 40;
+            }
+            const auto prompt = prompt_case["text"].get<std::string>();
+            if (selected_sha256(prompt.data(), prompt.size()) != oracle["prompt_sha256"]) {
+                return 40;
+            }
+            ordered_cases.emplace_back("prompt", prompt);
+            for (const char label : std::string("ABCDEFGHIJKLMNOP")) {
+                ordered_cases.emplace_back("continuation", prompt + label);
+            }
+            for (const auto& required : oracle["required_token_ids"].items()) {
+                ordered_cases.emplace_back("required_token", required.key());
+            }
+            std::size_t text_bytes = 0;
+            for (std::size_t index = 0; index < ordered_cases.size(); ++index) {
+                const auto& item = oracle["cases"][index];
+                const auto& kind = ordered_cases[index].first;
+                const auto& text = ordered_cases[index].second;
+                if (!exact_members(item, {"kind", "text", "token_ids"}) || item["kind"] != kind || item["text"] != text ||
+                        text.size() > 16384 || !item["token_ids"].is_array() || item["token_ids"].empty() || item["token_ids"].size() > 64) {
+                    return 40;
+                }
+                text_bytes += text.size();
+                if (text_bytes > 65536) {
+                    return 40;
+                }
+                if (kind == "label" || kind == "required_token") {
+                    const auto& ids = kind == "label" ? oracle["label_token_ids"] : oracle["required_token_ids"];
+                    if (item["token_ids"] != json::array({ids[text]})) {
+                        return 40;
+                    }
+                }
+                oracle_texts.push_back(text);
+                expected["token_ids"].push_back(item["token_ids"]);
+            }
+        }
         if (!expected.is_object() || expected.size() != (roles ? 4 : 3) || !expected.contains("token_ids") ||
                 !expected.contains("special_ids") || !expected.contains("boundary_refusal") ||
             (roles && !expected.contains("ordinary_marker_id")) ||
-            !expected["token_ids"].is_array() || expected["token_ids"].size() != (ranked ? 39 : roles ? 36 : 35) ||
+            !expected["token_ids"].is_array() || expected["token_ids"].size() != (ranked && !source_oracle ? 39 : roles ? 36 : 35) ||
                 !expected["special_ids"].is_array() || expected["special_ids"].size() != 2 ||
                 !expected["boundary_refusal"].is_boolean()) {
             return 40;
         }
         const auto bytes = selected_metadata_file(path, (large ? 16 * 1024 * 1024 : 256 * 1024) + 1);
+        if (source_oracle && (bytes.size() != envelope["gguf_file_bytes"].get<uint64_t>() ||
+                selected_sha256(bytes.data(), bytes.size()) != envelope["gguf_file_sha256"])) {
+            return 41;
+        }
         std::unique_ptr<gguf_context, decltype(&gguf_free)> context(
             gguf_init_from_buffer(bytes.data(), bytes.size(), { true, nullptr }), gguf_free);
         const std::set<std::string> fields{
@@ -1506,7 +1632,9 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
         if (roles) {
             texts.emplace_back("<marker>");
         }
-        if (ranked) {
+        if (source_oracle) {
+            texts = oracle_texts;
+        } else if (ranked) {
             for (const auto* text : {"jaakaaa", "jabkaaa", "jzzkzzz"}) {
                 texts.emplace_back(text);
             }
@@ -1522,7 +1650,7 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
             if (actual.back() != expected["token_ids"][index].get<std::vector<llama_token>>()) {
                 return 44;
             }
-            if (ranked && index >= 36 && (actual.back().size() != 1 || !vocab.is_normal(actual.back()[0]))) {
+            if (ranked && !source_oracle && index >= 36 && (actual.back().size() != 1 || !vocab.is_normal(actual.back()[0]))) {
                 return 44;
             }
         }
@@ -1536,11 +1664,22 @@ static int test_synthetic_vocab(const char* path, const char* expected_path, int
             boundary_refusal = boundary_refusal || continuation != actual[17 + index];
         }
         if (boundary_refusal != expected["boundary_refusal"].get<bool>() || !empty_loader() ||
-                (roles && (actual[35] != std::vector<llama_token>{int32_t(marker)} ||
+                (roles && !source_oracle && (actual[35] != std::vector<llama_token>{int32_t(marker)} ||
                     !vocab.is_user_defined(marker) || vocab.is_control(marker)))) {
             return 44;
         }
-        if (ranked) {
+        if (source_oracle) {
+            const auto receipt = json{{"checked_strings", actual.size()}, {"policy_version", 5}, {"token_rows", rows},
+                {"merge_rows", gguf_get_arr_n(context.get(), merge_key)}, {"profile_sha256", expected_profile_sha256},
+                {"source_native_oracle_sha256", envelope["source_native_oracle_sha256"]}, {"gguf_file_sha256", envelope["gguf_file_sha256"]},
+                {"gguf_file_bytes", bytes.size()}, {"source_native_oracle_policy_version", 1}, {"ordinary_marker_verified", true},
+                {"contextual_refusal", false}, {"scope", "generated_gpt2_only"},
+                {"pre_tokenizer_tag_verification", "generated_gpt2_declaration_and_selected_lexical_cases_match"},
+                {"native_tokenizer_verification", "selected_source_oracle_cases_match"},
+                {"runtime_approval", "not_granted_by_generated_native_oracle"},
+                {"model_loaded", false}, {"backend_initialized", false}, {"tensor_data_allocated", false}}.dump();
+            std::puts(receipt.c_str());
+        } else if (ranked) {
             std::printf("{\"checked_strings\":39,\"policy_version\":4,\"token_rows\":%zu,\"merge_rows\":%zu,\"contextual_refusal\":%s,\"ordinary_marker_verified\":true,\"model_loaded\":false,\"backend_initialized\":false,\"tensor_data_allocated\":false}\n",
                 rows, gguf_get_arr_n(context.get(), merge_key), boundary_refusal ? "true" : "false");
         } else if (roles) {
@@ -1713,6 +1852,9 @@ static int test_selected_metadata(const char* path, const char* expected_path, i
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_REAL_LOADER
+    if (argc > 1 && std::strcmp(argv[1], "--synthetic-vocab-control-v5") == 0) {
+        return argc == 5 ? test_synthetic_vocab(argv[2], argv[3], 5, argv[4]) : 40;
+    }
     if (argc == 4 && std::strcmp(argv[1], "--synthetic-vocab-control-v1") == 0) {
         return test_synthetic_vocab(argv[2], argv[3]);
     }

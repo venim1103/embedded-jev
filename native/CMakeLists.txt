@@ -6,6 +6,7 @@ set(PRISM_GGML_LIBRARY_DIR "" CACHE PATH "Existing pinned GGML CPU/base library 
 set(JEV_PRISM_REVISION "842b1880415d6f508f03b789e5ce70194def7bfd")
 find_package(Git REQUIRED)
 find_package(Threads REQUIRED)
+find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
 
 if(NOT IS_DIRECTORY "${PRISM_SOURCE_DIR}/src" OR NOT IS_DIRECTORY "${PRISM_GGML_LIBRARY_DIR}")
     message(FATAL_ERROR "Set PRISM_SOURCE_DIR and PRISM_GGML_LIBRARY_DIR to the existing cache")
@@ -78,7 +79,7 @@ target_link_libraries(prism_group_scale PRIVATE ggml-cpu ggml-base ${CMAKE_DL_LI
 add_executable(prism_bitnet_loader_control prism_bitnet_loader_control.cpp)
 target_compile_definitions(prism_bitnet_loader_control PRIVATE JEV_TEST_REAL_LOADER=1 JEV_TEST_FULL_RUNTIME=1)
 target_include_directories(prism_bitnet_loader_control PRIVATE "${PRISM_SOURCE_DIR}/src" "${PRISM_SOURCE_DIR}/vendor")
-target_link_libraries(prism_bitnet_loader_control PRIVATE prism_group_scale llama Threads::Threads)
+target_link_libraries(prism_bitnet_loader_control PRIVATE prism_group_scale llama Threads::Threads OpenSSL::Crypto)
 
 add_library(prism_bitnet_prefill_test SHARED prism_bitnet_loader_control.cpp)
 target_compile_definitions(prism_bitnet_prefill_test PRIVATE JEV_TEST_FULL_RUNTIME=1)

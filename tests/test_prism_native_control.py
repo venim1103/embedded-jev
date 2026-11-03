@@ -6741,6 +6741,11 @@ def run_rows():
             if vocab_roles:
                 expected["ordinary_marker_id"] = marker_id
                 assert standalone["ordinary_marker_token_ids"] == {"<marker>": marker_id}
+            if fixture.get("vocab_native_oracle", False):
+                expected = {"policy_version": 1, "scope": "generated_gpt2_only", "profile_sha256": profile.sha256,
+                    "gguf_file_bytes": path.stat().st_size, "gguf_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "source_native_oracle_sha256": context["source_native_oracle_sha256"],
+                    "pre_tokenizer_policy": "generated_bytelevel_gpt2_v1", "source_oracle": oracle}
             (root / "expected.json").write_text(json.dumps(expected))
         assert len(standalone["tokens"]) == vocab_count and len(os.listdir("/proc/self/fd")) == descriptors
         assert 0 < path.stat().st_size <= file_cap and (root / "expected.json").stat().st_size <= 65536
@@ -7004,7 +7009,7 @@ finish_report(report)
     "synthetic-joint-vocab-roles-medium-nul-v3",
     "synthetic-joint-vocab-roles-merges-medium-v4", "synthetic-joint-vocab-roles-merges-full-v4",
     "synthetic-joint-vocab-roles-merges-medium-controls-v4", "synthetic-joint-vocab-roles-merges-medium-file-v4",
-    "synthetic-joint-vocab-roles-merges-medium-oracle-v4"])
+    "synthetic-joint-vocab-roles-merges-medium-oracle-v4", "synthetic-joint-vocab-roles-merges-medium-oracle-native-v5"])
 def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     import ast
     import hashlib
@@ -7021,11 +7026,12 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
     context_refusal = mode.endswith("-context-merge") or role_context and mode.endswith("-merge")
     native_vocab = "-vocab" in mode
     vocab_roles = "-vocab-roles" in mode
-    vocab_ranked = native_vocab and mode.endswith("-v4")
+    vocab_native_oracle = native_vocab and mode.endswith("-oracle-native-v5")
+    vocab_ranked = native_vocab and mode.endswith(("-v4", "-v5"))
     vocab_role_file = vocab_ranked and "-file-" in mode
     vocab_source_oracle = vocab_ranked and "-oracle-" in mode
     vocab_rank_controls = vocab_ranked and "-controls-" in mode
-    vocab_large = native_vocab and mode.endswith(("-v3", "-v4"))
+    vocab_large = native_vocab and mode.endswith(("-v3", "-v4", "-v5"))
     vocab_nul = native_vocab and "-nul" in mode
     vocab_count = (8193 if "-medium-" in mode else 248320) if vocab_large else 261 if vocab_roles else 260
     vocab_controls = native_vocab and mode.endswith(("-controls", "-controls-v3"))
@@ -7220,11 +7226,16 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             "vocab_large": vocab_large, "vocab_ranked": vocab_ranked, "vocab_rank_controls": vocab_rank_controls,
             "vocab_role_file": vocab_role_file,
             "vocab_source_oracle": vocab_source_oracle,
+            "vocab_native_oracle": vocab_native_oracle,
             "large_context": large_context,
             "token_roles_contract": token_roles_contract,
             "role_context": role_context,
             "vocab_controls": vocab_controls,
             "synthetic_refusals": refusal_mode, "unused_rows": 243 if full_scale or mode in ("approved", "approved-joint") else 2}
+        if vocab_native_oracle:
+            from embedded_jev.model_profile import parse_model_profile
+
+            fixture["profile_sha256"] = parse_model_profile(profile_bytes).sha256
         if selected_fast:
             from embedded_jev.inventory import build_inventory
             from embedded_jev.model_profile import parse_model_profile
@@ -7368,20 +7379,144 @@ def test_pinned_profile_tokenizer_rows_diagnostic(mode):
             execute = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
             vocab_command = "--synthetic-vocab-control-v4" if vocab_ranked else "--synthetic-vocab-control-v3" if vocab_large else "--synthetic-vocab-control-v2" if vocab_roles else "--synthetic-vocab-control-v1"
             arguments = [str(executable), vocab_command, str(path), str(expected_path)]
+            if vocab_native_oracle:
+                assert reports[-1]["profile_sha256"] == fixture["profile_sha256"]
+                vocab_command = "--synthetic-vocab-control-v5"
+                arguments = [str(executable), vocab_command, str(path), str(expected_path), fixture["profile_sha256"]]
             native = guard(sys.executable, execute, json.dumps(arguments).encode(), env=env,
                 maximum_seconds=min(60 if vocab_large else 30, fixture["sequence_deadline"] - time.monotonic()))
             assert native["returncode"] == 0, native
-            assert json.loads(native["stdout"]) == {"checked_strings": 39 if vocab_ranked else 36 if vocab_roles else 35,
+            expected_native = {"checked_strings": 39 if vocab_ranked else 36 if vocab_roles else 35,
                 "policy_version": 4 if vocab_ranked else 3 if vocab_large else 2 if vocab_roles else 1, "token_rows": vocab_count,
                 **({"merge_rows": len(fixture_merges)} if vocab_ranked else {}),
                 **({"ordinary_marker_verified": True} if vocab_roles else {}),
                 "contextual_refusal": vocab_merge, "model_loaded": False, "backend_initialized": False, "tensor_data_allocated": False}
+            if vocab_native_oracle:
+                expected_native.update(checked_strings=reports[-1]["source_native_oracle_case_count"], policy_version=5,
+                    profile_sha256=fixture["profile_sha256"], gguf_file_bytes=reports[-1]["output_file_bytes"],
+                    gguf_file_sha256=reports[-1]["output_file_sha256"], source_native_oracle_policy_version=1,
+                    source_native_oracle_sha256=reports[-1]["source_native_oracle_sha256"], scope="generated_gpt2_only",
+                    pre_tokenizer_tag_verification="generated_gpt2_declaration_and_selected_lexical_cases_match",
+                    native_tokenizer_verification="selected_source_oracle_cases_match",
+                    runtime_approval="not_granted_by_generated_native_oracle")
+            assert json.loads(native["stdout"]) == expected_native
             assert tuple(vocabulary_file_identity(entry) for entry in (path, expected_path)) == original_stats
             assert tuple(hashlib.sha256(entry.read_bytes()).hexdigest() for entry in (path, expected_path)) == original_hashes
             assert native["host_swap_baseline_bytes"] == baseline_swap
             assert hashlib.sha256(path.read_bytes()).hexdigest() == reports[-1]["output_file_sha256"]
             assert time.monotonic() < fixture["sequence_deadline"] and set(entry.name for entry in output.iterdir()) == {"rows.gguf", "expected.json"}
             print(json.dumps({**native, "synthetic_vocab_diagnostic": mode, "logical_source_copy_scratch_bytes": reports[-1]["logical_source_copy_scratch_bytes"]}))
+            if vocab_native_oracle:
+                import copy
+                import struct
+
+                original_file = path.read_bytes()
+                original_envelope = json.loads(expected_path.read_bytes())
+                offsets = reports[-1]["fault_offsets"]
+                fault_path, fault_expected = output / "vocab-oracle-fault.gguf", output / "vocab-oracle-fault.json"
+                descriptors = len(os.listdir("/proc/self/fd"))
+                defects = ("version-two", "file-size", "file-hash", "oracle-hash", "profile-argument", "source-profile",
+                    "source-revision", "tag-policy", "metadata-tag", "source-role", "role-hash", "marker-type", "token-nul",
+                    "case-count", "case-kind", "case-text", "case-member", "case-prompt", "case-continuation", "label-id",
+                    "token-bool", "token-float", "token-negative", "token-range", "token-count", "case-nested",
+                    "case-duplicate", "json-budget", "missing-argument")
+                for defect in defects:
+                    changed, envelope = bytearray(original_file), copy.deepcopy(original_envelope)
+                    oracle = envelope["source_oracle"]
+                    profile_hash, status = fixture["profile_sha256"], 40
+                    if defect == "version-two":
+                        assert changed[4:8] == struct.pack("<I", 3)
+                        changed[4:8] = struct.pack("<I", 2)
+                        status = 0
+                    elif defect == "source-profile":
+                        oracle["profile_sha256"] = "0" * 64
+                    elif defect == "source-revision":
+                        oracle["source_revision"] = "2" * 40
+                    elif defect == "profile-argument":
+                        profile_hash = "0" * 64
+                    elif defect == "tag-policy":
+                        envelope["pre_tokenizer_policy"] = "not-a-verified-policy"
+                    elif defect == "metadata-tag":
+                        offset = offsets["tokenizer.ggml.pre"]["value"]
+                        assert changed[offset:offset + 5] == b"gpt-2"
+                        changed[offset:offset + 5] = b"gpt-3"
+                        status = 42
+                    elif defect == "source-role":
+                        oracle["token_roles"]["<marker>"] = "source_special"
+                        role_bytes = json.dumps({"profile_sha256": profile_hash, "token_roles": oracle["token_roles"]},
+                            sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+                        oracle["token_roles_sha256"] = hashlib.sha256(role_bytes).hexdigest()
+                        status = 42
+                    elif defect == "role-hash":
+                        oracle["token_roles_sha256"] = "0" * 64
+                    elif defect == "marker-type":
+                        offset = offsets["tokenizer.ggml.token_type"]["value"] + 4 * oracle["required_token_ids"]["<marker>"]
+                        assert struct.unpack_from("<i", changed, offset)[0] == 4
+                        struct.pack_into("<i", changed, offset, 3)
+                        status = 42
+                    elif defect == "token-nul":
+                        offset = offsets["tokenizer.ggml.tokens"]["nul"]
+                        assert changed[offset] != 0
+                        changed[offset] = 0
+                        status = 41
+                    elif defect == "case-count":
+                        oracle["cases"].pop()
+                    elif defect == "case-kind":
+                        oracle["cases"][0]["kind"] = "prompt"
+                    elif defect == "case-text":
+                        oracle["cases"][0]["text"] = "B"
+                    elif defect == "case-member":
+                        oracle["cases"][0]["extra"] = "refused"
+                    elif defect in ("case-prompt", "case-continuation"):
+                        oracle["cases"][16 if defect == "case-prompt" else 17]["token_ids"][0] = oracle["label_token_ids"]["A"]
+                        status = 44
+                    elif defect == "label-id":
+                        oracle["label_token_ids"]["A"] = oracle["label_token_ids"]["B"]
+                        oracle["cases"][0]["token_ids"] = [oracle["label_token_ids"]["B"]]
+                        status = 44
+                    elif defect in ("token-bool", "token-float", "token-negative", "token-range"):
+                        value = {"token-bool": True, "token-float": 1.5, "token-negative": -1, "token-range": vocab_count}[defect]
+                        oracle["label_token_ids"]["A"] = value
+                        oracle["cases"][0]["token_ids"] = [value]
+                    elif defect == "token-count":
+                        oracle["cases"][16]["token_ids"] = [0] * 65
+                    elif defect == "case-nested":
+                        oracle["cases"][16]["token_ids"] = [[[[0]]]]
+                    envelope["gguf_file_bytes"] = len(changed) + (1 if defect == "file-size" else 0)
+                    envelope["gguf_file_sha256"] = "0" * 64 if defect == "file-hash" else hashlib.sha256(changed).hexdigest()
+                    if defect in ("file-size", "file-hash"):
+                        status = 41
+                    oracle_bytes = json.dumps(oracle, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+                    envelope["source_native_oracle_sha256"] = "0" * 64 if defect == "oracle-hash" else hashlib.sha256(oracle_bytes).hexdigest()
+                    envelope_bytes = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+                    if defect == "case-duplicate":
+                        envelope_bytes = envelope_bytes.replace(b'"kind":"label"', b'"kind":"label","kind":"label"', 1)
+                    elif defect == "json-budget":
+                        envelope_bytes += b" " * 65537
+                    assert len(envelope_bytes) <= (128 * 1024 if defect == "json-budget" else 65536)
+                    fault_path.write_bytes(changed)
+                    fault_expected.write_bytes(envelope_bytes)
+                    command = [str(executable), vocab_command, str(fault_path), str(fault_expected), profile_hash]
+                    if defect == "missing-argument":
+                        command.pop()
+                    try:
+                        result = guard(sys.executable, execute, json.dumps(command).encode(), env=env,
+                            maximum_seconds=min(60, fixture["sequence_deadline"] - time.monotonic()))
+                        assert result["returncode"] == status and result["host_swap_baseline_bytes"] == baseline_swap, (defect, result)
+                        if status == 0:
+                            assert json.loads(result["stdout"]) == {**expected_native, "gguf_file_sha256": envelope["gguf_file_sha256"]}
+                        else:
+                            assert not result["stdout"], (defect, result)
+                    finally:
+                        fault_path.unlink()
+                        fault_expected.unlink()
+                    assert tuple(vocabulary_file_identity(entry) for entry in (path, expected_path)) == original_stats
+                    assert tuple(hashlib.sha256(entry.read_bytes()).hexdigest() for entry in (path, expected_path)) == original_hashes
+                    assert len(os.listdir("/proc/self/fd")) == descriptors
+                    assert set(entry.name for entry in output.iterdir()) == {"rows.gguf", "expected.json"}
+                    assert time.monotonic() < fixture["sequence_deadline"]
+                print(json.dumps({"synthetic_native_oracle_refusals": len(defects) - 1, "gguf_version_two_verified": True,
+                    "original_files_preserved": True, "all_fault_copies_removed": True}))
             if vocab_rank_controls:
                 import copy
                 import struct
