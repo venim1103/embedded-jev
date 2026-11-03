@@ -6,6 +6,31 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Host Preflight Report Received (2026-11-03)
+
+The user ran the read-only host preflight from `c4dc721` and supplied its JSON.
+Podman listed three project cache volumes with suffixes `0e7n...`, `10pf...`
+and `1j50...`. The exact `10pf...` volume matches this container's `findmnt`
+source and is the empty GPU cache; neither remaining volume has been identified
+as the prior CPU cache. No volume was selected or reconfigured.
+
+Windows C: reports **31,142,141,952 free bytes** (31.14 GB / 29.00 GiB),
+and 982,167,097,344 used bytes. These are user-supplied host readings, not a new
+container measurement or an approved install/model budget. They replace the
+earlier lack of a Windows filesystem-counter report, not the historical results.
+Which drive contains the WSL/Podman VHDX is still unverified; the report correctly
+leaves `vhdx_drive_identified`, `cache_contents_verified` and
+`model_execution_authorized` false. No existing environment/source pin or learned
+file has been inspected, and no GPU/native/learned diagnostic was replayed.
+
+Next discriminating host check: inspect each remaining volume's mountpoint and
+test only existence of the expected `huggingface/embedded-jev/dense-venv`,
+`gpu/torch-cu128` and `native/prism-source` directories beneath it. Do not read
+model/tokenizer files, run an environment, copy inputs or change permissions.
+An inaccessible mountpoint is a blocker, not proof of an empty volume. Confirm
+separately whether C: stores the WSL/Podman VHDX before planning storage use.
+All six learned approvals and prior ledgers remain consumed/frozen.
+
 ## Read-Only Host Cache Preflight Checkpoint (2026-11-03)
 
 Continued autonomously after `c401cd5`, within the unchanged model-free scope.
