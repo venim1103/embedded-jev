@@ -1,14 +1,87 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-11-03. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-11-04. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Learned Native Oracle Retry Passed (2026-11-04)
+
+**All EIGHT learned approvals are now CONSUMED. No further learned invocation
+is authorized.** After a computer restart, the user explicitly selected
+**Approve One Retry** for exactly one invocation of the repaired, already
+committed/pushed `fcf79f3` parent. The earlier failed attempt and its consumed
+approval remain unchanged historical evidence below; this was a fresh approval,
+not an automatic retry or a reset of the existing600 s ledger.
+
+Restart preflight confirmed HEAD `fcf79f3` matched `origin/main`, tracked worktree
+clean and only the user's untouched `.vscode/` untracked. Pylance selected
+`/opt/venv/bin/python`, the existing Python3.12.3 controller. Cached CPU converter,
+native loader and clean Prism842b188 checkout survived; installed metadata pins
+were Transformers5.12.1, tokenizers0.22.2, NumPy2.2.6 and Torch2.10.0+cpu.
+Stat-only checks found all ten allowed nonweight inputs at expected sizes,
+30144444 B per set. Preflight available20070980 KiB, swap used0 and Linux disk
+available382968119296 B were time-sensitive snapshots, not device guarantees.
+No learned content was opened before fresh approval and the actual invocation.
+
+Exactly one invocation of
+`tests/test_prism_native_control.py::test_pinned_profile_tokenizer_native_oracle_diagnostic`
+with only the native-oracle learned opt-in enabled **passed in26.07 s**; the
+parent reported25.966485428 s. All four serial phases completed: verified
+source/copy, source-faithful zero-tensor emission with exact typed readback,
+one role-aware source oracle and the compiled native v8 comparison. All **38
+selected cases matched**, with `contract_accepted=true`, native status `matched`
+and `cleanup_verified=true`. No new source edit, native build, tag search,
+normalization change, guard relaxation or fallback was required.
+
+Frozen MiMo revision2367e865d009c13ac81713a2878291d33ab28177 and canonical
+profile1dcdec29defb87a16c4ad7c81fe3e2508e11b3a14dd025930ac92c525f2dc35a
+were unchanged, as were the source tokenizer/template/role identities, A-P
+labels, five required roles, fixed user content/rendering and context256.
+Native receipt assertions require248320 rows,16 labels, three source-special
+tokens and two ordinary markers. The38 cases are16 singleton labels, one
+source-rendered prompt,16 one-token continuations and five required tokens.
+The compiled consumer checked exact IDs against the source-produced oracle,
+not against a replacement template or generated fixture.
+
+Actual maximum observed group RSS **1527824384 B**, minimum observed host
+available **18598400000 B**; host-swap baseline0 remained unchanged across all
+phases and owned swap0 was enforced. The existing180 s whole-parent/60 s child,
+2 GiB observed group RSS/high-water and host-reserve,128 MiB logical scratch,
+16 MiB file and bounded envelope/output guards passed. Only aggregate group RSS
+and host reserve are retained in the success summary, not per-phase high-water
+or transient worker/file receipts. Do not invent missing per-phase measurements.
+
+Source stat/hash and read-only copy checks, native file identity rechecks,
+worker reap and TemporaryDirectory cleanup passed. Independent post-run checks
+found no `/tmp/jev-mimo-native-oracle-*` directory or diagnostic native/test
+process. No disposable copies, GGUF, oracle, compiler spill, prompt or token
+arrays remain. Retained outside Git only the495 B bounded success log
+`/tmp/jev-mimo-native-oracle-retry-20261104.log`, SHA-256
+`f8465734a3f73a69688f307068430ecd5b81acfaebd07234f131f6f5930833c8`.
+The earlier874 B failure log and its SHA-256 below were rechecked unchanged.
+
+Measured ledger is now **237.26/600 s**:211.19 prior +26.07 retry. Remaining
+362.74 s is not authorization for another learned read or experiment. This is
+a documentation-only result checkpoint; validate docs/links/whitespace, do not
+rerun unchanged successful source/native gates. Latest source gate remains
+1771 passed/227 skipped in27.38 s with Ruff/whitespace clean at `fcf79f3`.
+
+Evidence establishes selected source/native tokenizer agreement only. It does
+not establish whole-vocabulary/arbitrary-Unicode parity, native template
+rendering, independent identity issuance, learned model/runtime compatibility,
+BitNet dispatch/arithmetic, decision quality, confidence calibration, edge
+performance or deployment readiness. No weights/shard headers, downloads,
+full-model conversion/execution, GPU, refit, candidate or quality work ran.
+Next prepare a precise next integration proposal from existing source/evidence;
+any further learned/native-model experiment needs separately bounded approval.
+
 ## Learned Native Oracle Attempt And Receipt Repair (2026-11-03)
 
-**All SEVEN learned approvals are now CONSUMED. No retry authorized.** Tested
+**Historical: all SEVEN approvals were CONSUMED here; no retry was authorized
+at this checkpoint.** The separately approved successful retry is recorded
+above. Tested
 runner/native checkpoint `b27d468` was committed/pushed before exactly one
 approved MiMo parent invocation. It failed in0.66 s after the verified copy
 phase at parent resource collection: `KeyError: observed_process_rss_bytes`.

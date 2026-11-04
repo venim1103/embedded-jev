@@ -3777,7 +3777,10 @@ learned-source or profile authentication evidence. The native receipt proves
 only selected source-oracle lexical agreement, not issuer authenticity, full
 vocabulary/Unicode parity, native template rendering, model compatibility,
 BitNet dispatch, quality, calibrated confidence or device readiness.
-Changing results/approval consumption belong in the
+The separately approved learned retry matched all38 selected source/native
+cases; its evidence, cleanup and consumed approval are recorded in the
+[result checkpoint](handover.md#learned-native-oracle-retry-passed-2026-11-04).
+Changing results and future approval consumption belong in the
 [handover](handover.md#learned-native-oracle-runner-checkpoint-2026-11-03).
 
 ### Generated Qwen3.5 Role And Case Control
