@@ -6,6 +6,64 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Role-Aware Selected Metadata Proposal (2026-11-04)
+
+**PROPOSED ONLY: not approved, implemented or executed.** The selected learned
+native oracle below completed its one-shot scope; all eight learned approvals
+remain consumed. Its600 s ledger stays237.26 used/362.74 unused and frozen.
+Unused time does not authorize a new integration experiment.
+
+Nearest integration gap: `write_profile_model_selected_fast_metadata_v3` and
+`verify_profile_gguf_selected_fast_metadata_v3` jointly prepare policy, source
+context/template and fast rows/types/ranked merges, but do not require the
+explicit token-role policy already supported by the row/merge owner. Existing
+v3 intentionally makes no role-contract claim; this is a missing composition,
+not evidence that its declared storage contract is incorrect.
+
+Hypothesis: a separate role-aware v4 writer and retained-file verifier can
+reuse `_prepare_profile_selected_fast_metadata` and the existing verified-role
+row/merge path, preserving unchanged source flags and all29 emitted/30 selected
+file declarations. Require caller-supplied `token_roles`; retain the checked
+profile-bound role hash in receipts, not an invented model default. Fresh role
+preparation must be part of the selected-file proof, not a caller receipt.
+
+First discriminating check: a mocked role-aware preparation must receive the
+explicit policy, and a duplicate late merge/type key must refuse before any
+writer mutation. Next check a fresh file proof receives the same declarations
+only after role validation, with one cooperative deadline across preparation
+and retained verification. Reject missing/incorrect roles, malformed budgets,
+stale pins, changed typed rows and deadline expiry without reader/writer use
+at the corresponding preflight boundary. Retain all v3 signature/default/
+receipt tests unchanged; share private machinery without weakening old paths.
+
+Proposed new public functions are
+`write_profile_model_selected_fast_metadata_v4` and
+`verify_profile_gguf_selected_fast_metadata_v4`. Keep existing row/merge, file,
+record and header defaults/hard ceilings. V4 writer preparation uses the
+existing role-contract default30 s/ceiling60 s; v4 retained proof retains the
+existing default30 s/ceiling180 s shared cooperative budget, passing only its
+remaining bounded time into role preparation. Emitted records remain a subset:
+no new tokenizer model/pre-tag/BOS/EOS metadata, scaffold mapping promotion,
+native command, library build, template rendering or execution authority.
+
+Proposed verification is model-free: extend existing writer/proof tests and one
+tiny generated role fixture with pinned cached libraries, typed GGUF readback,
+fresh retained proof and fresh-hash role/type corruption refusals. Use32 rows,
+source/copy sets<=64 KiB each, file/fault<=256 KiB each, logical scratch<=8 MiB,
+15 s children/60 s stage, observed RSS<=1 GiB, host reserve>=2 GiB and no owned
+swap/host-swap growth. Reuse existing helpers/tests; no new test file or model
+cache content read. Model-generated arrays, remote code and downloads remain
+prohibited. Do not retry a resource failure or relax an existing assertion.
+
+Request a separate **200 s model-free execution ceiling**:40 s focused checks,
+60 s tiny integration,30 s v3/role compatibility,40 s required source gate and
+30 s setup/focused repairs/docs/cleanup. Run focused validation immediately
+after each small edit, review/stage only this checkpoint, and commit meaningful
+tested increments. No learned read, native-model/BitNet execution, full-model
+conversion, weights, GPU, refit, candidate, quality or device work is included.
+This establishes role-aware selected metadata composition only; native tags,
+complete tokenizer metadata, rendering and model integration remain separate.
+
 ## Learned Native Oracle Retry Passed (2026-11-04)
 
 **All EIGHT learned approvals are now CONSUMED. No further learned invocation
