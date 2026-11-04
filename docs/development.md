@@ -3295,6 +3295,31 @@ JSON defaults and tokenizer policy caps. The proof defaults are 256 KiB file,
 8192-byte selected records, 1 MiB header and 30 s; explicit file/record/header
 ceilings are 16 MiB and deadline ceiling 180 s.
 
+`write_profile_model_selected_fast_metadata_v4` and
+`verify_profile_gguf_selected_fast_metadata_v4` add a required explicit
+`token_roles` mapping through the existing verified-role row/merge owner.
+They retain the checked profile-bound `token_roles_sha256` in their receipts;
+they do not add GGUF fields or alter source special flags. The writer still
+jointly preflights 29 emitted keys, and the fresh retained-file proof checks
+30 selected fields including `general.architecture`. V3 signatures, defaults
+and receipt claims remain unchanged. V4 writer preparation defaults to 30 s
+with a 60 s ceiling. The retained proof keeps the v3 defaults and 180 s ceiling,
+sharing one cooperative deadline across preparation and file verification;
+role preparation receives at most 60 s of the remaining budget. Writer output
+is not file-verified. Both APIs leave native tokenizer/pre-tag verification
+unchecked and grant no runtime approval.
+
+`test_pinned_profile_selected_role_metadata_composition_on_synthetic_sources`
+uses `PRISM_SOURCE_DIR` and `PRISM_CONVERTER_PYTHON` with a generated 32-row
+fixture, typed GGUF readback and a separate two-byte BF16 anchor. It rejects
+incorrect roles before retained-reader use and a freshly hashed marker-type
+promotion. Model-cache content opens, network access and child creation are
+denied inside the worker. Bounds are 64 KiB source inputs, 256 KiB per GGUF,
+8 MiB logical scratch, a 15 s worker/60 s stage, 1 GiB observed group RSS,
+2 GiB host reserve and no owned swap or host-swap growth. All learned opt-ins
+remain unset. This is selected-field composition, not native or complete
+tokenizer acceptance; see the [checkpoint](handover.md#role-aware-selected-metadata-checkpoint-2026-11-04).
+
 `[synthetic-joint-selected]` uses the existing guarded row diagnostic and cached
 tools to test a tiny generated file. Its row oracle is explicitly the generic
 `PreTrainedTokenizerFast` wrapper, not Qwen-specific AutoTokenizer acceptance.

@@ -2536,6 +2536,70 @@ def test_profile_selected_fast_metadata_joint_writer_preflight(monkeypatch, defe
         assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
 
 
+@pytest.mark.parametrize("defect", [None, "roles", "missing-roles", "budget-bool", "budget-nan", "budget-over", "deadline",
+                                    "early-deadline", "duplicate-merges", "duplicate-types", "metadata-pin", "tokenizer-pin",
+                                    "manifest", "profile", "template-pin"])
+def test_profile_selected_role_metadata_writer_preserves_preflight_and_roles(monkeypatch, defect):
+    from embedded_jev import prism_codec
+
+    metadata = {}
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(metadata_output=metadata, tokenizer_bytes=tokenizer_bytes)
+    roles = {"token0": "source_special", "token1": "ordinary_added_marker"}
+    calls = []
+
+    def prepare(actual, **kwargs):
+        assert actual is profile and kwargs["verify_token_roles"] is True
+        assert 0 < kwargs["maximum_seconds"] <= 30
+        calls.append(kwargs)
+        if kwargs["token_roles"] != roles:
+            raise ValueError("wrong synthetic role policy")
+        return ({"tokens": tuple(f"token{index}" for index in range(32)), "token_roles_sha256": "b" * 64,
+                 "token_row_records": ({"token_type": "CONTROL"}, {"token_type": "USER_DEFINED"}) + ({"token_type": "NORMAL"},) * 30},
+                {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("a b",)}, 3)
+
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", prepare)
+    writer = _profile_metadata_writer_fixture()
+    arguments: dict = dict(metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256, template_source="source",
+        row_policy="pinned_prism_fast_rows_v2", merge_policy="pinned_prism_ranked_source_merges_v2", token_roles=roles, writer=writer)
+    if defect == "roles":
+        arguments["token_roles"] = {}
+    elif defect == "missing-roles":
+        del arguments["token_roles"]
+    elif defect in ("budget-bool", "budget-nan", "budget-over"):
+        arguments["maximum_seconds"] = {"budget-bool": True, "budget-nan": float("nan"), "budget-over": 61}[defect]
+    elif defect in ("deadline", "early-deadline"):
+        clock = iter([5, 6, 40] if defect == "deadline" else [5, 40])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    elif defect in ("duplicate-merges", "duplicate-types"):
+        writer.kv_data[0]["tokenizer.ggml." + ("merges" if defect == "duplicate-merges" else "token_type")] = ("str", ["keep"])
+    elif defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        arguments["tokenizer_bytes"] += b" "
+    elif defect == "manifest":
+        manifest["payload_sha256"] = "0" * 64
+    elif defect == "profile":
+        manifest["profile_sha256"] = "0" * 64
+    elif defect == "template-pin":
+        metadata[profile.tokenization["template_file"]] += b" "
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    if defect:
+        with pytest.raises(TypeError if defect == "missing-roles" else ValueError):
+            prism_codec.write_profile_model_selected_fast_metadata_v4(profile, report, manifest, blocks, **arguments)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+        if defect in ("missing-roles", "budget-bool", "budget-nan", "budget-over", "early-deadline", "metadata-pin", "tokenizer-pin", "template-pin"):
+            assert not calls
+    else:
+        receipt = prism_codec.write_profile_model_selected_fast_metadata_v4(profile, report, manifest, blocks, **arguments)
+        assert len(calls) == 1 and calls[0]["token_roles"] is roles
+        assert receipt["metadata_count"] == len(writer.kv_data[0]) == 29
+        assert writer.kv_data[0]["tokenizer.ggml.token_type"] == ("i32_array", [3, 4] + [1] * 30)
+        assert receipt["token_roles_sha256"] == "b" * 64 and receipt["selected_fast_metadata_policy_version"] == 4
+        assert receipt["metadata_verification"] == "declared_records_emitted_not_file_verified"
+        assert receipt["pre_tokenizer_tag_verification"] == receipt["gguf_token_type_verification"] == "not_checked"
+
+
 @pytest.mark.parametrize("defect", [None, "file-budget", "record-budget", "header-budget", "hash", "seconds",
                                     "metadata-pin", "tokenizer-pin", "manifest", "profile", "template-pin", "selection", "preparation-deadline", "verification-deadline"])
 def test_profile_selected_fast_metadata_proof_identity_and_shared_deadline(monkeypatch, defect):
@@ -2588,6 +2652,82 @@ def test_profile_selected_fast_metadata_proof_identity_and_shared_deadline(monke
     else:
         receipt = prism_codec.verify_profile_gguf_selected_fast_metadata_v3(profile, report, manifest, blocks, **arguments)
         assert len(calls) == 1 and receipt["selected_fast_metadata_policy_version"] == 3
+        assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+
+
+@pytest.mark.parametrize("defect", [None, "role-time-cap", "roles", "missing-roles", "file-budget", "record-budget", "header-budget",
+                                    "hash", "seconds", "seconds-bool", "seconds-infinite", "metadata-pin", "tokenizer-pin",
+                                    "manifest", "profile", "template-pin", "selection", "early-deadline", "preparation-deadline", "verification-deadline"])
+def test_profile_selected_role_metadata_proof_preserves_identity_and_deadline(monkeypatch, defect):
+    from embedded_jev import prism_codec
+
+    metadata = {}
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(metadata_output=metadata, tokenizer_bytes=tokenizer_bytes)
+    roles = {"token0": "source_special", "token1": "ordinary_added_marker"}
+    preparations, calls = [], []
+
+    def prepare(actual, **kwargs):
+        assert actual is profile and kwargs["verify_token_roles"] is True
+        assert 0 < kwargs["maximum_seconds"] <= 60
+        preparations.append(kwargs)
+        if kwargs["token_roles"] != roles:
+            raise ValueError("wrong synthetic role policy")
+        return ({"tokens": tuple(f"token{index}" for index in range(32)), "token_roles_sha256": "c" * 64,
+                 "token_row_records": ({"token_type": "CONTROL"}, {"token_type": "USER_DEFINED"}) + ({"token_type": "NORMAL"},) * 30},
+                {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("a b",)}, 3)
+
+    def verify(actual, **kwargs):
+        assert actual is profile and kwargs["model_owner"] is kwargs["descriptor"] is None
+        assert len(kwargs["declarations"]) == 30 and kwargs["record_policy_version"] == 3
+        assert kwargs["declarations"][-2]["values"] == (3, 4) + (1,) * 30
+        assert kwargs["maximum_numeric_array_parts"] == 37 and kwargs["maximum_metadata_bytes"] == 8192
+        calls.append(kwargs)
+        return {"metadata_names": tuple(record["name"] for record in kwargs["declarations"])}
+
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", prepare)
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
+    arguments: dict = dict(reader=object(), metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256,
+        template_source="source", row_policy="pinned_prism_fast_rows_v2", merge_policy="pinned_prism_ranked_source_merges_v2",
+        token_roles=roles, expected_file_bytes=100, expected_file_sha256="1" * 64)
+    if defect == "role-time-cap":
+        arguments["maximum_seconds"] = 120
+    elif defect == "roles":
+        arguments["token_roles"] = {}
+    elif defect == "missing-roles":
+        del arguments["token_roles"]
+    elif defect in ("file-budget", "record-budget", "header-budget", "hash", "seconds", "seconds-bool", "seconds-infinite"):
+        name, value = {"file-budget": ("maximum_file_bytes", True), "record-budget": ("maximum_metadata_bytes", 16 * 1024**2 + 1),
+            "header-budget": ("maximum_header_bytes", 16 * 1024**2 + 1), "hash": ("expected_file_sha256", "bad"),
+            "seconds": ("maximum_seconds", float("nan")), "seconds-bool": ("maximum_seconds", True),
+            "seconds-infinite": ("maximum_seconds", float("inf"))}[defect]
+        arguments[name] = value
+    elif defect == "metadata-pin":
+        metadata["config.json"] += b" "
+    elif defect == "tokenizer-pin":
+        arguments["tokenizer_bytes"] += b" "
+    elif defect == "manifest":
+        manifest["payload_sha256"] = "0" * 64
+    elif defect == "profile":
+        manifest["profile_sha256"] = "0" * 64
+    elif defect == "template-pin":
+        metadata[profile.tokenization["template_file"]] += b" "
+    elif defect == "selection":
+        arguments["template_source"] = "guess"
+    elif defect in ("early-deadline", "preparation-deadline", "verification-deadline"):
+        clock = iter({"early-deadline": [5, 40], "preparation-deadline": [5, 6, 40], "verification-deadline": [5, 6, 7, 40]}[defect])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    if defect not in (None, "role-time-cap"):
+        with pytest.raises(TypeError if defect == "missing-roles" else ValueError):
+            prism_codec.verify_profile_gguf_selected_fast_metadata_v4(profile, report, manifest, blocks, **arguments)
+        assert len(calls) == (1 if defect == "verification-deadline" else 0)
+    else:
+        receipt = prism_codec.verify_profile_gguf_selected_fast_metadata_v4(profile, report, manifest, blocks, **arguments)
+        assert len(preparations) == len(calls) == 1 and preparations[0]["token_roles"] is roles
+        if defect == "role-time-cap":
+            assert preparations[0]["maximum_seconds"] == 60
+        assert receipt["selected_fast_metadata_policy_version"] == 4 and receipt["token_roles_sha256"] == "c" * 64
+        assert receipt["metadata_verification"] == "selected_typed_policy_source_role_aware_fast_rows_and_merges_match_file"
         assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
 
 

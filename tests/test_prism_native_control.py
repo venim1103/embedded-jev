@@ -9755,6 +9755,169 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
     print(json.dumps(report, sort_keys=True))
 
 
+def test_pinned_profile_selected_role_metadata_composition_on_synthetic_sources():
+    import hashlib
+    import time
+    from tempfile import TemporaryDirectory
+
+    from test_inventory import _prefill_model_policy_fixture
+    from embedded_jev.inventory import build_inventory
+    from embedded_jev.model_profile import parse_model_profile
+
+    source_dir, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
+    assert subprocess.check_output(["git", "-C", str(source_dir), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    started = time.monotonic()
+    tokens = list("ABCDEFGHIJKLMNOP") + [f"token{index}" for index in range(16, 32)]
+    tokens[20:23], tokens[24:27] = ["a", "b", "ab"], ["<pad>", "<|control|>", "<marker>"]
+    roles = {"<pad>": "source_special", "<|control|>": "source_special", "<marker>": "ordinary_added_marker"}
+    tokenizer_bytes = json.dumps({"version": "1.0", "added_tokens": [
+        {"id": tokens.index(text), "content": text, "single_word": False, "lstrip": False, "rstrip": False,
+         "normalized": False, "special": role == "source_special"} for text, role in roles.items()],
+        "model": {"type": "BPE", "vocab": {token: index for index, token in enumerate(tokens)}, "merges": [["a", "b"]],
+            "dropout": None, "unk_token": None, "continuing_subword_prefix": None, "end_of_word_suffix": None,
+            "fuse_unk": False, "byte_fallback": False, "ignore_merges": False}}).encode()
+    metadata, headers, record = {}, {}, {}
+    _, _, manifest, blocks = _prefill_model_policy_fixture(target="o", metadata_output=metadata, headers_output=headers,
+        record_output=record, tokenizer_bytes=tokenizer_bytes)
+    record["tokenization"]["label_token_ids"] = {label: index for index, label in enumerate("ABCDEFGHIJKLMNOP")}
+    record["tokenization"]["special_token_ids"] = {text: tokens.index(text) for text in roles}
+    metadata["tokenizer_config.json"] = b'{"tokenizer_class":"Qwen2Tokenizer","clean_up_tokenization_spaces":false,"unk_token":"<pad>","eos_token":"<pad>","pad_token":"<pad>"}'
+    record["files"].update({name: {"bytes": len(value), "sha256": hashlib.sha256(value).hexdigest()} for name, value in metadata.items()})
+    profile = parse_model_profile(json.dumps(record).encode())
+    inventory = build_inventory(metadata, headers, profile=profile)
+    manifest["profile_sha256"] = profile.sha256
+    fixture = json.loads(_profile_parity_fixture(profile, inventory, manifest, blocks))
+    raw = bytes.fromhex(fixture.pop("payload_hex"))
+    fixture["token_roles"] = roles
+    code = r'''
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+models = Path.home() / ".cache/huggingface/embedded-jev/models"
+def deny_model_contents(event, arguments):
+    if event == "open" and isinstance(arguments[0], (str, bytes, os.PathLike)):
+        assert not Path(os.fsdecode(arguments[0])).absolute().is_relative_to(models), "model-cache content prohibited"
+    if event.startswith(("socket.connect", "socket.getaddrinfo", "socket.bind")) or event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+        raise RuntimeError("network and child creation prohibited")
+sys.addaudithook(deny_model_contents)
+import gguf
+import numpy as np
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev import prism_codec
+root = Path(json.loads(sys.stdin.buffer.read(65537))["scratch"])
+fixture = json.loads((root / "fixture.json").read_bytes())
+profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+inventory, manifest = fixture["inventory"], fixture["manifest"]
+rows, columns = manifest["shape"]
+blocks = np.frombuffer((root / "projection.bin").read_bytes(), dtype=np.uint8).reshape(rows, columns // 128, 34)
+metadata = {name: (root / "inputs" / name).read_bytes() for name in profile.packaging["metadata_files"]}
+tokenizer_bytes = (root / "inputs/tokenizer.json").read_bytes()
+assert sum(len(value) for value in metadata.values()) + len(tokenizer_bytes) <= 65536
+arguments = dict(metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256, template_source="source",
+    row_policy="pinned_prism_fast_rows_v2", merge_policy="pinned_prism_ranked_source_merges_v2", token_roles=fixture["token_roles"], maximum_seconds=12)
+path = root / "selected.gguf"
+writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
+try:
+    emitted = prism_codec.write_profile_model_selected_fast_metadata_v4(profile, inventory, manifest, blocks, writer=writer, **arguments)
+    assert emitted["metadata_count"] == 29 and emitted["selected_fast_metadata_policy_version"] == 4
+    writer.add_tensor("synthetic.anchor", np.zeros((1, 1), dtype="<u2"), raw_dtype=gguf.GGMLQuantizationType.BF16)
+    assert writer.temp_file.tell() <= 65536
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+finally:
+    writer.close()
+    if writer.temp_file is not None:
+        writer.temp_file.close()
+original = path.read_bytes()
+assert 0 < len(original) <= 256 * 1024
+reader = gguf.GGUFReader(path, mode="r")
+descriptor_count = len(os.listdir("/proc/self/fd"))
+try:
+    for record in emitted["records"][-3:]:
+        field = reader.fields[record["name"]]
+        assert field.types == [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32 if record["kind"] == "i32_array" else gguf.GGUFValueType.STRING]
+        values = tuple(int(field.parts[index].item()) if record["kind"] == "i32_array" else field.parts[index].tobytes().decode() for index in field.data)
+        assert values == tuple(record["values"])
+    proof_arguments = dict(arguments, expected_file_bytes=len(original), expected_file_sha256=hashlib.sha256(original).hexdigest())
+    proof = prism_codec.verify_profile_gguf_selected_fast_metadata_v4(profile, inventory, manifest, blocks, reader=reader, **proof_arguments)
+    assert proof["selected_fast_metadata_policy_version"] == 4 and len(proof["metadata_names"]) == 30
+    assert proof["token_roles_sha256"] == emitted["token_roles_sha256"]
+    assert proof["gguf_tokenizer_verification"] == proof["pre_tokenizer_tag_verification"] == "not_checked"
+    original_verify, calls = prism_codec._verify_profile_gguf_metadata_records, []
+    def tracked_verify(*args, **kwargs):
+        calls.append(True)
+        return original_verify(*args, **kwargs)
+    prism_codec._verify_profile_gguf_metadata_records = tracked_verify
+    try:
+        try:
+            prism_codec.verify_profile_gguf_selected_fast_metadata_v4(profile, inventory, manifest, blocks, reader=object(),
+                **{**proof_arguments, "token_roles": {**fixture["token_roles"], "<marker>": "source_special"}})
+        except ValueError:
+            assert not calls
+        else:
+            raise AssertionError("wrong source role accepted")
+    finally:
+        prism_codec._verify_profile_gguf_metadata_records = original_verify
+    field = reader.fields["tokenizer.ggml.token_type"]
+    offset = int(field.parts[field.data[26]].ctypes.data - reader.data.ctypes.data)
+    assert int.from_bytes(original[offset:offset + 4], "little") == 4
+    changed = bytearray(original)
+    changed[offset:offset + 4] = (3).to_bytes(4, "little")
+    fault_path = root / "fault.gguf"
+    fault_path.write_bytes(changed)
+    fault_reader = gguf.GGUFReader(fault_path, mode="r")
+    try:
+        try:
+            prism_codec.verify_profile_gguf_selected_fast_metadata_v4(profile, inventory, manifest, blocks, reader=fault_reader,
+                **{**proof_arguments, "expected_file_sha256": hashlib.sha256(changed).hexdigest()})
+        except ValueError as error:
+            assert "byte mismatch" in str(error)
+        else:
+            raise AssertionError("fresh-hash marker promotion accepted")
+    finally:
+        fault_reader.data._mmap.close()
+        fault_path.unlink()
+    assert len(os.listdir("/proc/self/fd")) == descriptor_count and path.read_bytes() == original
+    assert sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536 < 8 * 1024**2
+finally:
+    reader.data._mmap.close()
+print(json.dumps({"rows": 32, "selected_records": 30, "role_refusals": 1, "fresh_hash_type_refusals": 1,
+    "file_bytes": len(original), "token_roles_sha256": emitted["token_roles_sha256"]}, sort_keys=True))
+'''
+    with TemporaryDirectory(prefix="jev-selected-roles-") as directory:
+        root = Path(directory)
+        inputs = root / "inputs"
+        inputs.mkdir()
+        files = {**metadata, "tokenizer.json": tokenizer_bytes}
+        assert sum(len(value) for value in files.values()) <= 65536
+        for name, value in files.items():
+            (inputs / name).write_bytes(value)
+            (inputs / name).chmod(0o400)
+        (root / "fixture.json").write_text(json.dumps(fixture))
+        (root / "projection.bin").write_bytes(raw)
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+            "TOKENIZERS_PARALLELISM": "false", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": "",
+            "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
+        for flag in ("MIMO_TOKENIZER_ROWS_APPROVED", "MIMO_TOKENIZER_ONLY_APPROVED", "MIMO_TOKENIZER_INVENTORY_APPROVED",
+            "MIMO_TOKENIZER_JOINT_APPROVED", "MIMO_TOKENIZER_CONTEXT_APPROVED", "MIMO_TOKENIZER_ROLE_CONTEXT_APPROVED", "MIMO_TOKENIZER_NATIVE_ORACLE_APPROVED"):
+            env.pop(flag, None)
+        result = _run_tokenizer_only_guard_v3(interpreter, code, json.dumps({"scratch": directory}).encode(), env=env,
+            maximum_seconds=15, maximum_rss_bytes=1024**3)
+        assert result["returncode"] == 0, result["stderr"]
+        report = json.loads(result["stdout"])
+        for name, value in files.items():
+            assert (inputs / name).read_bytes() == value and not (inputs / name).stat().st_mode & 0o222
+        assert sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536 < 8 * 1024**2
+        report.update({name: result[name] for name in ("observed_group_rss_bytes", "observed_group_high_water_sum_bytes",
+            "observed_process_swap_bytes", "host_swap_baseline_bytes", "observed_host_swap_bytes", "observed_host_available_minimum_bytes")})
+    assert not root.exists() and time.monotonic() - started < 60
+    report.update(scratch_cleaned=True, elapsed_seconds=time.monotonic() - started)
+    print(json.dumps(report, sort_keys=True))
+
+
 def test_pinned_profile_selected_metadata_composition_on_synthetic_sources():
     _run_selected_metadata_composition_control()
 

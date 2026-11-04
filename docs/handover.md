@@ -6,9 +6,81 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Role-Aware Selected Metadata Checkpoint (2026-11-04)
+
+The user explicitly selected **Approve Synthetic Role Composition** for the
+proposal committed as `222a414`, with a separate **200 s model-free ceiling**.
+The v4 writer and retained-file verifier are now implemented and tested; the
+proposal below is historical. All eight learned approvals remain consumed,
+and the earlier600 s ledger stays237.26 used/362.74 unused and frozen.
+
+`write_profile_model_selected_fast_metadata_v4` and
+`verify_profile_gguf_selected_fast_metadata_v4` require explicit `token_roles`
+and reuse the verified-role row/merge owner. Receipts retain its profile-bound
+role hash. The shared private preparation/verifier preserve the old v3 public
+signature, defaults and receipt claims. There are still29 jointly preflighted
+writer keys and30 selected file declarations, with no added GGUF fields.
+Writer preparation defaults30 s/ceiling60 s; retained proof defaults30 s/
+ceiling180 s with one cooperative deadline and at most60 s remaining time
+passed into role preparation. Native tokenizer/pre-tag checks stay unchecked;
+storage/source-role verification grants no runtime approval.
+
+Focused checks, all with `/opt/venv/bin/python`, bytecode/cache writes disabled:
+
+- Existing v3 writer/proof controls:22 passed0.56 s; new v4 writer controls:
+  15 passed0.47 s; combined extraction check:37 passed0.81 s; new v4 retained
+  proof controls:20 passed0.50 s. After test-only typing clarification, all35
+  new v4 controls passed0.82 s. Refusals cover missing/wrong roles, malformed
+  budgets, source/profile/manifest/template pins, duplicate late keys and
+  deadlines before/after preparation and retained verification.
+- `test_pinned_profile_selected_role_metadata_composition_on_synthetic_sources`:
+  **1 passed2.29 s**, actual parent2.164227225 s. The pinned cached-library
+  worker used32 generated rows, explicit two source-special/one ordinary-marker
+  roles, typed tokens/types/merges readback,29 emitted/30 selected records and
+  a separate two-byte BF16 anchor. Fresh retained proof passed. A wrong marker
+  role refused before reader use; a newly hashed USER_DEFINED4-to-CONTROL3
+  mutation refused exact declaration bytes. The original2240 B file stayed
+  unchanged, descriptor count returned to baseline, read-only inputs stayed
+  unchanged and owned scratch was removed.
+- Actual integration group RSS and high-water sum both260354048 B; minimum
+  observed host available18517340160 B. Owned swap0 and host-swap baseline0
+  stayed unchanged. The existing15 s/1 GiB group guard,2 GiB host reserve,
+  60 s stage,64 KiB input/256 KiB file/8 MiB logical scratch bounds passed.
+  Model-cache content, network and child creation were audit-denied. These
+  are host observations, not target-device guarantees; no arrays/GGUF retained.
+- Unchanged v3 writer/proof/role controls plus cached generated
+  `[synthetic-joint-selected]` and `[synthetic-joint-roles]`: **57 passed9.85 s**
+  under28+2 s. All seven learned flags and the native runtime opt-in were unset.
+- Required root gate under the unchanged38+2 s cap, with all learned and
+  cached/native opt-ins unset: **1806 passed,228 skipped in25.98 s**, followed
+  by clean Ruff and `git diff --check`. Optional skip success is not native,
+  learned or full-model evidence. No native build/CTest or learned invocation
+  ran in this checkpoint.
+
+Pylance/editor diagnostics are clean. Initial signature checks exposed mixed
+fault-injection dictionary inference in the two new tests, not a runtime API
+failure; explicitly dynamic test dictionaries repaired all four call sites.
+The shared helper/verifier call sites also checked compatible. An initial
+wrong lookup position returned no call sites and was corrected. No runtime
+check failed, resource retry occurred or assertion/guard/tolerance was relaxed.
+The assistant crossed a summary-only pause, acknowledged it and stopped before
+documentation/commit; work resumed on the user's explicit commit/push/continue
+request. Respect pause requests even when implementation remains unfinished.
+
+Measured pytest execution is **41.28/200 s**, excluding lightweight setup,
+review, Pylance and documentation checks. The original stage reservations
+remain40 focused/60 tiny integration/30 compatibility/40 gate/30 setup-docs s;
+unused budget is not authority for another experiment. No downloads, model
+content reads, native/backend/BitNet execution, weights, refit, candidate,
+quality, GPU or device work occurred. Next identify one bounded source-only
+integration gap; native tags, complete tokenizer metadata, rendering and model
+integration require their own explicit scope before implementation. Do not
+rerun the unchanged successful source gate for documentation-only follow-up.
+
 ## Role-Aware Selected Metadata Proposal (2026-11-04)
 
-**PROPOSED ONLY: not approved, implemented or executed.** The selected learned
+**Historical proposal, approved and implemented in the checkpoint above.**
+At proposal time this was not approved, implemented or executed. The selected learned
 native oracle below completed its one-shot scope; all eight learned approvals
 remain consumed. Its600 s ledger stays237.26 used/362.74 unused and frozen.
 Unused time does not authorize a new integration experiment.
