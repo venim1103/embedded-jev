@@ -6,6 +6,64 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Generated Tokenizer Bootstrap Metadata Proposal (2026-11-04)
+
+**PROPOSED ONLY: not approved, implemented or executed.** The role-aware
+selected-field checkpoint is committed/pushed as `7e345ca`. The user requested
+commit, push and continuation; this proposal prepares the next explicit scope,
+not permission to reuse a consumed learned approval or unused execution time.
+All eight learned approvals and the previous200 s model-free scope remain
+closed; no new model-cache content read or native build/invocation has run.
+
+Local evidence: `_prepare_profile_selected_fast_metadata` combines policy,
+context/template and rows/types/merges, but intentionally omits tokenizer
+model/pre-tag and special-ID/add-token declarations. The existing native
+vocabulary reader separately requires eight such fields in its12-field,
+zero-tensor GPT2-container scaffold: model/pre-tag, BOS/EOS/unknown/padding IDs
+and add-BOS/add-EOS booleans. Its scaffold must not be relabeled as the selected
+Qwen model's architecture, source defaults or a full-model metadata contract.
+
+Hypothesis: a small, separately versioned declaration preparer can bind those
+eight fields to an explicit caller policy and freshly verified source roles,
+without guessing defaults or changing the v3/v4 selected APIs. Start with
+`prepare_profile_model_fast_tokenizer_bootstrap_v1`, reusing the existing role
+owner. Require an exact policy schema, profile identity, supported declared
+model/pre-tag pair and all four IDs/two booleans. IDs must be strict non-bool
+integers, in range, unpadded and associated with verified source-special
+CONTROL rows; valid aliases are allowed. The initial declared GPT2/Qwen35
+scaffold policy requires both insertion flags false. Return eight immutable
+typed declarations plus profile/role/policy identities, with pre-tag/source-
+default/runtime acceptance explicitly unverified. A policy hash is an identity,
+not issuer authentication. Do not accept a caller's old verification receipt.
+
+First discriminating check: a tiny generated role fixture produces exactly
+eight correctly typed declarations; malformed/missing/extra policy members,
+wrong profile, bool-as-ID, out-of-range/padded/ordinary-marker IDs and true or
+non-bool insertion flags refuse before any writer mutation. Source-pin and
+role changes must also refuse. Inspect shared record boolean support locally;
+if support is missing, isolate a versioned strict BOOL path rather than
+weakening old accepted-kind/default/type checks. Preserve independent row/
+group scales and all existing metadata signatures, limits and receipt claims.
+
+Acceptance is model-free: extend existing tests, then one32-row generated
+fixture with cached pinned libraries, typed GGUF readback and fresh-hash ID/
+boolean corruption refusals through the existing bounded record machinery.
+Keep source inputs<=64 KiB, file/fault<=256 KiB, logical scratch<=8 MiB,
+15 s worker/60 s stage, observed group RSS<=1 GiB, host reserve>=2 GiB and
+no owned swap/host-swap growth. Audit-deny model-cache contents, network and
+child creation. All learned/native opt-ins remain unset. Reuse existing
+helpers; no downloads, installed/pinned-source changes, new test file or
+retained generated artifact. Do not retry a resource failure or relax guards.
+
+Request a **new separate200 s model-free ceiling**:40 s focused checks,
+60 s tiny integration,30 s compatibility,40 s required source gate and30 s
+setup/focused repair/docs/cleanup. Commit meaningful tested increments with
+accurate evidence. This slice is declaration preparation only: no combined
+selected v5 API, native command/build/execution, source-default promotion,
+template rendering, full tokenizer/model integration, BitNet execution,
+weights/conversion/refit/candidate/quality/GPU/device work. Those remain
+separate scopes. Approval must precede implementation or optional execution.
+
 ## Role-Aware Selected Metadata Checkpoint (2026-11-04)
 
 The user explicitly selected **Approve Synthetic Role Composition** for the
