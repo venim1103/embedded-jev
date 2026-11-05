@@ -9,8 +9,13 @@ followed on 2026-10-09, then a [derivative release review](#derivative-release-r
 of the releases the user prefers.
 Subsequent source downloads, streamed text inference, and bounded native
 integration controls are recorded in the
-[current handover](handover.md#current-checkpoint-2026-10-08). This document's
-original mathematical/source conclusions are not model-quality measurements.
+[engineering handover](handover.md), including the
+[selected learned tokenizer comparison](handover.md#learned-native-oracle-retry-passed-2026-11-04)
+and [bootstrap checkpoint](handover.md#generated-tokenizer-bootstrap-checkpoint-2026-11-04).
+These evidence pointers were reconciled on 2026-11-05 without a new upstream
+source review or experiment. The original mathematical/source conclusions
+are not model-quality measurements; later bounded proofs do not establish
+full-model quality, calibration or deployment.
 
 The later [bounded precision diagnostic](development.md#bounded-prefill-precision-diagnostic)
 matches embeddings exactly, first diverges at layer 0, and reproduces the frozen
@@ -26,7 +31,7 @@ it is negative evidence against promoting that change, not a quality result.
 
 Pursue **Qwen3.5 9B-class ternary quantization + genuine BitNet-derived CPU
 execution + SemIf-style typed decisions** as an experimental system. Preserve
-all three goals, but do not describe them as an already compatible stack.
+all three goals, but do not describe them as a validated whole-model stack.
 Quantization quality and runtime representation must be designed together before
 a full-model conversion.
 
@@ -42,8 +47,14 @@ The [derivative review](#derivative-release-review) adds support tiers for
 fine-tuned, merged, wrapped, GGUF-only and depth-expanded releases and recommended
 a first non-MiMo candidate, which the user selected on 2026-10-09.
 
-The most important missing work is a **group-scaled ternary kernel integration**
-for Qwen3.5, not another Python wrapper around a stock BitNet installation.
+The initial group-scaled ternary integration gap now has
+[real one-projection native evidence](development.md#approved-single-projection-native-model):
+the frozen codes and independent FP16 row/group scales survive actual
+BitNet-derived execution inside MiMo. This does not close full-model dispatch,
+the native/reference numerical gap or representative decision quality.
+The next path is atomic metadata, same-contract native integration and
+operation/precision acceptance before broader quantization, as defined in the
+[delivery sequence](roadmap.md#delivery-sequence-toward-a-working-text-system).
 Retain a native BitNet checkpoint as a runtime control, not as an undisclosed
 replacement for whichever model is selected as the test subject.
 

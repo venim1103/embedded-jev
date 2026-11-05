@@ -1,10 +1,87 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-11-04. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-11-05. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
+
+## Atomic Selected Metadata Proposal (2026-11-05)
+
+**PLANNING ONLY: not implemented or executed, new execution budget not yet
+approved.** The user requested a documentation update and concrete next steps
+toward a functioning system. The tested bootstrap checkpoint was committed
+and pushed as `b86538b`; its generated-only 200-second scope is closed. All
+eight learned approvals remain consumed. The earlier 600-second ledger is
+frozen at 237.26 used/362.74 unused; unused time grants no new experiment.
+Only the user's untouched `.vscode/` was untracked before these doc edits.
+
+The [delivery sequence](roadmap.md#delivery-sequence-toward-a-working-text-system)
+now defines S1-S6 and a first reproducible one-profile CPU text runner, using
+dense and one-frozen-projection controls before broader quantization. Its
+gates include zero generation, exact option mapping, fail-closed scores,
+fresh/reused-state agreement, numerical acceptance and measured resources.
+Quality, calibration, another model's execution and device/vision claims stay
+separate. Do not bypass numerical or quality gates to reach full-model export.
+
+Immediate S1 hypothesis: a versioned
+`write_profile_model_selected_fast_metadata_v5` and
+`verify_profile_gguf_selected_fast_metadata_v5` can share the existing selected
+preparation, verified-role facts and explicit bootstrap policy to produce one
+contract, preserving all v3/v4 and bootstrap-v1 public behavior. Require
+caller-supplied `token_roles` and `bootstrap_policy`; keep the declared
+GPT2/Qwen35 tokenizer pair, false-only insertion flags and unpadded
+source-special CONTROL IDs, including permitted aliases. Do not infer source
+defaults, change the container architecture or treat policy hashes as authority.
+
+The writer must prepare and jointly preflight all 37 emitted keys before any
+mutation, including late BOOL/ID/policy conflicts. The verifier must freshly
+prepare the same declarations, bind profile/role/bootstrap identities and
+perform one bounded retained-file proof of all 38 selected fields, including
+`general.architecture`, under one cooperative deadline. Do not call the v4
+writer then append bootstrap fields, accept stale caller receipts, or assemble
+a success from two independent file proofs. Reuse fresh internal role facts
+without exposing an API accepting an unverified prepared receipt. Retain the
+explicit writer-policy-2/record-policy-4 BOOL paths and every old limit/default;
+native tokenizer/pre-tag, source defaults and runtime approval stay unchecked.
+
+First discriminating check: an invalid bootstrap policy or a duplicate final
+BOOL key leaves every writer record unchanged. Fresh proof checks must refuse
+wrong roles, stale source/profile/template/policy identity and expired budgets
+before reader use at their corresponding preflight boundary. Check exactly
+37/38 declarations and prove newly hashed selected-row/type/merge, special-ID
+and BOOL corruptions reach exact retained declaration comparison. Preserve the
+existing independent v3/v4/bootstrap controls unchanged.
+
+Proposed acceptance reuses one existing audit-denied 32-row fixture and pinned
+cached libraries: typed readback, one fresh public proof, role/policy/source
+refusals and newly hashed file faults. Source inputs and copies each <=64 KiB,
+file/fault each <=256 KiB, logical scratch <=8 MiB, 15-second worker/60-second
+stage, group RSS <=1 GiB, host reserve >=2 GiB, no owned swap or host-swap
+growth. Deny model-cache content, network and child creation. Reverify cached
+tools/pins and host resources first; missing caches are a blocker, not download
+permission. Retain no GGUF, arrays, spill or worker. No resource-failure retry
+or assertion/tolerance/guard relaxation.
+
+Request a **new separate 200-second model-free execution ceiling**: 40 seconds
+focused controls, 60 tiny integration, 30 v3/v4/bootstrap compatibility, 40
+required source gate and 30 setup/focused repair/docs/cleanup. Commit tested
+increments. Approval must precede source edits or optional execution for S1;
+S2 native edits/builds/runs need a separate scope. No learned reads, conversion,
+weights/downloads, refit/candidate promotion, held-out scoring, GPU/device or
+whole-model work is included. After S1, prepare S2's same-contract native
+consumer/runner and S3's unresolved operation/precision checks, not another
+unbounded metadata expansion.
+
+Documentation-only validation: the first scoped roadmap checker incorrectly
+counted the Step header as a delivery row; its numbered-row matcher was fixed
+and the unchanged six-step, 37/38-field, scope and table checks passed. This
+was a checker defect, not a numerical/resource failure. No source/native gate
+was rerun; `b86538b` retains the recorded 1843-pass/229-skip source evidence.
+All eight documents passed local-link/anchor, fence and table validation;
+whitespace and editor diagnostics were clean. Overview/gate pointers were
+reconciled without rewriting earlier failures, source revisions or resource
+snapshots as current facts. README and agent workflow rules were unchanged.
 
 ## Generated Tokenizer Bootstrap Checkpoint (2026-11-04)
 

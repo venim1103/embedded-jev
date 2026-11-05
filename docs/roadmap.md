@@ -5,17 +5,51 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-For the current stop/resume boundary and latest tested native-role slice, read
-the [GPU-container handoff](handover.md#gpu-container-handoff-2026-11-03) and
-[native-role checkpoint](handover.md#synthetic-native-role-vocabulary-checkpoint-2026-11-03).
-Generated lexical controls and one-shot learned Python contracts do not close
-native learned-model, full-model quality, calibration or target-device gates.
-For the historical geometry implementation at `db002c1`, read the
-[projection checkpoint](handover.md#projection-geometry-checkpoint-2026-10-09).
-The [historical real-model checkpoint](handover.md#current-checkpoint-2026-10-08)
-at `9408f3f` retains its separate MiMo inference and numerical evidence.
-The numbered items below retain the milestone plan, not a list of entirely
-unimplemented features; completed scoped probes are described alongside them.
+Current planning baseline: `b86538b`, reviewed 2026-11-05. Read the
+[bootstrap checkpoint](handover.md#generated-tokenizer-bootstrap-checkpoint-2026-11-04),
+[role-aware selected checkpoint](handover.md#role-aware-selected-metadata-checkpoint-2026-11-04)
+and [learned tokenizer comparison](handover.md#learned-native-oracle-retry-passed-2026-11-04).
+Real 32-layer MiMo text scoring and native execution with one frozen BitNet
+projection exist; whole-model ternary, numerical acceptance, representative
+quality, calibrated confidence and target-device gates remain open.
+The stage-by-stage notes below retain historical evidence, not current
+authorization or a list of entirely unimplemented features. Old GPU handoffs
+and resource snapshots must not be treated as current environment facts.
+
+## Delivery Sequence Toward a Working Text System
+
+The first functioning-system target is a reproducible local CPU text runner
+for one separately validated profile: evidence, question and 2-16 described
+options produce an option ID and conditional scores with zero generated
+answer tokens. It must bind its model, tokenizer, metadata, artifact and runtime;
+withhold scores on contract/kernel failure; and demonstrate fresh/reused-context
+agreement under a written precision contract and measured resource bounds.
+Start with a dense control and the existing one-projection BitNet path. This
+is not yet a fully ternary model, calibrated service or deployment claim.
+
+| Step | Concrete Deliverable | Exit Evidence and Scope Boundary |
+| --- | --- | --- |
+| S1. Atomic selected metadata | Proposed v5 Python writer and retained-file verifier composing the existing selected fields with explicit bootstrap declarations | One joint preflight for 37 emitted keys; one fresh bounded proof of all 38 selected file fields, including architecture; strict BOOL and unchanged v3/v4 behavior. Generated fixtures only. Does not establish native tags, source defaults or model execution. |
+| S2. Native contract and runner | Consume that same contract through the profile-aware native path and a prefill-only typed decision entry point | Generated native positive/refusal, exact token/option mapping, counted BitNet dispatch, no-score failure, context reset/reuse and cleanup controls. Native edits/builds and optional runs need their own bounded scope; never send real profiles through generated-only policies. |
+| S3. One-profile numerical acceptance | Resolve the existing native/reference first divergence and validate dense plus frozen-projection scoring on identical inputs | Operation/state/precision evidence, preserved candidate identity, acceptance criteria written before the run, fresh/reused-context checks and measured resources. New model conversion or learned diagnostics require separate approval; no tolerance relaxation or refitting to hide discrepancies. |
+| S4. Decision-quality baseline | Freeze a representative task fixture and evaluate dense and one-projection paths | Licensed split/provenance, declared quality target, held-out accuracy and perturbation/error analysis. Conditional scores remain uncalibrated until a separately fitted and tested decision calibration passes. Dataset acquisition and held-out scoring require approval. |
+| S5. Broader ternary model | Quantize and export selected blocks, then eligible whole-model projections, with resumable artifacts | Preserve independent FP16 row/group scales, isolate weight/A8 loss, verify runtime parity and actual dispatch, and pass the quality target. New fitting, retained candidates, conversion and larger experiments require approval. Stop rollout if quality fails. |
+| S6. Reusable service and device validation | Complete cache/concurrency/cancellation behavior, independently validate another profile, and measure the integrated target | Fresh/cached score agreement, request isolation, calibrated metrics where claimed, and actual latency/RAM/power/thermal measurements. ARM64, RISC-V and vision require separate hardware/adapters/evidence; none is implied by x86 controls. |
+
+S1 is the immediate, finite integration gap: selected v4 proves 30 fields and
+bootstrap v1 prepares eight more, but their current real-file controls prove
+the two sets separately. Do not serialize v4 first and then append bootstrap
+fields: a late bootstrap refusal must leave the writer unchanged. Do not accept
+a caller's old receipt instead of fresh source/role/policy preparation.
+See the [next-step proposal](handover.md#atomic-selected-metadata-proposal-2026-11-05)
+for acceptance checks and a requested new 200-second model-free ceiling.
+Documentation planning does not grant that execution budget or authorize S2-S6.
+
+Keep S1 limited to this composition; its successful proof is not permission to
+keep expanding metadata indefinitely or claim a functioning native system.
+S2 and S3 must close the runtime boundary next. The selected model may change
+through the support gate without first finishing MiMo whole-model quantization;
+second-profile runtime work remains independently validated and approved.
 
 ## Model Scope and Support Gate
 
@@ -78,7 +112,7 @@ item touches.
 | P1 | Metadata-only preflight of the selected Defiant Fable source: pinned files, header inventory, tokenizer/template label probe, plus the `plusIQ` header-and-sample comparison | Done 2026-10-09 within the approved bounds; see the [results](development.md#preflight-results) | Reconciled inventory and budgets, verified non-thinking suffix and label IDs, sampled GGUF comparison; no other weights read |
 | P2 | Dense streamed reference, vocabulary-only and BF16 native prefill, and precision traces for that profile | Full download and temporary conversion; approval needed | Acceptance criteria written first; zero generation; resources and cleanup recorded |
 | P3 | Implemented bounded owned-projection proof 2026-10-09: compact FP16/BitNet blocks, larger v2 geometry and profile/manifest-driven tensor gate beside strict v1 | None (synthetic plus the existing MiMo artifact) | Exact 8,192/12,288-row and frozen-v2 parity, reference/manifest/bound refusals, unchanged v1/native-prefill controls; zero auxiliary weight arrays; complete-model policy remains P4 |
-| P4 | Bounded synthetic prerequisites verified 2026-10-15: owned policy, actual-loader, seven roles, bounded metadata, verified-file owner, selected six-module pins, conversion plan and explicit complete source/converted/selected-policy gates with separate opt-in source-exit recheck beside unchanged MiMo v1 | Expanded approval permits bounded cached-MiMo numerical diagnostics; one conversion stopped on its swap guard, two smaller real recurrent-operand replays completed | Exact scales/typed scores; 49 nonzero two-shard workflows and 28 pre-yield/42 post-prefill first/last-shard refusals with unchanged full/peer/max128 oracles; separate fixed- and input-dependent-gate recurrent seven-role sets add 98 workflows/84 exit/56 entry refusals, with three/four faulty-oracle discriminators respectively; one/two-shard lifecycle/shared-deadline and paired loader cases verify aggregate bounds/28 ranges/selected metadata, plus 12 paired post-prefill shard/effect refusals with score withholding/cleanup; eight selected operand pairs discriminate arithmetic/layout; real source/frozen equivalence, issuer/full metadata/reader-code/loaded-page/transitive dependency proof and quality remain open; no real-profile v2/P4 execution acceptance |
+| P4 | Bounded synthetic prerequisites verified 2026-10-15: owned policy, actual-loader, seven roles, bounded metadata, verified-file owner, selected six-module pins, conversion plan and explicit complete source/converted/selected-policy gates with separate opt-in source-exit recheck beside unchanged MiMo v1 | Historical expanded approval covered bounded cached-MiMo numerical diagnostics; one conversion stopped on its swap guard, two smaller real recurrent-operand replays completed. New runs require separate approval. | Exact scales/typed scores; 49 nonzero two-shard workflows and 28 pre-yield/42 post-prefill first/last-shard refusals with unchanged full/peer/max128 oracles; separate fixed- and input-dependent-gate recurrent seven-role sets add 98 workflows/84 exit/56 entry refusals, with three/four faulty-oracle discriminators respectively; one/two-shard lifecycle/shared-deadline and paired loader cases verify aggregate bounds/28 ranges/selected metadata, plus 12 paired post-prefill shard/effect refusals with score withholding/cleanup; eight selected operand pairs discriminate arithmetic/layout; real source/frozen equivalence, issuer/full metadata/reader-code/loaded-page/transitive dependency proof and quality remain open; no real-profile v2/P4 execution acceptance |
 | P5 | Float-GGUF source adapter (Tier C): header and tensor-table identity, BF16 eligibility, explicit `nextn` exclusion, inverse value-head permutation, independent layout anchor | Header-and-sample range reads, then the full file; separate approval for each | Synthetic GGUF fixtures pass; sampled, then all, eligible tensors byte-identical to a sibling conversion, or refusal |
 | P6 | Wrapped-decoder adapter (Tier B): static nested-configuration reader, declared prefix rename, text-only conversion, no repository code | Metadata for fixtures; real conversion needs approval | Renamed tensors keep payload hashes; geometry comes from the nested configuration; licence terms recorded |
 | P7 | Depth variants (Tier D): layer count and pattern from the profile throughout Python, traces and native policy; explicit recurrent-layer array for irregular patterns | None for synthetic fixtures; real models need approval | Synthetic 48-layer and irregular-pattern fixtures; MiMo results unchanged; budgets recomputed |
@@ -139,8 +173,10 @@ on prompt IDs and A-P labels.
 A single complete BF16 source snapshot was downloaded and SHA-256 verified on
 2026-09-29; its local headers also reconcile, but no full quantized model was kept.
 A synthetic five-case agent/tool fixture verifies option mapping, not model
-quality. Vision inputs, native tokenization parity, a real held-out decision
-fixture, representative calibration, and dense task accuracy remain open.
+quality. A later source/native tokenizer comparison passed 38 selected real
+MiMo cases; general text/native-template equivalence is not established.
+Vision inputs, a representative held-out decision fixture, representative
+calibration and dense task accuracy remain open.
 Full-vocabulary label mass was measured for the engineering prompt only.
 A CPU-only BF16 text path now runs all 32 layers in sequence and reads only
 selected untied-head rows: on one 22-token non-thinking engineering prompt,

@@ -4,6 +4,14 @@ The first environment is CPU-first so source research, mathematical tests, Pytho
 development, and C++ kernel work do not require an NVIDIA runtime. It is a
 development image, not the eventual minimal edge deployment image.
 
+Start with the [current handover](handover.md) for tested checkpoints and active
+approval boundaries, and the
+[delivery sequence](roadmap.md#delivery-sequence-toward-a-working-text-system)
+for the next integration gate. Commands below are technical references, not
+authorization: some recorded model files were deleted and old environment
+snapshots may not describe the current container. Verify prerequisites before
+running optional checks; never download or reconvert implicitly.
+
 ## Model Scope and Existing Commands
 
 The intended system supports multiple Qwen3.5 9B-class models.
@@ -22,7 +30,7 @@ Keep the current metadata, geometry and source guards. MiMo execution refuses
 unmatched profiles; explicit offline packaging is a separate path (see the
 identity boundary below).
 
-Once implementation is resumed, onboard a different checkpoint through the
+Onboard a different checkpoint through the
 [model support gate](roadmap.md#model-scope-and-support-gate) and planned
 [profile contract](design.md#model-profiles-and-portability). Validate its own
 configuration, tokenizer/template, tensor mapping, precision/state behavior and
@@ -85,12 +93,14 @@ inputs remain unbound, while unmatched directories are refused. The original
 MiMo Prism-width mapper remains MiMo-only; `profile_prism_expected_widths()`
 requires an inventory bound to the supplied record.
 
-The latest source checkpoint is `db002c1`: 234 default tests passed, 39 optional
+At the historical profile checkpoint `db002c1`, 234 default tests passed, 39 optional
 tests skipped, with 139 focused inventory/label/data/evaluation cases. P0's cached
 metadata/tokenizer/legacy-capture checks did not run model inference. P3 later
 passed 11 selected compiled native controls and GCC ASan/UBSan/leak checks, as
-recorded in [current gates](#current-checkpoint-and-gates). No new real complete
-model was converted or inferred; full shard hashing was not rerun.
+recorded in [gate history](#current-checkpoint-and-gates). At that checkpoint
+no new real complete model was converted or inferred; full shard hashing was
+not rerun. Newer implementation and verification evidence is in the handover,
+not represented by these historical test counts.
 
 ### Offline Packaging Adapters
 
@@ -322,8 +332,17 @@ matches, and keep its control syntax behind
 
 ## Current Checkpoint and Gates
 
-The latest tested source checkpoint is the 2026-10-13 reusable complete tensor
-table API, following complete synthetic prefill integration at `8e11f7a`
+For current test evidence, resource ceilings and active approvals, read the
+[engineering handover](handover.md). Follow the
+[agent workflow](../AGENTS.md#verification-and-commits) for source checkpoints:
+default success does not imply optional native/learned checks ran, and a failed
+gate must be diagnosed before a repaired rerun. Documentation-only changes
+need content/link/whitespace validation, not another unchanged source gate.
+Keep learned/cached opt-ins unset for the default gate; run optional commands
+only within their separately approved prerequisites and bounds.
+
+**Historical 2026-10-13 complete-table evidence:** the reusable complete tensor
+table API followed complete synthetic prefill integration at `8e11f7a`
 and convolution file ranges at `7f21b1e`,
 following convolution operands at `daf92f1`,
 following BF16 matrix file ranges at `c783c2f`, exact matrix operands at `ef51266`, complete synthetic vectors
@@ -335,7 +354,7 @@ at `4973863`, following `1426bce`,
 following verified-file owner `e6f6824`,
 following bounded metadata correction `af62d7e`, the seven-role proof `fab3cc0`, `d653efc`, `c825cfc`, P0.1-P0.4
 and bounded P3; resident compaction is `cedaeec`. The
-[latest handover](handover.md#complete-table-api-checkpoint-2026-10-13) records
+[historical table checkpoint](handover.md#complete-table-api-checkpoint-2026-10-13) records
 392 default passes/54 optional skips, twelve batch preflight cases, two pinned
 operand/file controls and nine complete-stage/native cases:
 189 dense ranges plus seven frozen payloads across seven supported roles.
@@ -397,7 +416,7 @@ git diff --check
 The expanded P3/P4 command below selects 25 compiled controls using
 only pinned cached sources/environments, synthetic fixtures and the sole frozen
 projection. It does not run a real complete model or convert/download one.
-The latest role-only increment ran its 16 focused record/role checks, not this
+At that stage the role-only increment ran its 16 focused record/role checks, not this
 expanded full command; the preceding 20-control result remains historical evidence.
 Rebuild our isolated wrapper first only if its tracked native sources changed;
 do not overwrite pinned GGML libraries or change user editor settings to fix

@@ -1,8 +1,13 @@
 # Source Register
 
-Initial audit: 2026-09-25. Updated: 2026-10-09. These primary sources and the
-later scoped experiments below support the
-[current handover](handover.md#current-checkpoint-2026-10-08).
+Initial audit: 2026-09-25. Upstream observations retain their per-entry dates;
+evidence navigation reconciled 2026-11-05 without refreshing source revisions.
+These primary sources and later scoped experiments support the
+[engineering handover](handover.md). The latest
+[learned tokenizer comparison](handover.md#learned-native-oracle-retry-passed-2026-11-04)
+and [bootstrap checkpoint](handover.md#generated-tokenizer-bootstrap-checkpoint-2026-11-04)
+have separate evidence limits; neither approves another model's execution or
+establishes complete-model quantization, quality or device performance.
 The initial audit inspected source code without executing model weights or
 benchmark suites; subsequent model/native controls are distinguished below.
 Paper titles/abstracts and linked project documentation establish their scope,
@@ -16,7 +21,9 @@ The broader target is multiple Qwen3.5 9B-class models, not MiMo alone. The
 sources and real-model evidence in this register remain tied to the first
 subject's pinned revision. The first non-MiMo profile, DavidAU's Defiant Fable
 safetensors source at `7af0a9c4`, was selected on 2026-10-09 but is not
-validated; the base Qwen3.5-9B and other derivatives received only the
+runtime-validated; its [offline preflight](development.md#preflight-results)
+does not establish dense/native inference or quality. The base Qwen3.5-9B
+and other derivatives received only the
 [metadata review](#qwen35-family-observations) below, and the user's preferred
 releases the [derivative observations](#derivative-release-observations). Add
 separate source/license, configuration, tokenizer/template, weight-hash and

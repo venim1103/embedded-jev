@@ -1,14 +1,17 @@
 # Embedded Jev Design
 
-Status: proposed architecture, first written 2026-09-25; implementation status
-checked through `6abb44c` on 2026-10-09; model-family portability and derivative support tiers
-reviewed 2026-10-09. Bounded ternary quantizers, the streamed BF16 text
-reference, and a frozen BitNet-derived FFN inside real native MiMo now exist.
-Strict profiles, verified MiMo report identity and compact, profile-manifest-gated
-owned BitNet projections now exist. Whole-model ternary export, broader
-profile-aware model execution and deployment services remain open.
-The [current handover](handover.md#projection-geometry-checkpoint-2026-10-09) records the
-tested implementation checkpoint, cache paths, constraints, and next native task.
+Architecture first written 2026-09-25; overview reconciled with `b86538b` on
+2026-11-05. The streamed BF16 text reference, bounded ternary quantizers and
+a frozen BitNet-derived FFN inside real native MiMo exist. Strict profiles,
+owned projections, role-aware selected metadata and explicit tokenizer
+bootstrap declarations are implemented; their selected-file proofs are still
+separate. Whole-model ternary export, native/reference numerical acceptance,
+broader profile-aware execution, quality/calibration and deployment remain open.
+The [current handover](handover.md) records tested checkpoints, cache/resource
+constraints and active approval boundaries. The
+[delivery sequence](roadmap.md#delivery-sequence-toward-a-working-text-system)
+defines the first functioning text runner and its gated path, beginning with
+one atomic selected-plus-bootstrap metadata contract, not a new native claim.
 The [family review](research-audit.md#qwen35-9b-class-family-review) records the
 Qwen3.5 9B-class evidence behind the profile requirements below, and the
 [derivative review](research-audit.md#derivative-release-review) the evidence
