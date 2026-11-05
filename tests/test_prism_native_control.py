@@ -9755,7 +9755,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
     print(json.dumps(report, sort_keys=True))
 
 
-def _run_selected_role_metadata_composition_control(*, bootstrap=False, atomic=False):
+def _run_selected_role_metadata_composition_control(*, bootstrap=False, atomic=False, native=False):
     import hashlib
     import time
     from tempfile import TemporaryDirectory
@@ -9766,6 +9766,14 @@ def _run_selected_role_metadata_composition_control(*, bootstrap=False, atomic=F
 
     source_dir, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
     assert subprocess.check_output(["git", "-C", str(source_dir), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    if native:
+        assert atomic and not bootstrap
+        build_dir = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+        if not build_dir:
+            pytest.skip("requires the pinned Release loader build for generated metadata only")
+        executable = Path(build_dir) / "bin/prism_bitnet_loader_control"
+        assert executable.is_file()
+        assert "CMAKE_BUILD_TYPE:STRING=Release" in (Path(build_dir) / "CMakeCache.txt").read_text()
     started = time.monotonic()
     tokens = list("ABCDEFGHIJKLMNOP") + [f"token{index}" for index in range(16, 32)]
     tokens[20:23], tokens[24:27] = ["a", "b", "ab"], ["<pad>", "<|control|>", "<marker>"]
@@ -9791,6 +9799,7 @@ def _run_selected_role_metadata_composition_control(*, bootstrap=False, atomic=F
     fixture["token_roles"] = roles
     fixture["bootstrap"] = bootstrap
     fixture["atomic"] = atomic
+    fixture["native"] = native
     code = r'''
 import hashlib
 import json
@@ -10072,6 +10081,14 @@ try:
                 fault_reader.data._mmap.close()
                 fault_path.unlink()
         assert atomic_fault_refusals == 40
+        if fixture["native"]:
+            expected = json.dumps([dict(record) for record in fresh["records"]]).encode()
+            assert len(expected) <= 65536
+            (root / "expected.json").write_bytes(expected)
+            offsets = [{"name": name,
+                "value": int(reader.fields[name].parts[reader.fields[name].data[-1]].ctypes.data - reader.data.ctypes.data),
+                "type": int(reader.fields[name].parts[2].ctypes.data - reader.data.ctypes.data)} for name in fresh["metadata_names"]]
+            (root / "offsets.json").write_text(json.dumps(offsets))
     assert len(os.listdir("/proc/self/fd")) == descriptor_count and path.read_bytes() == original
     assert sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536 < 8 * 1024**2
 finally:
@@ -10104,6 +10121,126 @@ print(json.dumps({"rows": 32, "selected_records": 38 if fixture["atomic"] else 3
             maximum_seconds=15, maximum_rss_bytes=1024**3)
         assert result["returncode"] == 0, result["stderr"]
         report = json.loads(result["stdout"])
+        if native:
+            path, expected_path = root / "selected.gguf", root / "expected.json"
+            original, expected_bytes = path.read_bytes(), expected_path.read_bytes()
+            path.chmod(0o400)
+            expected_path.chmod(0o400)
+            declarations = json.loads(expected_bytes)
+            offsets = json.loads((root / "offsets.json").read_bytes())
+            descriptor_count = len(os.listdir("/proc/self/fd"))
+            execute = "import json, os, sys\narguments = json.loads(sys.stdin.buffer.read(65537))\nos.execv(arguments[0], arguments)"
+            native_calls = native_refusals = output_bytes = 0
+            native_started = time.monotonic()
+            scratch_peak = 0
+            samples = [result]
+
+            def run_native(arguments, status, expected=None):
+                nonlocal native_calls, native_refusals, output_bytes, scratch_peak
+                assert time.monotonic() - native_started < 40
+                scratch_peak = max(scratch_peak, sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536)
+                assert scratch_peak < 8 * 1024**2
+                child = _run_tokenizer_only_guard_v3(interpreter, execute, json.dumps([str(executable), *map(str, arguments)]).encode(),
+                    env=env, maximum_seconds=15, maximum_rss_bytes=1024**3)
+                assert child["returncode"] == status, child
+                if status:
+                    assert not child["stdout"], child
+                    native_refusals += 1
+                else:
+                    assert json.loads(child["stdout"]) == expected, child
+                output_bytes += len(child["stdout"].encode()) + len(child["stderr"].encode())
+                assert output_bytes + len(result["stdout"].encode()) + len(result["stderr"].encode()) <= 8192
+                native_calls += 1
+                samples.append(child)
+
+            command = "--selected-metadata-control-v5"
+            run_native(["--selected-metadata-control-v3", path, expected_path], 30)
+            run_native([command, path, expected_path], 0,
+                {"selected_records": 38, "policy_version": 5, "tensor_data_allocated": False, "model_loaded": False})
+            for arguments in ([command], [command, path], [command, path, expected_path, "extra"]):
+                run_native(arguments, 30)
+            fault_path = root / "native-fault.bin"
+
+            def refuse(*, packet=None, contents=None, status=30):
+                assert (packet is None) != (contents is None)
+                encoded = json.dumps(packet).encode() if packet is not None else contents
+                assert len(encoded) <= (65536 if packet is not None else 256 * 1024)
+                fault_path.write_bytes(encoded)
+                try:
+                    run_native([command, path if packet is not None else fault_path,
+                        fault_path if packet is not None else expected_path], status)
+                finally:
+                    fault_path.unlink()
+
+            refuse(packet=declarations[:-1])
+            refuse(packet=[*declarations, {"name": "extra", "kind": "u32", "values": [0]}])
+            for defect in ("duplicate", "wrong-kind", "unknown-name", "extra-member", "model", "pre",
+                "bool-number", "bool-true", "bool-empty", "bool-many", "id-bool", "id-negative", "id-overflow", "stale"):
+                changed = json.loads(expected_bytes)
+                boolean = next(record for record in changed if record["kind"] == "bool")
+                token_id = next(record for record in changed if record["name"] == "tokenizer.ggml.bos_token_id")
+                status = 30
+                if defect == "duplicate":
+                    changed[-1] = changed[0]
+                elif defect == "wrong-kind":
+                    boolean.update(kind="u32", values=[0])
+                elif defect == "unknown-name":
+                    boolean["name"] = "tokenizer.ggml.unknown"
+                elif defect == "extra-member":
+                    boolean["extra"] = False
+                elif defect in ("model", "pre"):
+                    next(record for record in changed if record["name"] == "tokenizer.ggml." + defect)["values"] = ["unapproved"]
+                elif defect.startswith("bool-"):
+                    boolean["values"] = {"bool-number": [0], "bool-true": [True], "bool-empty": [], "bool-many": [False, False]}[defect]
+                elif defect.startswith("id-"):
+                    token_id["values"] = {"id-bool": [True], "id-negative": [-1], "id-overflow": [2**32]}[defect]
+                else:
+                    next(record for record in changed if record["name"] == "jev.model.profile_sha256")["values"] = ["0" * 64]
+                    status = 32
+                refuse(packet=changed, status=status)
+            duplicate = expected_bytes.replace(b'"name": "general.architecture"', b'"name": "duplicate", "name": "general.architecture"', 1)
+            fault_path.write_bytes(duplicate)
+            try:
+                run_native([command, path, fault_path], 30)
+            finally:
+                fault_path.unlink()
+            for field in offsets:
+                changed = bytearray(original)
+                changed[field["value"]] ^= 1
+                refuse(contents=changed, status=32)
+            for field in (field for field in offsets if field["name"] in ("tokenizer.ggml.add_bos_token", "tokenizer.ggml.add_eos_token")):
+                changed = bytearray(original)
+                changed[field["value"]] = 2
+                refuse(contents=changed, status=32)
+                changed = bytearray(original)
+                changed[field["type"]:field["type"] + 4] = (0).to_bytes(4, "little")
+                refuse(contents=changed, status=32)
+            refuse(contents=b"bad", status=31)
+            old_selected = [record for record in declarations if not record["name"].startswith("tokenizer.ggml.") or record["name"] in
+                ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges")]
+            assert len(old_selected) == 30
+            for old_command, packet, count, version in (
+                ("--selected-metadata-control", [record for record in old_selected if record["name"] != "tokenizer.ggml.token_type"], 29, None),
+                ("--selected-metadata-control-v2", [record for record in old_selected if record["name"].startswith("tokenizer.ggml.")], 3, 2),
+                ("--selected-metadata-control-v3", old_selected, 30, 3)):
+                fault_path.write_text(json.dumps(packet))
+                try:
+                    expected = {"selected_records": count, "tensor_data_allocated": False, "model_loaded": False}
+                    if version is not None:
+                        expected["policy_version"] = version
+                    run_native([old_command, path, fault_path], 0, expected)
+                finally:
+                    fault_path.unlink()
+            assert len(os.listdir("/proc/self/fd")) == descriptor_count
+            assert path.read_bytes() == original and expected_path.read_bytes() == expected_bytes
+            assert not path.stat().st_mode & 0o222 and not expected_path.stat().st_mode & 0o222
+            assert native_refusals == 64 and native_calls == 68
+            for name in ("observed_group_rss_bytes", "observed_group_high_water_sum_bytes", "observed_process_swap_bytes", "observed_host_swap_bytes"):
+                result[name] = max(sample[name] for sample in samples)
+            result["observed_host_available_minimum_bytes"] = min(sample["observed_host_available_minimum_bytes"] for sample in samples)
+            report.update(native_calls=native_calls, native_refusals=native_refusals,
+                native_seconds=time.monotonic() - native_started, logical_scratch_peak_bytes=scratch_peak,
+                native_tensor_data_allocated=False, native_model_loaded=False)
         for name, value in files.items():
             assert (inputs / name).read_bytes() == value and not (inputs / name).stat().st_mode & 0o222
         assert sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536 < 8 * 1024**2
@@ -10124,6 +10261,10 @@ def test_pinned_profile_tokenizer_bootstrap_metadata_on_synthetic_sources():
 
 def test_pinned_profile_selected_bootstrap_metadata_atomic_on_synthetic_sources():
     _run_selected_role_metadata_composition_control(atomic=True)
+
+
+def test_pinned_profile_selected_bootstrap_metadata_native_on_synthetic_sources():
+    _run_selected_role_metadata_composition_control(atomic=True, native=True)
 
 
 def test_pinned_profile_selected_metadata_composition_on_synthetic_sources():

@@ -6,6 +6,8 @@ runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
 Current baseline includes the
+[native atomic getter checkpoint](handover.md#native-atomic-metadata-consumer-checkpoint-2026-11-05)
+and the
 [atomic selected checkpoint](handover.md#atomic-selected-metadata-checkpoint-2026-11-05),
 reviewed 2026-11-05, following `b86538b`. Read the
 [bootstrap checkpoint](handover.md#generated-tokenizer-bootstrap-checkpoint-2026-11-04),
@@ -32,7 +34,7 @@ is not yet a fully ternary model, calibrated service or deployment claim.
 | Step | Concrete Deliverable | Exit Evidence and Scope Boundary |
 | --- | --- | --- |
 | S1. Atomic selected metadata | Implemented v5 Python writer and retained-file verifier composing the existing selected fields with explicit bootstrap declarations | Generated v5 proof and default gate pass: joint 37-key preflight, fresh bounded 38-field proof including architecture, strict BOOL and unchanged API defaults. Old v4/bootstrap cached compatibility controls remain resource-blocked, not accepted. Does not establish native tags, source defaults or model execution. |
-| S2. Native contract and runner | Consume that same contract through the profile-aware native path and a prefill-only typed decision entry point | Generated native positive/refusal, exact token/option mapping, counted BitNet dispatch, no-score failure, context reset/reuse and cleanup controls. Native edits/builds and optional runs need their own bounded scope; never send real profiles through generated-only policies. |
+| S2. Native contract and runner | The test-only 38-field native getter consumer is implemented and generated-control tested; profile-aware integration and a prefill-only typed decision entry point remain | Getter positive/64 refusals and old command positives pass; build-resource observation failed and remains open. Runner acceptance still needs tokenizer semantics, exact token/option mapping, counted BitNet dispatch, no-score failure, context reset/reuse and cleanup. Further native edits/builds/optional runs need their own bounded scope; never send real profiles through generated-only policies. |
 | S3. One-profile numerical acceptance | Resolve the existing native/reference first divergence and validate dense plus frozen-projection scoring on identical inputs | Operation/state/precision evidence, preserved candidate identity, acceptance criteria written before the run, fresh/reused-context checks and measured resources. New model conversion or learned diagnostics require separate approval; no tolerance relaxation or refitting to hide discrepancies. |
 | S4. Decision-quality baseline | Freeze a representative task fixture and evaluate dense and one-projection paths | Licensed split/provenance, declared quality target, held-out accuracy and perturbation/error analysis. Conditional scores remain uncalibrated until a separately fitted and tested decision calibration passes. Dataset acquisition and held-out scoring require approval. |
 | S5. Broader ternary model | Quantize and export selected blocks, then eligible whole-model projections, with resumable artifacts | Preserve independent FP16 row/group scales, isolate weight/A8 loss, verify runtime parity and actual dispatch, and pass the quality target. New fitting, retained candidates, conversion and larger experiments require approval. Stop rollout if quality fails. |
@@ -46,7 +48,11 @@ caller receipt instead of fresh source/role/policy preparation. The
 [checkpoint](handover.md#atomic-selected-metadata-checkpoint-2026-11-05)
 records the approved separate 200-second synthetic scope, passing v5/default
 evidence and two resource-blocked old cached compatibility checks. That scope
-is closed; no resource-failure retry, host workaround or S2-S6 execution follows.
+is closed; no resource-failure retry or host workaround follows. A separately
+approved native slice implemented the 38-field getter consumer, not the S2
+runner. Its compiled generated control passed, but the external build watcher
+collected no owned-process samples and failed its deadline; supervised build
+resource acceptance remains open. See the native checkpoint linked above.
 
 Keep S1 limited to this composition; its successful proof is not permission to
 keep expanding metadata indefinitely or claim a functioning native system.

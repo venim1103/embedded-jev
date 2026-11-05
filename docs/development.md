@@ -3424,7 +3424,33 @@ resource/cleanup guards. The [checkpoint](handover.md#atomic-selected-metadata-c
 records its passing evidence and the **resource-blocked old v4/bootstrap cached
 compatibility controls**. Do not retry resource failures unchanged or treat the
 default gate's optional skips as compatibility/native acceptance. S2's native
-consumer/runner needs a separate bounded scope; no new learned execution follows.
+runner needs a separate bounded scope; no new learned execution follows.
+
+The test-only native `--selected-metadata-control-v5 GGUF JSON` consumes exactly
+the 38 `{name, kind, values}` declarations from a fresh v5 verifier receipt.
+It checks the name/type whitelist and explicit `gpt2`/`qwen35` pair before
+reading the GGUF, accepts only scalar BOOL declarations exactly `false`, and
+checks typed scalar/array getters in a no-allocation context before backend
+discovery. Malformed declarations/arguments return 30, parser refusals 31 and
+typed mismatches 32, without a success report. Success reports 38 records,
+policy version 5, `tensor_data_allocated=false` and `model_loaded=false`.
+Old native 29-/3-/30-field commands and their caps are unchanged; v5 retains
+v3's parser/declaration caps, not the much smaller fixture execution budgets.
+
+`test_pinned_profile_selected_bootstrap_metadata_native_on_synthetic_sources`
+adds `MIMO_PRISM_RUNTIME_BUILD` pointing to the existing cached Release loader
+build; no `MIMO_LOCAL_DIR` or learned opt-in is needed or authorized. It reuses
+the 32-row worker above, exports fresh proof declarations, and launches native
+commands only from the guarded parent. GGUF/faults <=256 KiB, expected JSON
+<=64 KiB, aggregate output <=8 KiB, scratch <=8 MiB, each child <=15 s,
+native stage <=40 s/whole stage <60 s; group RSS <=1 GiB, host reserve >=2 GiB,
+zero owned swap and no host-swap growth. The
+[native checkpoint](handover.md#native-atomic-metadata-consumer-checkpoint-2026-11-05)
+records generated getter/refusal success **and missing build-resource evidence**.
+Pinned GGUF getters normalize BOOL bytes; false-only comparison rejects any
+nonzero byte but cannot establish general canonical encoding. This command
+does not authenticate the caller packet, load a tokenizer/model, establish
+pre-tokenizer semantics, run BitNet, or implement the typed text runner.
 
 ### Standalone Fast Token Contracts
 

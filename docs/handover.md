@@ -6,9 +6,90 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Native Atomic Metadata Consumer Checkpoint (2026-11-05)
+
+**Implemented and generated-control tested; supervised build-resource acceptance
+remains open.** After the proposal in `9f07441`, the user explicitly approved
+the new separate 200-second generated-only native slice. That approval covers
+this metadata consumer, not the later text runner or learned experiments.
+S1's ledger and two old cached resource failures remain closed and unchanged.
+
+`native/prism_bitnet_loader_control.cpp::test_selected_metadata` now exposes
+`--selected-metadata-control-v5 GGUF JSON`. It preflights exactly 38 names/kinds,
+the explicit `gpt2`/`qwen35` pair, bounded uint32 IDs and false-only scalar BOOL
+declarations, then compares type-checked scalar/array getters before backend
+discovery. Bad v5 argument counts return 30 before unrelated control execution.
+Old 29-/3-/30-field commands, types, caps and success payloads are unchanged.
+V5 reports 38 records/version 5 with no tensor data allocation or model loading.
+The native packet is a caller declaration; fresh source/role/policy proof is
+supplied by the Python v5 verifier, not a writer receipt or native authentication.
+
+The existing 32-row audit-denied fixture now has a separate opt-in
+`test_pinned_profile_selected_bootstrap_metadata_native_on_synthetic_sources`.
+The worker exports fresh verifier records and retained-reader byte offsets;
+only the supervised parent launches native controls. The 2592-byte file still
+contains just a separate two-byte BF16 anchor, not a complete model. There are
+68 native calls: v5 positive, three old-command positives, and 64 refusals.
+Refusals include v3 rejecting the 38-field packet, three bad argument counts,
+missing/extra/duplicate/wrong-kind declarations, duplicate JSON members,
+model/pre mismatches, BOOL-as-number/true/empty/multiple values, non-integer or
+out-of-range IDs, stale profile declaration, mutations of all 38 file fields,
+both BOOL bytes 1 and 2, both BOOL type tags, and a malformed GGUF. Every refusal
+withholds success output. The Python portion also retains its 40 fresh-hash
+field/BOOL refusals, ten before-reader refusals and single fresh 38-record proof.
+
+Verification, with no model directory or learned opt-ins:
+
+- CMake Tools listed the existing targets and built only
+  `prism_bitnet_loader_control`, using the cached Release tree and existing
+  two-job setting. Result 0, reported compile/link time **10.633 s**; output
+  contained only the changed loader translation unit and executable link.
+  Pinned Prism `842b1880415d6f508f03b789e5ce70194def7bfd` and cached numerical
+  library versions were rechecked; no source/library replacement occurred.
+- **Failed build observation:** the external watcher exhausted its **60.003 s**
+  deadline without locating a build process. Its zero observed RSS is **not a
+  measurement of the build**. Host swap stayed 749,568 B in the watcher, but
+  build process-group RSS/reserve/swap supervision cannot be established. Do
+  not infer compliance from successful compilation or retry this unchanged
+  successful build just to fill the gap. The planned supervised-build gate
+  was not met; this checkpoint does not claim full resource acceptance.
+- New optional native test: **1 passed in 6.85 s**, stage **6.630 s**, native
+  calls **2.517 s**. Peak observed group RSS/HWM **262,950,912 B**, minimum host
+  available **14,207,152,128 B**, owned swap zero, host swap baseline/maximum
+  **749,568 B**, logical scratch peak including reserve **133,855 B**. Source
+  copies and retained GGUF/JSON were read-only and unchanged; descriptors
+  returned to baseline and the complete temporary directory was removed.
+- Focused Python atomic/default controls: **41 passed in 0.86 s**; fixture Ruff
+  and whitespace clean. Edited Python/C++ editor diagnostics: no errors.
+- Required root gate with optional flags unset: **1884 passed, 231 skipped in
+  28.00 s**; Ruff and whitespace clean. The new native opt-in is among the
+  default skips; its evidence is the separate run above, not default success.
+
+Commands: CMake Tools `Build_CMakeTools` target
+`prism_bitnet_loader_control`; new test via
+`PYTHONDONTWRITEBYTECODE=1 PRISM_SOURCE_DIR="$HOME/.cache/huggingface/embedded-jev/native/prism-source" PRISM_CONVERTER_PYTHON="$HOME/.cache/huggingface/embedded-jev/dense-venv/bin/python" MIMO_PRISM_RUNTIME_BUILD="$HOME/.cache/huggingface/embedded-jev/native/jev-prism-runtime-v1-build" python -m pytest -q -s -p no:cacheprovider tests/test_prism_native_control.py::test_pinned_profile_selected_bootstrap_metadata_native_on_synthetic_sources`;
+focused controls via `python -m pytest -q -p no:cacheprovider tests/test_inventory.py -k 'selected_bootstrap_metadata_atomic_contract or selected_bootstrap_metadata_preserves_api_defaults'`;
+root gate exactly as in `AGENTS.md`. Conservatively summing watcher, reported
+build and pytest times gives **106.35 s**, excluding bounded setup/documentation
+checks. Unused aggregate time does not repair the failed build-observation gate
+or authorize another experiment. No old resource-failed optional control was
+retried and no guard, tolerance, deadline or assertion was relaxed.
+
+Next: establish a resource watcher that is independently confirmed ready before
+any later, substantively needed native build; do not treat missing process
+samples as compliance. Then separately scope S2's same-contract prefill-only
+typed runner, including tokenizer semantics, exact option mapping, counted
+dispatch, fail-closed scores and fresh/reused-context agreement. The pinned
+parser normalizes BOOL bytes, so this getter control remains false-only and
+does not prove general canonical BOOL encoding. No complete-model load,
+prefill, BitNet dispatch, tokenizer semantic acceptance, numerical comparison,
+download/conversion/refit, held-out quality or device work occurred here.
+User editor settings were preserved; checkpoint staging must exclude them.
+
 ## Native Atomic Metadata Consumer Proposal (2026-11-05)
 
-**Prepared, not implemented or executed.** The user requested continued
+**Historical proposal, superseded by the approved checkpoint above.** At
+preparation time this was not implemented or executed. The user requested continued
 autonomous development after `6c6a432`. That general continuation does not
 specify the separate native execution scope required by the preceding checkpoint.
 The completed S1 budget remains closed; no native source edit/build/run or
