@@ -6,6 +6,90 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Native Atomic Metadata Consumer Proposal (2026-11-05)
+
+**Prepared, not implemented or executed.** The user requested continued
+autonomous development after `6c6a432`. That general continuation does not
+specify the separate native execution scope required by the preceding checkpoint.
+The completed S1 budget remains closed; no native source edit/build/run or
+resource-failure retry has occurred. S1's two old cached compatibility failures
+remain recorded below. Preparing this finite S2 prerequisite does not waive them
+or approve the later text runner, learned inputs or numerical experiments.
+
+Local hypothesis: the existing
+`native/prism_bitnet_loader_control.cpp::test_selected_metadata` can add an
+explicit `--selected-metadata-control-v5 GGUF JSON` branch that consumes exactly
+the fresh Python v5 verifier's 38 `{name, kind, values}` declarations, before
+backend discovery and with `no_alloc=true` and no tensor context. Keep old
+29-/3-/30-field commands, signatures, refusal statuses and bounds unchanged.
+Use the existing S1 32-row generated file and its two-byte BF16 anchor; this
+control must not invoke vocabulary loading, model loading, prefill or BitNet.
+
+Require the exact 38-name/type whitelist, strict scalar BOOL declarations and
+both insertion values exactly `false`, the explicit GPT2/Qwen35 tokenizer pair,
+bounded uint32 special IDs, and exact scalar/array comparisons. IDs and source
+roles must come from fresh Python preparation, not a saved writer receipt or
+file tags. The native JSON packet remains a caller declaration, not issuer
+authentication or fresh native source verification. Preserve existing v3
+16 MiB GGUF/32 MiB declaration-file, 262144-row, 4 MiB token/merge-content,
+4096-byte string, 64-key/427-tensor and depth-eight caps; the actual approved
+fixture/faults below are much smaller. Reject bad v5 argument counts before
+backend discovery rather than falling through to an unrelated default control.
+
+First discriminating check: the unchanged native v3 route refuses the fresh
+38-field packet; v5 accepts it once with `selected_records=38`, version 5,
+`tensor_data_allocated=false` and `model_loaded=false`. It must refuse missing,
+extra, duplicate and wrong-kind declarations, BOOL-as-number/true/empty/multiple
+values, stale declarations, every selected field's changed bytes, wrong BOOL
+type tags and noncanonical BOOL bytes, with no success report. Original file
+bytes, read-only source copies, descriptor baseline and scratch cleanup must hold.
+
+Pinned-source fact: `ggml/src/gguf.cpp::gguf_reader::read(bool&)` converts
+`tmp != 0`; both `gguf_get_val_bool` and `gguf_get_val_data` therefore expose
+normalized parsed values, not original BOOL bytes. Under the required false-only
+policy, any nonzero encoded byte mismatches false. Never enable true declarations
+or claim general canonical-BOOL proof from these getters; a future true-capable
+policy needs independent original-byte verification. No pinned source change is
+needed for this bounded false-only comparison. Getter agreement also does not
+prove pre-tokenizer semantics: the older tiny prefill fixture declares `qwen2`,
+whereas S1 explicitly declares `qwen35`; do not substitute one silently.
+
+Proposed **new separate 200-second generated-only native ceiling**, pending
+explicit approval: 60 seconds for the existing Release loader-target build,
+40 for focused Python/source checks, 40 for guarded tiny native positive/refusal
+controls, 40 for the required root source gate and 20 for bounded setup/repair/
+cleanup. Build only `prism_bitnet_loader_control` through CMake Tools, at most
+two jobs, in the existing isolated build; do not rebuild or replace pinned
+GGML libraries or change editor/environment settings. If a dependency rebuild
+is required, stop and rescope rather than consume an unbounded build.
+
+Fixture inputs/copies each <=64 KiB, GGUF/fault each <=256 KiB, expected JSON
+<=64 KiB, logical scratch <=8 MiB, combined output <=8 KiB; native children
+<=15 seconds, stage <=60 seconds, observed process-group RSS <=1 GiB, host
+reserve >=2 GiB, no owned swap or host-swap growth. Apply the same resource
+bounds to supervised build work; fail rather than relax a guard. Reuse pinned
+cached tools, deny model-cache content/network/child creation inside the Python
+fixture worker, and launch native controls only from the supervised parent.
+Keep jobs serial, clean disposable packets/files/workers, retain only small
+evidence, and never retry a resource failure unchanged. No old compatibility
+resource-failure rerun is included in this proposal.
+
+Read-only preparation verified a clean cached Prism
+`842b1880415d6f508f03b789e5ce70194def7bfd`, the existing Release CMake cache and
+loader executable, and ample scratch disk. Current host available memory was
+14,515,171,328 B and swap used 749,568 B, not a stable-swap guarantee; recheck
+resources before any approved execution. No cached binary was executed.
+
+Exit this one native metadata comparison directly into S2's prefill-only typed
+runner contract, not another metadata expansion: exact prompt/option mapping,
+zero generation, fail-closed scores, counted BitNet dispatch, context reset/reuse
+and cleanup using generated complete-model fixtures. That runner must consume
+the same verified declarations through the profile-aware path and separately
+establish tokenizer semantics; a standalone metadata getter control is not its
+implementation or acceptance. The new native scope above needs approval before
+source edits or execution. No downloads, real-model conversion/prefill, refit,
+retained candidate, held-out scoring, GPU/device or whole-model work is included.
+
 ## Atomic Selected Metadata Checkpoint (2026-11-05)
 
 The user resumed autonomous development and approved the proposed **new separate
