@@ -5475,6 +5475,202 @@ print(json.dumps({"cases": cases, "elapsed_seconds": elapsed, "before": before, 
     print(json.dumps(report, sort_keys=True))
 
 
+@pytest.mark.parametrize("observed", [False, True])
+def test_external_build_observation_requires_owned_process_completion(observed):
+    from embedded_jev.build_guard import BuildObservation
+
+    state = BuildObservation(host_swap_baseline_bytes=4096, minimum_host_available_bytes=3 * 1024**3)
+    if observed:
+        state.sample(rss=1024, high_water=2048, swap=0, count=1,
+            host_available=3 * 1024**3, host_swap=4096)
+        with pytest.raises(ValueError, match="still running"):
+            state.verify_finished()
+    state.sample(rss=0, high_water=0, swap=0, count=0,
+        host_available=3 * 1024**3, host_swap=4096)
+    if observed:
+        state.verify_finished()
+        assert state.peak_group_rss_bytes == 1024 and state.peak_group_high_water_bytes == 2048
+    else:
+        with pytest.raises(ValueError, match="never observed"):
+            state.verify_finished()
+
+
+@pytest.mark.parametrize("defect", ["rss", "owned-swap", "host-swap", "reserve", "processes"])
+def test_external_build_observation_preserves_failed_counters(defect):
+    from embedded_jev.build_guard import BuildObservation
+
+    state = BuildObservation(host_swap_baseline_bytes=4096, minimum_host_available_bytes=3 * 1024**3)
+    values = dict(rss=1024, high_water=2048, swap=0, count=1, host_available=3 * 1024**3, host_swap=4096)
+    values.update({"rss": {"rss": 1024**3 + 1}, "owned-swap": {"swap": 4096},
+        "host-swap": {"host_swap": 8192}, "reserve": {"host_available": 2 * 1024**3 - 1},
+        "processes": {"count": 33}}[defect])
+    with pytest.raises(ValueError):
+        state.sample(**values)
+    assert state.failure and state.observed_processes == values["count"]
+    with pytest.raises(ValueError, match=state.failure):
+        state.sample(rss=0, high_water=0, swap=0, count=0, host_available=3 * 1024**3, host_swap=4096)
+    with pytest.raises(ValueError, match=state.failure):
+        state.verify_finished()
+
+
+@pytest.mark.parametrize("mode", ["complete", "missing", "deadline", "dependency", "cache", "long-command"])
+def test_external_build_watcher_handshake_on_synthetic_processes(tmp_path, mode):
+    import sys
+
+    code = r'''
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+root = Path(json.loads(sys.stdin.buffer.read())['root'])
+(root / 'CMakeCache.txt').write_text('CMAKE_BUILD_TYPE:STRING=Release\n')
+source = root / 'loader.cpp'
+source.write_text('synthetic argument only\n')
+launcher = root / 'cmake'
+launcher.symlink_to(sys.executable)
+watcher = subprocess.Popen([sys.executable, '-m', 'embedded_jev.build_guard',
+    '--build-directory', str(root), '--target', 'synthetic-loader', '--source', str(source),
+    '--maximum-seconds', '3'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+job = None
+try:
+    ready = json.loads(watcher.stdout.readline())
+    assert ready['event'] == 'ready'
+    if MODE != 'missing':
+        arguments = [str(launcher), '-c', 'import subprocess, sys; subprocess.run([sys.executable, "-c", "import sys; sys.stdin.buffer.readline()"] )',
+            '--build', str(root), '--target', 'synthetic-loader', '--parallel', '2']
+        if MODE == 'dependency':
+            arguments.append(str(root / 'unapproved.cpp'))
+        elif MODE == 'long-command':
+            arguments.append('x' * 8193)
+        job = subprocess.Popen(arguments, stdin=subprocess.PIPE)
+        if MODE not in ('dependency', 'long-command'):
+            observed = json.loads(watcher.stdout.readline())
+            assert observed['event'] == 'observed' and observed['processes'] >= 1
+        if MODE == 'complete':
+            job.stdin.write(b'finish\n')
+            job.stdin.close()
+            assert job.wait(timeout=2) == 0
+        elif MODE == 'cache':
+            (root / 'CMakeCache.txt').write_text('CMAKE_BUILD_TYPE:STRING=Debug\n')
+    output, error = watcher.communicate(timeout=4)
+    report = json.loads(output)
+    if MODE == 'complete':
+        assert watcher.returncode == 0, error
+        assert report['event'] == 'finished' and report['observed_processes'] >= 1
+        assert report['peak_group_rss_bytes'] > 0 and report['peak_group_high_water_bytes'] >= report['peak_group_rss_bytes']
+        assert report['live_processes'] == 0 and report['build_success_verified'] is False
+    else:
+        assert watcher.returncode == 1 and report['event'] == 'failed', (report, error)
+        expected = {'missing': 'never observed', 'deadline': 'deadline', 'dependency': 'unexpected dependency',
+            'cache': 'cache changed', 'long-command': 'command line exceeds'}[MODE]
+        assert expected in report['reason'], report
+        if MODE == 'missing':
+            assert report['observed_processes'] == 0
+        else:
+            assert report['observed_processes'] >= 1
+            job.wait(timeout=2)
+            assert not Path('/proc', str(job.pid)).exists()
+        assert report['tracked_processes_stopped'] is True
+    print(json.dumps(report))
+finally:
+    for process in (job, watcher):
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            for name in ('stdin', 'stdout', 'stderr'):
+                pipe = getattr(process, name)
+                if pipe is not None:
+                    pipe.close()
+'''.replace('MODE', repr(mode))
+    result = _run_tokenizer_only_guard_v3(sys.executable, code, json.dumps({"root": str(tmp_path)}).encode(),
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}, maximum_seconds=15, maximum_rss_bytes=1024**3)
+    assert result["returncode"] == 0, result["stderr"]
+    assert json.loads(result["stdout"])["event"] == ("finished" if mode == "complete" else "failed")
+
+
+@pytest.mark.parametrize("defect", [None, "directory", "target", "jobs", "implicit-jobs", "variant", "targets", "target-flags"])
+def test_external_build_watcher_matches_only_bounded_target(tmp_path, defect):
+    from embedded_jev.build_guard import ProcessSample, _matches_build
+
+    arguments = ["/usr/bin/cmake", "--build", str(tmp_path), "--target", "loader", "--parallel", "2"]
+    if defect == "directory":
+        arguments[2] = str(tmp_path / "other")
+    elif defect == "target":
+        arguments[4] = "other"
+    elif defect == "jobs":
+        arguments[-1] = "3"
+    elif defect == "implicit-jobs":
+        arguments = arguments[:-2]
+    elif defect == "variant":
+        arguments.extend(["--config", "Debug"])
+    elif defect == "targets":
+        arguments.insert(5, "other")
+    elif defect == "target-flags":
+        arguments.extend(["--target", "other"])
+    process = ProcessSample(71, 50, 100, tuple(arguments), tmp_path, 1024, 2048, 0)
+    if defect in ("jobs", "implicit-jobs", "variant", "targets", "target-flags"):
+        with pytest.raises(ValueError):
+            _matches_build(process, tmp_path, "loader")
+    else:
+        assert _matches_build(process, tmp_path, "loader") is (defect is None)
+
+
+def test_external_build_watcher_never_targets_recycled_pid(tmp_path, monkeypatch):
+    import time
+    from embedded_jev import build_guard
+
+    recycled = build_guard.ProcessSample(71, 50, 900, ("python",), tmp_path, 1024, 2048, 0)
+    child = build_guard.ProcessSample(72, 71, 901, ("python",), tmp_path, 1024, 2048, 0)
+    assert build_guard._build_members({71: recycled, 72: child}, {(71, 100)}, tmp_path, "loader") == []
+    monkeypatch.setattr(build_guard, "_read_process", lambda pid: recycled)
+    def refuse_signal(*args):
+        raise AssertionError("signaled an unrelated reused PID")
+    monkeypatch.setattr(build_guard.os, "kill", refuse_signal)
+    assert build_guard._terminate_build({(71, 100)}, time.monotonic() + 1) is True
+
+
+@pytest.mark.parametrize("arguments, accepted", [
+    (("ninja", "-j2", "loader"), True), (("ninja", "-j", "1", "loader"), True),
+    (("ninja", "-j2", "other"), False), (("ninja", "-j3", "loader"), None),
+    (("ninja", "loader"), None), (("ninja", "-j2", "loader", "all"), None),
+    (("ninja", "-j2", "loader", "other"), None)])
+def test_external_build_watcher_matches_ninja_target(tmp_path, arguments, accepted):
+    from embedded_jev.build_guard import ProcessSample, _matches_build
+
+    process = ProcessSample(71, 50, 100, arguments, tmp_path, 1024, 2048, 0)
+    if accepted is None:
+        with pytest.raises(ValueError):
+            _matches_build(process, tmp_path, "loader")
+    else:
+        assert _matches_build(process, tmp_path, "loader") is accepted
+    assert _matches_build(process, tmp_path / "other", "loader") is False
+
+
+def test_external_build_watcher_cleanup_refreshes_owned_descendants(tmp_path, monkeypatch):
+    import signal
+    import time
+    from embedded_jev import build_guard
+
+    parent = build_guard.ProcessSample(71, 50, 100, ("python",), tmp_path, 1024, 2048, 0)
+    child = build_guard.ProcessSample(72, 71, 101, ("python",), tmp_path, 1024, 2048, 0)
+    unrelated = build_guard.ProcessSample(73, 50, 102, ("python",), tmp_path, 1024, 2048, 0)
+    processes = {sample.pid: sample for sample in (parent, child, unrelated)}
+    stopped = []
+    monkeypatch.setattr(build_guard, "_process_snapshot", lambda: dict(processes))
+    monkeypatch.setattr(build_guard, "_read_process", lambda pid: processes.get(pid))
+    def stop(pid, action):
+        assert action == signal.SIGKILL and pid != unrelated.pid
+        stopped.append(pid)
+        processes.pop(pid)
+    monkeypatch.setattr(build_guard.os, "kill", stop)
+    identities = {parent.identity}
+    assert build_guard._terminate_build(identities, time.monotonic() + 1) is True
+    assert stopped == [child.pid, parent.pid] and child.identity in identities
+    assert processes == {unrelated.pid: unrelated}
+
+
 def _run_tokenizer_only_guard(interpreter, code, payload, *, env, maximum_seconds=15, maximum_rss_bytes=1024**3):
     if not 0 < maximum_seconds <= 15 or not 0 < maximum_rss_bytes <= 1024**3 or len(payload) > 65536:
         raise ValueError("invalid tokenizer diagnostic guard budget")

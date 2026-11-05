@@ -6,6 +6,88 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## External Build Watcher Prerequisite Checkpoint (2026-11-05)
+
+**Implemented and synthetic-process tested; no native build or runtime run.**
+The user requested autonomous continuation after `dc50564`, which was already
+on `origin/main` when this work began. The local source prerequisite is
+`embedded_jev/build_guard.py`, not a rerun of that unchanged successful build
+and not acceptance of its missing resource samples. Old native/learned budgets
+and resource-failed compatibility controls remain closed and unchanged.
+
+The new CLI emits flushed `ready`, then `observed`, then `finished` events.
+It refuses to finish if no live build process was ever sampled. Discovery
+matches the explicit build directory/target and one- or two-job CMake/Ninja
+commands; it refuses duplicate/multiple target selection, non-Release config,
+implicit or excessive parallelism, changing cache, unexpected source arguments
+and oversized owned command lines. It retains process memory when command
+arguments are oversized rather than hiding that process from RSS accounting.
+An existing matching build prevents readiness. Matching command lines are
+operational identification under an exclusive authorized build, not caller or
+source authentication; pinned-source/library checks remain separate.
+
+Observed limits are 4096 inventoried/32 simultaneous tracked processes,
+8192-byte command lines, a 256 KiB existing unchanged Release cache, up to four
+allowed source paths, 1 GiB RSS/HWM, 2 GiB available-memory reserve, zero owned
+swap and no host-swap growth. The maximum 60-second watch includes up to two
+seconds of cleanup. PID/start-time identities exclude recycled PIDs; cleanup
+refreshes descendants and stops leaves before parents, never signals a shared
+process group, and reports only whether **tracked live processes** stopped.
+It does not reap an externally launched build on behalf of its actual parent.
+Resource failures latch and preserve counters. `finished` explicitly says
+`build_success_verified=false`: the CMake Tools exit status is independent.
+A missing/failing watcher receipt never establishes supervision or job success.
+
+Thirty new default tests reuse `tests/test_prism_native_control.py`. Synthetic
+Python stand-ins exercise ready-before-launch, observed-before-release, normal
+finish, missing build, deadline/forbidden-source/cache/long-command termination,
+resource counter retention, CMake/Ninja selection and PID-reuse/leaf-first
+cleanup. The lifecycle fixtures run inside the existing v3 guard (15 seconds,
+1 GiB group cap, 2 GiB reserve, no swap growth); their watcher allowance is
+three seconds. They generate only tiny pytest temporary cache/source stubs and
+a Python launcher symlink, not compiler outputs, GGUFs or model inputs. Fixture
+parents and the shared guard wait/reap children; pytest manages the tiny paths.
+
+Evidence and failure history:
+
+- Initial no-process/completion state checks: **2 passed in 0.03 s**.
+- First live lifecycle slice: **1 failed, 8 passed in 2.64 s**. The watcher
+  exited before the observation event; direct Ruff found `F821` for an
+  uninitialized `announced` name although editor diagnostics showed no errors.
+  Replaced it with an initialized one-event flag, without weakening checks;
+  the same focused slice then **9 passed in 2.51 s**.
+- Safety expansion: **21 passed in 5.20 s**, then refreshed descendant/Ninja
+  checks **28 passed in 5.43 s**, then final single-target slice
+  **30 passed in 5.44 s**. Focused Ruff and whitespace checks passed.
+- Required root gate, all `MIMO_`/`PRISM_`/`BITNET_` variables absent:
+  **1914 passed, 231 skipped in 41.25 s**; Ruff and whitespace clean. Final
+  editor diagnostics showed no errors. Measured pytest total including the
+  failed run is **62.50 s**. This source-only checkpoint does not renew or
+  satisfy the previous native slice's 40-second gate allocation.
+
+Focused command: `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_prism_native_control.py -k external_build`;
+root gate exactly as in `AGENTS.md`. No CMake build/CTest, native execution,
+model-cache content read, download/conversion/refit, held-out scoring or device
+work occurred. The cached Prism revision remained clean at
+`842b1880415d6f508f03b789e5ce70194def7bfd`; editor settings were not changed.
+
+Next concrete integration is `test_prefill_control`, not another metadata
+expansion. Its token/score/output path still hardcodes three options and
+`A/B/C`; replace that only through a separately scoped typed request path,
+preserving old controls. Preflight the fresh v5 38-field packet before backend
+discovery, verify 2-16 explicit option/token mappings and prompt-extension
+agreement, keep zero generation and fail-closed scores, then verify counted
+dispatch and fresh/reused context agreement on generated complete-model inputs.
+Static source inspection found `qwen35` selects its own
+`LLAMA_VOCAB_PRE_TYPE_QWEN35`, not the `qwen2` enum; recognition is **not**
+tokenizer semantic evidence and does not authorize substituting either tag.
+The first later substantively needed build must start the watcher asynchronously,
+confirm `ready` before CMake Tools, and retain positive observation/final receipts
+alongside the tool's result. Actual CMake supervision acceptance remains open.
+Prepare that native scope with a realistic default-gate allowance (this run took
+41.25 s), pinned generated-only inputs, fixed resource bounds and cleanup before
+execution; no new native experiment is authorized by this source prerequisite.
+
 ## Native Atomic Metadata Consumer Checkpoint (2026-11-05)
 
 **Implemented and generated-control tested; supervised build-resource acceptance

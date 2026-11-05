@@ -6,6 +6,7 @@ runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
 Current baseline includes the
+[synthetic build-watcher prerequisite](handover.md#external-build-watcher-prerequisite-checkpoint-2026-11-05),
 [native atomic getter checkpoint](handover.md#native-atomic-metadata-consumer-checkpoint-2026-11-05)
 and the
 [atomic selected checkpoint](handover.md#atomic-selected-metadata-checkpoint-2026-11-05),
@@ -53,6 +54,12 @@ approved native slice implemented the 38-field getter consumer, not the S2
 runner. Its compiled generated control passed, but the external build watcher
 collected no owned-process samples and failed its deadline; supervised build
 resource acceptance remains open. See the native checkpoint linked above.
+The external watcher now has 30 passing synthetic controls for readiness,
+positive process observation, resource/command bounds and safe tracked cleanup;
+no actual build was repeated or supervised in that prerequisite. S2 still needs
+the fresh 38-field preflight connected to the dynamic typed prefill path. The
+current prefill control hardcodes three option IDs and labels; recognition of
+the distinct native Qwen35 pre-tokenizer is not prompt/token semantic acceptance.
 
 Keep S1 limited to this composition; its successful proof is not permission to
 keep expanding metadata indefinitely or claim a functioning native system.

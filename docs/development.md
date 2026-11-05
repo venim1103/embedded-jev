@@ -3452,6 +3452,46 @@ nonzero byte but cannot establish general canonical encoding. This command
 does not authenticate the caller packet, load a tokenizer/model, establish
 pre-tokenizer semantics, run BitNet, or implement the typed text runner.
 
+### External Native Build Observation
+
+`python -m embedded_jev.build_guard` is a bounded observer for a separately
+authorized external build, not a build launcher or a replacement for CMake
+Tools. Start it asynchronously and require its flushed `ready` event **before**
+calling CMake Tools for the explicitly named target. Require `observed` and
+`finished` events plus the independent successful CMake Tools result; missing
+samples, watcher failure or build failure cannot satisfy the native gate.
+Do not rebuild an unchanged successful target just to create measurements.
+
+For a later loader-source change, the observer invocation is:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m embedded_jev.build_guard \
+   --build-directory "$HOME/.cache/huggingface/embedded-jev/native/jev-prism-runtime-v1-build" \
+   --target prism_bitnet_loader_control \
+   --source native/prism_bitnet_loader_control.cpp \
+   --maximum-seconds 60
+```
+
+The existing Release cache must remain unchanged, the CMake/Ninja command must
+explicitly limit parallelism to one or two jobs, and only the declared target
+and up to four source paths are allowed. The observer samples up to 32 tracked
+processes/4096 inventoried PIDs, bounds command lines to 8192 bytes and cache to
+256 KiB, and enforces 1 GiB observed RSS/HWM, 2 GiB host reserve, no owned swap
+or host-swap growth. Its 60-second maximum includes up to two seconds of cleanup.
+PID/start-time tracking and leaf-first descendant cleanup do not signal shared
+process groups or reused PIDs. The actual launcher remains responsible for
+waiting/reaping its build; the observer reports tracked-process stopping only.
+Failure before identification cannot establish that an external job was stopped;
+cancel that job through its launcher and do not accept the watcher result.
+
+Receipts are resource observations, not peak-memory guarantees, source/caller
+authentication, build success or runtime evidence. Use an exclusive authorized
+build and independently verify pins, worktree, Release configuration and cached
+libraries first. The
+[watcher checkpoint](handover.md#external-build-watcher-prerequisite-checkpoint-2026-11-05)
+records 30 synthetic default controls and the unresolved actual-build gate.
+The prior build's missing measurement is not retroactively repaired.
+
 ### Standalone Fast Token Contracts
 
 `prepare_profile_model_fast_tokenizer_contract_v2` checks profile-pinned source
