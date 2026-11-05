@@ -9755,7 +9755,7 @@ print(json.dumps({"cases": cases, "elapsed_seconds": time.monotonic() - started,
     print(json.dumps(report, sort_keys=True))
 
 
-def _run_selected_role_metadata_composition_control(*, bootstrap=False):
+def _run_selected_role_metadata_composition_control(*, bootstrap=False, atomic=False):
     import hashlib
     import time
     from tempfile import TemporaryDirectory
@@ -9790,6 +9790,7 @@ def _run_selected_role_metadata_composition_control(*, bootstrap=False):
     raw = bytes.fromhex(fixture.pop("payload_hex"))
     fixture["token_roles"] = roles
     fixture["bootstrap"] = bootstrap
+    fixture["atomic"] = atomic
     code = r'''
 import hashlib
 import json
@@ -9824,10 +9825,28 @@ bootstrap_arguments = dict(metadata_files=metadata, tokenizer_bytes=tokenizer_by
     bootstrap_policy={"policy_version": 1, "profile_sha256": profile.sha256, "tokenizer_model": "gpt2", "pre_tokenizer_tag": "qwen35",
         "bos_token_id": 25, "eos_token_id": 25, "unknown_token_id": 24, "padding_token_id": 24, "add_bos_token": False, "add_eos_token": False})
 path = root / "selected.gguf"
+verify_selected = prism_codec.verify_profile_gguf_selected_fast_metadata_v5 if fixture["atomic"] else prism_codec.verify_profile_gguf_selected_fast_metadata_v4
+if fixture["atomic"]:
+    arguments["bootstrap_policy"] = bootstrap_arguments["bootstrap_policy"]
+    for conflict in ("tokenizer.ggml.add_eos_token", "tokenizer.ggml.padding_token_id", "jev.model.profile_sha256"):
+        probe_writer = gguf.GGUFWriter(None, "qwen35")
+        try:
+            probe_writer.add_string(conflict, "keep")
+            before = dict(probe_writer.kv_data[0])
+            try:
+                prism_codec.write_profile_model_selected_fast_metadata_v5(profile, inventory, manifest, blocks, writer=probe_writer, **arguments)
+            except ValueError:
+                assert probe_writer.kv_data[0] == before
+            else:
+                raise AssertionError("late joint writer conflict accepted")
+        finally:
+            probe_writer.close()
 writer = gguf.GGUFWriter(path, "qwen35", use_temp_file=True)
 try:
-    emitted = prism_codec.write_profile_model_selected_fast_metadata_v4(profile, inventory, manifest, blocks, writer=writer, **arguments)
-    assert emitted["metadata_count"] == 29 and emitted["selected_fast_metadata_policy_version"] == 4
+    emit_selected = prism_codec.write_profile_model_selected_fast_metadata_v5 if fixture["atomic"] else prism_codec.write_profile_model_selected_fast_metadata_v4
+    emitted = emit_selected(profile, inventory, manifest, blocks, writer=writer, **arguments)
+    assert emitted["metadata_count"] == (37 if fixture["atomic"] else 29)
+    assert emitted["selected_fast_metadata_policy_version"] == (5 if fixture["atomic"] else 4)
     if fixture["bootstrap"]:
         bootstrap = prism_codec.prepare_profile_model_fast_tokenizer_bootstrap_v1(profile, **bootstrap_arguments)
         bootstrap_records = [{**record, "kind": "str" if record["kind"] == "string" else record["kind"]} for record in bootstrap["records"]]
@@ -9846,7 +9865,7 @@ assert 0 < len(original) <= 256 * 1024
 reader = gguf.GGUFReader(path, mode="r")
 descriptor_count = len(os.listdir("/proc/self/fd"))
 try:
-    for record in emitted["records"][-3:]:
+    for record in (record for record in emitted["records"] if record["name"] in ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges")):
         field = reader.fields[record["name"]]
         assert field.types == [gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.INT32 if record["kind"] == "i32_array" else gguf.GGUFValueType.STRING]
         values = tuple(int(field.parts[index].item()) if record["kind"] == "i32_array" else field.parts[index].tobytes().decode() for index in field.data)
@@ -9903,8 +9922,9 @@ try:
             else:
                 raise AssertionError("bootstrap source/role change accepted")
     proof_arguments = dict(arguments, expected_file_bytes=len(original), expected_file_sha256=hashlib.sha256(original).hexdigest())
-    proof = prism_codec.verify_profile_gguf_selected_fast_metadata_v4(profile, inventory, manifest, blocks, reader=reader, **proof_arguments)
-    assert proof["selected_fast_metadata_policy_version"] == 4 and len(proof["metadata_names"]) == 30
+    proof = verify_selected(profile, inventory, manifest, blocks, reader=reader, **proof_arguments)
+    assert proof["selected_fast_metadata_policy_version"] == (5 if fixture["atomic"] else 4)
+    assert len(proof["metadata_names"]) == (38 if fixture["atomic"] else 30)
     assert proof["token_roles_sha256"] == emitted["token_roles_sha256"]
     assert proof["gguf_tokenizer_verification"] == proof["pre_tokenizer_tag_verification"] == "not_checked"
     original_verify, calls = prism_codec._verify_profile_gguf_metadata_records, []
@@ -9914,7 +9934,7 @@ try:
     prism_codec._verify_profile_gguf_metadata_records = tracked_verify
     try:
         try:
-            prism_codec.verify_profile_gguf_selected_fast_metadata_v4(profile, inventory, manifest, blocks, reader=object(),
+            verify_selected(profile, inventory, manifest, blocks, reader=object(),
                 **{**proof_arguments, "token_roles": {**fixture["token_roles"], "<marker>": "source_special"}})
         except ValueError:
             assert not calls
@@ -9932,7 +9952,7 @@ try:
     fault_reader = gguf.GGUFReader(fault_path, mode="r")
     try:
         try:
-            prism_codec.verify_profile_gguf_selected_fast_metadata_v4(profile, inventory, manifest, blocks, reader=fault_reader,
+            verify_selected(profile, inventory, manifest, blocks, reader=fault_reader,
                 **{**proof_arguments, "expected_file_sha256": hashlib.sha256(changed).hexdigest()})
         except ValueError as error:
             assert "byte mismatch" in str(error)
@@ -9960,11 +9980,104 @@ try:
             finally:
                 fault_reader.data._mmap.close()
                 fault_path.unlink()
+    atomic_fault_refusals = atomic_source_refusals = 0
+    if fixture["atomic"]:
+        assert len(reader.fields) - 3 == 38 and proof["bootstrap_policy_sha256"] == emitted["bootstrap_policy_sha256"]
+        for record in proof["records"]:
+            field = reader.fields[record["name"]]
+            assert tuple(field.types) == {"string": (8,), "u32": (4,), "f32": (6,), "bool": (7,), "str_array": (9, 8), "i32_array": (9, 5)}[record["kind"]]
+            values = tuple(field.parts[index].tobytes().decode() if record["kind"] in ("string", "str_array") else field.parts[index].item() for index in field.data)
+            expected = tuple(np.asarray(record["values"], dtype="<f4").tolist()) if record["kind"] == "f32" else tuple(record["values"])
+            assert values == expected, record["name"]
+        original_roles = prism_codec.prepare_profile_model_fast_token_role_contract_v1
+        original_records = prism_codec._verify_profile_gguf_metadata_records
+        role_calls, record_calls = [], []
+        def track_roles(*args, **kwargs):
+            role_calls.append(True)
+            return original_roles(*args, **kwargs)
+        def track_records(*args, **kwargs):
+            record_calls.append(kwargs)
+            return original_records(*args, **kwargs)
+        prism_codec.prepare_profile_model_fast_token_role_contract_v1 = track_roles
+        prism_codec._verify_profile_gguf_metadata_records = track_records
+        try:
+            for defect in ("metadata", "tokenizer", "template", "profile", "manifest", "roles", "policy", "policy-profile", "seconds", "file-budget"):
+                changed_arguments = {**proof_arguments}
+                changed_manifest = dict(manifest)
+                if defect in ("metadata", "template"):
+                    name = "config.json" if defect == "metadata" else profile.tokenization["template_file"]
+                    changed_arguments["metadata_files"] = {**metadata, name: metadata[name] + b" "}
+                elif defect == "tokenizer":
+                    changed_arguments["tokenizer_bytes"] = tokenizer_bytes + b" "
+                elif defect in ("profile", "manifest"):
+                    changed_manifest["profile_sha256" if defect == "profile" else "payload_sha256"] = "0" * 64
+                elif defect == "roles":
+                    changed_arguments["token_roles"] = {**fixture["token_roles"], "<marker>": "source_special"}
+                elif defect in ("policy", "policy-profile"):
+                    changed_arguments["bootstrap_policy"] = {**arguments["bootstrap_policy"], **({"add_eos_token": True} if defect == "policy" else {"profile_sha256": "0" * 64})}
+                else:
+                    changed_arguments["maximum_seconds" if defect == "seconds" else "maximum_file_bytes"] = True
+                try:
+                    verify_selected(profile, inventory, changed_manifest, blocks, reader=object(), **changed_arguments)
+                except ValueError:
+                    assert not record_calls
+                    atomic_source_refusals += 1
+                else:
+                    raise AssertionError("stale atomic source/role/policy/budget accepted")
+            role_calls.clear()
+            fresh = verify_selected(profile, inventory, manifest, blocks, reader=reader, **proof_arguments)
+            assert len(role_calls) == len(record_calls) == 1 and len(record_calls[0]["declarations"]) == 38
+            assert fresh["metadata_names"] == proof["metadata_names"]
+        finally:
+            prism_codec.prepare_profile_model_fast_token_role_contract_v1 = original_roles
+            prism_codec._verify_profile_gguf_metadata_records = original_records
+        for name in proof["metadata_names"]:
+            field = reader.fields[name]
+            offset = int(field.parts[field.data[-1]].ctypes.data - reader.data.ctypes.data)
+            changed = bytearray(original)
+            changed[offset] ^= 1
+            fault_path.write_bytes(changed)
+            assert fault_path.stat().st_size <= 256 * 1024
+            fault_reader = gguf.GGUFReader(fault_path, mode="r")
+            try:
+                try:
+                    verify_selected(profile, inventory, manifest, blocks, reader=fault_reader,
+                        **{**proof_arguments, "expected_file_sha256": hashlib.sha256(changed).hexdigest()})
+                except ValueError as error:
+                    assert "byte mismatch" in str(error)
+                    atomic_fault_refusals += 1
+                else:
+                    raise AssertionError("newly hashed selected field corruption accepted")
+            finally:
+                fault_reader.data._mmap.close()
+                fault_path.unlink()
+        assert atomic_fault_refusals == 38 and atomic_source_refusals == 10
+        for name in ("tokenizer.ggml.add_bos_token", "tokenizer.ggml.add_eos_token"):
+            field = reader.fields[name]
+            offset = int(field.parts[field.data[0]].ctypes.data - reader.data.ctypes.data)
+            changed = bytearray(original)
+            changed[offset] = 2
+            fault_path.write_bytes(changed)
+            fault_reader = gguf.GGUFReader(fault_path, mode="r")
+            try:
+                try:
+                    verify_selected(profile, inventory, manifest, blocks, reader=fault_reader,
+                        **{**proof_arguments, "expected_file_sha256": hashlib.sha256(changed).hexdigest()})
+                except ValueError as error:
+                    assert "byte mismatch" in str(error)
+                    atomic_fault_refusals += 1
+                else:
+                    raise AssertionError("noncanonical BOOL byte accepted")
+            finally:
+                fault_reader.data._mmap.close()
+                fault_path.unlink()
+        assert atomic_fault_refusals == 40
     assert len(os.listdir("/proc/self/fd")) == descriptor_count and path.read_bytes() == original
     assert sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536 < 8 * 1024**2
 finally:
     reader.data._mmap.close()
-print(json.dumps({"rows": 32, "selected_records": 30, "role_refusals": 1, "fresh_hash_type_refusals": 1,
+print(json.dumps({"rows": 32, "selected_records": 38 if fixture["atomic"] else 30, "role_refusals": 1, "fresh_hash_type_refusals": 1,
+    "atomic_fault_refusals": atomic_fault_refusals, "atomic_source_refusals": atomic_source_refusals,
     "bootstrap_records": 8 if fixture["bootstrap"] else 0, "bootstrap_fault_refusals": bootstrap_fault_refusals,
     "legacy_bool_refusals": legacy_bool_refusals, "malformed_bool_refusals": malformed_bool_refusals,
     "bootstrap_source_refusals": bootstrap_source_refusals, "file_bytes": len(original),
@@ -10007,6 +10120,10 @@ def test_pinned_profile_selected_role_metadata_composition_on_synthetic_sources(
 
 def test_pinned_profile_tokenizer_bootstrap_metadata_on_synthetic_sources():
     _run_selected_role_metadata_composition_control(bootstrap=True)
+
+
+def test_pinned_profile_selected_bootstrap_metadata_atomic_on_synthetic_sources():
+    _run_selected_role_metadata_composition_control(atomic=True)
 
 
 def test_pinned_profile_selected_metadata_composition_on_synthetic_sources():

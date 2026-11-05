@@ -571,11 +571,21 @@ def prepare_profile_model_fast_tokenizer_bootstrap_v1(
     maximum_token_content_bytes: int = 64 * 1024, maximum_declared_tokens: int = 64, maximum_seconds: float = 30,
 ):
     """Prepare explicit bootstrap declarations, not source defaults or native tokenizer acceptance."""
-    import json
-
     if type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 60:
         raise ValueError("invalid tokenizer bootstrap preparation budget")
     deadline = time.monotonic() + maximum_seconds
+    policy = _profile_fast_tokenizer_bootstrap_policy(profile, bootstrap_policy)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ValueError("tokenizer bootstrap preparation deadline exceeded")
+    prepared = prepare_profile_model_fast_token_role_contract_v1(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy, token_roles=token_roles,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
+        maximum_declared_tokens=maximum_declared_tokens, maximum_seconds=remaining)
+    return _prepare_profile_fast_tokenizer_bootstrap_records(profile, policy, prepared, deadline)
+
+
+def _profile_fast_tokenizer_bootstrap_policy(profile, bootstrap_policy):
     id_names = ("bos_token_id", "eos_token_id", "unknown_token_id", "padding_token_id")
     flag_names = ("add_bos_token", "add_eos_token")
     names = {"policy_version", "profile_sha256", "tokenizer_model", "pre_tokenizer_tag", *id_names, *flag_names}
@@ -589,13 +599,14 @@ def prepare_profile_model_fast_tokenizer_bootstrap_v1(
             or any(type(policy[name]) is not int or not 0 <= policy[name] < profile.geometry["vocab_size"] for name in id_names)
             or any(policy[name] is not False for name in flag_names)):
         raise ValueError("unsupported tokenizer bootstrap policy declarations")
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise ValueError("tokenizer bootstrap preparation deadline exceeded")
-    prepared = prepare_profile_model_fast_token_role_contract_v1(profile, metadata_files=metadata_files,
-        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy, token_roles=token_roles,
-        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
-        maximum_declared_tokens=maximum_declared_tokens, maximum_seconds=remaining)
+    return policy
+
+
+def _prepare_profile_fast_tokenizer_bootstrap_records(profile, policy, prepared, deadline):
+    import json
+
+    id_names = ("bos_token_id", "eos_token_id", "unknown_token_id", "padding_token_id")
+    flag_names = ("add_bos_token", "add_eos_token")
     source_specials = {token_id: text for text, token_id in prepared["source_special_token_ids"].items()}
     for name in id_names:
         token_id = policy[name]
@@ -1255,7 +1266,9 @@ def _prepare_profile_selected_fast_metadata(
     profile, inventory, manifest, pq2_blocks, *, metadata_files, tokenizer_bytes, context_length, template_source,
     gguf_template_bytes, row_policy, merge_policy, maximum_vocabulary_rows, maximum_token_content_bytes,
     maximum_merge_rows, maximum_merge_content_bytes, token_roles=None, deadline=None,
+    include_bootstrap=False, bootstrap_policy=None,
 ):
+    policy = _profile_fast_tokenizer_bootstrap_policy(profile, bootstrap_policy) if include_bootstrap else None
     template = _prepare_profile_model_template_metadata(profile, metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes,
         context_length=context_length, template_source=template_source, gguf_template_bytes=gguf_template_bytes,
         maximum_tokenizer_json_bytes=MODEL_METADATA_BYTES_V2)
@@ -1277,6 +1290,10 @@ def _prepare_profile_selected_fast_metadata(
         {"name": template["template_metadata_name"], "kind": "string", "values": [template["template"]]},
         *_profile_fast_tokenizer_row_records(prepared), merges,
     ])
+    if include_bootstrap:
+        bootstrap = _prepare_profile_fast_tokenizer_bootstrap_records(profile, policy, prepared, deadline)
+        records.extend(bootstrap["records"])
+        prepared = {**prepared, **bootstrap}
     return MappingProxyType({**prepared, **template, "merge_content_bytes": merge_bytes}), records
 
 
@@ -1331,6 +1348,36 @@ def write_profile_model_selected_fast_metadata_v4(
                             "metadata_scope": "policy_context_template_role_aware_fast_rows_and_merges_subset",
                             "metadata_verification": "declared_records_emitted_not_file_verified",
                             "pre_tokenizer_tag_verification": "not_checked", "gguf_token_type_verification": "not_checked",
+                            "runtime_approval": "not_granted_by_selected_fast_metadata_emission"})
+
+
+def write_profile_model_selected_fast_metadata_v5(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, metadata_files: dict, tokenizer_bytes: bytes,
+    context_length: int, template_source: str, row_policy: str, merge_policy: str, token_roles: dict,
+    bootstrap_policy: dict, writer, gguf_template_bytes: bytes | None = None, maximum_vocabulary_rows: int = 4096,
+    maximum_token_content_bytes: int = 64 * 1024, maximum_merge_rows: int = 4096,
+    maximum_merge_content_bytes: int = 64 * 1024, maximum_seconds: float = 30,
+):
+    """Jointly preflight selected and explicit bootstrap fields without granting native acceptance."""
+    if type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 60:
+        raise ValueError("invalid selected fast metadata preparation budget")
+    deadline = time.monotonic() + maximum_seconds
+    prepared, declarations = _prepare_profile_selected_fast_metadata(profile, inventory, manifest, pq2_blocks,
+        metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes, context_length=context_length,
+        template_source=template_source, gguf_template_bytes=gguf_template_bytes, row_policy=row_policy, merge_policy=merge_policy,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
+        maximum_merge_rows=maximum_merge_rows, maximum_merge_content_bytes=maximum_merge_content_bytes,
+        token_roles=token_roles, deadline=deadline, include_bootstrap=True, bootstrap_policy=bootstrap_policy)
+    if time.monotonic() > deadline:
+        raise ValueError("selected fast metadata preparation deadline exceeded")
+    records = [{**record, "kind": "str" if record["kind"] == "string" else record["kind"]}
+               for record in declarations if record["name"] != "general.architecture"]
+    frozen = _write_profile_model_metadata_records(writer, records, record_policy_version=2)
+    return MappingProxyType({**prepared, "records": frozen, "metadata_count": len(frozen),
+                            "selected_fast_metadata_policy_version": 5, "converter_revision": PRISM_SOURCE_REVISION,
+                            "metadata_scope": "policy_context_template_role_aware_fast_rows_merges_and_bootstrap_subset",
+                            "metadata_verification": "declared_records_emitted_not_file_verified",
+                            "gguf_token_type_verification": "not_checked",
                             "runtime_approval": "not_granted_by_selected_fast_metadata_emission"})
 
 
@@ -3339,11 +3386,33 @@ def verify_profile_gguf_selected_fast_metadata_v4(
         token_roles=token_roles, policy_version=4)
 
 
+def verify_profile_gguf_selected_fast_metadata_v5(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, metadata_files: dict, tokenizer_bytes: bytes,
+    context_length: int, template_source: str, row_policy: str, merge_policy: str, token_roles: dict, bootstrap_policy: dict,
+    expected_file_bytes: int, expected_file_sha256: str, gguf_template_bytes: bytes | None = None,
+    maximum_file_bytes: int = 256 * 1024, maximum_seconds: float = 30, maximum_metadata_bytes: int = 8192,
+    maximum_header_bytes: int = 1024**2, maximum_vocabulary_rows: int = 4096,
+    maximum_token_content_bytes: int = 64 * 1024, maximum_merge_rows: int = 4096,
+    maximum_merge_content_bytes: int = 64 * 1024,
+):
+    """Freshly bind selected, role and bootstrap declarations through one retained-file proof."""
+    return _verify_profile_gguf_selected_fast_metadata(profile, inventory, manifest, pq2_blocks, reader=reader,
+        metadata_files=metadata_files, tokenizer_bytes=tokenizer_bytes, context_length=context_length,
+        template_source=template_source, row_policy=row_policy, merge_policy=merge_policy,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        gguf_template_bytes=gguf_template_bytes, maximum_file_bytes=maximum_file_bytes, maximum_seconds=maximum_seconds,
+        maximum_metadata_bytes=maximum_metadata_bytes, maximum_header_bytes=maximum_header_bytes,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
+        maximum_merge_rows=maximum_merge_rows, maximum_merge_content_bytes=maximum_merge_content_bytes,
+        token_roles=token_roles, bootstrap_policy=bootstrap_policy, policy_version=5)
+
+
 def _verify_profile_gguf_selected_fast_metadata(
     profile, inventory, manifest, pq2_blocks, *, reader, metadata_files, tokenizer_bytes, context_length,
     template_source, row_policy, merge_policy, expected_file_bytes, expected_file_sha256, gguf_template_bytes,
     maximum_file_bytes, maximum_seconds, maximum_metadata_bytes, maximum_header_bytes, maximum_vocabulary_rows,
     maximum_token_content_bytes, maximum_merge_rows, maximum_merge_content_bytes, token_roles=None, policy_version=3,
+    bootstrap_policy=None,
 ):
     from embedded_jev.model_profile import SHA256
 
@@ -3360,7 +3429,8 @@ def _verify_profile_gguf_selected_fast_metadata(
         template_source=template_source, gguf_template_bytes=gguf_template_bytes, row_policy=row_policy, merge_policy=merge_policy,
         maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
         maximum_merge_rows=maximum_merge_rows, maximum_merge_content_bytes=maximum_merge_content_bytes,
-        **({"token_roles": token_roles, "deadline": deadline} if policy_version == 4 else {}))
+        **({"token_roles": token_roles, "deadline": deadline} if policy_version in (4, 5) else {}),
+        **({"include_bootstrap": True, "bootstrap_policy": bootstrap_policy} if policy_version == 5 else {}))
     if time.monotonic() > deadline:
         raise ValueError("selected fast metadata preparation deadline exceeded")
     verified = dict(_verify_profile_gguf_metadata_records(profile, reader=reader,
@@ -3368,10 +3438,19 @@ def _verify_profile_gguf_selected_fast_metadata(
         maximum_file_bytes=maximum_file_bytes, deadline=deadline, model_owner=None, descriptor=None,
         policy_version=2, file_cap=16 * 1024**2, header_cap=maximum_header_bytes,
         declarations=records, maximum_metadata_bytes=maximum_metadata_bytes,
-        maximum_numeric_array_parts=5 + profile.geometry["vocab_size"], record_policy_version=3))
+        maximum_numeric_array_parts=5 + profile.geometry["vocab_size"], record_policy_version=4 if policy_version == 5 else 3))
     if time.monotonic() > deadline:
         raise ValueError("selected fast metadata verification deadline exceeded")
     verified.pop("policy_metadata_verification", None)
+    if policy_version == 5:
+        return MappingProxyType({**prepared, **verified, "selected_fast_metadata_policy_version": 5,
+            "metadata_count": len(records), "records": tuple(MappingProxyType({**record, "values": tuple(record["values"])}) for record in records),
+            "metadata_scope": "policy_context_template_role_aware_fast_rows_merges_and_bootstrap_subset",
+            "metadata_verification": "selected_typed_policy_source_role_aware_fast_rows_merges_and_bootstrap_match_file",
+            "source_row_verification": "selected_pinned_fast_wrapper_declarations_match_file",
+            "gguf_token_type_verification": "selected_padded_transformed_type_rows_match_file",
+            "gguf_tokenizer_verification": "not_checked",
+            "runtime_approval": "not_granted_by_selected_fast_metadata_verification"})
     return MappingProxyType({**prepared, **verified, "selected_fast_metadata_policy_version": policy_version,
                             "metadata_scope": "policy_context_template_role_aware_fast_rows_and_merges_subset" if policy_version == 4 else "policy_context_template_fast_rows_and_merges_subset",
                             "metadata_verification": "selected_typed_policy_source_role_aware_fast_rows_and_merges_match_file" if policy_version == 4 else "selected_typed_policy_source_fast_rows_and_merges_match_file",

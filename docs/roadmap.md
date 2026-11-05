@@ -5,7 +5,9 @@ Every model-quality and speed result must reference a frozen artifact, workload,
 runtime, and hardware configuration. No full-model job starts merely because a
 toy mathematical test passes.
 
-Current planning baseline: `b86538b`, reviewed 2026-11-05. Read the
+Current baseline includes the
+[atomic selected checkpoint](handover.md#atomic-selected-metadata-checkpoint-2026-11-05),
+reviewed 2026-11-05, following `b86538b`. Read the
 [bootstrap checkpoint](handover.md#generated-tokenizer-bootstrap-checkpoint-2026-11-04),
 [role-aware selected checkpoint](handover.md#role-aware-selected-metadata-checkpoint-2026-11-04)
 and [learned tokenizer comparison](handover.md#learned-native-oracle-retry-passed-2026-11-04).
@@ -29,21 +31,22 @@ is not yet a fully ternary model, calibrated service or deployment claim.
 
 | Step | Concrete Deliverable | Exit Evidence and Scope Boundary |
 | --- | --- | --- |
-| S1. Atomic selected metadata | Proposed v5 Python writer and retained-file verifier composing the existing selected fields with explicit bootstrap declarations | One joint preflight for 37 emitted keys; one fresh bounded proof of all 38 selected file fields, including architecture; strict BOOL and unchanged v3/v4 behavior. Generated fixtures only. Does not establish native tags, source defaults or model execution. |
+| S1. Atomic selected metadata | Implemented v5 Python writer and retained-file verifier composing the existing selected fields with explicit bootstrap declarations | Generated v5 proof and default gate pass: joint 37-key preflight, fresh bounded 38-field proof including architecture, strict BOOL and unchanged API defaults. Old v4/bootstrap cached compatibility controls remain resource-blocked, not accepted. Does not establish native tags, source defaults or model execution. |
 | S2. Native contract and runner | Consume that same contract through the profile-aware native path and a prefill-only typed decision entry point | Generated native positive/refusal, exact token/option mapping, counted BitNet dispatch, no-score failure, context reset/reuse and cleanup controls. Native edits/builds and optional runs need their own bounded scope; never send real profiles through generated-only policies. |
 | S3. One-profile numerical acceptance | Resolve the existing native/reference first divergence and validate dense plus frozen-projection scoring on identical inputs | Operation/state/precision evidence, preserved candidate identity, acceptance criteria written before the run, fresh/reused-context checks and measured resources. New model conversion or learned diagnostics require separate approval; no tolerance relaxation or refitting to hide discrepancies. |
 | S4. Decision-quality baseline | Freeze a representative task fixture and evaluate dense and one-projection paths | Licensed split/provenance, declared quality target, held-out accuracy and perturbation/error analysis. Conditional scores remain uncalibrated until a separately fitted and tested decision calibration passes. Dataset acquisition and held-out scoring require approval. |
 | S5. Broader ternary model | Quantize and export selected blocks, then eligible whole-model projections, with resumable artifacts | Preserve independent FP16 row/group scales, isolate weight/A8 loss, verify runtime parity and actual dispatch, and pass the quality target. New fitting, retained candidates, conversion and larger experiments require approval. Stop rollout if quality fails. |
 | S6. Reusable service and device validation | Complete cache/concurrency/cancellation behavior, independently validate another profile, and measure the integrated target | Fresh/cached score agreement, request isolation, calibrated metrics where claimed, and actual latency/RAM/power/thermal measurements. ARM64, RISC-V and vision require separate hardware/adapters/evidence; none is implied by x86 controls. |
 
-S1 is the immediate, finite integration gap: selected v4 proves 30 fields and
-bootstrap v1 prepares eight more, but their current real-file controls prove
-the two sets separately. Do not serialize v4 first and then append bootstrap
-fields: a late bootstrap refusal must leave the writer unchanged. Do not accept
-a caller's old receipt instead of fresh source/role/policy preparation.
-See the [next-step proposal](handover.md#atomic-selected-metadata-proposal-2026-11-05)
-for acceptance checks and a requested new 200-second model-free ceiling.
-Documentation planning does not grant that execution budget or authorize S2-S6.
+S1's finite integration is implemented: selected v4's 30 fields and bootstrap
+v1's eight declarations now share a v5 38-field proof, while their old APIs and
+independent controls remain. V5 never serializes v4 and then appends bootstrap
+fields: a late bootstrap refusal leaves the writer unchanged. It accepts no
+caller receipt instead of fresh source/role/policy preparation. The
+[checkpoint](handover.md#atomic-selected-metadata-checkpoint-2026-11-05)
+records the approved separate 200-second synthetic scope, passing v5/default
+evidence and two resource-blocked old cached compatibility checks. That scope
+is closed; no resource-failure retry, host workaround or S2-S6 execution follows.
 
 Keep S1 limited to this composition; its successful proof is not permission to
 keep expanding metadata indefinitely or claim a functioning native system.

@@ -2805,6 +2805,125 @@ def test_profile_tokenizer_bootstrap_requires_explicit_verified_policy(monkeypat
         assert receipt["bootstrap_policy"]["bos_token_id"] == 22 and receipt["bootstrap_policy_sha256"] == expected
 
 
+@pytest.mark.parametrize("operation, defect", [(operation, defect) for operation in ("writer", "verifier")
+    for defect in (None, "policy", "policy-profile", "ordinary-id", "missing-policy", "missing-roles", "receipt", "roles",
+    "metadata-pin", "tokenizer-pin", "template-pin", "manifest", "profile", "duplicate-final-bool", "duplicate-id",
+    "missing-bool-method", "seconds-bool", "seconds-over", "early-deadline", "preparation-deadline", "verification-deadline", "file-budget")
+    if not (operation == "verifier" and defect in ("duplicate-final-bool", "duplicate-id", "missing-bool-method")
+            or operation == "writer" and defect in ("file-budget", "verification-deadline"))])
+def test_profile_selected_bootstrap_metadata_atomic_contract(monkeypatch, operation, defect):
+    from embedded_jev import prism_codec
+
+    metadata = {}
+    tokenizer_bytes = b'{"model":{"type":"BPE"}}'
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(metadata_output=metadata, tokenizer_bytes=tokenizer_bytes)
+    roles = {"token0": "source_special", "token1": "ordinary_added_marker"}
+    preparations, proofs = [], []
+
+    def prepare(actual, **kwargs):
+        assert actual is profile and kwargs["verify_token_roles"] is True
+        assert 0 < kwargs["maximum_seconds"] <= 60
+        preparations.append(kwargs)
+        if kwargs["token_roles"] != roles:
+            raise ValueError("wrong synthetic role policy")
+        return ({"tokens": tuple(f"token{index}" for index in range(32)), "token_roles_sha256": "c" * 64,
+                 "source_special_token_ids": {"token0": 0},
+                 "token_row_records": tuple({"source_token": f"token{index}", "token_type": "CONTROL" if index == 0 else "NORMAL"} for index in range(32))},
+                {"name": "tokenizer.ggml.merges", "kind": "str_array", "values": ("a b",)}, 3)
+
+    def verify(actual, **kwargs):
+        assert actual is profile and kwargs["model_owner"] is kwargs["descriptor"] is None
+        assert len(kwargs["declarations"]) == 38 and kwargs["record_policy_version"] == 4
+        assert kwargs["declarations"][0]["name"] == "general.architecture"
+        assert kwargs["declarations"][-1] == {"name": "tokenizer.ggml.add_eos_token", "kind": "bool", "values": (False,)}
+        assert kwargs["maximum_numeric_array_parts"] == 37 and kwargs["maximum_metadata_bytes"] == 8192
+        proofs.append(kwargs)
+        return {"metadata_names": tuple(record["name"] for record in kwargs["declarations"])}
+
+    monkeypatch.setattr(prism_codec, "_prepare_profile_fast_tokenizer_rows_and_merges", prepare)
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_metadata_records", verify)
+    writer = _profile_metadata_writer_fixture()
+    writer.add_bool = lambda name, value: writer.kv_data[0].__setitem__(name, ("bool", [value]))
+    policy = {"policy_version": 1, "profile_sha256": profile.sha256, "tokenizer_model": "gpt2", "pre_tokenizer_tag": "qwen35",
+        "bos_token_id": 0, "eos_token_id": 0, "unknown_token_id": 0, "padding_token_id": 0,
+        "add_bos_token": False, "add_eos_token": False}
+    arguments = dict(metadata_files=metadata, tokenizer_bytes=tokenizer_bytes, context_length=256, template_source="source",
+        row_policy="pinned_prism_fast_rows_v2", merge_policy="pinned_prism_ranked_source_merges_v2", token_roles=roles, bootstrap_policy=policy)
+    if defect == "policy":
+        policy["add_eos_token"] = True
+    elif defect == "policy-profile":
+        policy["profile_sha256"] = "0" * 64
+    elif defect == "ordinary-id":
+        policy["bos_token_id"] = 1
+    elif defect == "missing-policy":
+        del arguments["bootstrap_policy"]
+    elif defect == "missing-roles":
+        del arguments["token_roles"]
+    elif defect == "receipt":
+        arguments["prepared"] = {"metadata_verification": "verified"}
+    elif defect == "roles":
+        arguments["token_roles"] = {}
+    elif defect in ("metadata-pin", "template-pin"):
+        metadata["config.json" if defect == "metadata-pin" else profile.tokenization["template_file"]] += b" "
+    elif defect == "tokenizer-pin":
+        arguments["tokenizer_bytes"] += b" "
+    elif defect in ("manifest", "profile"):
+        manifest["payload_sha256" if defect == "manifest" else "profile_sha256"] = "0" * 64
+    elif defect in ("duplicate-final-bool", "duplicate-id"):
+        writer.kv_data[0]["tokenizer.ggml." + ("add_eos_token" if defect == "duplicate-final-bool" else "padding_token_id")] = ("str", ["keep"])
+    elif defect == "missing-bool-method":
+        writer.add_bool = None
+    elif defect in ("seconds-bool", "seconds-over"):
+        arguments["maximum_seconds"] = True if defect == "seconds-bool" else (61 if operation == "writer" else 181)
+    elif defect in ("early-deadline", "preparation-deadline", "verification-deadline"):
+        clock = iter({"early-deadline": [5, 40], "preparation-deadline": [5, 6, 40], "verification-deadline": [5, 6, 7, 8, 40]}[defect])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    if operation == "writer":
+        action = prism_codec.write_profile_model_selected_fast_metadata_v5
+        arguments["writer"] = writer
+    else:
+        action = prism_codec.verify_profile_gguf_selected_fast_metadata_v5
+        arguments.update(reader=object(), expected_file_bytes=100, expected_file_sha256="1" * 64)
+        if defect == "file-budget":
+            arguments["maximum_file_bytes"] = True
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    if defect:
+        with pytest.raises(TypeError if defect in ("missing-policy", "missing-roles", "receipt") else ValueError):
+            action(profile, report, manifest, blocks, **arguments)
+        assert len(proofs) == (defect == "verification-deadline") and json.dumps(writer.kv_data, sort_keys=True) == before
+    else:
+        receipt = action(profile, report, manifest, blocks, **arguments)
+        assert len(preparations) == 1 and len(proofs) == (operation == "verifier")
+        assert receipt["metadata_count"] == len(receipt["records"]) == (37 if operation == "writer" else 38)
+        assert receipt["selected_fast_metadata_policy_version"] == 5 and receipt["token_roles_sha256"] == "c" * 64
+        assert receipt["pre_tokenizer_tag_verification"] == receipt["source_default_verification"] == "not_checked"
+        assert "not_granted" in receipt["runtime_approval"]
+        if operation == "writer":
+            assert len(writer.kv_data[0]) == 37 and writer.kv_data[0]["tokenizer.ggml.add_eos_token"] == ("bool", [False])
+            for record in receipt["records"]:
+                conflict_writer = _profile_metadata_writer_fixture()
+                conflict_writer.add_bool = writer.add_bool
+                conflict_writer.kv_data[0][record["name"]] = ("str", ["keep"])
+                before_conflict = json.dumps(conflict_writer.kv_data, sort_keys=True)
+                with pytest.raises(ValueError, match="conflicting"):
+                    action(profile, report, manifest, blocks, **{**arguments, "writer": conflict_writer})
+                assert json.dumps(conflict_writer.kv_data, sort_keys=True) == before_conflict
+        policy["bos_token_id"] = 1
+        assert receipt["bootstrap_policy"]["bos_token_id"] == 0
+
+
+@pytest.mark.parametrize("operation", ["writer", "verifier"])
+def test_profile_selected_bootstrap_metadata_preserves_api_defaults(operation):
+    import inspect
+    from embedded_jev import prism_codec
+
+    prefix = "write_profile_model" if operation == "writer" else "verify_profile_gguf"
+    previous = inspect.signature(getattr(prism_codec, prefix + "_selected_fast_metadata_v4"))
+    current = inspect.signature(getattr(prism_codec, prefix + "_selected_fast_metadata_v5"))
+    assert {name: parameter for name, parameter in current.parameters.items() if name != "bootstrap_policy"} == previous.parameters
+    assert current.parameters["bootstrap_policy"].default is inspect.Parameter.empty
+
+
 @pytest.mark.parametrize("defect", [None, "true", "int", "empty", "many", "missing-method", "duplicate-late", "policy-bool", "policy-over", "legacy"])
 def test_profile_metadata_boolean_writer_is_explicit_and_preflighted(defect):
     from embedded_jev import prism_codec

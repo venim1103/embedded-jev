@@ -3379,7 +3379,9 @@ but hashes are identities, not issuer authentication. Preparation defaults
 to 30 s with a 60 s cooperative ceiling, including fresh role preparation;
 existing role-owner row/content/declaration limits are retained. Receipts say
 `prepared_not_file_verified`, leave native/pre-tag/source-default checks
-unchecked and grant no runtime approval. There is no combined selected v5 API.
+unchecked and grant no runtime approval. The separately versioned v5 composition
+below now joins these declarations with the selected fields; bootstrap-v1 itself
+remains preparation-only.
 
 The shared private writer's explicit `record_policy_version=2` supports scalar
 BOOL after joint preflight; its default 1 is unchanged. The retained record
@@ -3392,6 +3394,37 @@ typed readback, fresh preparation/file proof and newly hashed ID/BOOL faults.
 This verifies eight declared fields separately from v4's selected 30 fields,
 not an atomic public 38-field model/tokenizer contract. See the
 [checkpoint](handover.md#generated-tokenizer-bootstrap-checkpoint-2026-11-04).
+
+### Atomic Selected And Bootstrap Metadata
+
+`write_profile_model_selected_fast_metadata_v5` requires explicit `token_roles`
+and `bootstrap_policy` and jointly preflights all 37 emitted keys before mutation.
+It does not serialize v4 and append bootstrap fields. The matching
+`verify_profile_gguf_selected_fast_metadata_v5` freshly prepares the same facts
+and proves all 38 selected fields, including `general.architecture`, through
+one retained-file operation and one cooperative deadline. Private bootstrap
+helpers reuse fresh internal role facts once; callers cannot inject a prepared
+receipt. Writer record policy 2 and verifier record policy 4 explicitly enable
+BOOL; old selected-v3/v4/bootstrap-v1 APIs and all defaults/limits remain unchanged.
+
+Receipts bind profile, role and bootstrap-policy identities, not issuer authority,
+source-default acceptance or native tokenizer semantics. Writer status remains
+emitted, not file-verified; arbitrary writer exceptions have no rollback promise.
+The verifier does not grant runtime approval, full-model compatibility or a
+cross-file atomic snapshot. Model/pre-tag, false-only insertion flags and
+unpadded source-special CONTROL IDs (including aliases) retain bootstrap-v1's
+explicit policy.
+
+The generated-only
+`test_pinned_profile_selected_bootstrap_metadata_atomic_on_synthetic_sources`
+reuses `PRISM_SOURCE_DIR`/`PRISM_CONVERTER_PYTHON` and the existing 32-row
+audit-denied fixture. It checks typed readback, one fresh 38-field proof,
+source/role/policy refusals and newly hashed field/BOOL corruption with unchanged
+resource/cleanup guards. The [checkpoint](handover.md#atomic-selected-metadata-checkpoint-2026-11-05)
+records its passing evidence and the **resource-blocked old v4/bootstrap cached
+compatibility controls**. Do not retry resource failures unchanged or treat the
+default gate's optional skips as compatibility/native acceptance. S2's native
+consumer/runner needs a separate bounded scope; no new learned execution follows.
 
 ### Standalone Fast Token Contracts
 

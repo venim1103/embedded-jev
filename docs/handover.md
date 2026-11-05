@@ -6,10 +6,96 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Atomic Selected Metadata Checkpoint (2026-11-05)
+
+The user resumed autonomous development and approved the proposed **new separate
+200-second synthetic-only S1 ceiling**. The v5 writer/verifier are implemented;
+the generated v5 acceptance control and default source gate passed. **The old
+v4/bootstrap cached compatibility controls are resource-blocked**, not green:
+their one invocation aborted on the unchanged RSS/swap guard. No resource
+failure was retried. S2 native work and all learned approvals remain closed.
+The old 600-second ledger and eight consumed learned approvals are unchanged.
+
+`write_profile_model_selected_fast_metadata_v5` jointly prepares and preflights
+all 37 emitted keys with explicit `token_roles` and `bootstrap_policy`, using
+writer record policy 2 for strict BOOL. Its matching
+`verify_profile_gguf_selected_fast_metadata_v5` freshly prepares all 38 selected
+declarations, including `general.architecture`, and performs one retained-file
+proof under one cooperative deadline with record policy 4. Private bootstrap
+helpers reuse freshly verified internal role facts once; no public API accepts
+a prepared receipt. Public bootstrap-v1 and selected-v3/v4 signatures, defaults,
+limits and receipt claims remain unchanged. Hashes bind declared identities,
+not issuer authority; native/pre-tag/source-default verification and runtime
+approval remain unchecked. Writer preflight does not promise rollback after an
+arbitrary writer exception. This is selected metadata, not a native text runner.
+
+Verification with bytecode/cache writes disabled:
+
+- After private helper extraction, unchanged bootstrap controls: **25 passed
+  in 0.58 s**. Initial v5 plus old selected/role/bootstrap unit controls:
+  **120 passed in 2.06 s**. Final v5 boundary/file slice: **42 passed in 3.19 s**,
+  including all 37 writer-key conflicts, required-policy/role and injected-receipt
+  refusals, exact inherited API defaults, source/artifact mismatches and deadline
+  expiration before and after the retained proof.
+- First generated v5 check: **1 failed in 3.96 s** at the new readback assertion
+  comparing stored F32 with the original Python float. Diagnosed the exact
+  assertion and compared against the declaration's exact F32 representation;
+  production byte comparison and numerical tolerances were unchanged. The
+  same repaired control: **1 passed in 2.23 s**. The later 42-case slice added
+  noncanonical BOOL faults, not an unchanged reassurance rerun.
+- Final audit-denied generated control: 32 rows, **37 emitted/38 verified
+  fields**, 2,592-byte anchored file, one fresh role preparation and one
+  retained-record proof. Exact typed readback and 40 freshly hashed corruption
+  refusals pass (each of the 38 fields plus two noncanonical BOOL bytes), as do
+  ten before-reader source/role/policy/budget refusals and the independent
+  USER_DEFINED-to-CONTROL fault. Three actual-writer policy/ID/final-BOOL
+  conflicts preserve existing records. Read-only input bytes, descriptor baseline
+  and complete scratch cleanup pass. No GGUF, arrays, spill or worker retained.
+- Final group RSS/high-water sum: **262,938,624 B**; minimum observed host
+  available: **13,679,611,904 B**; owned swap zero and host swap unchanged at
+  **638,976 B**. Existing 64 KiB source/copy, 256 KiB file/fault, 8 MiB logical
+  scratch, 15-second worker/60-second stage, 1 GiB group RSS and 2 GiB host
+  reserve guards remain unchanged. These observations are not device guarantees.
+- Old compatibility slice under 28+2 seconds: **93 passed, 2 failed in 7.36 s**.
+  Old unit contracts and v3 generated selected composition passed; generated
+  v4-role and bootstrap controls aborted with `tokenizer diagnostic RSS or swap
+  budget exceeded`. The guard combines RSS, owned swap and host-swap growth and
+  does not retain failure counters, so individual causes cannot be established.
+  Host swap grew from 638,976 B to 655,360 B across the run, consistent with a
+  host-growth refusal. Parent-owned scratch/process cleanup completed. Do not
+  retry these unchanged resource failures or weaken guards to claim compatibility.
+- Separate required default root gate, all `MIMO_*`/`PRISM_*`/`BITNET_*` opt-ins
+  unset, under 38+2 seconds: **1884 passed, 230 skipped in 29.31 s**, followed
+  by clean `ruff check --no-cache embedded_jev tests` and `git diff --check`.
+  Optional skips are not cached/native/learned evidence. No native build, CTest,
+  native invocation, model-cache content read, download or model run occurred.
+
+Reverified cached Prism revision `842b1880415d6f508f03b789e5ce70194def7bfd` and
+existing dense interpreter libraries Transformers 5.12.1, tokenizers 0.22.2 and
+NumPy 2.2.6 before optional execution. No caches/environments/pins were changed.
+Pylance bootstrap callers and touched-file editor diagnostics are clean.
+V5 callers are dynamically selected/generated; Pylance found no resolvable
+call sites, so the executed tests supply their behavioral evidence. Eight
+documents passed content/link/anchor/fence/table validation (642 local links,
+75 tables), with clean whitespace. No unchanged source gate was rerun for docs.
+Measured pytest execution is **48.69/200 s**, including both failure runs;
+lightweight setup/review/tooling/documentation are reported separately. The scope
+closes at this checkpoint; unused time does not authorize another experiment.
+
+Next: retain the resource-blocked compatibility status. A new bounded scope in
+a host with stable swap counters is needed to complete those old optional
+controls; no host-level workaround is authorized. Prepare S2's same-contract
+native consumer and prefill-only typed runner next, with generated fixtures,
+exact option mapping, no-score refusal and context reset/reuse. Native edits,
+builds/runs require their own scope; real profiles, numerical diagnostics,
+conversion, quality, refitting, GPU/device and broader ternary work remain
+separate. The user's untracked `.vscode/` settings remain untouched.
+
 ## Atomic Selected Metadata Proposal (2026-11-05)
 
-**PLANNING ONLY: not implemented or executed, new execution budget not yet
-approved.** The user requested a documentation update and concrete next steps
+**Historical proposal, subsequently approved for the checkpoint above.** At
+proposal time no implementation or new execution budget was approved. The user
+requested a documentation update and concrete next steps
 toward a functioning system. The tested bootstrap checkpoint was committed
 and pushed as `b86538b`; its generated-only 200-second scope is closed. All
 eight learned approvals remain consumed. The earlier 600-second ledger is
