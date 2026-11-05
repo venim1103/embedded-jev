@@ -3340,6 +3340,40 @@ records generated positive/refusal evidence and limits. Neither API nor native
 getter success approves learned reads, vocabulary/model loading or complete
 tokenizer semantics. No new model/pre tag or special-ID policy is inferred.
 
+### Explicit Tokenizer Bootstrap Declarations
+
+`prepare_profile_model_fast_tokenizer_bootstrap_v1` prepares eight immutable
+typed declarations, not complete tokenizer/model metadata. Its required exact
+`bootstrap_policy` has `policy_version`, `profile_sha256`, `tokenizer_model`,
+`pre_tokenizer_tag`, `bos_token_id`, `eos_token_id`, `unknown_token_id`,
+`padding_token_id`, `add_bos_token` and `add_eos_token`. Version 1 accepts only
+the explicitly declared `gpt2`/`qwen35` pair and both insertion flags exactly
+`False`. These are caller declarations, not inferred source defaults or a
+native pre-tokenizer compatibility claim. The container architecture is not
+changed to `gpt2` by preparing these tokenizer fields.
+
+The preparer freshly invokes the verified-role owner. Each strict non-bool
+integer ID must refer to an unpadded source-special CONTROL row; aliases are
+allowed. Source pins, explicit roles and row contents remain unchanged.
+Receipts bind the profile, role hash and canonical `bootstrap_policy_sha256`,
+but hashes are identities, not issuer authentication. Preparation defaults
+to 30 s with a 60 s cooperative ceiling, including fresh role preparation;
+existing role-owner row/content/declaration limits are retained. Receipts say
+`prepared_not_file_verified`, leave native/pre-tag/source-default checks
+unchecked and grant no runtime approval. There is no combined selected v5 API.
+
+The shared private writer's explicit `record_policy_version=2` supports scalar
+BOOL after joint preflight; its default 1 is unchanged. The retained record
+verifier's explicit policy 4 adds strict BOOL declarations and exact one-byte
+comparison. Policies 1-3 do not gain BOOL acceptance; policy 4 retains policy
+3's 16 MiB metadata/262149 numeric-part ceilings and existing defaults.
+`test_pinned_profile_tokenizer_bootstrap_metadata_on_synthetic_sources` reuses
+the audit-denied 32-row control and its existing resource/cleanup bounds for
+typed readback, fresh preparation/file proof and newly hashed ID/BOOL faults.
+This verifies eight declared fields separately from v4's selected 30 fields,
+not an atomic public 38-field model/tokenizer contract. See the
+[checkpoint](handover.md#generated-tokenizer-bootstrap-checkpoint-2026-11-04).
+
 ### Standalone Fast Token Contracts
 
 `prepare_profile_model_fast_tokenizer_contract_v2` checks profile-pinned source

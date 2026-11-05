@@ -6,9 +6,94 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Generated Tokenizer Bootstrap Checkpoint (2026-11-04)
+
+The user explicitly selected **Approve Generated Bootstrap Policy** for
+committed/pushed proposal `577189d` and its **new separate200 s model-free
+ceiling**. The pure preparer and versioned BOOL record paths are implemented
+and tested. The earlier role-aware selected checkpoint is `7e345ca`; its200 s
+scope is closed. All eight learned approvals remain consumed, and the old
+600 s ledger stays237.26 used/362.74 unused and frozen. No learned invocation,
+model-cache content read, native build or native execution occurred here.
+
+`prepare_profile_model_fast_tokenizer_bootstrap_v1` requires an exact explicit
+profile-bound policy: version1, declared GPT2/Qwen35 tokenizer pair, four
+strict in-range IDs and two insertion flags exactlyFalse. It freshly calls the
+verified-role owner and requires unpadded source-special CONTROL rows, allowing
+valid aliases. It returns eight immutable declarations and profile/role/policy
+identities. Its30 s default/60 s cooperative ceiling includes role preparation.
+Pre-tag, source-default and native acceptance remain unchecked; the receipt is
+`prepared_not_file_verified` and grants no runtime approval. It does not change
+model architecture, template semantics, source flags or independent scales.
+
+The existing private writer now has explicit record policy2 for strict scalar
+BOOL with method/conflict/type preflight before mutation; default1 behavior
+is retained. The retained declaration verifier's explicit record policy4 adds
+GGUF BOOL tag7 and exact one-byte comparison; policies1-3 still reject BOOL.
+Policy4 keeps the existing16 MiB metadata/262149 numeric-part ceilings, not
+new capacity. No combined public selected v5 writer/verifier was introduced.
+
+Verification with bytecode/cache writes disabled:
+
+- Pure schema/ID/role/alias/hash/immutability/deadline controls:25 passed0.83 s.
+  After opt-in BOOL changes, these and ten writer preflight/default controls:
+  **35 passed0.60 s**. New default coverage totals37 cases including two
+  policy4 overflow guards.
+- `test_pinned_profile_tokenizer_bootstrap_metadata_on_synthetic_sources`:
+  **1 passed2.15 s**, parent2.027765462 s. Reused the pinned cached-library,
+  model-cache/network/child-denied32-row fixture. All eight typed fields matched
+  and fresh preparation plus bounded retained-record proof passed. Its2592 B
+  anchored file has38 metadata fields, but the bootstrap proof checks eight
+  separately from the unchanged v4 selected30-field proof; this is not a new
+  atomic public38-field contract.
+- The worker rejected three newly hashed bootstrap faults: BOS ID to an
+  ordinary marker, add-BOS byte1 and noncanonical add-EOS byte2. It also checked
+  three old-policy BOOL refusals, three malformed BOOL declarations, changed
+  source metadata and wrong roles, plus the old before-reader role refusal
+  and fresh-hash USER_DEFINED4-to-CONTROL3 fault. Original bytes, read-only
+  inputs, descriptor baseline and complete scratch cleanup passed.
+- Observed group RSS and high-water sum both261226496 B; minimum observed
+  host available16622907392 B. Owned swap0 and host-swap baseline0 stayed
+  unchanged. Existing15 s/1 GiB worker,2 GiB host reserve,60 s stage,
+  64 KiB inputs/256 KiB files/8 MiB logical scratch guards were not changed.
+  These host observations are not target-device guarantees. No generated
+  GGUF, arrays or worker was retained.
+- Old v3/v4/role unit controls and three cached generated paths: **93 passed
+  in11.00 s** under28+2 s; Ruff/whitespace clean. No native route was enabled.
+- First root gate: **1 failed,1840 passed,229 skipped in28.05 s**. An existing
+  test mocked `gguf` without a reader and still expected policy4 to be invalid;
+  the now-supported policy reached that mock and raised AttributeError. This
+  was not a resource or numerical failure. Diagnosed the exact parameter table,
+  moved only the unsupported-version sentinel to5 and added two policy4
+  overflow cases, preserving all old bounds and assertions. Focused repaired
+  boundary: **10 passed0.18 s**. No unchanged failed gate was retried.
+- New root gate after that substantive test-contract repair: **1843 passed,
+  229 skipped in27.49 s** under unchanged38+2 s with all learned/cached/native
+  opt-ins unset, followed by clean Ruff and `git diff --check`. Optional skips
+  are not native/learned/full-model evidence. No CTest/build/BitNet gate ran.
+
+Pylance found the new API's two and shared writer's18 call sites compatible;
+syntax/editor diagnostics are clean. The role-owner query reports the new
+production call compatible but two unchanged older fault-injection test
+dictionaries incompatible. Those pre-existing dynamic-call warnings were not
+hidden by changing unrelated tests or loosening production types.
+
+Measured pytest execution is **70.30/200 s**, including the failed gate,
+focused repair and new gate, excluding lightweight setup/review/tooling/docs.
+The diagnosed repair/new gate uses the existing repair allowance; no deadline,
+budget ceiling, guard or tolerance was relaxed. Unused time is not another
+experiment authorization. Next prepare a separately scoped atomic selected-
+plus-bootstrap API with joint preflight and one fresh retained proof before
+any native/default promotion; do not enter that implementation automatically.
+No downloads, pinned source/environment changes, weights/conversion/refit,
+candidate, quality, GPU, device or full-model work was included. Do not rerun
+the successful source gate for documentation-only follow-up.
+
 ## Generated Tokenizer Bootstrap Metadata Proposal (2026-11-04)
 
-**PROPOSED ONLY: not approved, implemented or executed.** The role-aware
+**Historical proposal, explicitly approved for the checkpoint above.**
+At proposal time no implementation or optional execution below was authorized.
+The role-aware
 selected-field checkpoint is committed/pushed as `7e345ca`. The user requested
 commit, push and continuation; this proposal prepares the next explicit scope,
 not permission to reuse a consumed learned approval or unused execution time.

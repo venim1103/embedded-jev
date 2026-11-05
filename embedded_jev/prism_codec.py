@@ -565,6 +565,62 @@ def prepare_profile_model_fast_token_role_contract_v1(
         "runtime_approval": "not_granted_by_token_role_contract"})
 
 
+def prepare_profile_model_fast_tokenizer_bootstrap_v1(
+    profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int, row_policy: str,
+    token_roles: dict, bootstrap_policy: dict, maximum_vocabulary_rows: int = 4096,
+    maximum_token_content_bytes: int = 64 * 1024, maximum_declared_tokens: int = 64, maximum_seconds: float = 30,
+):
+    """Prepare explicit bootstrap declarations, not source defaults or native tokenizer acceptance."""
+    import json
+
+    if type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 60:
+        raise ValueError("invalid tokenizer bootstrap preparation budget")
+    deadline = time.monotonic() + maximum_seconds
+    id_names = ("bos_token_id", "eos_token_id", "unknown_token_id", "padding_token_id")
+    flag_names = ("add_bos_token", "add_eos_token")
+    names = {"policy_version", "profile_sha256", "tokenizer_model", "pre_tokenizer_tag", *id_names, *flag_names}
+    if type(bootstrap_policy) is not dict or set(bootstrap_policy) != names:
+        raise ValueError("invalid tokenizer bootstrap policy schema")
+    policy = dict(bootstrap_policy)
+    if (type(policy["policy_version"]) is not int or policy["policy_version"] != 1
+            or type(policy["profile_sha256"]) is not str or policy["profile_sha256"] != profile.sha256
+            or type(policy["tokenizer_model"]) is not str or policy["tokenizer_model"] != "gpt2"
+            or type(policy["pre_tokenizer_tag"]) is not str or policy["pre_tokenizer_tag"] != "qwen35"
+            or any(type(policy[name]) is not int or not 0 <= policy[name] < profile.geometry["vocab_size"] for name in id_names)
+            or any(policy[name] is not False for name in flag_names)):
+        raise ValueError("unsupported tokenizer bootstrap policy declarations")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ValueError("tokenizer bootstrap preparation deadline exceeded")
+    prepared = prepare_profile_model_fast_token_role_contract_v1(profile, metadata_files=metadata_files,
+        tokenizer_bytes=tokenizer_bytes, context_length=context_length, row_policy=row_policy, token_roles=token_roles,
+        maximum_vocabulary_rows=maximum_vocabulary_rows, maximum_token_content_bytes=maximum_token_content_bytes,
+        maximum_declared_tokens=maximum_declared_tokens, maximum_seconds=remaining)
+    source_specials = {token_id: text for text, token_id in prepared["source_special_token_ids"].items()}
+    for name in id_names:
+        token_id = policy[name]
+        row = prepared["token_row_records"][token_id]
+        if (token_id not in source_specials or row["token_type"] != "CONTROL"
+                or row["source_token"] != source_specials[token_id] or prepared["tokens"][token_id] != source_specials[token_id]):
+            raise ValueError("tokenizer bootstrap ID is not a verified unpadded source-special CONTROL row")
+    records = [
+        {"name": "tokenizer.ggml.model", "kind": "string", "values": (policy["tokenizer_model"],)},
+        {"name": "tokenizer.ggml.pre", "kind": "string", "values": (policy["pre_tokenizer_tag"],)},
+        *({"name": "tokenizer.ggml." + name, "kind": "u32", "values": (policy[name],)} for name in id_names),
+        *({"name": "tokenizer.ggml." + name, "kind": "bool", "values": (policy[name],)} for name in flag_names),
+    ]
+    identity = hashlib.sha256(json.dumps({"bootstrap_policy": policy, "token_roles_sha256": prepared["token_roles_sha256"]},
+        sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    if time.monotonic() > deadline:
+        raise ValueError("tokenizer bootstrap preparation deadline exceeded")
+    return MappingProxyType({"tokenizer_bootstrap_policy_version": 1, "bootstrap_policy": MappingProxyType(policy),
+        "profile_sha256": profile.sha256, "token_roles_sha256": prepared["token_roles_sha256"], "bootstrap_policy_sha256": identity,
+        "records": tuple(MappingProxyType(record) for record in records), "metadata_count": len(records),
+        "metadata_scope": "explicit_declared_tokenizer_bootstrap_subset", "metadata_verification": "prepared_not_file_verified",
+        "pre_tokenizer_tag_verification": "not_checked", "native_tokenizer_verification": "not_checked",
+        "source_default_verification": "not_checked", "runtime_approval": "not_granted_by_tokenizer_bootstrap_declarations"})
+
+
 def prepare_profile_model_fast_context_contract_v3(
     profile, *, metadata_files: dict, tokenizer_bytes: bytes, context_length: int,
     row_policy: str, messages: list[dict], maximum_seconds: float = 10,
@@ -1569,9 +1625,16 @@ def write_profile_model_template_metadata(
                             "runtime_approval": "not_granted_by_template_emission"})
 
 
-def _write_profile_model_metadata_records(writer, records):
+def _write_profile_model_metadata_records(writer, records, *, record_policy_version: int = 1):
+    if type(record_policy_version) is not int or record_policy_version not in (1, 2):
+        raise ValueError("invalid metadata writer record policy version")
+    if record_policy_version == 2 and any(record["kind"] == "bool" and
+            (len(record["values"]) != 1 or type(record["values"][0]) is not bool) for record in records):
+        raise ValueError("invalid metadata boolean declaration")
     mappings = getattr(writer, "kv_data", None)
     methods = ("add_uint32", "add_float32", "add_array") + (("add_string",) if any(record["kind"] == "str" for record in records) else ())
+    if record_policy_version == 2 and any(record["kind"] == "bool" for record in records):
+        methods += ("add_bool",)
     if (getattr(writer, "arch", None) != "qwen35" or not isinstance(mappings, list) or len(mappings) != 1
             or any(not isinstance(mapping, dict) for mapping in mappings)
             or any(not callable(getattr(writer, method, None)) for method in methods)
@@ -1587,6 +1650,8 @@ def _write_profile_model_metadata_records(writer, records):
             writer.add_float32(name, values[0])
         elif kind == "str":
             writer.add_string(name, values[0])
+        elif kind == "bool" and record_policy_version == 2:
+            writer.add_bool(name, values[0])
         else:
             writer.add_array(name, list(values))
     return frozen_records
@@ -3693,10 +3758,10 @@ def _verify_profile_gguf_metadata_records(
 
     from embedded_jev.streamed_text import bounded_native_descriptor_record, bounded_native_file_record, bounded_gguf_descriptor_record_v2
 
-    if type(record_policy_version) is not int or record_policy_version not in (1, 2, 3):
+    if type(record_policy_version) is not int or record_policy_version not in (1, 2, 3, 4):
         raise ValueError("invalid selected record policy version")
-    metadata_cap = 16 * 1024**2 if record_policy_version == 3 else 8 * 1024**2 if record_policy_version == 2 else 128 * 1024
-    numeric_cap = 262149 if record_policy_version in (2, 3) else 4101
+    metadata_cap = 16 * 1024**2 if record_policy_version in (3, 4) else 8 * 1024**2 if record_policy_version == 2 else 128 * 1024
+    numeric_cap = 262149 if record_policy_version in (2, 3, 4) else 4101
     if type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= metadata_cap:
         raise ValueError("invalid selected metadata record budget")
     if type(maximum_numeric_array_parts) is not int or not 0 < maximum_numeric_array_parts <= numeric_cap:
@@ -3719,10 +3784,14 @@ def _verify_profile_gguf_metadata_records(
     consumed = 0
     address = reader.data.__array_interface__["data"][0]
     kinds = {"string": (8,), "u32": (4,), "f32": (6,), "i32_array": (9, 5), "str_array": (9, 8)}
+    if record_policy_version == 4:
+        kinds["bool"] = (7,)
     for item in declarations:
         if time.monotonic() > deadline:
             raise ValueError("policy metadata deadline exceeded")
         name, kind, values = item["name"], item["kind"], item["values"]
+        if kind not in kinds:
+            raise ValueError("unsupported selected metadata record kind")
         encoded_name = name.encode("ascii")
         if kind == "string":
             value = values[0].encode("utf-8")
@@ -3736,6 +3805,10 @@ def _verify_profile_gguf_metadata_records(
                 encoded_value.extend(struct.pack("<Q", len(encoded)))
                 encoded_value.extend(encoded)
             encoded_value = bytes(encoded_value)
+        elif kind == "bool":
+            if len(values) != 1 or type(values[0]) is not bool:
+                raise ValueError("invalid selected boolean declaration")
+            encoded_value = struct.pack("<?", values[0])
         else:
             encoded_value = struct.pack("<I" if kind == "u32" else "<f", values[0])
         wanted = struct.pack("<Q", len(encoded_name)) + encoded_name + struct.pack("<I", kinds[kind][0]) + encoded_value

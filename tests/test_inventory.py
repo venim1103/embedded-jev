@@ -1800,8 +1800,10 @@ def test_profile_token_row_file_proof_keeps_fresh_preparation_and_bounded_privat
     (2, 8192, 262150, "numeric-array part budget"),
     (3, 16 * 1024**2 + 1, 32, "metadata record budget"),
     (3, 8192, 262150, "numeric-array part budget"),
+    (4, 16 * 1024**2 + 1, 32, "metadata record budget"),
+    (4, 8192, 262150, "numeric-array part budget"),
     (True, 8192, 32, "record policy version"),
-    (4, 8192, 32, "record policy version"),
+    (5, 8192, 32, "record policy version"),
 ])
 def test_profile_selected_record_policy_keeps_old_ceilings_and_strict_new_opt_in(monkeypatch, version, metadata_bytes, numeric_parts, message):
     import sys
@@ -2729,6 +2731,104 @@ def test_profile_selected_role_metadata_proof_preserves_identity_and_deadline(mo
         assert receipt["selected_fast_metadata_policy_version"] == 4 and receipt["token_roles_sha256"] == "c" * 64
         assert receipt["metadata_verification"] == "selected_typed_policy_source_role_aware_fast_rows_and_merges_match_file"
         assert receipt["gguf_tokenizer_verification"] == receipt["pre_tokenizer_tag_verification"] == "not_checked"
+
+
+@pytest.mark.parametrize("defect", [None, "alias", "schema", "extra", "version", "profile", "model", "pre", "bool-id", "negative-id",
+    "range-id", "ordinary-id", "padding-id", "control", "row-text", "bos", "eos", "flag-int", "roles", "budget-bool",
+    "budget-nan", "budget-infinite", "budget-over", "early-deadline", "late-deadline"])
+def test_profile_tokenizer_bootstrap_requires_explicit_verified_policy(monkeypatch, defect):
+    import hashlib
+    from embedded_jev import prism_codec
+
+    metadata = {}
+    profile, _, _, _ = _prefill_model_policy_fixture(metadata_output=metadata)
+    roles = {f"token{index}": "source_special" for index in range(22, 26)} | {"token26": "ordinary_added_marker"}
+    rows = [{"source_token": f"token{index}", "token_type": "CONTROL" if 22 <= index < 26 else "NORMAL"} for index in range(32)]
+    calls = []
+
+    def prepare(actual, **kwargs):
+        assert actual is profile and 0 < kwargs["maximum_seconds"] <= 30
+        calls.append(kwargs)
+        if kwargs["token_roles"] != roles:
+            raise ValueError("wrong synthetic role policy")
+        return {"tokens": tuple(f"token{index}" for index in range(32)), "token_row_records": rows,
+            "source_special_token_ids": {f"token{index}": index for index in range(22, 26)}, "token_roles_sha256": "c" * 64}
+
+    monkeypatch.setattr(prism_codec, "prepare_profile_model_fast_token_role_contract_v1", prepare)
+    policy = {"policy_version": 1, "profile_sha256": profile.sha256, "tokenizer_model": "gpt2", "pre_tokenizer_tag": "qwen35",
+        "bos_token_id": 22, "eos_token_id": 23, "unknown_token_id": 24, "padding_token_id": 25,
+        "add_bos_token": False, "add_eos_token": False}
+    arguments: dict = dict(metadata_files=metadata, tokenizer_bytes=b"{}", context_length=256,
+        row_policy="pinned_prism_fast_rows_v2", token_roles=roles, bootstrap_policy=policy)
+    if defect == "alias":
+        policy.update({name: 22 for name in ("bos_token_id", "eos_token_id", "unknown_token_id", "padding_token_id")})
+    elif defect == "schema":
+        del policy["add_eos_token"]
+    elif defect == "extra":
+        policy["extra"] = False
+    elif defect in ("version", "profile", "model", "pre", "bool-id", "negative-id", "range-id", "ordinary-id", "bos", "eos", "flag-int"):
+        name, value = {"version": ("policy_version", True), "profile": ("profile_sha256", "0" * 64), "model": ("tokenizer_model", "llama"),
+            "pre": ("pre_tokenizer_tag", "gpt2"), "bool-id": ("bos_token_id", True), "negative-id": ("bos_token_id", -1),
+            "range-id": ("bos_token_id", 32), "ordinary-id": ("bos_token_id", 26), "bos": ("add_bos_token", True),
+            "eos": ("add_eos_token", True), "flag-int": ("add_eos_token", 0)}[defect]
+        policy[name] = value
+    elif defect == "padding-id":
+        rows[22]["source_token"] = None
+    elif defect == "control":
+        rows[22]["token_type"] = "USER_DEFINED"
+    elif defect == "row-text":
+        rows[22]["source_token"] = "different"
+    elif defect == "roles":
+        arguments["token_roles"] = {}
+    elif defect in ("budget-bool", "budget-nan", "budget-infinite", "budget-over"):
+        arguments["maximum_seconds"] = {"budget-bool": True, "budget-nan": float("nan"), "budget-infinite": float("inf"), "budget-over": 61}[defect]
+    elif defect in ("early-deadline", "late-deadline"):
+        clock = iter([5, 40] if defect == "early-deadline" else [5, 6, 40])
+        monkeypatch.setattr(prism_codec.time, "monotonic", lambda: next(clock))
+    if defect not in (None, "alias"):
+        with pytest.raises(ValueError):
+            prism_codec.prepare_profile_model_fast_tokenizer_bootstrap_v1(profile, **arguments)
+        assert len(calls) == (1 if defect in ("ordinary-id", "padding-id", "control", "row-text", "roles", "late-deadline") else 0)
+    else:
+        receipt = prism_codec.prepare_profile_model_fast_tokenizer_bootstrap_v1(profile, **arguments)
+        expected = hashlib.sha256(json.dumps({"bootstrap_policy": policy, "token_roles_sha256": "c" * 64},
+            sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+        assert len(calls) == 1 and calls[0]["token_roles"] is roles
+        assert receipt["metadata_count"] == len(receipt["records"]) == 8
+        assert tuple(record["kind"] for record in receipt["records"]) == ("string", "string", "u32", "u32", "u32", "u32", "bool", "bool")
+        assert receipt["bootstrap_policy_sha256"] == expected and receipt["profile_sha256"] == profile.sha256
+        assert receipt["pre_tokenizer_tag_verification"] == receipt["native_tokenizer_verification"] == receipt["source_default_verification"] == "not_checked"
+        assert receipt["metadata_verification"] == "prepared_not_file_verified" and "not_granted" in receipt["runtime_approval"]
+        with pytest.raises(TypeError):
+            receipt["records"][0]["values"] = ("wrong",)
+        policy["bos_token_id"] = 0
+        assert receipt["bootstrap_policy"]["bos_token_id"] == 22 and receipt["bootstrap_policy_sha256"] == expected
+
+
+@pytest.mark.parametrize("defect", [None, "true", "int", "empty", "many", "missing-method", "duplicate-late", "policy-bool", "policy-over", "legacy"])
+def test_profile_metadata_boolean_writer_is_explicit_and_preflighted(defect):
+    from embedded_jev import prism_codec
+
+    writer = _profile_metadata_writer_fixture()
+    if defect not in ("missing-method", "legacy"):
+        writer.add_bool = lambda name, value: writer.kv_data[0].update({name: ("bool", [value])})
+    records = [{"name": "first", "kind": "u32", "values": (7,)}, {"name": "last", "kind": "bool", "values": (False,)}]
+    version = 1 if defect == "legacy" else 2
+    if defect in ("true", "int", "empty", "many"):
+        records[-1]["values"] = {"true": (True,), "int": (0,), "empty": (), "many": (False, False)}[defect]
+    elif defect == "duplicate-late":
+        writer.kv_data[0]["last"] = ("u32", [9])
+    elif defect in ("policy-bool", "policy-over"):
+        version = True if defect == "policy-bool" else 3
+    before = json.dumps(writer.kv_data, sort_keys=True)
+    if defect not in (None, "true", "legacy"):
+        with pytest.raises(ValueError):
+            prism_codec._write_profile_model_metadata_records(writer, records, record_policy_version=version)
+        assert json.dumps(writer.kv_data, sort_keys=True) == before
+    else:
+        frozen = prism_codec._write_profile_model_metadata_records(writer, records, record_policy_version=version)
+        assert writer.kv_data[0]["last"] == ("i32_array" if defect == "legacy" else "bool", [defect == "true"])
+        assert frozen[-1]["values"] == (defect == "true",)
 
 
 @pytest.mark.parametrize("defect", [None, "metadata-pin", "tokenizer-pin", "manifest", "selection", "file-budget", "record-budget",
