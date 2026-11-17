@@ -1798,6 +1798,42 @@ no complete-table coverage, F32 auxiliaries/frozen-range proof, source-file
 provenance, cross-file atomic snapshot, reader-code authentication or native
 runtime approval follows. It does not widen the small native model owner.
 
+`verified_profile_gguf_tensor_stream_v2(...)` uses the same retained-file and
+poisoned-child lifetime but requires every tensor in the declared plan, not
+just selected BF16 matrices. The reader table must contain exactly the planned
+names with nonoverlapping in-file ranges; missing/extra/duplicate names,
+incomplete child coverage and changed reader layouts refuse. Each child still
+checks its exact stored tensor record, mapped bytes and declared transform.
+Successful context exit completes the tensor-table/range checks, not model
+metadata, tokenizer semantics, loaded-page attestation or runtime approval.
+
+Use the same keyword-only child arguments. For F32 vectors/convolutions,
+`source_values` contains the declared BF16/F32 source operand and its digest;
+existing pinned Torch/vector and convolution references are reused. For the
+frozen projection, pass the saved `pq2_blocks` and manifest `payload_sha256`,
+not the dense source matrix/digest. Both supplied and converted payloads must
+match the snapshotted frozen bytes exactly, including independent FP16 scales.
+This proves payload preservation, not source-to-frozen quantization equivalence.
+
+The old public APIs/defaults/caps are unchanged. Auxiliary checks additionally
+retain their existing aggregate operand-copy caps: 64 KiB for vectors, 16 MiB
+for convolutions and 64 MiB for frozen payloads, limited further by the stream's
+`maximum_bytes`. A real frozen payload may therefore need an explicit larger
+operand budget; the default is not an implicit authorization to increase it.
+Individual file reads remain <=64 KiB. Child receipts remain provisional until
+successful context **and source-owner** exit; this API alone does not own or
+authenticate source files. The source-bound matrix-set API below is still
+BF16-only, and the 1 MiB header boundary remains unchanged.
+
+The existing synthetic selected-range parity test has
+`complete-stream-BF16`/`complete-stream-F32` cases for all 53 generated tensors.
+Use `PRISM_PARITY_PYTHON` pointing to the cached parity interpreter and the
+existing external process-group guard: 30 seconds, 1 GiB group RSS/HWM, 2 GiB
+available reserve, no owned swap/host swap growth and 8 KiB aggregate output.
+Use pytest `--tb=short` so a failure remains within that output cap. Each case
+asserts <=64 KiB input, <=16 MiB total source files and <=16 MiB GGUF output;
+all scratch is disposable. These are file/codec controls, not native execution.
+
 The bounded two-matrix generated file control uses the cached GGUF reader/
 writer, <=64 KiB output carrier and the existing 15-second/1 GiB/2 GiB-reserve/
 no-swap-growth guard, without a model or backend. Its `[True]` parameter also

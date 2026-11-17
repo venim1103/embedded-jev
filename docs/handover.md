@@ -6,6 +6,65 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Complete Converted-Tensor Stream Checkpoint (2026-11-17)
+
+**A shared converted-file lifetime now covers the complete declared tensor
+table, including F32 auxiliaries and unchanged frozen payload bytes.**
+Continued from source-bound matrix checkpoint **`017f0e4`**. This is not yet a
+source-bound all-tensor controller or a real-profile native execution path.
+
+`verified_profile_gguf_tensor_stream_v2` reuses the existing matrix stream's
+retained descriptor, aggregate deadline, snapshots, failed-child poisoning
+and two whole-file hashes. It requires the exact planned tensor names and
+nonoverlapping ranges, one successful child per source, and unchanged reader
+layout at exit. F32 operands reuse the existing pinned transform references;
+the frozen child checks the saved payload and supplied payload byte-for-byte,
+including independent scales. Old public signatures/defaults/caps remain.
+The private auxiliary file adapter now borrows the live owner and compares
+file ranges in <=64 KiB reads rather than one operand-sized read. Standalone
+checks retain their own whole-file authentication.
+
+### Evidence And Failed-Check History
+
+- Twelve new focused lifecycle/table cases; combined selected-source/stream/
+  legacy-operand subset: **66 passed in 2.75 s**, clean scoped Ruff/whitespace.
+  Pylance signature checking confirms all six private-adapter callers compatible.
+- First optional attempt exceeded the observer's **8 KiB output** cap while
+  pytest rendered its long failure traceback. Process-group cleanup completed.
+  Changed reporting to `--tb=short`, without widening any guard; this exposed
+  the new fixture's <=65536-byte input assertion. A focused runtime measurement
+  found the old large fixture packet was **574,596 B**; compact JSON would still
+  be **573,573 B**. It was not admitted by relaxing the bound.
+- Repaired the new cases to reuse the existing generated tiny geometry:
+  BF16 packet **41,919 B**, **53 tensors**, instead of the old 28-tensor large
+  fixture. Existing cases retain their geometry/commands. New full-table
+  chunks are 4096 B, covering its 2048-byte widest BF16 row; the <=64 KiB
+  individual-read assertion remains.
+- Both actual generated GGUF/source-file cases passed together:
+  **2 passed in 6.93 s**. Each completes existing legacy source/table controls,
+  then verifies all 53 converted tensors with exactly two whole-GGUF hashes.
+  Incomplete coverage, fresh-digest auxiliary corruption, supplied frozen-scale
+  changes, fresh-file-digest frozen-scale corruption and changed/restored writes
+  withhold publication. All raw reads were <=65536 B.
+- Existing external 30-second/1 GiB/2 GiB-reserve/no-swap-growth guard observed
+  **363,364,352 B** group RSS/HWM, two processes, available minimum
+  **11,428,614,144 B**, no owned swap and stable **4,411,392 B** used host swap.
+  Source/output caps remain 16 MiB each; temporary files were removed. The new
+  workers refuse learned-model cache content, network and child creation.
+- Required root gate: **2039 passed, 241 skipped in 41.10 s**, clean Ruff
+  and whitespace. The two extra optional skips are the actually executed new
+  file controls, not native/full-model acceptance.
+
+Source arrays in this new stream remain caller-owned; its frozen argument/digest
+means saved payload, not dense source. Source-to-frozen quantization equivalence
+is unchecked. The source-bound selected-set composer remains BF16-only; next
+is composing all typed source owners without per-tensor whole-file rehashing.
+The 1 MiB header boundary, complete model/tokenizer metadata, separately
+versioned real-profile admission/controller, approved carrier/resources and S3
+remain open. No learned-model cache weights, native build/model run, source
+download, refit, new retained candidate, push, branch or subagent occurred.
+Old resource failures and missing actual-build samples remain open.
+
 ## S2 Source-Bound Matrix Set Checkpoint (2026-11-17)
 
 **Selected BF16 matrices now compose verified source-shard owners with the

@@ -3942,6 +3942,105 @@ def test_profile_gguf_matrix_stream_v2_shares_hashes_and_refuses_failed_lifetime
             os.fstat(descriptor)
 
 
+@pytest.mark.parametrize("defect", [
+    None, "missing", "extra", "duplicated-name", "overlap", "range", "header", "incomplete",
+    "unknown", "duplicate-child", "caught-auxiliary", "reader-change",
+])
+def test_profile_gguf_tensor_stream_v2_requires_complete_serial_tensor_coverage(tmp_path, monkeypatch, defect):
+    import os
+    import sys
+    from types import MappingProxyType, SimpleNamespace
+
+    from embedded_jev import prism_codec, streamed_text
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64)
+    original_plan = prism_codec.profile_model_conversion_plan(profile, report, manifest, blocks)
+    entries = [next(item for item in original_plan["tensors"] if item["type"] == kind) for kind in ("BF16", "F32", "PQ2_0")]
+    monkeypatch.setattr(prism_codec, "profile_model_conversion_plan", lambda *args: {**original_plan, "tensors": entries})
+    path = tmp_path / "model.gguf"
+    payload = b"\0" * 8192
+    path.write_bytes(payload)
+
+    class Reader:
+        def __init__(self):
+            self.data = np.memmap(path, mode="r", dtype=np.uint8)
+            self.endianess, self.data_offset = "little", 64
+            self.fields = dict.fromkeys(("GGUF.version", "GGUF.tensor_count", "GGUF.kv_count"))
+            self.tensors = [SimpleNamespace(name=item["name"], data_offset=128 + 32 * index, n_bytes=16)
+                            for index, item in enumerate(entries)]
+
+    monkeypatch.setitem(sys.modules, "gguf", SimpleNamespace(GGUFReader=Reader, GGUFEndian=SimpleNamespace(LITTLE="little")))
+    reader = Reader()
+    if defect == "missing":
+        reader.tensors.pop()
+    elif defect == "extra":
+        reader.tensors.append(SimpleNamespace(name="unexpected", data_offset=512, n_bytes=16))
+    elif defect == "duplicated-name":
+        reader.tensors[-1].name = reader.tensors[0].name
+    elif defect == "overlap":
+        reader.tensors[1].data_offset = reader.tensors[0].data_offset
+    elif defect == "range":
+        reader.tensors[-1].n_bytes = len(payload)
+    elif defect == "header":
+        reader.data_offset = 1024**2 + 1
+    calls, hashes = [], []
+    original_record = streamed_text.bounded_gguf_descriptor_record_v2
+    def record(*args, **kwargs):
+        hashes.append(args[0])
+        return original_record(*args, **kwargs)
+
+    monkeypatch.setattr(streamed_text, "bounded_gguf_descriptor_record_v2", record)
+    def verify_range(*args, **kwargs):
+        kind = kwargs.get("kind", "matrix")
+        calls.append(kind)
+        assert kwargs["maximum_bytes"] == (65536 if kind == "vector" else 1024**2)
+        assert kwargs["maximum_chunk_bytes"] == 256
+        assert kwargs["shared_deadline"] > 0
+        with kwargs["file_scope"](path) as (descriptor, check_identity):
+            assert os.pread(descriptor, 16, 0) == payload[:16]
+            check_identity()
+            if kind == "vector" and defect == "caught-auxiliary":
+                raise ValueError("synthetic auxiliary failure")
+        return MappingProxyType({"converted_file_verification": "retained_file_entry_and_exit_checks_required"})
+
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_matrix_v2", verify_range)
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_operand", verify_range)
+    descriptors, verify = len(os.listdir("/proc/self/fd")), None
+    def run():
+        nonlocal verify
+        with prism_codec.verified_profile_gguf_tensor_stream_v2(profile, report, manifest, blocks, reader=reader,
+                 expected_file_bytes=len(payload), expected_file_sha256=hashlib.sha256(payload).hexdigest(),
+                 maximum_bytes=1024**2, maximum_chunk_bytes=256) as verify:
+            for entry in entries[:2] if defect == "incomplete" else entries:
+                options = dict(source_name=entry["source_name"], source_values=blocks, expected_source_sha256="a" * 64)
+                if defect == "unknown":
+                    options["source_name"] = "unknown"
+                if defect == "caught-auxiliary" and entry["type"] == "F32":
+                    with pytest.raises(ValueError, match="auxiliary failure"):
+                        verify(**options)
+                    return
+                verify(**options)
+                if defect == "duplicate-child":
+                    verify(**options)
+            if defect == "reader-change":
+                reader.tensors[-1].data_offset += 1
+
+    try:
+        if defect is None:
+            run()
+            assert calls == ["matrix", "vector", "projection"]
+            assert len(hashes) == 2 and hashes[0] == hashes[1]
+        else:
+            with pytest.raises(ValueError):
+                run()
+        if verify is not None:
+            with pytest.raises(ValueError, match="closed"):
+                verify(source_name=entries[0]["source_name"], source_values=blocks, expected_source_sha256="a" * 64)
+        assert len(os.listdir("/proc/self/fd")) == descriptors
+    finally:
+        reader.data._mmap.close()
+
+
 @pytest.mark.parametrize("source_shards,defect", [
     (1, None), (2, None), (2, "caller-inputs"), (2, "matrix-exit"), (2, "source-exit"),
     (2, "converted-exit"), (2, "source-after-close"), (2, "converted-after-close"), (2, "deadline"),

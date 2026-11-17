@@ -2152,7 +2152,7 @@ def _verify_profile_gguf_operand(
     source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
     expected_file_sha256: str, maximum_file_bytes: int = 64 * 1024, maximum_seconds: float = 30,
     kind: str = "vector", maximum_bytes: int = 64 * 1024,
-    model_owner=None,
+    model_owner=None, file_scope=None, shared_deadline=None, maximum_chunk_bytes: int = 64 * 1024,
 ):
     """Bind a typed reader view to caller file identity, not whole-model parity."""
     from embedded_jev.model_profile import SHA256
@@ -2164,10 +2164,12 @@ def _verify_profile_gguf_operand(
     if (
         kind not in ("vector", "matrix", "convolution", "projection")
         or type(expected_file_bytes) is not int or type(maximum_file_bytes) is not int
-        or not 0 < expected_file_bytes <= maximum_file_bytes <= 16 * 1024**2
+        or not 0 < expected_file_bytes <= maximum_file_bytes <= (24 * 1024**3 if file_scope is not None else 16 * 1024**2)
         or not isinstance(expected_file_sha256, str) or SHA256.fullmatch(expected_file_sha256) is None
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
         or type(maximum_bytes) is not int or not 0 < maximum_bytes <= (64 * 1024 if kind == "vector" else 64 * 1024**2 if projection else 16 * 1024**2)
+        or type(maximum_chunk_bytes) is not int or not 0 < maximum_chunk_bytes <= 1024**2
+        or file_scope is not None and model_owner is not None
     ):
         raise ValueError("invalid GGUF vector file identity or budget")
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
@@ -2222,13 +2224,13 @@ def _verify_profile_gguf_operand(
         raise ValueError("GGUF vector type, geometry or mapped range mismatch")
     descriptor = _verified_owner_descriptor(model_owner, profile, manifest, expected_file_bytes, expected_file_sha256)
     path = Path(reader.data.filename) if descriptor is None else Path(model_owner.model_path)
-    deadline = time.monotonic() + maximum_seconds
+    deadline = time.monotonic() + maximum_seconds if shared_deadline is None else shared_deadline
     def file_record():
         return (bounded_native_file_record(path, maximum_bytes=expected_file_bytes, deadline=deadline) if descriptor is None
                 else bounded_native_descriptor_record(descriptor, maximum_bytes=expected_file_bytes, deadline=deadline))
 
-    before = file_record()
-    if before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256:
+    before = file_record() if file_scope is None else None
+    if before is not None and (before["bytes"] != expected_file_bytes or before["sha256"] != expected_file_sha256):
         raise ValueError("GGUF vector file identity mismatch")
     copied = tensor.data.view("<u2").copy() if matrix else tensor.data.copy()
     name = tensor.name.encode("utf-8")
@@ -2238,18 +2240,31 @@ def _verify_profile_gguf_operand(
     field_offset = int(tensor.field.offset)
     if not 24 <= field_offset < field_offset + len(information) <= reader.data_offset:
         raise ValueError("GGUF vector tensor table range mismatch")
-    retained = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK) if descriptor is None else os.dup(descriptor)
-    try:
+    from contextlib import ExitStack
+
+    with ExitStack() as ownership:
+        if file_scope is None:
+            retained = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK) if descriptor is None else os.dup(descriptor)
+            ownership.callback(os.close, retained)
+        else:
+            retained, _ = ownership.enter_context(file_scope(path))
         if os.pread(retained, 24, 0) != struct.pack("<4sIQQ", b"GGUF", 3, len(reader.tensors), len(reader.fields) - 3):
             raise ValueError("GGUF vector header differs from reader")
         if os.pread(retained, len(information), field_offset) != information:
             raise ValueError("GGUF vector tensor table differs from reader")
-        if os.pread(retained, size, offset) != copied.tobytes():
-            raise ValueError("GGUF vector mapping differs from file range")
-    finally:
-        os.close(retained)
+        copied_bytes = memoryview(copied).cast("B")
+        for position in range(0, size, min(maximum_chunk_bytes, 65536)):
+            if time.monotonic() > deadline:
+                raise ValueError("GGUF operand verification deadline exceeded")
+            count = min(maximum_chunk_bytes, 65536, size - position)
+            if os.pread(retained, count, offset + position) != copied_bytes[position:position + count]:
+                raise ValueError("GGUF vector mapping differs from file range")
     if projection:
-        if expected_source_sha256 != manifest["payload_sha256"] or not np.array_equal(copied.reshape(source_shape), pq2_blocks):
+        if (
+            expected_source_sha256 != manifest["payload_sha256"]
+            or not np.array_equal(source_values, pq2_blocks)
+            or not np.array_equal(copied.reshape(source_shape), pq2_blocks)
+        ):
             raise ValueError("GGUF frozen projection byte parity mismatch")
         receipt = {"profile_id": profile.profile_id, "profile_sha256": profile.sha256, "source_name": source_name,
                    "tensor_name": entry["name"], "source_file_verification": "not_checked",
@@ -2263,9 +2278,13 @@ def _verify_profile_gguf_operand(
             profile, inventory, manifest, pq2_blocks, source_name=source_name, source_values=source_values,
             converted_values=copied, expected_source_sha256=expected_source_sha256, maximum_bytes=maximum_bytes,
         )
-    if file_record() != before:
+    if time.monotonic() > deadline:
+        raise ValueError("GGUF operand verification deadline exceeded")
+    if file_scope is None and file_record() != before:
         raise ValueError("GGUF vector file changed during verification")
-    return MappingProxyType({**receipt, "converted_file_verification": "caller_sha256_and_reader_range_match",
+    return MappingProxyType({**receipt, "converted_file_verification": (
+                                "caller_sha256_and_reader_range_match" if file_scope is None else
+                                "retained_file_entry_and_exit_checks_required"),
                             "gguf_reader_verification": "not_checked",
                             "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
                             "converted_tensor_offset": offset,
@@ -2351,7 +2370,6 @@ def _verified_matrix_file_v2(path, expected_file_bytes, expected_file_sha256, ma
         os.close(descriptor)
 
 
-@contextmanager
 def verified_profile_gguf_matrix_stream_v2(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
@@ -2359,15 +2377,69 @@ def verified_profile_gguf_matrix_stream_v2(
     maximum_seconds: float = 30,
 ):
     """Own serial selected matrix checks; receipts require successful stream exit."""
+    return _verified_profile_gguf_tensor_stream_v2(
+        profile, inventory, manifest, pq2_blocks, reader=reader,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=maximum_seconds, complete_table=False,
+    )
+
+
+def verified_profile_gguf_tensor_stream_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Require every declared tensor under one lifetime, including frozen payload bytes."""
+    return _verified_profile_gguf_tensor_stream_v2(
+        profile, inventory, manifest, pq2_blocks, reader=reader,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=maximum_seconds, complete_table=True,
+    )
+
+
+def _gguf_complete_tensor_layout_v2(reader, plan, expected_file_bytes):
+    import gguf
+
+    if (
+        type(reader) is not gguf.GGUFReader or reader.endianess != gguf.GGUFEndian.LITTLE
+        or not isinstance(reader.data, np.memmap) or reader.data.mode != "r" or reader.data.offset != 0
+        or reader.data.dtype != np.uint8 or reader.data.ndim != 1 or reader.data.size != expected_file_bytes
+        or reader.data.flags.writeable or reader.data._mmap is None or reader.data._mmap.closed
+        or not 1 <= len(reader.tensors) <= 427 or not 3 <= len(reader.fields) <= 259
+        or not 24 <= reader.data_offset <= min(expected_file_bytes, 1024**2)
+    ):
+        raise ValueError("v2 complete GGUF table requires a bounded read-only little-endian reader")
+    layout = tuple((item.name, int(item.data_offset), int(item.n_bytes)) for item in reader.tensors)
+    if len(layout) != len(plan["tensors"]) or {item[0] for item in layout} != {item["name"] for item in plan["tensors"]}:
+        raise ValueError("v2 complete GGUF tensor table differs from the declared plan")
+    ranges = sorted((offset, offset + size) for _, offset, size in layout)
+    if (
+        any(first < reader.data_offset or not first < last <= expected_file_bytes for first, last in ranges)
+        or any(first[1] > second[0] for first, second in zip(ranges, ranges[1:]))
+    ):
+        raise ValueError("v2 complete GGUF tensor ranges overlap or exceed file bounds")
+    return layout
+
+
+@contextmanager
+def _verified_profile_gguf_tensor_stream_v2(
+    profile, inventory, manifest, pq2_blocks, *, reader, expected_file_bytes, expected_file_sha256,
+    maximum_file_bytes, maximum_bytes, maximum_chunk_bytes, maximum_seconds, complete_table,
+):
     from copy import deepcopy
 
     deadline = _matrix_file_deadline_v2(
         expected_file_bytes, expected_file_sha256, maximum_file_bytes, maximum_bytes, maximum_chunk_bytes, maximum_seconds,
     )
-    profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
     inventory, manifest = deepcopy(inventory), deepcopy(manifest)
     blocks = np.array(pq2_blocks, copy=True)
     blocks.setflags(write=False)
+    entries = {item["source_name"]: item for item in plan["tensors"]}
+    layout = _gguf_complete_tensor_layout_v2(reader, plan, expected_file_bytes) if complete_table else None
     path = Path(reader.data.filename).absolute()
     live, failed, active = True, False, False
     verified = set()
@@ -2396,14 +2468,28 @@ def verified_profile_gguf_matrix_stream_v2(
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise ValueError("v2 GGUF matrix verification deadline exceeded")
-                    receipt = _verify_profile_gguf_matrix_v2(
-                        profile, inventory, manifest, blocks, reader=reader, source_name=source_name,
-                        source_values=source_values, expected_source_sha256=expected_source_sha256,
-                        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
-                        maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
-                        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=remaining,
-                        file_scope=borrowed_file, shared_deadline=deadline,
-                    )
+                    entry = entries.get(source_name)
+                    if complete_table and entry is None:
+                        raise ValueError("v2 GGUF tensor stream source is not declared")
+                    if complete_table and entry is not None and entry["type"] != "BF16":
+                        kind = ("projection" if entry["type"] == "PQ2_0" else
+                                "convolution" if len(entry["source_shape"]) == 3 else "vector")
+                        cap = {"projection": 64 * 1024**2, "convolution": 16 * 1024**2, "vector": 64 * 1024}[kind]
+                        receipt = _verify_profile_gguf_operand(
+                            profile, inventory, manifest, blocks, reader=reader, source_name=source_name,
+                            source_values=source_values, expected_source_sha256=expected_source_sha256,
+                            expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+                            maximum_file_bytes=maximum_file_bytes, maximum_bytes=min(maximum_bytes, cap), kind=kind,
+                            maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=remaining,
+                            file_scope=borrowed_file, shared_deadline=deadline)
+                    else:
+                        receipt = _verify_profile_gguf_matrix_v2(
+                            profile, inventory, manifest, blocks, reader=reader, source_name=source_name,
+                            source_values=source_values, expected_source_sha256=expected_source_sha256,
+                            expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+                            maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+                            maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=remaining,
+                            file_scope=borrowed_file, shared_deadline=deadline)
                     check_identity()
                     if failed:
                         raise ValueError("v2 GGUF matrix stream has a failed verifier")
@@ -2418,6 +2504,11 @@ def verified_profile_gguf_matrix_stream_v2(
             yield verify
             if failed or active or not verified:
                 raise ValueError("v2 GGUF matrix stream has failed, unfinished or no verifiers")
+            if complete_table:
+                if verified != set(entries):
+                    raise ValueError("v2 GGUF tensor stream has incomplete tensor coverage")
+                if _gguf_complete_tensor_layout_v2(reader, plan, expected_file_bytes) != layout:
+                    raise ValueError("v2 GGUF tensor stream reader table changed")
     finally:
         live = False
 

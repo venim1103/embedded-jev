@@ -1428,7 +1428,7 @@ for kind in ("valid", "metadata-large", "metadata-near-limit", "metadata-keys-li
     assert handle.value is overrides.value is None
 
 
-@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32", "complete-owner-BF16", "complete-owner-F32", "norm-nonzero-BF16", "norm-nonzero-F32", "exp-nonzero-BF16", "exp-nonzero-F32", "matrix-rows-nonzero-BF16", "matrix-columns-nonzero-BF16", "convolution-nonzero-BF16", "convolution-nonzero-F32", "complete-owner-two-shards-BF16", "complete-owner-two-shards-F32"])
+@pytest.mark.parametrize("kind", ["vector-BF16", "vector-F32", "matrix-BF16", "convolution-BF16", "convolution-F32", "frozen-BF16", "complete-BF16", "complete-F32", "complete-owner-BF16", "complete-owner-F32", "norm-nonzero-BF16", "norm-nonzero-F32", "exp-nonzero-BF16", "exp-nonzero-F32", "matrix-rows-nonzero-BF16", "matrix-columns-nonzero-BF16", "convolution-nonzero-BF16", "convolution-nonzero-F32", "complete-owner-two-shards-BF16", "complete-owner-two-shards-F32", "complete-stream-BF16", "complete-stream-F32"])
 def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
     from test_inventory import _prefill_model_policy_fixture
 
@@ -1445,6 +1445,7 @@ def test_pinned_prism_source_to_gguf_selected_range_parity(tmp_path, kind):
     assert subprocess.check_output(["git", "-C", source_dir, "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
     profile, inventory, manifest, blocks = _prefill_model_policy_fixture(
         source_shards=2 if "two-shards" in kind else 1,
+        tiny_request=kind.startswith("complete-stream"), vocab_size=64 if kind.startswith("complete-stream") else 32,
         pin_zero_source=True, vector_dtype="F32" if kind == "vector-F32" or (kind.startswith(("complete", "norm-nonzero", "exp-nonzero")) and kind.endswith("F32")) else "BF16", conv_dtype="F32" if kind == "convolution-F32" or (kind.startswith(("complete", "convolution-nonzero")) and kind.endswith("F32")) else "BF16",
     )
     code = """
@@ -1453,11 +1454,25 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+streaming = sys.argv[1].startswith("complete-stream")
+expected_count = 53 if streaming else 28
+if streaming:
+    import os
+    models = Path.home() / ".cache/huggingface/embedded-jev/models"
+    def deny(event, values):
+        if event == "open" and isinstance(values[0], (str, bytes, os.PathLike)):
+            assert not Path(os.fsdecode(values[0])).absolute().is_relative_to(models), "model-cache content prohibited"
+        if event.startswith(("socket.connect", "socket.getaddrinfo", "socket.bind")) or event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+            raise RuntimeError("network and child creation prohibited")
+    sys.addaudithook(deny)
 import gguf
 import numpy as np
 from embedded_jev.model_profile import parse_model_profile, profile_source
 from embedded_jev.prism_codec import profile_model_conversion_plan, profile_model_specification, verified_profile_model_policy, verify_profile_gguf_source_operand, verify_profile_frozen_source_tensor, verify_profile_gguf_source_tensor_table, _verify_profile_gguf_operand
-fixture = json.loads(sys.stdin.read())
+packet = sys.stdin.buffer.read(65537) if streaming else sys.stdin.read()
+if streaming:
+    assert len(packet) <= 65536
+fixture = json.loads(packet)
 profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
 inventory, manifest = fixture["inventory"], fixture["manifest"]
 blocks = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(manifest["shape"][0], manifest["shape"][1] // 128, 34)
@@ -1716,6 +1731,79 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
         return source_receipt
 
     receipt = verify()
+    if streaming:
+        from embedded_jev import prism_codec as codec, streamed_text
+        assert destination.stat().st_size <= 16 * 1024**2
+        options = dict(reader=reader, expected_file_bytes=arguments["expected_file_bytes"],
+            expected_file_sha256=arguments["expected_file_sha256"], maximum_chunk_bytes=4096)
+        hashes, reads = [], []
+        original_record, original_pread = streamed_text.bounded_gguf_descriptor_record_v2, os.pread
+        def observed_record(*received, **keywords):
+            hashes.append(received[0])
+            return original_record(*received, **keywords)
+        def observed_pread(descriptor, count, offset):
+            reads.append(count)
+            return original_pread(descriptor, count, offset)
+        streamed_text.bounded_gguf_descriptor_record_v2, os.pread = observed_record, observed_pread
+        def stream(defect=None):
+            selected_options = dict(options)
+            if defect == "frozen-file":
+                selected_options["expected_file_sha256"] = hashlib.sha256(destination.read_bytes()).hexdigest()
+            with codec.verified_profile_gguf_tensor_stream_v2(profile, inventory, manifest, blocks, **selected_options) as check:
+                results = []
+                for item in plan["tensors"][:-1] if defect == "incomplete" else plan["tensors"]:
+                    name = item["source_name"]
+                    supplied = blocks if item["type"] == "PQ2_0" else source_arrays[name]
+                    source_digest = manifest["payload_sha256"] if item["type"] == "PQ2_0" else source_digests[name]
+                    if defect == "frozen-input" and item["type"] == "PQ2_0":
+                        supplied = blocks.copy()
+                        supplied.flat[0] ^= 1
+                    if defect == "fresh-auxiliary" and "negative_exp" in item["transforms"]:
+                        supplied = supplied.copy()
+                        supplied.flat[0] = 0x3f80 if item["source_dtype"] == "BF16" else 1
+                        source_digest = hashlib.sha256(memoryview(supplied)).hexdigest()
+                    results.append(check(source_name=name, source_values=supplied, expected_source_sha256=source_digest))
+                if defect == "restored":
+                    with destination.open("r+b", buffering=0) as changed:
+                        changed.seek(-1, os.SEEK_END)
+                        saved_byte = changed.read(1)
+                        changed.seek(-1, os.SEEK_END)
+                        changed.write(bytes([saved_byte[0] ^ 1]))
+                        changed.seek(-1, os.SEEK_END)
+                        changed.write(saved_byte)
+            return results
+        try:
+            results = stream()
+            assert len(results) == len(plan["tensors"]) == expected_count and len(hashes) == 2 and hashes[0] == hashes[1]
+            assert all(item["converted_file_verification"] == "retained_file_entry_and_exit_checks_required" for item in results)
+            projection = next(item for item in results if item["source_name"] == manifest["tensor"])
+            assert projection["converted_sha256"] == projection["projection_payload_sha256"] == manifest["payload_sha256"]
+            frozen_tensor = next(item for item in reader.tensors if item.name == manifest["gguf_tensor"])
+            for defect in ("incomplete", "fresh-auxiliary", "frozen-input", "frozen-file", "restored"):
+                published, saved_byte = None, None
+                if defect == "frozen-file":
+                    with destination.open("r+b", buffering=0) as changed:
+                        changed.seek(frozen_tensor.data_offset)
+                        saved_byte = changed.read(1)
+                        changed.seek(frozen_tensor.data_offset)
+                        changed.write(bytes([saved_byte[0] ^ 1]))
+                try:
+                    try:
+                        published = stream(defect)
+                        raise AssertionError("invalid complete stream accepted: " + defect)
+                    except ValueError as error:
+                        expected_error = "incomplete" if defect == "incomplete" else "changed" if defect == "restored" else "parity"
+                        assert expected_error in str(error), (defect, str(error))
+                    assert published is None
+                finally:
+                    if saved_byte is not None:
+                        with destination.open("r+b", buffering=0) as changed:
+                            changed.seek(frozen_tensor.data_offset)
+                            changed.write(saved_byte)
+            assert reads and max(reads) <= 65536
+            assert hashlib.sha256(destination.read_bytes()).hexdigest() == options["expected_file_sha256"]
+        finally:
+            streamed_text.bounded_gguf_descriptor_record_v2, os.pread = original_record, original_pread
     if owned and len(source_paths) == 2:
         for active_source in source_paths.values():
             offset = profile.files[active_source.name].header_bytes
@@ -1761,7 +1849,7 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
         finally:
             codec._verify_profile_gguf_operand = original_check
     if complete:
-        assert receipt["tensor_count"] == receipt["source"]["tensor_count"] == receipt["converted"]["tensor_count"] == 28
+        assert receipt["tensor_count"] == receipt["source"]["tensor_count"] == receipt["converted"]["tensor_count"] == expected_count
         assert receipt["source"]["source_shard_count"] == len(source_paths)
         assert receipt["source"]["source_file_bytes"] == sum(path.stat().st_size for path in source_paths.values())
         assert receipt["source_to_frozen_quantization_verification"] == "not_checked"
@@ -1817,7 +1905,7 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
             output.seek(tensor.data_offset + (2 if frozen else 0))
             output.write(saved)
         del reader
-print(json.dumps({"kind": sys.argv[1], "selected_ranges": 28 if complete else 1, "runtime_approval": "not_granted_by_source_conversion_verification"}))
+print(json.dumps({"kind": sys.argv[1], "selected_ranges": expected_count if complete else 1, "runtime_approval": "not_granted_by_source_conversion_verification"}))
 """
     result = subprocess.run(
         [interpreter, "-c", code, kind, str(tmp_path), runtime_build or ""], capture_output=True, text=True, timeout=30,
@@ -1826,7 +1914,9 @@ print(json.dumps({"kind": sys.argv[1], "selected_ranges": 28 if complete else 1,
              "PYTHONPATH": os.pathsep.join((str(Path.cwd()), str(Path(source_dir) / "gguf-py")))},
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"kind": kind, "selected_ranges": 28 if kind.startswith("complete") else 1, "runtime_approval": "not_granted_by_source_conversion_verification"}
+    if kind.startswith("complete-stream"):
+        assert len(result.stdout.encode()) + len(result.stderr.encode()) <= 65536
+    assert json.loads(result.stdout) == {"kind": kind, "selected_ranges": 53 if kind.startswith("complete-stream") else 28 if kind.startswith("complete") else 1, "runtime_approval": "not_granted_by_source_conversion_verification"}
     assert list(tmp_path.iterdir()) == []
 
 
