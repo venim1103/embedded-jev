@@ -8,6 +8,8 @@ original conversation. Read this first, then follow the links for detail.
 
 ## S2 Bounded Native Result Buffer Checkpoint (2026-11-17)
 
+Source checkpoint: **`b881892`**, following anchored preflight **`4611aec`**.
+
 **Generated typed scores can now be returned through a caller-owned bounded
 buffer, with no native score stdout.** Continued from anchored preflight
 `4611aec`; this is another controller prerequisite, not real-profile execution.

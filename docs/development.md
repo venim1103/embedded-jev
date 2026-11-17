@@ -4176,7 +4176,7 @@ quality, whole-model ternary execution and target-device evidence remain separat
 
 ### Generated Typed Verified-Owner Caller
 
-The shared test scorer additionally exports two raw C hooks:
+The shared test scorer additionally exports these raw C hooks:
 
 ```text
 prism_bitnet_test_prefill_request_preflight_v1(model_path, specification, metadata_path, request_path)
@@ -4191,7 +4191,7 @@ identity, geometry, projection and metadata values to the supplied record, and
 does not create a policy or initialize the backend. The scorer rechecks those
 inputs before calling the same prefill/score implementation with the live
 owner's record, policy and overrides. Existing commands and C ABIs remain.
-Both hooks retain the generated `synthetic-typed-prefill-v1` identity, four/
+All three hooks retain the generated `synthetic-typed-prefill-v1` identity, four/
 32/1024/64 geometry, 2 MiB GGUF and bounded request/metadata limits; this is not
 an arbitrary-profile execution API.
 
