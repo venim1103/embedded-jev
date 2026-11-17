@@ -5428,6 +5428,175 @@ def test_profile_gguf_source_metadata_v2_prepares_pins_before_file_verification(
         receipt["context_length"] = 512
 
 
+@pytest.mark.parametrize("defect", [
+    None, "reset", "kernel-recovery", "tie", "caller-pins", "profile", "request-profile", "metadata-type", "runtime-pins",
+    "byte-budget", "seconds", "preflight-status", "preflight-registry", "score-status", "boolean-status",
+    "exit-change", "runtime-exit", "deadline", "length", "terminator", "identity", "token-bool",
+    "option-order", "counter-bool", "dispatch", "nan", "probabilities", "choice", "duplicate-json",
+])
+def test_generated_prefill_controller_withholds_results_until_verified_exit(tmp_path, monkeypatch, defect):
+    import ctypes
+    import os
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec, prism_prefill
+
+    profile, inventory, manifest, blocks = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64)
+    path = tmp_path / "model.gguf"
+    payload = b"generated controller lifetime fixture"
+    path.write_bytes(payload)
+    model_sha256 = hashlib.sha256(payload).hexdigest()
+    packet = {
+        "format": "jev-prefill-request-v1", "id": "request", "profile_id": profile.profile_id,
+        "profile_sha256": profile.sha256, "prompt": "ab", "prompt_sha256": hashlib.sha256(b"ab").hexdigest(),
+        "input_token_ids": [1, 21],
+        "options": [{"id": name, "label": label, "token_id": token}
+                    for name, label, token in (("second", "A", 11), ("first", "B", 17))],
+    }
+    if defect == "request-profile":
+        packet["profile_sha256"] = "0" * 64
+    runtime_files = {name: {"bytes": 1, "sha256": "e" * 64}
+                     for name in ("bridge", "ggml_cpu", "ggml_base", "scorer", "llama", "ggml_registry")}
+    events, descriptors = [], []
+    registered, clock = [0], [0]
+    monkeypatch.setattr(prism_prefill.time, "monotonic", lambda: clock[0])
+    handles = ctypes.c_void_p(123), ctypes.c_void_p(456)
+
+    def preflight(model_path, record, metadata_path, request_path):
+        events.append("preflight")
+        descriptors.extend(os.fsdecode(value) for value in (model_path, metadata_path, request_path))
+        assert all(value.startswith("/proc/self/fd/") for value in descriptors)
+        assert Path(descriptors[0]).read_bytes() == payload
+        assert Path(descriptors[1]).read_bytes() == b"[]"
+        assert json.loads(Path(descriptors[2]).read_bytes()) == packet
+        assert record._obj.profile_sha256.decode() == profile.sha256
+        if defect == "caller-pins":
+            runtime_files.clear()
+        if defect == "preflight-registry":
+            registered[0] += 1
+        return 34 if defect == "preflight-status" else 0
+
+    def factory(native, descriptor, *arguments):
+        assert events == ["preflight"] and descriptor == descriptors[0]
+        events.append("create")
+        registered[0] += 2
+        return *handles, prism_codec.profile_model_specification(*arguments)
+
+    def free(handle):
+        assert handle.value == 123 and all(Path(value).is_file() for value in descriptors)
+        events.append("free")
+        registered[0] -= 1
+
+    def verify_runtime(native, pins, **keywords):
+        assert len(pins) == 6 and keywords["scorer"] is scorer
+        if defect == "runtime-exit" and "score" in events:
+            raise ValueError("runtime changed on owner exit")
+        return pins
+
+    mode = defect if defect in ("reset", "kernel-recovery") else "full"
+    def score(model_path, record, handle, overrides, metadata_path, request_path, selected_mode, output, capacity, used):
+        assert events == ["preflight", "create"] and handle is handles[0] and overrides is handles[1]
+        assert [os.fsdecode(value) for value in (model_path, metadata_path, request_path)] == descriptors
+        assert selected_mode.decode() == mode and capacity == 8192
+        events.append("score")
+        report = {
+            "format": "jev-prefill-result-v1", "id": "request", "profile_id": profile.profile_id,
+            "profile_sha256": profile.sha256, "model_sha256": model_sha256, "prompt_sha256": packet["prompt_sha256"],
+            "runtime_revision": prism_codec.PRISM_SOURCE_REVISION, "selected_metadata_version": 5,
+            "selected_metadata_records": 38, "model_policy_abi": 2, "input_tokens": [1, 21],
+            "prefilled_tokens": 2, "generated_answer_tokens": 0,
+            "options": [{**option, "logit": logit, "conditional_probability": probability}
+                        for option, logit, probability in zip(packet["options"], (-1000.0, 1000.0), (0.0, 1.0), strict=True)],
+            "chosen_option_id": "first", "max_option_probability": 1.0,
+            "calibration_status": "not_calibrated", "allowed_label_probability_mass": 0.5,
+            "vocabulary_argmax": 17, "runtime_elapsed_seconds": 0.01,
+            "backend": "bitnet", "mode": mode, "prefill_calls": 2 if mode == "reset" else 1,
+            "bitnet_dispatch_calls": 2 if mode == "reset" else 1, "weight_repacks": 1,
+            "bitnet_last_input_tokens": 2, "rejected_prefill_calls": int(mode == "kernel-recovery"),
+            "kernel_error_status": int(mode == "kernel-recovery"), "memory_position_min": 1, "memory_position_max": 1,
+        }
+        if defect == "tie":
+            report["options"][1]["logit"] = -1000.0
+            for option in report["options"]:
+                option["conditional_probability"] = 0.5
+            report.update(chosen_option_id="second", max_option_probability=0.5, vocabulary_argmax=11)
+        elif defect == "identity":
+            report["model_sha256"] = "0" * 64
+        elif defect == "token-bool":
+            report["input_tokens"][0] = True
+        elif defect == "option-order":
+            report["options"].reverse()
+        elif defect == "counter-bool":
+            report["weight_repacks"] = True
+        elif defect == "dispatch":
+            report["bitnet_dispatch_calls"] = 0
+        elif defect == "nan":
+            report["options"][0]["logit"] = 1e309
+        elif defect == "probabilities":
+            report["options"][0]["conditional_probability"] = 0.5
+            report["options"][1]["conditional_probability"] = 0.5
+        elif defect == "choice":
+            report["chosen_option_id"] = "second"
+        raw = json.dumps(report).encode()
+        if defect == "duplicate-json":
+            raw = raw[:-1] + b',"id":"request"}'
+        ctypes.memmove(output, raw, len(raw))
+        used._obj.value = capacity if defect == "length" else len(raw)
+        if defect == "terminator":
+            output[len(raw)] = b"x"
+        if defect == "exit-change":
+            path.write_bytes(payload + b"changed")
+        elif defect == "deadline":
+            clock[0] = 31
+        return 29 if defect == "score-status" else False if defect == "boolean-status" else 0
+
+    scorer = SimpleNamespace(prism_bitnet_test_prefill_request_preflight_v1=preflight,
+                             prism_bitnet_test_prefill_request_policy_result_v1=score)
+    def registry():
+        return registered[0]
+
+    native = SimpleNamespace(prism_bitnet_cpu_model_policy_free_v2=free,
+                             prism_bitnet_registered_tensor_registry_size=registry)
+    monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
+    monkeypatch.setattr(prism_codec, "verify_model_runtime_files", verify_runtime)
+    validate = prism_prefill._validate_result
+    def validate_after_exit(*arguments):
+        assert events == ["preflight", "create", "score", "free"]
+        assert handles[0].value is handles[1].value is None
+        return validate(*arguments)
+
+    monkeypatch.setattr(prism_prefill, "_validate_result", validate_after_exit)
+    arguments = dict(metadata=b"[]", request=json.dumps(packet).encode(), expected_bytes=len(payload),
+                     expected_sha256=model_sha256, expected_runtime_files=runtime_files, mode=mode)
+    if defect == "profile":
+        profile = replace(profile, profile_id="not-authorized")
+    elif defect == "metadata-type":
+        arguments["metadata"] = bytearray(b"[]")
+    elif defect == "runtime-pins":
+        arguments["expected_runtime_files"] = {}
+    elif defect == "byte-budget":
+        arguments["expected_bytes"] = 2 * 1024**2 + 1
+    elif defect == "seconds":
+        arguments["maximum_seconds"] = True
+    succeeds = defect in (None, "reset", "kernel-recovery", "tie", "caller-pins")
+    if succeeds:
+        result = prism_prefill.run_generated_prefill_request(native, scorer, path, profile, inventory, manifest, blocks, **arguments)
+        assert result["chosen_option_id"] == ("second" if defect == "tie" else "first")
+        assert result["verified_owner"]["runtime_files"] == 6
+        assert result["verified_owner"]["scores_released_after_exit"] is True
+    else:
+        with pytest.raises(ValueError) as error:
+            prism_prefill.run_generated_prefill_request(native, scorer, path, profile, inventory, manifest, blocks, **arguments)
+        if defect in ("preflight-status", "score-status"):
+            assert isinstance(error.value, prism_prefill.NativePrefillError)
+            assert error.value.status == (34 if defect == "preflight-status" else 29)
+    early = defect in ("profile", "request-profile", "metadata-type", "runtime-pins", "byte-budget", "seconds")
+    assert events == ([] if early else ["preflight"] if defect in ("preflight-status", "preflight-registry")
+                      else ["preflight", "create", "score", "free"])
+    assert not any(Path(value).exists() for value in descriptors)
+
+
 def test_profile_model_policy_refuses_unpinned_runtime():
     from embedded_jev.prism_codec import profile_model_specification
 

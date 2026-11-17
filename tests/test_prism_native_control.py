@@ -103,8 +103,9 @@ exec(_tiny_prefill_writer_code())
 '''
 
 
-def _owned_typed_prefill_worker_code(*, anchored_preflight=False, buffered_result=False):
-    return f"anchored_preflight = {anchored_preflight!r}\nbuffered_result = {buffered_result!r}\n" + r'''
+def _owned_typed_prefill_worker_code(*, anchored_preflight=False, buffered_result=False, controller=False):
+    return (f"anchored_preflight = {anchored_preflight!r}\nbuffered_result = {buffered_result!r}\n"
+            f"controller = {controller!r}\n") + r'''
 import ctypes, json, os, sys, time
 from pathlib import Path
 from tempfile import TemporaryFile
@@ -176,6 +177,76 @@ elif mode == "spec-metadata":
 registry = native.prism_bitnet_registered_tensor_registry_size
 registry.restype = ctypes.c_size_t
 before_preflight = registry()
+if controller:
+    from contextlib import contextmanager
+    from embedded_jev import prism_prefill
+    from embedded_jev.inventory import InventoryError
+
+    owners, private_bytes = [], []
+    original_owner = prism_prefill.verified_profile_model_policy
+    @contextmanager
+    def observe_owner(*arguments, **keywords):
+        with original_owner(*arguments, **keywords) as owner:
+            owners.append(owner)
+            yield owner
+            if mode == "owner-exit-error":
+                with open(model_path, "r+b", buffering=0) as changed:
+                    changed.seek(-1, os.SEEK_END)
+                    value = changed.read(1)
+                    changed.seek(-1, os.SEEK_END)
+                    changed.write(bytes([value[0] ^ 1]))
+    prism_prefill.verified_profile_model_policy = observe_owner
+    if mode.startswith("spec-"):
+        prism_prefill.native_model_specification = lambda *arguments: record
+    def observe_score(*arguments):
+        status = function(*arguments)
+        private_bytes.append(arguments[-1]._obj.value)
+        return status
+    control.prism_bitnet_test_prefill_request_policy_result_v1 = observe_score
+    libc = ctypes.CDLL(None)
+    libc.fflush.argtypes = [ctypes.c_void_p]
+    libc.fflush.restype = ctypes.c_int
+    status, report = 0, None
+    with TemporaryFile() as output:
+        saved = os.dup(1)
+        assert libc.fflush(None) == 0
+        try:
+            os.dup2(output.fileno(), 1)
+            try:
+                report = prism_prefill.run_generated_prefill_request(
+                    native, control, model_path, profile, inventory, manifest, blocks,
+                    metadata=Path(metadata_path).read_bytes(), request=Path(request_path).read_bytes(),
+                    expected_bytes=expected_bytes, expected_sha256=model_sha256,
+                    expected_runtime_files=payload["runtime_files"],
+                    mode="full" if mode == "owner-exit-error" or mode.startswith("spec-") else mode)
+            except prism_prefill.NativePrefillError as error:
+                status = error.status
+            except InventoryError:
+                status = 34
+            except ValueError as error:
+                if mode == "owner-exit-error" and str(error) == "verified model changed while policy was active":
+                    assert len(private_bytes) == 1 and 0 < private_bytes[0] <= 8192
+                    print(json.dumps({"event": "verified_owner_exit_refused",
+                        "buffered_native_output_bytes": private_bytes[0]}), file=sys.stderr)
+                    status = 36
+                elif str(error) == "generated prefill request profile mismatch":
+                    status = 34
+                else:
+                    raise
+        finally:
+            assert libc.fflush(None) == 0
+            os.dup2(saved, 1)
+            os.close(saved)
+        output.seek(0)
+        assert not output.read(8193), "controller emitted native score stdout"
+    assert registry() == before_preflight + bool(owners)
+    assert all(owner.handle.value is owner.overrides.value is None for owner in owners)
+    if status:
+        assert report is None
+        sys.exit(status)
+    assert report is not None and report["verified_owner"]["buffered_native_output_bytes"] == private_bytes[0]
+    print(json.dumps(report))
+    sys.exit(0)
 if buffered_result and mode == "buffer-contract":
     for defect in ("null-buffer", "null-length", "zero", "oversize", "no-policy", "max-capacity"):
         size = 65552 if defect == "max-capacity" else 8208
@@ -313,7 +384,7 @@ print(json.dumps(report))
 '''
 
 
-@pytest.mark.parametrize("caller", ["cli", "verified-owner", "anchored-owner", "buffered-owner"])
+@pytest.mark.parametrize("caller", ["cli", "verified-owner", "anchored-owner", "buffered-owner", "controller"])
 def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
     import hashlib
     import time
@@ -358,7 +429,8 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
         "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
     worker = _typed_prefill_fixture_worker_code()
     execute = (_owned_typed_prefill_worker_code(
-        anchored_preflight=caller in ("anchored-owner", "buffered-owner"), buffered_result=caller == "buffered-owner") if uses_owner else
+        anchored_preflight=caller in ("anchored-owner", "buffered-owner", "controller"),
+        buffered_result=caller in ("buffered-owner", "controller"), controller=caller == "controller") if uses_owner else
         "import json, os, sys\nargs=json.loads(sys.stdin.buffer.read(65537))\nos.execv(args[0], args)")
     samples, successes, refusals = [], 0, 0
     output_bytes = scratch_peak = 0
@@ -399,7 +471,8 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
             def run(packet_path, *, mode="full", expected_status=0, metadata_path=metadata, arguments=None):
                 nonlocal output_bytes, successes, refusals, scratch_peak
                 assert time.monotonic() - stage < 60 and time.monotonic() - started < 60
-                scratch_peak = max(scratch_peak, sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536)
+                scratch_peak = max(scratch_peak, sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file())
+                    + 65536 + (2 * 65536 if caller == "controller" else 0))
                 assert scratch_peak < 8 * 1024**2
                 call = arguments if arguments is not None else [*leading, metadata_path, packet_path, mode]
                 native_arguments = [str(executable), *map(str, call)]
@@ -468,8 +541,8 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
                         evidence = report["verified_owner"]
                         assert evidence["model_sha256"] == fixed[model] and evidence["runtime_files"] == 6
                         assert evidence["native_preflight_before_owner"] is evidence["scores_released_after_exit"] is True
-                        assert evidence["native_preflight_anchored"] is (caller in ("anchored-owner", "buffered-owner"))
-                        assert evidence["native_output_transport"] == ("caller_buffer" if caller == "buffered-owner" else "stdout")
+                        assert evidence["native_preflight_anchored"] is (caller in ("anchored-owner", "buffered-owner", "controller"))
+                        assert evidence["native_output_transport"] == ("caller_buffer" if caller in ("buffered-owner", "controller") else "stdout")
                         assert evidence["runtime_approval"] == "not_granted_by_file_verification"
                 assert reports[0]["options"] == reports[1]["options"]
             original = json.loads((current / "request-3.json").read_bytes())

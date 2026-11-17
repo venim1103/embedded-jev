@@ -6,6 +6,78 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Generated Python Controller Checkpoint (2026-11-17)
+
+**The buffered verified-owner flow now has a reusable generated-only Python
+controller, not just a test-worker implementation.** Continued from `50515db`
+(latest native source `b881892`). Rechecked clean tracked Git state, unchanged
+user editor-settings hash, clean pinned Prism revision, cached interpreter
+versions and available shared-host reserve. No source/dependency download or
+native rebuild; the already-matched six defining runtime files were freshly
+pinned by the generated integration control.
+
+`embedded_jev.prism_prefill.run_generated_prefill_request` accepts bounded JSON
+bytes and explicit generated profile/model/runtime pins, snapshots both inputs
+to owned anonymous descriptors, runs anchored preflight without registration
+changes, and scores only through the live verified owner into a private
+8192-byte buffer. It parses and returns nothing until successful owner exit.
+Strict result checks bind exact identities, ordered mappings, finite scores,
+normalization/choice, no generation, dispatch and reset/recovery receipts.
+It preserves the generated identity/geometry/2 MiB guards and all old commands.
+The [development contract](development.md#generated-typed-python-controller)
+documents cooperative deadlines, scratch, error and evidence limits.
+
+### Focused Tests And Initial Harness Failure
+
+Initial focused unit controls: **28 passed in 1.51 s**, clean Ruff/whitespace;
+Pylance reported no controller diagnostics. Strengthened the BOOL-token case
+so Python's `True == 1` could not mask a type check, and added a tied-logit
+first-option case: **29 passed in 1.59 s**. These include native refusals,
+malformed/duplicate/BOOL/nonfinite/inconsistent results, copied caller pins,
+deadline expiry and model/runtime exit failures. Parsing is explicitly observed
+only after native policy free, invalidated handles and owner exit.
+
+The first compiled controller selector **failed in 16.41 s** in its test
+adapter: the private `spec-profile` fault mode was forwarded as an execution
+mode, correctly refused by the new public API before reaching the intended
+corrupted-record check. Mapped only test-only specification fault names to
+normal `full`, preserving actual record corruption and every public/native
+mode guard. No numerical or resource failure was retried unchanged.
+
+Repaired controller and original buffered-owner selectors together:
+**2 passed in 39.25 s**, reusing the pinned BF16 fixture/scorer. Both retain
+unchanged `rtol=atol=2e-5`, zero answer tokens, exact 2/3/16/reordered mappings,
+BitNet dispatch/reset/recovery and score withholding on exit-time mutation.
+
+| Caller | Positives/Refusals | Internal Time | Group RSS | Available Minimum | All Output | Scratch Bound |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Python controller | 12/20 | 19.955 s | 281,841,664 B | 12,101,189,632 B | 42,419 B | 1,819,959 B |
+| Original buffered owner | 12/22 | 17.997 s | 283,398,144 B | 11,661,414,400 B | 42,972 B | 1,688,887 B |
+
+Scratch accounting for the controller conservatively includes both anonymous
+64 KiB input capacities. Each selector retained the 60-second/1 GiB/2 GiB
+reserve/no-owned-swap/no-host-swap-growth, <=64 KiB all-output and <=8 MiB
+scratch guards. Used swap stayed **4,415,488 B**. Temporary generated files and
+descriptors were removed, readonly hashes preserved, no helper left running.
+
+Required root gate: **1997 passed, 237 skipped in 56.43 s**, clean Ruff and
+whitespace. The extra optional skip is the actually executed controller
+parameter, not real-model acceptance. Final Pylance controller diagnostics were
+empty. Its signature helper could not establish compatibility of the two
+heterogeneous `**arguments` unit-test calls (including deliberate invalid
+inputs); scoped unit-file diagnostics showed only three unused fake-argument
+hints, not type errors. All 29 runtime cases and the explicit generated native
+call above passed. No type cast or API relaxation was used to suppress this.
+
+Real-profile admission/controller and bounded streaming source/converted-table
+lifetime integration remain open; the small owner/source gates are not widened.
+No new complete carrier was created or approved and current headroom does not
+support the historical full-model load plus reserve. Next source work must
+share bounded source/converted descriptor lifetimes and an aggregate deadline,
+without rehashing a whole GGUF per tensor or treating old receipts as live
+verification. Historical missing build samples/resource failures remain open.
+No learned-model run, conversion, refit, candidate, push, branch or subagent.
+
 ## S2 Bounded Native Result Buffer Checkpoint (2026-11-17)
 
 Source checkpoint: **`b881892`**, following anchored preflight **`4611aec`**.

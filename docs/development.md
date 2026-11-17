@@ -4267,6 +4267,50 @@ within the unchanged 64 KiB aggregate output budget; scratch remains <=8 MiB.
 This proves generated arithmetic/lifetime integration, not source conversion,
 real-profile S2/S3, representative quality or calibrated confidence.
 
+### Generated Typed Python Controller
+
+`embedded_jev.prism_prefill.run_generated_prefill_request` owns the buffered
+flow outside the generated worker. Supply already-loaded bridge/scorer
+libraries, the generated profile/inventory/projection, explicit GGUF byte/SHA
+and six-runtime-file pins, and `metadata`/`request` as immutable JSON `bytes`.
+Each JSON input must be 1-65536 bytes. They are snapshotted in two anonymous
+temporary files, passed through `/proc/self/fd/N` and closed on every exit;
+include their combined <=128 KiB in external scratch accounting.
+
+The controller retains the `synthetic-typed-prefill-v1`, 4/32/1024/64 and
+2 MiB carrier gates. It does **not** admit learned profiles, authorize runtime
+execution or replace complete source/conversion verification. It calls silent
+native preflight on the hash-verified model descriptor, requires unchanged
+backend registration there, then uses the existing verified owner and an
+8192-byte private native result buffer. No score is printed by the controller.
+`NativePrefillError` exposes a refused native `stage`/`status`, not a result;
+other validation and owner failures propagate.
+
+Only after successful owner exit does it parse the result using the existing
+bounded duplicate/nonfinite-constant-refusing JSON parser. It requires the exact
+v1 result fields, request/profile/model/prompt identities, ordered token/option
+mappings, zero generation, dispatch/repack/input counts and mode-specific
+reset/recovery receipts. Native floating score fields must remain finite JSON
+floats. Stable softmax/normalization and the first-maximum choice are checked
+with the existing evaluation serialization tolerances (1e-6 relative/1e-7
+absolute; normalization 1e-7), not substituted for the native-versus-reference
+2e-5 arithmetic oracle. Vocabulary mass is checked only for a finite [0,1]
+range, not independently recomputed without full vocabulary logits.
+
+The returned report adds `verified_owner` publication/file-pin evidence; it
+still says `runtime_approval=not_granted_by_file_verification`. Full, reset,
+kernel-error and kernel-recovery are generated control modes, not a persistent
+service/context API. `maximum_seconds` is a cooperative total budget in (0,60],
+default 30; the controller withholds results after expiry, including native
+scoring/cleanup time. An external process/resource guard remains necessary for
+hard interruption. This is not hostile-code isolation or a concurrency claim.
+
+The existing generated native selector's `[controller]` parameter exercises this
+API beside the unchanged raw `[buffered-owner]` control, including 2/3/16-option
+and reordered inputs, BF16 arithmetic, entry refusals and exit-time mutation
+after a successful private result. No native rebuild is required when only this
+Python controller changes and the matched hook libraries are already built.
+
 ### Bounded Native V5 Header Preflight
 
 The Release loader also provides a metadata-only control:
