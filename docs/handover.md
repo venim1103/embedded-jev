@@ -6,6 +6,86 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Bounded Native Result Buffer Checkpoint (2026-11-17)
+
+**Generated typed scores can now be returned through a caller-owned bounded
+buffer, with no native score stdout.** Continued from anchored preflight
+`4611aec`; this is another controller prerequisite, not real-profile execution.
+All existing CLI/C entry points and synthetic/model-policy guards remain.
+
+Added `prism_bitnet_test_prefill_request_policy_result_v1` beside the stdout
+hook. Both share one policy guard, request parser, scoring implementation and
+JSON schema. The new path copies a successful report only after the native
+model/context scoring scope has returned. Capacity is 1-65536 bytes including
+NUL; length excludes NUL. A valid bounded buffer is cleared and supplied length
+reset before work. Invalid buffer parameters and insufficient capacity return
+37, never partial JSON; contract/kernel failures preserve their old status.
+The [development contract](development.md#generated-typed-verified-owner-caller)
+specifies pointer ownership and private publication after verified owner exit.
+
+### Substantively Changed, Supervised Builds
+
+Rechecked stable host swap/counters and sufficient reserve, then reused the
+unchanged pinned Release cache, sources and two-job setting. Built only these
+targets serially, each with a fresh 60-second observer and unchanged <=1 GiB
+RSS/HWM, >=2 GiB reserve and no-owned-swap/no-host-swap-growth guards:
+
+| Target | CMake Time | Observer Time | RSS/HWM Peak | Available Minimum |
+| --- | ---: | ---: | ---: | ---: |
+| Shared scorer | 17.944 s | 25.943 s | 525,262,848 B | 11,896,193,024 B |
+| Loader | 17.286 s | 23.800 s | 526,659,584 B | 12,131,012,608 B |
+
+Each observer was `ready` before CMake Tools, observed five owned processes and
+finished successfully with zero live processes, zero owned swap and stable host
+swap **4,415,488 B**. Independent CMake results were zero; the observers remain
+resource observations, not build-success attestations. Each target compiled
+only the changed translation unit and linked; pinned dependencies/cache content
+were not rebuilt or changed. No failed build or unchanged retry.
+
+### Generated Native And Default Evidence
+
+Initial changed buffer plus anchored stdout/CLI compatibility: **3 passed in
+45.47 s** using the existing generated typed selector and pinned environment.
+The buffer case had **12 positive/22 refused parent calls**; the latter includes
+one grouped buffer-contract call and one one-byte, post-compute capacity refusal.
+Added an explicit exact-65536 boundary to that group, then ran only the changed
+buffer case: **1 passed in 18.20 s**, internal **17.179 s**, with the same 12/22.
+The final group contains six low-level refusals: null buffer, null length, zero
+capacity, 65537 capacity, absent policy at 8192 and absent policy at 65536.
+The last two pass buffer admission, then refuse missing policy with 34; all
+leave registration unchanged and preserve out-of-range guard bytes.
+
+Successful buffer reports have exact length/NUL/zero-tail checks and no stdout.
+Contract/kernel/too-small-buffer failures leave no result; model mutation after
+successful scoring withholds the already-written private buffer at owner exit.
+Same independent BF16 input/weight and F16 attention references, unchanged
+`rtol=atol=2e-5`, 2/3/16-option/reordered mapping, zero generated answer tokens,
+counted BitNet dispatch, reset/recovery and legacy getters remain checked.
+
+| Caller | Internal Time | Group RSS | Available Minimum | All Output | Scratch Peak |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Final buffered owner | 17.179 s | 281,948,160 B | 11,666,763,776 B | 42,966 B | 1,688,887 B |
+| Anchored stdout owner | 16.493 s | 282,025,984 B | 11,420,520,448 B | 42,424 B | 1,688,887 B |
+| CLI | 10.144 s | 283,299,840 B | 11,707,375,616 B | 35,909 B | 3,411,752 B |
+
+The stdout owner retained **12/20**, CLI **23/31**. All stages retained the
+60-second/1 GiB/2 GiB-reserve/zero-owned-swap/no-host-swap-growth, <=64 KiB all
+output (including private/withheld bytes) and <=8 MiB scratch guards. Host swap
+was stable **4,415,488 B**; temporary models/descriptors were removed and input
+hashes unchanged. No raw generated model or result retained.
+
+Default gate: **1968 passed, 236 skipped in 66.22 s**, clean Ruff/whitespace.
+All generated worker variants compiled; the added default skip is the actually
+executed buffer parameter, not an unrun acceptance claim.
+
+Remaining: separately versioned real-profile controller/admission, bounded
+streaming source/converted-tensor integration, approved carrier/resources and
+S3 same-operation numerical acceptance. This buffer does not itself enforce
+owner-exit publication, authorize a profile, authenticate loaded/transitive
+code, establish concurrency safety, calibrate scores or prove model quality.
+Older missing build samples/resource failures remain open. No learned-model
+run, conversion, download, refit, new candidate, push, branch or subagent.
+
 ## S2 Anchored Request Preflight Checkpoint (2026-11-17)
 
 **The verified owner can now run a request check on its hash-verified descriptor

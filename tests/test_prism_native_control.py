@@ -103,8 +103,8 @@ exec(_tiny_prefill_writer_code())
 '''
 
 
-def _owned_typed_prefill_worker_code(*, anchored_preflight=False):
-    return f"anchored_preflight = {anchored_preflight!r}\n" + r'''
+def _owned_typed_prefill_worker_code(*, anchored_preflight=False, buffered_result=False):
+    return f"anchored_preflight = {anchored_preflight!r}\nbuffered_result = {buffered_result!r}\n" + r'''
 import ctypes, json, os, sys, time
 from pathlib import Path
 from tempfile import TemporaryFile
@@ -159,9 +159,12 @@ control = ctypes.CDLL(str(directory / "libprism_bitnet_prefill_test.so"))
 preflight = control.prism_bitnet_test_prefill_request_preflight_v1
 preflight.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), ctypes.c_char_p, ctypes.c_char_p]
 preflight.restype = ctypes.c_int
-function = control.prism_bitnet_test_prefill_request_policy_v1
+function = (control.prism_bitnet_test_prefill_request_policy_result_v1 if buffered_result else
+    control.prism_bitnet_test_prefill_request_policy_v1)
 function.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), ctypes.c_void_p, ctypes.c_void_p,
                     ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
+if buffered_result:
+    function.argtypes += [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
 function.restype = ctypes.c_int
 record = native_model_specification(specification, blocks)
 if mode == "spec-profile":
@@ -173,6 +176,26 @@ elif mode == "spec-metadata":
 registry = native.prism_bitnet_registered_tensor_registry_size
 registry.restype = ctypes.c_size_t
 before_preflight = registry()
+if buffered_result and mode == "buffer-contract":
+    for defect in ("null-buffer", "null-length", "zero", "oversize", "no-policy", "max-capacity"):
+        size = 65552 if defect == "max-capacity" else 8208
+        storage = ctypes.create_string_buffer(b"x" * size, size)
+        used = ctypes.c_size_t(123)
+        capacity = 0 if defect == "zero" else 65537 if defect == "oversize" else size - 16
+        destination = None if defect == "null-buffer" else storage
+        length = None if defect == "null-length" else ctypes.byref(used)
+        code = function(None, None, None, None, None, None, b"full", destination, capacity, length)
+        assert code == (34 if defect in ("no-policy", "max-capacity") else 37)
+        if length is not None:
+            assert used.value == 0
+        if defect in ("null-buffer", "zero"):
+            assert storage.raw == b"x" * 8208
+        elif defect == "oversize":
+            assert storage.raw == b"\0" + b"x" * 8207
+        else:
+            assert storage.raw == bytes(capacity) + b"x" * 16
+        assert registry() == before_preflight
+    sys.exit(37)
 preflight_status, preflight_path, preflight_calls = None, None, 0
 def check_request(path):
     global preflight_status, preflight_path, preflight_calls
@@ -208,6 +231,10 @@ flush = libc.fflush
 flush.argtypes = [ctypes.c_void_p]
 flush.restype = ctypes.c_int
 owner_exit_refused = False
+native_output = ctypes.create_string_buffer(b"x" * 8208, 8208)
+native_bytes = ctypes.c_size_t(123)
+output_capacity = 1 if mode == "buffer-small" else 8192
+scored = False
 with TemporaryFile() as output:
     saved = os.dup(1)
     assert flush(None) == 0
@@ -224,9 +251,12 @@ with TemporaryFile() as output:
                 if anchored_preflight:
                     assert owner.model_path == preflight_path and preflight_calls == 1
                     assert registry() == baseline + 1
-                status = function(os.fsencode(owner.model_path), ctypes.byref(owner.record), owner.handle, owner.overrides,
+                arguments = (os.fsencode(owner.model_path), ctypes.byref(owner.record), owner.handle, owner.overrides,
                     os.fsencode(metadata_path), os.fsencode(request_path),
-                    ("full" if mode == "owner-exit-error" else mode).encode())
+                    ("full" if mode in ("owner-exit-error", "buffer-small") else mode).encode())
+                status = (function(*arguments, native_output, output_capacity, ctypes.byref(native_bytes)) if buffered_result else
+                    function(*arguments))
+                scored = True
                 verification = dict(owner.verification)
                 if mode == "owner-exit-error":
                     assert status == 0
@@ -251,6 +281,15 @@ with TemporaryFile() as output:
     output.seek(0)
     raw = output.read(8193)
     assert len(raw) <= 8192
+if buffered_result and scored:
+    assert not raw
+    assert native_output.raw[output_capacity:] == b"x" * (8208 - output_capacity)
+    if status:
+        assert native_bytes.value == 0 and native_output.raw[:output_capacity] == bytes(output_capacity)
+    else:
+        assert 0 < native_bytes.value < output_capacity
+        assert native_output.raw[native_bytes.value:output_capacity] == bytes(output_capacity - native_bytes.value)
+    raw = native_output.raw[:native_bytes.value]
 if owner_exit_refused:
     assert raw and owner.handle.value is None and owner.overrides.value is None
     print(json.dumps({"event": "verified_owner_exit_refused", "buffered_native_output_bytes": len(raw)}), file=sys.stderr)
@@ -266,6 +305,7 @@ assert owner.handle.value is None and owner.overrides.value is None
 report["verified_owner"] = {
     "model_sha256": model_sha256, "runtime_files": len(runtime_files), "native_preflight_before_owner": True,
     "native_preflight_anchored": anchored_preflight,
+    "native_output_transport": "caller_buffer" if buffered_result else "stdout",
     "scores_released_after_exit": True, "runtime_approval": verification["runtime_approval"],
     "buffered_native_output_bytes": len(raw),
 }
@@ -273,7 +313,7 @@ print(json.dumps(report))
 '''
 
 
-@pytest.mark.parametrize("caller", ["cli", "verified-owner", "anchored-owner"])
+@pytest.mark.parametrize("caller", ["cli", "verified-owner", "anchored-owner", "buffered-owner"])
 def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
     import hashlib
     import time
@@ -317,7 +357,8 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
         "TOKENIZERS_PARALLELISM": "false", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": "",
         "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
     worker = _typed_prefill_fixture_worker_code()
-    execute = (_owned_typed_prefill_worker_code(anchored_preflight=caller == "anchored-owner") if uses_owner else
+    execute = (_owned_typed_prefill_worker_code(
+        anchored_preflight=caller in ("anchored-owner", "buffered-owner"), buffered_result=caller == "buffered-owner") if uses_owner else
         "import json, os, sys\nargs=json.loads(sys.stdin.buffer.read(65537))\nos.execv(args[0], args)")
     samples, successes, refusals = [], 0, 0
     output_bytes = scratch_peak = 0
@@ -427,7 +468,8 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
                         evidence = report["verified_owner"]
                         assert evidence["model_sha256"] == fixed[model] and evidence["runtime_files"] == 6
                         assert evidence["native_preflight_before_owner"] is evidence["scores_released_after_exit"] is True
-                        assert evidence["native_preflight_anchored"] is (caller == "anchored-owner")
+                        assert evidence["native_preflight_anchored"] is (caller in ("anchored-owner", "buffered-owner"))
+                        assert evidence["native_output_transport"] == ("caller_buffer" if caller == "buffered-owner" else "stdout")
                         assert evidence["runtime_approval"] == "not_granted_by_file_verification"
                 assert reports[0]["options"] == reports[1]["options"]
             original = json.loads((current / "request-3.json").read_bytes())
@@ -494,6 +536,9 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
                 run(current / "request-3.json", arguments=[command, changed_model, metadata,
                     current / "request-3.json", "owner-exit-error"], expected_status=36)
                 changed_model.unlink()
+                if caller == "buffered-owner":
+                    for mode in ("buffer-contract", "buffer-small"):
+                        run(current / "request-3.json", mode=mode, expected_status=37)
             for entry, digest in fixed.items():
                 assert hashlib.sha256(entry.read_bytes()).hexdigest() == digest
         assert len(os.listdir("/proc/self/fd")) == descriptors

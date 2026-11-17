@@ -4181,6 +4181,8 @@ The shared test scorer additionally exports two raw C hooks:
 ```text
 prism_bitnet_test_prefill_request_preflight_v1(model_path, specification, metadata_path, request_path)
 prism_bitnet_test_prefill_request_policy_v1(model_path, specification, policy, overrides, metadata_path, request_path, mode)
+prism_bitnet_test_prefill_request_policy_result_v1(model_path, specification, policy, overrides,
+    metadata_path, request_path, mode, output, capacity, output_bytes)
 ```
 
 They use the existing v2 model specification/policy types. Silent preflight
@@ -4225,6 +4227,26 @@ one persistent default buffer type plus one live policy registration, then only
 the default after cleanup (and no new registrations on preflight refusal).
 These are separate controls; the original post-initialization baseline remains.
 
+The result-buffer hook shares the same scorer and JSON result schema, but never
+prints score JSON to stdout. The caller supplies writable `char* output`,
+`size_t capacity` in `[1, 65536]` including the NUL terminator, and separate
+writable `size_t* output_bytes`. At valid capacity the buffer is cleared on entry;
+a supplied length is reset to zero. On success, status zero returns exactly
+`output_bytes` JSON bytes excluding the terminating NUL. Invalid buffer arguments
+refuse with status 37 before policy/input work; insufficient result capacity
+refuses with 37 after scoring, without partial JSON or a required-size receipt.
+Existing contract/kernel errors retain their statuses and no result. Oversized
+capacity never triggers an unbounded clear. Caller storage/pointers must remain
+valid and nonoverlapping for the call.
+
+The `[buffered-owner]` control combines anchored preflight with this transport.
+It still intercepts stdout privately to assert it is empty; score bytes come
+only from its 8192-byte caller buffer. Guard bytes, zeroed failures, length/NUL
+consistency, zero/maximum/oversized capacities, null arguments and a one-byte
+post-compute refusal are checked. The caller must keep these bytes private until
+verified owner exit, including model-mutation refusal after a successful score.
+Avoiding stdout transport does not establish runtime concurrency safety.
+
 The scorer now compiles with the same JSON include path and OpenSSL Crypto
 link as the loader, using the existing project dependency. Six-file verification
 still covers bridge, CPU, base, scorer, llama and registry files, not loaded pages
@@ -4235,7 +4257,8 @@ The fixture's separate `bitnet-owned-request` variant writes the profile's actua
 BF16 matrices, F32 vectors/convolution and unchanged PQ2 projection. Its NumPy
 oracle applies the pinned BF16 operand encoder to weights and dense inputs and
 the declared attention FP16 intermediates; old F32/256-wide variants remain.
-The same generated selector above runs `[cli]`, `[verified-owner]` and `[anchored-owner]`
+The same generated selector above runs `[cli]`, `[verified-owner]`,
+`[anchored-owner]` and `[buffered-owner]`
 separately, each under its existing 60-second/1 GiB/2 GiB-reserve/no-swap-growth
 stage guards. The owner case adds caller-record faults and a model mutation after
 successful native scoring: exit refusal must expose no score stdout. Private

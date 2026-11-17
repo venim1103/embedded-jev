@@ -867,7 +867,8 @@ static int test_prefill_control(
     const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr,
     const char* projection_path = nullptr, const char* trace_path = nullptr, const char* profile_reference = nullptr,
     const jev_bitnet_model_spec_v2* caller_spec = nullptr, void* caller_policy = nullptr,
-    const llama_model_tensor_buft_override* caller_overrides = nullptr, const prefill_request* request = nullptr) {
+    const llama_model_tensor_buft_override* caller_overrides = nullptr, const prefill_request* request = nullptr,
+    std::string* result = nullptr) {
     const auto started = std::chrono::steady_clock::now();
     if (caller_spec) {
         std::error_code error;
@@ -1279,7 +1280,11 @@ static int test_prefill_control(
             {"kernel_error_status", kernel_error_status}, {"memory_position_min", position_min},
             {"memory_position_max", position_max},
         };
-        std::puts(report.dump().c_str());
+        if (result) {
+            *result = report.dump();
+        } else {
+            std::puts(report.dump().c_str());
+        }
         return 0;
     }
 #endif
@@ -2291,7 +2296,7 @@ static int prepare_prefill_request(
 static int test_prefill_request(
     const char* path, const char* metadata_path, const char* request_path, const char* mode, const char* reference = nullptr,
     const jev_bitnet_model_spec_v2* specification = nullptr, void* policy = nullptr,
-    const llama_model_tensor_buft_override* overrides = nullptr) {
+    const llama_model_tensor_buft_override* overrides = nullptr, std::string* result = nullptr) {
     if (!mode || (std::strcmp(mode, "full") != 0 && std::strcmp(mode, "reset") != 0 &&
             !((reference || specification) &&
                 (std::strcmp(mode, "kernel-error") == 0 || std::strcmp(mode, "kernel-recovery") == 0)))) {
@@ -2309,7 +2314,7 @@ static int test_prefill_request(
     }, nullptr);
     try {
         return test_prefill_control(path, reference || specification, mode, request.prompt.c_str(), nullptr, nullptr, reference,
-            specification, policy, overrides, &request);
+            specification, policy, overrides, &request, result);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "prefill request refused: %s\n", error.what());
         return 34;
@@ -2326,14 +2331,59 @@ extern "C" int prism_bitnet_test_prefill_request_preflight_v1(
     return prepare_prefill_request(path, metadata_path, request_path, request, specification);
 }
 
-extern "C" int prism_bitnet_test_prefill_request_policy_v1(
+static int test_prefill_request_policy(
     const char* path, const jev_bitnet_model_spec_v2* specification, void* policy,
-    const llama_model_tensor_buft_override* overrides, const char* metadata_path, const char* request_path, const char* mode) {
+    const llama_model_tensor_buft_override* overrides, const char* metadata_path, const char* request_path, const char* mode,
+    std::string* result = nullptr) {
     if (!specification || !policy || !overrides) {
         std::fputs("typed prefill requires a live model policy\n", stderr);
         return 34;
     }
-    return test_prefill_request(path, metadata_path, request_path, mode, nullptr, specification, policy, overrides);
+    return test_prefill_request(path, metadata_path, request_path, mode, nullptr, specification, policy, overrides, result);
+}
+
+extern "C" int prism_bitnet_test_prefill_request_policy_v1(
+    const char* path, const jev_bitnet_model_spec_v2* specification, void* policy,
+    const llama_model_tensor_buft_override* overrides, const char* metadata_path, const char* request_path, const char* mode) {
+    return test_prefill_request_policy(path, specification, policy, overrides, metadata_path, request_path, mode);
+}
+
+extern "C" int prism_bitnet_test_prefill_request_policy_result_v1(
+    const char* path, const jev_bitnet_model_spec_v2* specification, void* policy,
+    const llama_model_tensor_buft_override* overrides, const char* metadata_path, const char* request_path, const char* mode,
+    char* output, std::size_t capacity, std::size_t* output_bytes) {
+    if (output_bytes) {
+        *output_bytes = 0;
+    }
+    if (output && capacity > 0) {
+        if (capacity <= 65536) {
+            std::memset(output, 0, capacity);
+        } else {
+            output[0] = '\0';
+        }
+    }
+    if (!output || !output_bytes || capacity == 0 || capacity > 65536) {
+        std::fputs("typed prefill result requires a bounded output buffer and length\n", stderr);
+        return 37;
+    }
+    try {
+        std::string result;
+        const int status = test_prefill_request_policy(
+            path, specification, policy, overrides, metadata_path, request_path, mode, &result);
+        if (status != 0) {
+            return status;
+        }
+        if (result.empty() || result.size() >= capacity) {
+            std::fputs("typed prefill result exceeds output capacity\n", stderr);
+            return 37;
+        }
+        std::memcpy(output, result.data(), result.size());
+        *output_bytes = result.size();
+        return 0;
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "typed prefill result refused: %s\n", error.what());
+        return 37;
+    }
 }
 #endif
 #endif
