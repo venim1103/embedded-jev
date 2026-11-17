@@ -6,6 +6,57 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Source-Bound Matrix Set Checkpoint (2026-11-17)
+
+**Selected BF16 matrices now compose verified source-shard owners with the
+shared converted-file lifetime, returning receipts only after every owner
+exits successfully.** Continued from **`fc0bbb3`** (retained GGUF matrices)
+and **`4a65d35`** (generated typed Python controller).
+
+`verify_profile_gguf_source_matrices_v2` validates explicit nonempty matrix
+digest and exact shard-path sets before ownership, retains one aggregate
+deadline, visits source shards serially and maps only one operand at a time.
+It derives full source/header pins from the profile, groups matrices to avoid
+per-matrix whole-shard hashing, and uses the existing shared GGUF checker.
+Each file is fully authenticated twice on a successful one-shard workflow.
+Final source/converted inode/size/time checks detect changes after earlier
+owners close. No child receipt is returned before final ownership checks.
+Old APIs/defaults/caps, native commands and frozen codes/scales remain.
+
+### Actual Evidence
+
+- Thirteen new focused one/two-shard cases first passed in **0.92 s**; the
+  combined matrix/source lifecycle subset passed **46 tests in 1.55 s**, clean
+  Ruff/whitespace. These include snapshotting caller pins/paths, exact selection,
+  serial source/matrix ownership, source/matrix/converted exits, final identity
+  changes and deadline refusal. No failed check occurred in this slice.
+- Expanded the existing generated file control with `[False]`/`[True]` source
+  binding. Both passed together: **2 passed in 2.74 s**. The source-bound case
+  builds an actual <=1 MiB safetensors shard and reconciles its fresh profile,
+  metadata and header inventory; only two selected BF16 ranges enter the <=64 KiB
+  GGUF. It proves exactly two whole-source hashes and two whole-GGUF hashes,
+  unchanged standalone/shared byte digests, and no combined receipt after
+  successful range comparisons followed by a corrupted source exit.
+- Source-bound control group RSS/HWM **57,049,088 B**, available minimum
+  **11,594,231,808 B**. Unbound control **57,077,760 B** and
+  **11,603,181,568 B**. Both retained the 15-second/1 GiB/2 GiB-reserve,
+  no-owned-swap/no-host-swap-growth and <=64 KiB all-output guards. Used swap
+  remained **4,411,392 B** in both jobs. Temporary files/mappings were removed.
+- Required root gate: **2027 passed, 239 skipped in 47.55 s**, clean Ruff and
+  whitespace. The extra optional skip is the actually executed source-bound
+  parameter, not full-model/native acceptance. Pylance still reported only
+  the documented optional-dependency import warnings in the base environment,
+  no codec type errors.
+
+The final source checks are identity/stat checks, not a third whole-source
+hash; cross-file atomic snapshot/issuer authentication remain unproved.
+Only selected BF16 matrices are covered. Complete F32 auxiliary/frozen-range
+coverage, the 1 MiB header boundary, real-profile admission/controller, approved
+carrier/resources and S3 remain open. No learned-model/cache weights were read,
+no native build/model run, source download, conversion experiment, refitting,
+new retained candidate, push, branch or subagent. Historical resource failures
+and missing build samples are not renewed or closed.
+
 ## S2 Shared Converted-Matrix Lifetime Checkpoint (2026-11-17)
 
 **Serial BF16 selected-range checks can now share whole-GGUF authentication

@@ -3394,6 +3394,110 @@ def verify_profile_gguf_source_matrix_v2(
     })
 
 
+def verify_profile_gguf_source_matrices_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_paths: dict,
+    expected_source_sha256: dict, expected_file_bytes: int, expected_file_sha256: str,
+    maximum_source_file_bytes: int = 16 * 1024**2, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Return selected matrix provenance only after all serial source/converted owners exit."""
+    from copy import deepcopy
+
+    from embedded_jev.model_profile import SHA256
+
+    deadline = _matrix_file_deadline_v2(
+        expected_file_bytes, expected_file_sha256, maximum_file_bytes, maximum_bytes, maximum_chunk_bytes, maximum_seconds,
+    )
+    if (
+        type(maximum_source_file_bytes) is not int or not 0 < maximum_source_file_bytes <= 6 * 1024**3
+        or not isinstance(source_paths, dict) or not isinstance(expected_source_sha256, dict)
+        or not 1 <= len(expected_source_sha256) <= 427
+        or any(not isinstance(name, str) or not isinstance(pin, str) or SHA256.fullmatch(pin) is None
+               for name, pin in expected_source_sha256.items())
+    ):
+        raise ValueError("invalid v2 selected source matrices or budget")
+    plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    entries = {item["source_name"]: item for item in plan["tensors"]}
+    shards = {item["name"]: item["shard"] for item in inventory["tensors"]}
+    pins = expected_source_sha256.copy()
+    groups = {}
+    for name in pins:
+        entry = entries.get(name)
+        if entry is None or entry["type"] != "BF16" or entry["source_dtype"] != "BF16" or len(entry["source_shape"]) != 2:
+            raise ValueError("v2 selected sources require unfrozen declared BF16 matrices")
+        shard = shards[name]
+        rows, columns = entry["source_shape"]
+        if (
+            rows * columns * 2 > min(maximum_bytes, profile.files[shard].bytes, expected_file_bytes)
+            or columns * 2 > maximum_chunk_bytes or profile.files[shard].bytes > maximum_source_file_bytes
+        ):
+            raise ValueError("v2 selected source matrix exceeds file, operand or row budget")
+        groups.setdefault(shard, []).append(name)
+    if set(source_paths) != set(groups):
+        raise ValueError("v2 selected source shard set mismatch")
+    paths = {name: Path(path).absolute() for name, path in source_paths.items()}
+    inventory, manifest = deepcopy(inventory), deepcopy(manifest)
+    blocks = np.array(pq2_blocks, copy=True)
+    blocks.setflags(write=False)
+
+    def remaining():
+        duration = deadline - time.monotonic()
+        if duration <= 0:
+            raise ValueError("v2 selected source matrices deadline exceeded")
+        return duration
+
+    def identity(value):
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    converted_path = Path(reader.data.filename).absolute()
+    converted_identity = identity(converted_path.lstat())
+    source_identities, shard_receipts, receipts = {}, [], []
+
+    def check_sources():
+        remaining()
+        for shard, expected in source_identities.items():
+            if identity(paths[shard].lstat()) != expected:
+                raise ValueError("v2 selected source file changed after shard closure")
+            remaining()
+
+    with verified_profile_gguf_matrix_stream_v2(
+        profile, inventory, manifest, blocks, reader=reader,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=remaining(),
+    ) as verify:
+        for shard in sorted(groups):
+            pin = profile.files[shard]
+            with mapped_profile_safetensors_bf16_shard_v2(
+                profile, inventory, manifest, blocks, source_path=paths[shard], source_shard=shard,
+                expected_file_bytes=pin.bytes, expected_file_sha256=pin.sha256,
+                maximum_file_bytes=maximum_source_file_bytes, maximum_seconds=remaining(),
+            ) as (matrix, shard_receipt):
+                source_identities[shard] = shard_receipt["source_file_identity"]
+                for name in sorted(groups[shard]):
+                    remaining()
+                    with matrix(name, pins[name], maximum_bytes=maximum_bytes) as (values, source_receipt):
+                        converted = verify(source_name=name, source_values=values, expected_source_sha256=pins[name])
+                    receipts.append(MappingProxyType({"source": source_receipt, "converted": converted}))
+            shard_receipts.append(shard_receipt)
+        check_sources()
+    check_sources()
+    if identity(converted_path.lstat()) != converted_identity:
+        raise ValueError("v2 selected converted file changed after stream closure")
+    remaining()
+    return MappingProxyType({
+        "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+        "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
+        "matrix_count": len(receipts), "tensors": tuple(receipts), "source_shards": tuple(shard_receipts),
+        "source_conversion_verification": "selected_bf16_ranges_match_profile_pinned_source_shards",
+        "source_files_rechecked_after_conversion": True, "source_mappings_closed_after_conversion": True,
+        "cross_file_atomic_snapshot": "not_guaranteed", "pin_issuer_verification": "not_checked",
+        "model_metadata_verification": "not_checked", "gguf_tensor_table_verification": "not_checked",
+        "runtime_approval": "not_granted_by_source_conversion_verification",
+    })
+
+
 def verify_profile_gguf_policy_metadata(
     profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
     expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,

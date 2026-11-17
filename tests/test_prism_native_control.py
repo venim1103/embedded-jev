@@ -625,14 +625,22 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
         "observed_host_swap_bytes": max(sample["observed_host_swap_bytes"] for sample in samples)}, sort_keys=True))
 
 
-def test_pinned_prism_serial_matrix_stream_on_generated_ranges():
+@pytest.mark.parametrize("source_bound", [False, True])
+def test_pinned_prism_serial_matrix_stream_on_generated_ranges(source_bound):
     from tempfile import TemporaryDirectory
 
     from test_inventory import _prefill_model_policy_fixture
 
     source_dir, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
     assert subprocess.check_output(["git", "-C", str(source_dir), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
-    fixture = json.loads(_profile_parity_fixture(*_prefill_model_policy_fixture(tiny_request=True, vocab_size=64)))
+    metadata, headers = {}, {}
+    arguments = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64,
+        metadata_output=metadata if source_bound else None, headers_output=headers if source_bound else None)
+    fixture = json.loads(_profile_parity_fixture(*arguments))
+    fixture["source_bound"] = source_bound
+    if source_bound:
+        fixture["metadata_hex"] = {name: data.hex() for name, data in metadata.items()}
+        fixture["headers_hex"] = {name: {"prefix": prefix.hex(), "bytes": size} for name, (prefix, size) in headers.items()}
     code = r'''
 import hashlib, json, os, sys
 from pathlib import Path
@@ -649,6 +657,7 @@ import gguf
 import numpy as np
 from embedded_jev import prism_codec as codec, streamed_text
 from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.inventory import build_inventory
 profile = parse_model_profile(json.dumps(arguments["profile"]).encode())
 inventory, manifest = arguments["inventory"], arguments["manifest"]
 blocks = np.frombuffer(bytes.fromhex(arguments["payload_hex"]), dtype=np.uint8).reshape(32, 8, 34)
@@ -670,6 +679,24 @@ writer.write_kv_data_to_file()
 writer.write_tensors_to_file()
 writer.close()
 assert path.stat().st_size <= 65536
+if arguments["source_bound"]:
+    assert len(arguments["headers_hex"]) == 1
+    shard, header_record = next(iter(arguments["headers_hex"].items()))
+    prefix = bytes.fromhex(header_record["prefix"])
+    source_bytes = bytearray(header_record["bytes"])
+    assert len(source_bytes) <= 1024**2
+    source_bytes[:len(prefix)] = prefix
+    header = json.loads(prefix[8:])
+    for name, values in sources.items():
+        first, last = header[name]["data_offsets"]
+        source_bytes[len(prefix) + first:len(prefix) + last] = memoryview(values).cast("B")
+    source_path = root / shard
+    source_path.write_bytes(source_bytes)
+    arguments["profile"]["files"][shard]["sha256"] = hashlib.sha256(source_bytes).hexdigest()
+    profile = parse_model_profile(json.dumps(arguments["profile"]).encode())
+    inventory = build_inventory({name: bytes.fromhex(data) for name, data in arguments["metadata_hex"].items()},
+        {shard: (prefix, len(source_bytes))}, profile=profile)
+    manifest["profile_sha256"] = profile.sha256
 pin = hashlib.sha256(path.read_bytes()).hexdigest()
 reader = gguf.GGUFReader(path, mode="r")
 options = dict(reader=reader, expected_file_bytes=path.stat().st_size, expected_file_sha256=pin, maximum_chunk_bytes=256)
@@ -697,6 +724,45 @@ try:
     assert len(hashes) == 2 and hashes[0] == hashes[1]
     assert [item["converted_sha256"] for item in streamed] == [item["converted_sha256"] for item in standalone]
     assert all(item["source_file_verification"] == item["gguf_tensor_table_verification"] == "not_checked" for item in streamed)
+    if arguments["source_bound"]:
+        from contextlib import contextmanager
+        source_hashes = []
+        original_source_record = streamed_text.bounded_source_descriptor_record_v2
+        def observed_source_record(descriptor, **keywords):
+            source_hashes.append(descriptor)
+            return original_source_record(descriptor, **keywords)
+        streamed_text.bounded_source_descriptor_record_v2 = observed_source_record
+        source_options = dict(source_paths={shard: source_path},
+            expected_source_sha256={name: hashlib.sha256(memoryview(values)).hexdigest() for name, values in sources.items()})
+        hashes.clear()
+        combined = codec.verify_profile_gguf_source_matrices_v2(profile, inventory, manifest, blocks, **options, **source_options)
+        assert combined["matrix_count"] == 2 and len(combined["source_shards"]) == 1
+        assert len(hashes) == len(source_hashes) == 2
+        assert hashes[0] == hashes[1] and source_hashes[0] == source_hashes[1]
+        assert [item["converted"]["converted_sha256"] for item in combined["tensors"]] == [
+            item["converted_sha256"] for item in sorted(streamed, key=lambda item: item["source_name"])]
+        assert combined["source_files_rechecked_after_conversion"] is combined["source_mappings_closed_after_conversion"] is True
+        assert combined["gguf_tensor_table_verification"] == "not_checked"
+        original_source_owner = codec.mapped_profile_safetensors_bf16_shard_v2
+        @contextmanager
+        def changed_before_source_exit(*values, **keywords):
+            with original_source_owner(*values, **keywords) as borrowed:
+                yield borrowed
+                with source_path.open("r+b", buffering=0) as changed:
+                    changed.seek(-1, os.SEEK_END)
+                    changed.write(bytes([source_bytes[-1] ^ 1]))
+        codec.mapped_profile_safetensors_bf16_shard_v2 = changed_before_source_exit
+        withheld = None
+        try:
+            try:
+                withheld = codec.verify_profile_gguf_source_matrices_v2(profile, inventory, manifest, blocks, **options, **source_options)
+                raise AssertionError("combined receipts escaped source exit failure")
+            except ValueError as error:
+                assert "mapped source" in str(error) and "changed" in str(error), str(error)
+            assert withheld is None
+        finally:
+            codec.mapped_profile_safetensors_bf16_shard_v2 = original_source_owner
+            source_path.write_bytes(source_bytes)
     for defect in ("restored", "caught-parity"):
         hashes.clear()
         published = None
@@ -727,17 +793,23 @@ try:
 finally:
     reader.data._mmap.close()
     path.unlink()
+    if arguments["source_bound"]:
+        source_path.unlink()
 assert not list(root.iterdir())
-print(json.dumps({"matrices": 2, "standalone_hashes": 4, "stream_hashes": 2, "refused_streams": 2}))
+print(json.dumps({"matrices": 2, "standalone_hashes": 4, "stream_hashes": 2, "refused_streams": 2,
+    "source_bound": arguments["source_bound"]}))
 '''
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
            "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
     with TemporaryDirectory(prefix="jev-matrix-stream-") as directory:
         fixture["scratch"] = directory
-        result = _run_tokenizer_only_guard_v3(interpreter, code, json.dumps(fixture).encode(),
+        packet = json.dumps(fixture).encode()
+        assert len(packet) <= 65536
+        result = _run_tokenizer_only_guard_v3(interpreter, code, packet,
             env=env, maximum_seconds=15, maximum_rss_bytes=1024**3)
         assert result["returncode"] == 0, result["stderr"]
-        assert json.loads(result["stdout"]) == {"matrices": 2, "standalone_hashes": 4, "stream_hashes": 2, "refused_streams": 2}
+        assert json.loads(result["stdout"]) == {"matrices": 2, "standalone_hashes": 4, "stream_hashes": 2,
+            "refused_streams": 2, "source_bound": source_bound}
         assert len(result["stdout"].encode()) + len(result["stderr"].encode()) <= 65536
         assert not list(Path(directory).iterdir())
     print(json.dumps({key: value for key, value in result.items() if key not in ("stdout", "stderr")}, sort_keys=True))

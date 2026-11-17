@@ -3942,6 +3942,122 @@ def test_profile_gguf_matrix_stream_v2_shares_hashes_and_refuses_failed_lifetime
             os.fstat(descriptor)
 
 
+@pytest.mark.parametrize("source_shards,defect", [
+    (1, None), (2, None), (2, "caller-inputs"), (2, "matrix-exit"), (2, "source-exit"),
+    (2, "converted-exit"), (2, "source-after-close"), (2, "converted-after-close"), (2, "deadline"),
+    (2, "source-set"), (2, "source-pin"), (2, "source-budget"), (2, "frozen"),
+])
+def test_profile_gguf_source_matrices_v2_returns_only_after_all_serial_owners(tmp_path, monkeypatch, source_shards, defect):
+    from contextlib import contextmanager
+    from types import MappingProxyType, SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64, source_shards=source_shards)
+    plan = prism_codec.profile_model_conversion_plan(profile, report, manifest, blocks)
+    tensor_shards = {item["name"]: item["shard"] for item in report["tensors"]}
+    selected = []
+    for shard in profile.packaging["shards"]:
+        matches = [item for item in plan["tensors"] if item["type"] == "BF16" and tensor_shards[item["source_name"]] == shard]
+        selected.extend(matches[:2 if source_shards == 1 else 1])
+    pins = {item["source_name"]: "a" * 64 for item in selected}
+    assert len(pins) == 2
+    paths = {name: tmp_path / name for name in profile.packaging["shards"]}
+    for path in paths.values():
+        path.write_bytes(b"source fixture")
+    converted = tmp_path / "model.gguf"
+    with converted.open("wb") as output:
+        output.truncate(1024**2)
+    reader = SimpleNamespace(data=SimpleNamespace(filename=converted))
+    expected_names, stable_paths = set(pins), paths.copy()
+    events, active = [], {"converted": False, "source": False, "matrix": False}
+    clock = [0]
+    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: clock[0])
+
+    def identity(path):
+        value = path.lstat()
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    @contextmanager
+    def converted_owner(*arguments, **keywords):
+        events.append("converted-enter")
+        active["converted"] = True
+        if defect == "caller-inputs":
+            pins.clear()
+            paths.clear()
+        def verify(**received):
+            assert active == {"converted": True, "source": True, "matrix": True}
+            assert received["source_name"] in expected_names and received["expected_source_sha256"] == "a" * 64
+            events.append("verify")
+            clock[0] += 1
+            return MappingProxyType({"converted_file_verification": "retained_file_entry_and_exit_checks_required"})
+
+        try:
+            yield verify
+            if defect == "converted-exit":
+                raise ValueError("synthetic converted owner exit failed")
+            if defect == "source-after-close":
+                next(iter(stable_paths.values())).write_bytes(b"changed")
+            elif defect == "converted-after-close":
+                with converted.open("r+b") as output:
+                    output.write(b"x")
+            elif defect == "deadline":
+                clock[0] = 31
+        finally:
+            active["converted"] = False
+            events.append("converted-exit")
+
+    @contextmanager
+    def source_owner(*arguments, **keywords):
+        assert active == {"converted": True, "source": False, "matrix": False}
+        assert keywords["maximum_seconds"] == 30 - clock[0]
+        shard, path = keywords["source_shard"], keywords["source_path"]
+        assert keywords["expected_file_sha256"] == profile.files[shard].sha256
+        events.append("source-enter")
+        active["source"] = True
+        @contextmanager
+        def matrix(name, expected_pin, **budgets):
+            assert tensor_shards[name] == shard and expected_pin == "a" * 64
+            assert not active["matrix"]
+            active["matrix"] = True
+            try:
+                yield np.zeros(1, dtype="<u2"), MappingProxyType({"source_name": name})
+                if defect == "matrix-exit":
+                    raise ValueError("synthetic matrix exit failed")
+            finally:
+                active["matrix"] = False
+        try:
+            yield matrix, MappingProxyType({"source_file_identity": identity(path)})
+            if defect == "source-exit":
+                raise ValueError("synthetic source owner exit failed")
+        finally:
+            active["source"] = False
+            events.append("source-exit")
+
+    monkeypatch.setattr(prism_codec, "verified_profile_gguf_matrix_stream_v2", converted_owner)
+    monkeypatch.setattr(prism_codec, "mapped_profile_safetensors_bf16_shard_v2", source_owner)
+    arguments = dict(reader=reader, source_paths=paths, expected_source_sha256=pins,
+                     expected_file_bytes=1024**2, expected_file_sha256="b" * 64)
+    if defect == "source-set":
+        paths["unexpected.safetensors"] = tmp_path / "unused"
+    elif defect == "source-pin":
+        pins[next(iter(pins))] = "invalid"
+    elif defect == "source-budget":
+        arguments["maximum_source_file_bytes"] = True
+    elif defect == "frozen":
+        arguments["expected_source_sha256"] = {manifest["tensor"]: "a" * 64}
+    if defect in (None, "caller-inputs"):
+        result = prism_codec.verify_profile_gguf_source_matrices_v2(profile, report, manifest, blocks, **arguments)
+        assert result["matrix_count"] == 2 and len(result["source_shards"]) == source_shards
+        assert result["source_files_rechecked_after_conversion"] is result["source_mappings_closed_after_conversion"] is True
+        assert events.count("verify") == 2 and events.count("source-exit") == source_shards
+        assert events[-1] == "converted-exit"
+    else:
+        with pytest.raises(ValueError):
+            prism_codec.verify_profile_gguf_source_matrices_v2(profile, report, manifest, blocks, **arguments)
+    assert not any(active.values())
+
+
 @pytest.mark.parametrize("defect", ["zero-budget", "boolean-budget", "large-budget", "row-budget", "frozen", "vector",
                                     "convolution", "dtype", "endian", "shape", "layout", "array", "infinity", "nan", "late-nonfinite"])
 def test_profile_bf16_matrix_chunks_refuse_unsupported_or_nonfinite_values(monkeypatch, defect):

@@ -1800,7 +1800,9 @@ runtime approval follows. It does not widen the small native model owner.
 
 The bounded two-matrix generated file control uses the cached GGUF reader/
 writer, <=64 KiB output carrier and the existing 15-second/1 GiB/2 GiB-reserve/
-no-swap-growth guard, without a model or backend:
+no-swap-growth guard, without a model or backend. Its `[True]` parameter also
+composes a <=1 MiB generated safetensors shard with the shared GGUF lifetime,
+checks two hashes per file, and withholds receipts on source-exit corruption:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 \
@@ -1862,6 +1864,30 @@ only after successful source child/parent closure and whole-source recheck.
 It grants neither native owner/runtime approval nor complete-table or model
 metadata verification, and explicitly does not claim a two-file atomic
 snapshot. See the [source-bound GGUF checkpoint](handover.md#source-bound-gguf-checkpoint-2026-10-19).
+
+`verify_profile_gguf_source_matrices_v2(...)` composes multiple explicitly
+selected BF16 matrices with the shared GGUF lifetime. Supply a nonempty
+`expected_source_sha256` mapping from source names to operand digests and
+`source_paths` containing exactly their profile-declared shards. Unknown,
+frozen or auxiliary operands and excess/missing shards refuse before file
+ownership. Source file byte/SHA/header pins come from the supplied profile;
+all old source/output/operand/chunk/header defaults and explicit caps remain.
+
+It opens source shards serially, maps one operand at a time, groups matrices
+so each selected shard is authenticated once at entry/exit, and authenticates
+the GGUF twice total. One deadline covers planning, mappings, all conversion
+checks and cleanup. It returns an immutable selected-set receipt only after
+all matrix/shard/GGUF owners close successfully. Final dev/inode/size/mtime/
+ctime checks detect source changes after earlier shard closures and converted
+path changes after the stream closes; those final checks are not additional
+full-file hashes or a cross-file atomic snapshot.
+
+Nested converted receipts retain their provisional stream-verification wording;
+the composing function has fulfilled that lifetime before returning them.
+It still explicitly leaves complete-table/metadata/issuer/runtime approval
+unchecked. F32 auxiliaries, the frozen range and source-to-frozen quantization
+equivalence are not covered. The generated control above checks actual
+profile-pinned source headers/bytes, without reading any learned-model cache.
 
 `verify_profile_gguf_source_metadata_v2(...)` verifies the emitted
 policy/context/template subset against freshly prepared pinned immutable
