@@ -6,6 +6,135 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Typed Prefill Request Prerequisite (2026-11-17)
+
+**Python source prerequisite implemented and default-tested; S2 native integration
+remains open.** Resumed from transfer commit `886ac07`, latest prior source
+checkpoint `ebe7166`, on `main`. The only initial worktree change was the user's
+untracked `.vscode/`; it was not read, altered or staged. No branch, push, fetch,
+Prism loader build/run, model experiment or renewal of old budgets occurred.
+
+Inspection started at `native/prism_bitnet_loader_control.cpp::test_prefill_control`.
+Its text path already checks prompt extensions and kernel/finite-logit status,
+but options/labels remain hardcoded and the v5 metadata control prints its own
+success packet separately. Do not connect that printing control directly to a
+scoring command: a later kernel failure must leave no success-shaped stdout.
+The exported `prism_bitnet_test_prefill_policy_v2` and old CLI contracts must stay
+unchanged. C++ call-hierarchy tooling reported parsing underway; direct bounded
+source reads, not a completed semantic call graph, supplied this inspection.
+
+The smallest authorized prerequisite is now
+`label_probe.prepare_profile_prefill_request`: an exact unlabelled
+`{id,state,question,options:[{id,description}]}` request becomes a bounded
+`jev-prefill-request-v1` declaration with profile identity, exact rendered
+prompt/hash, input IDs and 2-16 explicit `{id,label,token_id}` mappings.
+It reuses the existing message formatter and profile-bound label probe;
+no separate renderer/tokenizer implementation or model dependency was added.
+Strict UTF-8 byte bounds, unique semantic IDs, control-marker refusal before
+tokenizer access, actual integer/vocabulary bounds, stable repeated rendering,
+standalone labels and exact one-token prompt extensions fail explicitly.
+Packets contain no scores, generation receipt or runtime approval. Their JSON
+serialization preserves non-ASCII, quotes and backslashes in semantic IDs.
+This is not a native runner, fresh file proof or source-tokenizer authentication;
+native command handling and hardcoded legacy options are unchanged.
+
+Revalidation: terminal and editor-selected Python are `/opt/venv/bin/python`;
+Ruff, pytest, CMake, C++ and timeout are present. Cached dense Python reports
+Transformers/tokenizers/NumPy `5.12.1`/`0.22.2`/`2.2.6`. The existing Prism
+checkout is clean at `842b1880415d6f508f03b789e5ce70194def7bfd`; the separate
+Release/Ninja cache still points to it and the existing cached GGML library
+directory. CMake Tools lists the loader target; no build was requested.
+Read-only headroom was approximately 12 GiB available memory, zero host swap
+used and 363 GiB disk available, not a future resource guarantee. Libraries,
+model contents and retained candidates were not executed or revalidated.
+
+Verification:
+
+- Initial focused request checks: **32 passed, 77 deselected in 0.26 s**.
+- After tightening repeated/standalone integer checks and adding exact limit
+  coverage, all label-probe controls: **110 passed in 0.64 s**.
+- Focused Ruff and whitespace passed after both runs. No failed test run.
+  Pylance reports only unresolved optional CLI imports (`huggingface_hub`,
+  `jinja2`, `tokenizers`, `transformers`) in the base environment for this module;
+  test diagnostics contain unused-symbol hints, no errors. No environment or
+  editor setting was changed to suppress these diagnostics.
+- Required root gate, all `MIMO_`/`PRISM_`/`BITNET_` variables absent:
+  **1947 passed, 231 skipped in 48.12 s**; Ruff and whitespace clean.
+  Optional native tests are not implied by default success.
+- The first independent documentation-anchor/fence check was rejected by the
+  shell tool before execution because its double-quoted Python argument
+  contained literal Markdown backticks. The check was rewritten without shell
+  backtick syntax and then passed, along with scoped whitespace checks; this
+  was not a test failure or native/resource attempt.
+
+No persistent scratch or model artifact was created. Tests use synthetic
+tokenizers, not cached model files. Historical getter/build evidence, the old
+resource-failed v4/bootstrap compatibility controls and the missing successful
+actual-build watcher samples remain open exactly as before. No tolerance,
+guard, deadline or assertion was weakened.
+
+### Proposed Next Generated-Only Native Scope
+
+**Prepared, not approved or executed.** General continuation authorized this
+Python prerequisite, not a new native execution budget. Proposed new separate
+**360-second aggregate ceiling**: 60 s supervised changed-loader build,
+30 s focused source checks, 120 s generated fixture/native checks, 90 s default
+source gate and 60 s setup/substantive repair/cleanup. Do not carry unused time
+from historical approvals or retry any resource failure unchanged.
+
+Bounded objective: consume the prepared request through a new test-only dense
+and generated-v2 BitNet CLI beside existing commands, sharing the prefill
+implementation rather than adding a second scoring engine. Extract a silent
+v5 getter preflight, preserving old commands/statuses/output, and invoke it on
+fresh Python verifier declarations before runtime/backend discovery. Do not
+accept writer receipts as source proof. Bind packet profile identity to the
+38 records; verify exact prompt hash/IDs, A-P labels, distinct explicit token
+mappings, native standalone/extension encodings and profile vocabulary.
+Use JSON serialization for dynamic IDs; emit one score packet only after all
+contract, finite-logit and kernel-status checks. No decode of an answer token,
+sampler or generation loop is allowed.
+
+Reuse the existing complete four-layer synthetic tensor generator (width 32,
+FFN 256, vocabulary <=64, two recurrent/two attention layers) and role-aware
+v5 preparation in disposable copies. Add an explicitly Qwen35-declared fixture;
+do not change the old Qwen2 fixture's tag or call recognition semantic proof.
+No cached model weights, complete real-model conversion or retained candidate
+is involved. Exercise 2/3/16-option requests, reordered IDs/descriptions,
+metadata/profile/token/prompt/schema refusals and a contextual-merge negative
+control. Require zero score stdout on preflight and kernel failures, counted
+BitNet dispatch/repack/input rows, a fresh-versus-contaminated-then-cleared
+same-context comparison and cleanup. Keep one sequence/one CPU thread,
+128-token batch/ubatch bounds and the existing independent arithmetic
+tolerances. Preserve old dense/text/BitNet controls and exported ABI.
+
+Use only the existing Release loader target via CMake Tools, <=2 jobs,
+with no dependency rebuild or pinned source/library change. Start the existing
+observer asynchronously, confirm flushed `ready` before build launch, require
+positive `observed` and successful `finished` receipts plus the independent
+CMake Tools result. Keep its <=60 s including cleanup, <=1 GiB observed
+RSS/HWM, >=2 GiB host reserve, zero owned swap and no host-swap growth.
+If actual tool lifecycle cannot meet that contract, stop and document the
+specific failure; neither a successful build nor this proposal repairs the
+historical missing measurement.
+
+Generated source copies each <=64 KiB, complete/fault GGUF each <=1 MiB,
+request JSON <=64 KiB, selected metadata JSON <=64 KiB, logical scratch <=8 MiB
+and aggregate child output <=64 KiB; each native/fixture child <=15 s and each
+guarded stage <=60 s within the aggregate allocation. Reuse the pinned dense
+environment/source, audit-deny network/model-cache content and child creation
+inside fixture workers; native launch belongs to the supervised parent. Apply
+the same 1 GiB/2 GiB/no-swap bounds, check file hashes/descriptors, reap children
+and remove every named temporary file/directory, retaining only small receipts.
+Dependency rebuilds, a second target, resource-failure retries, source/model
+downloads, real-model work, refitting, quality/device experiments and broader
+scope require separate approval. This proposal is an execution limit, not a
+claim that every S2 acceptance item will fit or pass.
+
+Next action requiring approval: the bounded changed-loader build and generated
+native scope above. Do not prepare more metadata expansion instead of wiring
+the typed prefill path. The earlier transfer and implementation checkpoints
+below remain historical context.
+
 ## Harness Transfer Handover (2026-11-17)
 
 **Documentation-only transfer checkpoint. Do not resume implementation as part

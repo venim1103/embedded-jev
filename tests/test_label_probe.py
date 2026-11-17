@@ -12,6 +12,7 @@ from embedded_jev.label_probe import (
     NON_THINKING_SUFFIX,
     _bounded_size,
     load_decision_fixture,
+    prepare_profile_prefill_request,
     probe_decision_cases,
     probe_label_boundary,
     probe_text_processor,
@@ -295,6 +296,173 @@ class FixtureTokenizer:
     def encode(self, text, *, add_special_tokens):
         assert not add_special_tokens
         return list(text.encode("utf-8"))
+
+
+def _prefill_request_fixture(count=2):
+    class RequestTokenizer(FixtureTokenizer):
+        def convert_tokens_to_ids(self, token):
+            return 0 if token == "special" else None
+
+        def encode(self, text, *, add_special_tokens):
+            assert not add_special_tokens
+            if len(text) == 1:
+                return [ord(text)]
+            return [3, 4, ord(text[-1])] if text[-1] in "ABCDEFGHIJKLMNOP" else [3, 4]
+
+    record = _label_profile_record()
+    template = RequestTokenizer.chat_template.encode()
+    record["files"]["chat_template.jinja"] = {
+        "bytes": len(template), "sha256": hashlib.sha256(template).hexdigest(),
+    }
+    request = {
+        "id": "request-1", "state": "Evidence", "question": "Next action?",
+        "options": [{"id": f"action-{index}", "description": f"Action {index}"} for index in range(count)],
+    }
+    return RequestTokenizer(), request, parse_model_profile(json.dumps(record).encode())
+
+
+@pytest.mark.parametrize("count", [2, 3, 16])
+def test_prefill_request_preserves_explicit_option_order_and_reference_tokens(count):
+    tokenizer, request, profile = _prefill_request_fixture(count)
+    request["options"][0]["id"] = 'inspect"\\\t\u00e9'
+    packet = prepare_profile_prefill_request(tokenizer, request, profile=profile)
+    assert json.loads(json.dumps(packet)) == packet
+    assert packet["profile_id"] == profile.profile_id and packet["profile_sha256"] == profile.sha256
+    assert packet["input_token_ids"] == [3, 4]
+    assert packet["prompt_sha256"] == hashlib.sha256(packet["prompt"].encode()).hexdigest()
+    assert packet["options"] == [
+        {"id": option["id"], "label": label, "token_id": ord(label)}
+        for option, label in zip(request["options"], "ABCDEFGHIJKLMNOP"[:count], strict=True)
+    ]
+    assert all(f"{label}. {option['description']}" in packet["prompt"]
+               for option, label in zip(request["options"], "ABCDEFGHIJKLMNOP"[:count], strict=True))
+    request["options"].reverse()
+    reordered = prepare_profile_prefill_request(tokenizer, request, profile=profile)
+    assert [option["id"] for option in reordered["options"]] == [option["id"] for option in request["options"]]
+    assert reordered["prompt_sha256"] != packet["prompt_sha256"]
+    request["options"][0]["id"] = "changed"
+    assert all(option["id"] != "changed" for option in reordered["options"])
+    assert not {"logits", "conditional_scores", "generated_answer_tokens", "runtime_approval"} & packet.keys()
+
+
+def test_prefill_request_accepts_exact_native_text_and_token_limits():
+    tokenizer, request, profile = _prefill_request_fixture()
+    base = type(tokenizer)
+    prompt = "x" * (4096 - len(NON_THINKING_SUFFIX)) + NON_THINKING_SUFFIX
+
+    class MaximumTokenizer(base):
+        def apply_chat_template(self, messages, **options):
+            return {"input_ids": [3] * 128} if options["tokenize"] else prompt
+
+        def encode(self, text, *, add_special_tokens):
+            assert not add_special_tokens
+            if len(text) == 1:
+                return [ord(text)]
+            return [3] * 128 if text == prompt else [3] * 128 + [ord(text[-1])]
+
+    packet = prepare_profile_prefill_request(MaximumTokenizer(), request, profile=profile)
+    assert len(packet["prompt"].encode()) == 4096 and len(packet["input_token_ids"]) == 128
+
+
+@pytest.mark.parametrize("defect", [
+    "profile", "schema", "empty", "id-bytes", "text-bytes", "unicode", "nul", "one", "seventeen",
+    "option-schema", "option-id", "option-description", "duplicate", "line", "control",
+])
+def test_prefill_request_refuses_invalid_inputs_before_tokenizer_access(defect):
+    tokenizer, request, profile = _prefill_request_fixture()
+    if defect == "profile":
+        profile = None
+    elif defect == "schema":
+        request["expected_option_id"] = "action-0"
+    elif defect == "empty":
+        request["question"] = " "
+    elif defect == "id-bytes":
+        request["id"] = "\u00e9" * 65
+    elif defect == "text-bytes":
+        request["state"] = "\u00e9" * 1001
+    elif defect == "unicode":
+        request["question"] = "\ud800"
+    elif defect == "nul":
+        request["state"] = "a\0b"
+    elif defect in ("one", "seventeen"):
+        request["options"] = request["options"][:1] if defect == "one" else request["options"] * 8 + request["options"][:1]
+    elif defect == "option-schema":
+        request["options"][0]["token_id"] = 65
+    elif defect == "option-id":
+        request["options"][0]["id"] = "x" * 129
+    elif defect == "option-description":
+        request["options"][0]["description"] = ""
+    elif defect == "duplicate":
+        request["options"][1]["id"] = request["options"][0]["id"]
+    elif defect == "line":
+        request["options"][0]["description"] = "one\rtwo"
+    else:
+        record = _label_profile_record()
+        record["tokenization"]["control_markers"] = ["{REASON:"]
+        profile = parse_model_profile(json.dumps(record).encode())
+        request["options"][0]["id"] = "{REASON:low}"
+
+    class NeverAccessed:
+        def __getattribute__(self, name):
+            pytest.fail(f"invalid request reached tokenizer: {name}")
+
+    with pytest.raises(LabelProbeError):
+        prepare_profile_prefill_request(NeverAccessed(), request, profile=profile)
+
+
+@pytest.mark.parametrize("defect", [
+    "token-over", "token-bool", "token-negative", "token-range", "prompt-over", "prompt-nul",
+    "standalone", "extension", "duplicate", "special", "profile-label", "template",
+    "render-drift", "token-drift",
+])
+def test_prefill_request_refuses_reference_contract_failures(defect):
+    tokenizer, request, profile = _prefill_request_fixture()
+    base = type(tokenizer)
+
+    class FaultyTokenizer(base):
+        renders = 0
+        encodes = 0
+
+        def apply_chat_template(self, messages, **options):
+            self.renders += not options["tokenize"]
+            result = super().apply_chat_template(messages, **options)
+            if not options["tokenize"]:
+                if defect == "prompt-over":
+                    return "x" * 4097 + NON_THINKING_SUFFIX
+                if defect == "prompt-nul":
+                    return "\0" + result
+                if defect == "render-drift" and self.renders > 1:
+                    return result.replace("Evidence", "Changed")
+            return result
+
+        def encode(self, text, *, add_special_tokens):
+            ids = super().encode(text, add_special_tokens=add_special_tokens)
+            if len(text) == 1:
+                return [66] if defect == "standalone" else ids
+            self.encodes += 1
+            if defect == "token-over":
+                return [3] * 129 if len(ids) == 2 else [3] * 129 + ids[-1:]
+            if defect in ("token-bool", "token-negative", "token-range"):
+                return [{"token-bool": True, "token-negative": -1, "token-range": profile.geometry["vocab_size"]}[defect], *ids[1:]]
+            if defect == "extension" and len(ids) == 3:
+                return [9, *ids[1:]]
+            if defect == "duplicate" and len(ids) == 3:
+                return [3, 4, 65]
+            if defect == "token-drift" and self.encodes > 5:
+                return [9, *ids[1:]]
+            return ids
+
+    faulty = FaultyTokenizer()
+    if defect == "special":
+        faulty.all_special_ids = [0, 65]
+    elif defect == "profile-label":
+        record = _label_profile_record()
+        record["tokenization"]["label_token_ids"]["B"] = 300
+        profile = parse_model_profile(json.dumps(record).encode())
+    elif defect == "template":
+        faulty.chat_template = "not pinned"
+    with pytest.raises(LabelProbeError):
+        prepare_profile_prefill_request(faulty, request, profile=profile)
 
 
 def test_synthetic_agent_tool_fixture_maps_stable_ids_across_option_orders():

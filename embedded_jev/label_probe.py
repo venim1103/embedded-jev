@@ -151,6 +151,87 @@ def decision_case_messages(case: dict) -> list[dict]:
     }]
 
 
+def _prefill_text(value, maximum_bytes: int) -> bool:
+    if not isinstance(value, str) or not value.strip() or "\0" in value or len(value) > maximum_bytes:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= maximum_bytes
+    except UnicodeEncodeError:
+        return False
+
+
+def prepare_profile_prefill_request(tokenizer, request: dict, *, profile: ModelProfile) -> dict:
+    """Prepare a bounded reference-token packet, not metadata proof or runtime approval."""
+    if (
+        not isinstance(profile, ModelProfile) or not isinstance(request, dict)
+        or set(request) != {"id", "state", "question", "options"}
+        or not _prefill_text(request["id"], 128)
+        or any(not _prefill_text(request[key], 2000) for key in ("state", "question"))
+        or not isinstance(request["options"], list) or not 2 <= len(request["options"]) <= len(LABELS)
+    ):
+        raise LabelProbeError("invalid bounded prefill request")
+    options = request["options"]
+    option_ids = []
+    for option in options:
+        if (
+            not isinstance(option, dict) or set(option) != {"id", "description"}
+            or not _prefill_text(option["id"], 128) or not _prefill_text(option["description"], 2000)
+            or any("\n" in option[key] or "\r" in option[key] for key in ("id", "description"))
+        ):
+            raise LabelProbeError("invalid bounded prefill option")
+        option_ids.append(option["id"])
+    if len(set(option_ids)) != len(option_ids):
+        raise LabelProbeError("duplicate prefill option IDs")
+    try:
+        validate_template_input(profile, request)
+    except ProfileError as exc:
+        raise LabelProbeError(str(exc)) from exc
+    messages = decision_case_messages(request)
+    labels = LABELS[:len(options)]
+    boundary = probe_label_boundary(tokenizer, messages, labels, profile=profile)
+    prompt = tokenizer.apply_chat_template(
+        messages, tokenize=False, **dict(profile.tokenization["render_arguments"]),
+    )
+    if not _prefill_text(prompt, 4096):
+        raise LabelProbeError("prefill prompt exceeds text bounds or contains invalid text")
+    tokens = tokenizer.encode(prompt, add_special_tokens=False)
+    vocabulary = profile.geometry["vocab_size"]
+    tokenized = tokenizer.apply_chat_template(
+        messages, tokenize=True, **dict(profile.tokenization["render_arguments"]),
+    )
+    template_ids = tokenized.get("input_ids") if hasattr(tokenized, "get") else None
+    if (
+        not isinstance(tokens, list) or not 1 <= len(tokens) <= 128
+        or any(type(token) is not int or not 0 <= token < vocabulary for token in tokens)
+        or boundary["prompt_sha256"] != hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        or boundary["prompt_token_count"] != len(tokens)
+        or not isinstance(template_ids, list) or any(type(token) is not int for token in template_ids)
+        or template_ids != tokens
+    ):
+        raise LabelProbeError("prefill prompt token bounds or reference agreement failed")
+    mappings = []
+    for option_id, label in zip(option_ids, labels, strict=True):
+        token = boundary["label_token_ids"][label]
+        standalone = tokenizer.encode(label, add_special_tokens=False)
+        extended = tokenizer.encode(prompt + label, add_special_tokens=False)
+        if (
+            type(token) is not int or not 0 <= token < vocabulary
+            or not isinstance(standalone, list) or any(type(value) is not int for value in standalone)
+            or standalone != [token]
+            or not isinstance(extended, list)
+            or any(type(value) is not int for value in extended)
+            or extended != [*tokens, token]
+        ):
+            raise LabelProbeError("prefill label mapping or prompt extension changed")
+        mappings.append({"id": option_id, "label": label, "token_id": token})
+    return {
+        "format": "jev-prefill-request-v1", "id": request["id"],
+        "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
+        "prompt": prompt, "prompt_sha256": boundary["prompt_sha256"],
+        "input_token_ids": list(tokens), "options": mappings,
+    }
+
+
 def validate_decision_cases(cases: list[dict]) -> None:
     """Check bounded labeled cases independently of tokenizer or model loading."""
     if not isinstance(cases, list) or not 1 <= len(cases) <= 32:

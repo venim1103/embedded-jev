@@ -4062,6 +4062,45 @@ MIMO_DENSE_PYTHON="$cache/dense-venv/bin/python" \
 MIMO_LOCAL_DIR="$cache/models/mimo-2367e865d009c13ac81713a2878291d33ab28177"
 ```
 
+### Bounded Typed Prefill Request Preparation
+
+`label_probe.prepare_profile_prefill_request(tokenizer, request, profile=profile)`
+prepares a `jev-prefill-request-v1` packet without model loading, native calls,
+file writes or scoring. The input has exactly `id`, `state`, `question` and
+`options`; each option has exactly `id` and `description`. IDs are nonblank,
+NUL-free UTF-8 strings of at most 128 bytes; state/question/descriptions are
+nonblank and at most 2000 bytes each. Option IDs/descriptions are single-line,
+and 2-16 unique option IDs are required. No expected answer, dataset split or
+generated answer is part of this inference request.
+
+The helper reuses the decision message formatter and profile-bound non-thinking
+label probe. It rejects the profile's declared template controls in every input
+field before tokenizer access, verifies the pinned template/special/label IDs,
+and requires a rendered prompt of at most 4096 UTF-8 bytes and 1-128 token IDs.
+IDs must be actual nonnegative integers within the profile vocabulary, not
+BOOLs. Repeated rendering/tokenization must agree; each A-P label must encode
+standalone to its mapped ID and extend the exact prompt by that one distinct
+non-special token. Overlong input is refused, never truncated.
+
+The JSON-compatible packet has exactly `format`, `id`, `profile_id`,
+`profile_sha256`, `prompt`, `prompt_sha256`, `input_token_ids` and `options`.
+Its options contain exactly `id`, `label` and `token_id` in request order;
+descriptions are retained in the rendered prompt. Use a JSON serializer rather
+than interpolating IDs into JSON. Semantic IDs are not assumed to be tokens or
+ASCII-safe. Changing option order reassigns A-P labels and changes the rendered
+prompt; it does not merely rotate a previously scored vector.
+
+This helper expects an independently prepared reference tokenizer. Checking
+its selected behavior/template does not authenticate tokenizer files or prove
+native equivalence. The packet is a declaration, not a saved source-verification
+receipt, runtime approval or native entry point. The S2 native consumer still
+needs fresh v5 38-field verification before backend discovery, native/reference
+token agreement, fail-closed score reporting, counted BitNet dispatch,
+fresh/reused-context agreement and cleanup. Existing native commands/ABIs are
+unchanged; no request-packet native command exists yet. The
+[request prerequisite checkpoint](handover.md#typed-prefill-request-prerequisite-2026-11-17)
+records evidence and the separately proposed native scope.
+
 ### Bounded Synthetic Native Prefill
 
 The existing optional native test writes one temporary four-layer Qwen3.5 GGUF
