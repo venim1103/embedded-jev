@@ -1,10 +1,169 @@
 # Engineering Handover
 
-Prepared: 2026-09-25. Updated: 2026-11-05. Phase: bounded text/native integration; full-model deployment remains open.
+Prepared: 2026-09-25. Updated: 2026-11-17. Phase: bounded text/native integration; full-model deployment remains open.
 
 This document is intended to let a new developer or coding-agent session continue
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
+
+## Harness Transfer Handover (2026-11-17)
+
+**Documentation-only transfer checkpoint. Do not resume implementation as part
+of this handover request.** The user is moving to another Copilot harness and
+wants autonomous continuation there, without repeating completed development
+or depending on this chat's memory/tool handles.
+
+### Repository State At Transfer
+
+Verified locally on 2026-11-17, before this documentation edit:
+
+- Workspace `/workspaces/embedded-jev`, branch `main`; `HEAD`, `origin/main`
+  and `origin/HEAD` all pointed to `ebe7166`. These are local Git references;
+  no remote fetch or push was performed during transfer preparation.
+- Tracked worktree/index clean. Only the user's untracked `.vscode/` directory
+  was present; preserve it and do not stage it or alter settings to fix tooling.
+- Source checkpoints already in the local remote-tracking history:
+  `6c6a432` atomic Python metadata composition;
+  `dc50564` native atomic metadata getter control;
+  `ebe7166` fail-closed external build observation.
+  `9f07441` is the intervening native-scope proposal, not implementation.
+- This section changes documentation only. Test results below are historical
+  checkpoint evidence, not tests rerun on 2026-11-17. Source, dependency and
+  cache presence, selected interpreter, CMake integration and current resource
+  headroom were **not** revalidated during this transfer.
+
+Read [AGENTS.md](../AGENTS.md) first, then this section and the two immediately
+following implementation checkpoints. Use [development.md](development.md)
+for operating contracts, [design.md](design.md) for numerical/architecture
+contracts and [roadmap.md](roadmap.md) for the S1-S6 delivery sequence. Consult
+[sources.md](sources.md) and [research-audit.md](research-audit.md) for provenance
+and evidence limits. Repository docs are the handoff authority; Copilot memory
+and previous tool availability must not be assumed to transfer.
+
+### Implemented Versus Open
+
+S1 is implemented: the v5 Python writer jointly preflights 37 emitted keys;
+the verifier freshly proves 38 fields including architecture with explicit
+source/role/bootstrap policy and strict BOOL handling. Existing APIs/defaults
+remain. The generated native v5 getter accepts those 38 declarations before
+backend discovery, with no tensor data allocation or model loading; 68 native calls
+(four positives, 64 refusals) passed at `dc50564`. These are metadata controls,
+not an integrated text runner or native tokenizer semantic acceptance.
+
+The build watcher at `ebe7166` has 30 passing synthetic default controls. The
+latest historical root gate was **1914 passed, 231 skipped in 41.25 s**, plus
+clean Ruff/whitespace; its skipped optional controls were not executed by that
+gate. Preserve the documented initial test failures and repairs below.
+
+Two boundaries remain open: the older cached v4/bootstrap compatibility
+controls failed resource guards and were not retried; the successful native
+getter build lacked positive process samples from its original watcher.
+The replacement watcher's synthetic success does not retroactively repair
+that missing measurement or prove actual CMake supervision. Never rebuild an
+unchanged successful target merely to manufacture evidence, retry resource
+failures unchanged, relax guards/tolerances, or reuse a closed time budget.
+
+Next is S2's same-contract prefill-only typed runner, not more metadata
+expansion. The local owner is `native/prism_bitnet_loader_control.cpp`:
+`test_prefill_control` still hardcodes three options, `A/B/C` labels and
+`inspect/edit/ask` IDs. Reuse its tokenization, kernel-status and score path,
+but preserve old commands while introducing a bounded typed request path.
+Required evidence: fresh 38-field preflight before backend discovery, 2-16
+explicit option/token mappings, prompt-extension agreement, zero generated
+answer tokens, no scores on contract/kernel failure, counted BitNet dispatch,
+fresh/reused-context agreement and cleanup on generated complete-model fixtures.
+The pinned tokenizer recognizes `qwen35` with a different enum from `qwen2`;
+do not substitute tags or confuse recognition with behavioral agreement.
+False-only BOOL getters reject nonzero encodings, but normalized getters do
+not establish general canonical-BOOL proof. Later S3 numerical acceptance,
+S4 representative quality, S5 broader ternary execution and S6 service/second
+profile/device validation remain separate milestones, not implied capability.
+
+### Environment And Execution Boundary
+
+Reuse and reverify the historical cache locations, never duplicate them:
+
+- Base Python/Ruff: `/opt/venv/bin/python`, `/opt/venv/bin/ruff`.
+- Cached ML Python:
+  `/home/vscode/.cache/huggingface/embedded-jev/dense-venv/bin/python`;
+  historical Transformers/tokenizers/NumPy pins: `5.12.1`/`0.22.2`/`2.2.6`.
+- Prism source:
+  `/home/vscode/.cache/huggingface/embedded-jev/native/prism-source`, pinned
+  `842b1880415d6f508f03b789e5ce70194def7bfd`.
+- Separate runtime build:
+  `/home/vscode/.cache/huggingface/embedded-jev/native/jev-prism-runtime-v1-build`;
+  cached GGML library directory:
+  `/home/vscode/.cache/huggingface/embedded-jev/native/prism-build/bin`.
+
+The next native execution slice needs a fresh finite scope, realistic gate
+allowance (the last root gate alone took 41.25 s), resource bounds and cleanup
+plan; historical one-shot approvals/budgets are not renewed by a chat transfer.
+Prepare autonomous source/read-only prerequisites and obtain separate approval
+where required by the workflow. No downloads, complete-model conversion,
+refitting/new retained candidate, held-out/broader quality experiment, real-model
+run, device work or host/security changes follow automatically. Never run model
+repository code or send another profile through MiMo-only execution tools.
+
+For an authorized, substantively needed native build, use CMake Tools with the
+existing Release loader target only and at most two jobs; do not rebuild pinned
+dependencies. Start the watcher asynchronously and confirm flushed `ready`
+**before** launching the build. Require positive `observed` and successful
+`finished` receipts plus the independent CMake Tools result. Retain the current
+1 GiB observed RSS/HWM, 2 GiB host reserve, zero owned swap/no host-swap growth
+and 60-second observer maximum including cleanup. If the new harness cannot
+provide the required tool or supervision lifecycle, report that precise blocker
+and prepare a scoped alternative; do not silently bypass the build contract.
+Do not treat new terminal IDs, selected environments, cached artifacts or
+available tools as inherited facts.
+
+Transfer validation: the six local documentation links, prompt fence, transfer
+date, evidence/approval boundaries and the prefill/watcher source anchors were
+checked; `git diff --check` passed. No source tests, native build or optional
+experiment was rerun for this documentation-only checkpoint. Earlier checkpoint
+sections remain historical evidence and are preserved below.
+
+### Paste-Ready Continuation Prompt
+
+```text
+Continue development in /workspaces/embedded-jev from the repository handover.
+Read AGENTS.md and docs/handover.md, starting with "Harness Transfer Handover
+(2026-11-17)" and the following two checkpoints. Then consult development.md,
+design.md and roadmap.md under docs/ for the next slice's relevant contracts.
+
+Work autonomously within the documented scope: make routine decisions, use
+small grounded edits and immediate focused checks, and keep going through
+verification and useful local checkpoints. Do not spawn subagents unless I
+explicitly request delegation. Ask only for genuine blockers or separately
+required resource/model/experiment authorization; do not infer renewed budgets
+or unrestricted approvals from this prompt.
+
+Historical source baseline: ebe7166 (build watcher), dc50564 (native 38-field
+getter), 6c6a432 (atomic Python metadata). Verify actual Git state first;
+preserve all user changes, especially .vscode/. Recheck environments, pinned
+caches and tools without duplicating downloads. No need to rerun an unchanged
+successful gate or rebuild a target just to recreate historical evidence.
+
+Next goal is S2's same-contract prefill-only typed runner, not another metadata
+expansion. Start locally at test_prefill_control in
+native/prism_bitnet_loader_control.cpp: replace hardcoded three-option handling
+through a bounded 2-16 option request path while preserving existing commands.
+Bind fresh v5 metadata, exact prompt/label/token mapping, zero generation,
+fail-closed scores, counted BitNet dispatch, context reuse/reset and cleanup.
+Prepare the next finite generated-only native scope before optional execution.
+
+Keep the two old resource-failed compatibility checks and missing actual-build
+supervision evidence open. The new watcher is synthetic-tested only: require
+ready before CMake Tools, positive observation/final receipts and independent
+build success on the next substantively needed authorized build. Do not weaken
+guards, silently substitute qwen2/qwen35 tags, refit the frozen candidate or
+claim tokenizer semantics, numerical/quality acceptance or full-model ternary
+execution from metadata/synthetic controls. Preserve all AGENTS.md approval,
+privacy and safety boundaries. No push or branch creation without my request.
+
+Update docs/handover.md at meaningful checkpoints with exact commands/results,
+failures, limits, cleanup and next steps. Begin with a concise current-state
+update, then act on the smallest testable authorized prerequisite.
+```
 
 ## External Build Watcher Prerequisite Checkpoint (2026-11-05)
 
