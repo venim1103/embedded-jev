@@ -111,6 +111,8 @@ run separately as recorded above; its default skip is not its execution proof.
 The unchanged successful native build was not repeated for test-only edits.
 No native runner work is left shelved for this checkpoint; the old recovery
 patches are historical copies, not instructions to reapply to the integrated tree.
+Source checkpoint: **`b0227ae`**. The following roadmap alignment is
+documentation-only; no unchanged successful source/native gate was rerun for it.
 
 Next: retain the generated-only acceptance boundary. Broader legacy mode
 coverage can reuse the bounded-log diagnostic design rather than increasing
