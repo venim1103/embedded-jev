@@ -6,6 +6,64 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Shared Converted-Matrix Lifetime Checkpoint (2026-11-17)
+
+**Serial BF16 selected-range checks can now share whole-GGUF authentication
+without treating a cached receipt as a live owner.** Continued from the tested
+Python controller checkpoint **`4a65d35`**. No native source change or rebuild,
+learned weights, conversion experiment, download or new artifact approval.
+
+`verified_profile_gguf_matrix_stream_v2` retains one nofollow regular-file
+descriptor and one aggregate deadline, snapshots inventory/manifest/frozen
+payload, and shares the existing v2 matrix validator. Successful lifetimes
+hash the complete converted file twice total, not twice per matrix. Every
+matrix retains exact source digests, selected header/table/map/range checks and
+chunked transformed-byte parity. Caught child failures, duplicates, reentrancy,
+empty streams, file/reader-path changes and expired lifetimes refuse; the
+callable cannot be reused after closure. Child receipts explicitly require
+successful stream exit before publication. The standalone public signature,
+receipt, two-hash behavior and all old limits remain.
+
+### Verification
+
+- Focused source/lifetime/old-wrapper subset: **51 passed in 2.56 s**, clean
+  Ruff/whitespace. Seventeen new lifecycle cases include final-hash/deadline/
+  file failures and caller-input snapshots. No failed test in this slice.
+- New actual pinned GGUF file control: **1 passed in 3.40 s**. Two generated
+  BF16 selected matrices matched standalone digests; standalone checks used
+  four full-file hashes, shared lifetime exactly two. Changed/restored bytes
+  and a caught fresh-pin parity failure each poisoned exit and withheld the
+  collected receipts. This tests file/range ownership, not a new independent
+  arithmetic oracle or model/backend execution.
+- That control's observed group RSS/HWM was **56,557,568 B**, available minimum
+  **11,254,358,016 B**, no owned swap and stable per-job used swap
+  **4,411,392 B**. Carrier <=64 KiB, bounded output <=64 KiB, 15-second/1 GiB/
+  2 GiB-reserve/no-swap-growth guards. Temporary carrier/mapping removed.
+- Existing independent pinned-converter
+  `test_pinned_prism_qwen35_value_head_reorder_on_toy_tensors[BF16-2-False-False]`
+  passed **1 test in 6.94 s**, including old standalone/source-bound range
+  regressions. Wrapped the existing pytest/15-second child in the existing
+  30-second/1 GiB process-group guard: two processes, group RSS/HWM
+  **473,067,520/475,709,440 B**, available minimum **11,461,115,904 B**, zero
+  owned swap, stable **4,411,392 B** host used swap.
+- Required root gate: **2014 passed, 238 skipped in 57.87 s**, clean Ruff and
+  whitespace. The extra optional skip is the actually executed file control,
+  not a compiled native or larger-range acceptance claim.
+
+Pylance's codec diagnostics remain the optional-dependency missing-import
+warnings for Transformers/tokenizers/Torch/GGUF in the base editor environment;
+the changed file had no reported type errors. Actual optional checks used the
+reverified cached ML interpreter and pinned GGUF source. No installation or
+environment/settings change was used to hide those warnings.
+
+Next integration remains source-shard owners plus this converted-file lifetime,
+then complete coverage of F32 auxiliaries and the unchanged frozen range.
+The 1 MiB matrix-header cap is deliberately unchanged and still insufficient
+for some real tokenizer headers; do not silently widen it. Real-profile
+controller/admission, approved carrier/resources and S3 remain open. No old
+resource failure or missing build sample is closed by this source-only work;
+no full-model/native run, refit, candidate, push, branch or subagent occurred.
+
 ## S2 Generated Python Controller Checkpoint (2026-11-17)
 
 **The buffered verified-owner flow now has a reusable generated-only Python

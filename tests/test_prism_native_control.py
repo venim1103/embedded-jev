@@ -625,6 +625,124 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
         "observed_host_swap_bytes": max(sample["observed_host_swap_bytes"] for sample in samples)}, sort_keys=True))
 
 
+def test_pinned_prism_serial_matrix_stream_on_generated_ranges():
+    from tempfile import TemporaryDirectory
+
+    from test_inventory import _prefill_model_policy_fixture
+
+    source_dir, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
+    assert subprocess.check_output(["git", "-C", str(source_dir), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    fixture = json.loads(_profile_parity_fixture(*_prefill_model_policy_fixture(tiny_request=True, vocab_size=64)))
+    code = r'''
+import hashlib, json, os, sys
+from pathlib import Path
+arguments = json.loads(sys.stdin.buffer.read(65537))
+root = Path(arguments.pop("scratch"))
+models = Path.home() / ".cache/huggingface/embedded-jev/models"
+def deny(event, values):
+    if event == "open" and isinstance(values[0], (str, bytes, os.PathLike)):
+        assert not Path(os.fsdecode(values[0])).absolute().is_relative_to(models), "model-cache content prohibited"
+    if event.startswith(("socket.connect", "socket.getaddrinfo", "socket.bind")) or event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+        raise RuntimeError("network and child creation prohibited")
+sys.addaudithook(deny)
+import gguf
+import numpy as np
+from embedded_jev import prism_codec as codec, streamed_text
+from embedded_jev.model_profile import parse_model_profile
+profile = parse_model_profile(json.dumps(arguments["profile"]).encode())
+inventory, manifest = arguments["inventory"], arguments["manifest"]
+blocks = np.frombuffer(bytes.fromhex(arguments["payload_hex"]), dtype=np.uint8).reshape(32, 8, 34)
+plan = codec.profile_model_conversion_plan(profile, inventory, manifest, blocks)
+entries = [item for item in plan["tensors"] if item["type"] == "BF16"][:2]
+assert len(entries) == 2
+sources = {}
+path = root / "selected.gguf"
+writer = gguf.GGUFWriter(path, "qwen35")
+for item in entries:
+    shape = tuple(item["source_shape"])
+    source = (np.arange(int(np.prod(shape)), dtype=np.uint16) % 256 + np.uint16(0x3f00)).reshape(shape)
+    converted = np.concatenate([chunk for _, chunk in codec.iter_profile_bf16_matrix_chunks(
+        profile, inventory, manifest, blocks, source_name=item["source_name"], source_values=source, maximum_chunk_bytes=256)])
+    sources[item["source_name"]] = source
+    writer.add_tensor(item["name"], converted, raw_dtype=gguf.GGMLQuantizationType.BF16)
+writer.write_header_to_file()
+writer.write_kv_data_to_file()
+writer.write_tensors_to_file()
+writer.close()
+assert path.stat().st_size <= 65536
+pin = hashlib.sha256(path.read_bytes()).hexdigest()
+reader = gguf.GGUFReader(path, mode="r")
+options = dict(reader=reader, expected_file_bytes=path.stat().st_size, expected_file_sha256=pin, maximum_chunk_bytes=256)
+hashes = []
+original_record = streamed_text.bounded_gguf_descriptor_record_v2
+def observed_record(descriptor, **keywords):
+    hashes.append((descriptor, keywords["deadline"]))
+    return original_record(descriptor, **keywords)
+streamed_text.bounded_gguf_descriptor_record_v2 = observed_record
+def check(verify, item, source_pin=None):
+    values = sources[item["source_name"]]
+    return verify(source_name=item["source_name"], source_values=values,
+        expected_source_sha256=source_pin or hashlib.sha256(memoryview(values)).hexdigest())
+try:
+    standalone = []
+    for item in entries:
+        standalone.append(check(lambda **keywords: codec.verify_profile_gguf_matrix_v2(
+            profile, inventory, manifest, blocks, **options, **keywords), item))
+    assert len(hashes) == 4
+    hashes.clear()
+    with codec.verified_profile_gguf_matrix_stream_v2(profile, inventory, manifest, blocks, **options) as verify:
+        streamed = [check(verify, item) for item in entries]
+        assert len(hashes) == 1
+        assert all(item["converted_file_verification"] == "retained_file_entry_and_exit_checks_required" for item in streamed)
+    assert len(hashes) == 2 and hashes[0] == hashes[1]
+    assert [item["converted_sha256"] for item in streamed] == [item["converted_sha256"] for item in standalone]
+    assert all(item["source_file_verification"] == item["gguf_tensor_table_verification"] == "not_checked" for item in streamed)
+    for defect in ("restored", "caught-parity"):
+        hashes.clear()
+        published = None
+        try:
+            with codec.verified_profile_gguf_matrix_stream_v2(profile, inventory, manifest, blocks, **options) as verify:
+                check(verify, entries[0])
+                if defect == "restored":
+                    with path.open("r+b", buffering=0) as changed:
+                        changed.seek(-1, os.SEEK_END)
+                        saved = changed.read(1)
+                        changed.seek(-1, os.SEEK_END)
+                        changed.write(bytes([saved[0] ^ 1]))
+                        changed.seek(-1, os.SEEK_END)
+                        changed.write(saved)
+                else:
+                    sources[entries[1]["source_name"]].flat[0] ^= 1
+                try:
+                    check(verify, entries[1])
+                    raise AssertionError("invalid serial range accepted")
+                except ValueError as error:
+                    assert ("changed" if defect == "restored" else "byte parity") in str(error), str(error)
+            published = streamed
+            raise AssertionError("failed stream published receipts")
+        except ValueError as error:
+            assert "failed" in str(error), str(error)
+        assert published is None and len(hashes) == 1
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == pin
+finally:
+    reader.data._mmap.close()
+    path.unlink()
+assert not list(root.iterdir())
+print(json.dumps({"matrices": 2, "standalone_hashes": 4, "stream_hashes": 2, "refused_streams": 2}))
+'''
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+           "PYTHONPATH": os.pathsep.join((str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
+    with TemporaryDirectory(prefix="jev-matrix-stream-") as directory:
+        fixture["scratch"] = directory
+        result = _run_tokenizer_only_guard_v3(interpreter, code, json.dumps(fixture).encode(),
+            env=env, maximum_seconds=15, maximum_rss_bytes=1024**3)
+        assert result["returncode"] == 0, result["stderr"]
+        assert json.loads(result["stdout"]) == {"matrices": 2, "standalone_hashes": 4, "stream_hashes": 2, "refused_streams": 2}
+        assert len(result["stdout"].encode()) + len(result["stderr"].encode()) <= 65536
+        assert not list(Path(directory).iterdir())
+    print(json.dumps({key: value for key, value in result.items() if key not in ("stdout", "stderr")}, sort_keys=True))
+
+
 def test_pinned_prism_v5_header_preflight_on_sparse_carrier():
     import hashlib
     import struct

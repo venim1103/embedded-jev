@@ -3837,6 +3837,111 @@ def test_profile_gguf_matrix_v2_refuses_invalid_inputs_before_reader_import(monk
         verify_profile_gguf_matrix_v2(profile, report, manifest, blocks, **arguments)
 
 
+@pytest.mark.parametrize("defect", [
+    None, "file-pin", "budget", "empty", "child", "caught-child", "duplicate", "change", "restored",
+    "replace", "deadline", "exit-change", "exit-deadline", "exit-hash", "reader-path", "reentrant", "caller-inputs",
+])
+def test_profile_gguf_matrix_stream_v2_shares_hashes_and_refuses_failed_lifetimes(tmp_path, monkeypatch, defect):
+    import os
+    from types import MappingProxyType, SimpleNamespace
+
+    from embedded_jev import prism_codec, streamed_text
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64)
+    original_blocks = blocks.copy()
+    payload = b"bounded synthetic converted-file lifetime"
+    path = tmp_path / "model.gguf"
+    path.write_bytes(payload)
+    reader = SimpleNamespace(data=SimpleNamespace(filename=path))
+    clock, hash_calls, range_calls, retained = [0], [], [], []
+    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: clock[0])
+    original_record = streamed_text.bounded_gguf_descriptor_record_v2
+    def file_record(descriptor, **keywords):
+        hash_calls.append((descriptor, keywords["deadline"]))
+        record = original_record(descriptor, **keywords)
+        return {**record, "sha256": "0" * 64} if defect == "exit-hash" and len(hash_calls) == 2 else record
+
+    monkeypatch.setattr(streamed_text, "bounded_gguf_descriptor_record_v2", file_record)
+    def verify_range(selected_profile, selected_report, selected_manifest, selected_blocks, **keywords):
+        assert selected_profile is profile and selected_report is not report and selected_manifest is not manifest
+        assert np.array_equal(selected_blocks, original_blocks) and not selected_blocks.flags.writeable
+        assert selected_manifest["tensor"] == manifest_tensor
+        assert keywords["shared_deadline"] == 30
+        assert keywords["maximum_seconds"] == 30 - clock[0]
+        with keywords["file_scope"](reader.data.filename) as (descriptor, check_identity):
+            retained.append(descriptor)
+            assert os.pread(descriptor, len(payload), 0) == payload
+            check_identity()
+            range_calls.append(keywords["source_name"])
+            if defect in ("child", "caught-child"):
+                raise ValueError("synthetic range failed")
+            if defect == "reentrant":
+                with pytest.raises(ValueError, match="active verifier"):
+                    verify(source_name="nested", source_values=np.zeros(1), expected_source_sha256="b" * 64)
+            check_identity()
+        clock[0] += 5
+        return MappingProxyType({"source_name": keywords["source_name"]})
+
+    manifest_tensor = manifest["tensor"]
+    monkeypatch.setattr(prism_codec, "_verify_profile_gguf_matrix_v2", verify_range)
+    arguments = dict(reader=reader, expected_file_bytes=len(payload), expected_file_sha256=hashlib.sha256(payload).hexdigest())
+    if defect == "file-pin":
+        arguments["expected_file_sha256"] = "0" * 64
+    elif defect == "budget":
+        arguments["maximum_seconds"] = True
+    successful = defect in (None, "caller-inputs")
+    descriptors = len(os.listdir("/proc/self/fd"))
+    verify = None
+    def run():
+        nonlocal verify
+        with prism_codec.verified_profile_gguf_matrix_stream_v2(profile, report, manifest, blocks, **arguments) as verify:
+            if defect == "empty":
+                return
+            if defect == "caller-inputs":
+                report.clear()
+                manifest["tensor"] = "changed"
+                blocks.fill(0)
+            if defect == "caught-child":
+                with pytest.raises(ValueError, match="synthetic range failed"):
+                    verify(source_name="first", source_values=np.zeros(1), expected_source_sha256="a" * 64)
+                with pytest.raises(ValueError, match="failed"):
+                    verify(source_name="second", source_values=np.zeros(1), expected_source_sha256="a" * 64)
+                return
+            verify(source_name="first", source_values=np.zeros(1), expected_source_sha256="a" * 64)
+            if defect in ("change", "restored"):
+                path.write_bytes(payload[:-1] + b"x")
+                if defect == "restored":
+                    path.write_bytes(payload)
+            elif defect == "replace":
+                path.rename(tmp_path / "original.gguf")
+                path.write_bytes(payload)
+            elif defect == "deadline":
+                clock[0] = 31
+            elif defect == "reader-path":
+                reader.data.filename = tmp_path / "different.gguf"
+            verify(source_name="first" if defect == "duplicate" else "second",
+                   source_values=np.zeros(1), expected_source_sha256="a" * 64)
+            if defect == "exit-change":
+                path.write_bytes(payload[:-1] + b"x")
+            elif defect == "exit-deadline":
+                clock[0] = 31
+
+    if successful:
+        run()
+        assert range_calls == ["first", "second"] and clock[0] == 10
+        assert len(hash_calls) == 2 and hash_calls[0] == hash_calls[1]
+    else:
+        with pytest.raises(ValueError):
+            run()
+    if verify is not None:
+        with pytest.raises(ValueError, match="closed"):
+            verify(source_name="late", source_values=np.zeros(1), expected_source_sha256="a" * 64)
+    assert len(os.listdir("/proc/self/fd")) == descriptors
+    for descriptor in retained:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+
+
 @pytest.mark.parametrize("defect", ["zero-budget", "boolean-budget", "large-budget", "row-budget", "frozen", "vector",
                                     "convolution", "dtype", "endian", "shape", "layout", "array", "infinity", "nan", "late-nonfinite"])
 def test_profile_bf16_matrix_chunks_refuse_unsupported_or_nonfinite_values(monkeypatch, defect):

@@ -1772,6 +1772,44 @@ source-file provenance, the complete tensor table and runtime approval remain
 unchecked. No native/model-owner v1 policy is widened. See the
 [GGUF BF16 checkpoint](handover.md#gguf-bf16-checkpoint-2026-10-19).
 
+`verified_profile_gguf_matrix_stream_v2(...)` shares those selected BF16 checks
+across a serial retained-file lifetime. Pass the same profile/plan inputs,
+reader, file pins and budgets, then use its yielded callable with keyword-only
+`source_name`, `source_values` and `expected_source_sha256`. A successful stream
+hashes the complete GGUF exactly once at entry and once at exit, not once per
+matrix. Every selected range still checks the exact file/header/table/mapping
+and transformed bytes, and source-array hashes before/after. One aggregate
+deadline covers setup, all children and final rehash; per-child budgets do not
+restart it. Inventory/manifest/frozen bytes are snapshotted for the lifetime.
+
+At least one successful, unique source is required. Reentrant/duplicate checks
+and any failed child poison the stream even if a consumer catches its exception;
+later calls and context exit refuse. Callables become unusable after exit.
+Changed/restored file writes, pathname/reader-path changes and entry/exit
+deadline/hash failures refuse and close the retained descriptor.
+
+Child receipts are provisional and explicitly report
+`converted_file_verification=retained_file_entry_and_exit_checks_required`.
+Collect them privately and publish only after successful stream **and source
+owner** exit. This API does not enforce a consumer's publication behavior.
+It preserves the standalone API/receipt and 1 MiB header/24 GiB file/2 GiB
+operand/1 MiB chunk caps and defaults. It verifies selected BF16 matrices only:
+no complete-table coverage, F32 auxiliaries/frozen-range proof, source-file
+provenance, cross-file atomic snapshot, reader-code authentication or native
+runtime approval follows. It does not widen the small native model owner.
+
+The bounded two-matrix generated file control uses the cached GGUF reader/
+writer, <=64 KiB output carrier and the existing 15-second/1 GiB/2 GiB-reserve/
+no-swap-growth guard, without a model or backend:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 \
+PRISM_SOURCE_DIR="$HOME/.cache/huggingface/embedded-jev/native/prism-source" \
+PRISM_CONVERTER_PYTHON="$HOME/.cache/huggingface/embedded-jev/dense-venv/bin/python" \
+python -m pytest -q -s -p no:cacheprovider \
+   tests/test_prism_native_control.py::test_pinned_prism_serial_matrix_stream_on_generated_ranges
+```
+
 The optional larger selected-range control uses profile-pinned synthetic
 safetensors and the cached pinned GGUF writer. It independently compares
 warmed matrix, typed-metadata and source-bound verification allocations for

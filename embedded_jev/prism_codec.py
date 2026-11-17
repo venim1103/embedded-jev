@@ -2300,16 +2300,10 @@ def verify_profile_gguf_matrix(
     )
 
 
-def verify_profile_gguf_matrix_v2(
-    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
-    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
-    expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
-    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
-    maximum_seconds: float = 30,
+def _matrix_file_deadline_v2(
+    expected_file_bytes, expected_file_sha256, maximum_file_bytes, maximum_bytes, maximum_chunk_bytes, maximum_seconds,
 ):
-    """Verify one borrowed BF16 matrix range without copying the whole operand."""
     from embedded_jev.model_profile import SHA256
-    from embedded_jev.streamed_text import bounded_gguf_descriptor_record_v2
 
     if (
         type(expected_file_bytes) is not int or type(maximum_file_bytes) is not int
@@ -2320,7 +2314,144 @@ def verify_profile_gguf_matrix_v2(
         or type(maximum_seconds) not in (int, float) or not 0 < maximum_seconds <= 600
     ):
         raise ValueError("invalid v2 GGUF matrix file identity or budget")
-    deadline = time.monotonic() + maximum_seconds
+    return time.monotonic() + maximum_seconds
+
+
+@contextmanager
+def _verified_matrix_file_v2(path, expected_file_bytes, expected_file_sha256, maximum_file_bytes, deadline):
+    from embedded_jev.streamed_text import bounded_gguf_descriptor_record_v2
+
+    def identity(value):
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_size != expected_file_bytes:
+            raise ValueError("v2 GGUF matrix file identity mismatch")
+        before = identity(info)
+
+        def verify_file(*, entering=False):
+            record = bounded_gguf_descriptor_record_v2(descriptor, maximum_bytes=maximum_file_bytes, deadline=deadline)
+            if record["bytes"] != expected_file_bytes or record["sha256"] != expected_file_sha256:
+                raise ValueError("v2 GGUF matrix file identity mismatch" if entering else
+                                 "v2 GGUF matrix file changed during verification")
+            check_identity()
+
+        def check_identity():
+            if time.monotonic() > deadline:
+                raise ValueError("v2 GGUF matrix verification deadline exceeded")
+            if identity(os.fstat(descriptor)) != before or identity(os.stat(path, follow_symlinks=False)) != before:
+                raise ValueError("v2 GGUF matrix file changed during verification")
+
+        verify_file(entering=True)
+        yield descriptor, check_identity
+        verify_file()
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def verified_profile_gguf_matrix_stream_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader,
+    expected_file_bytes: int, expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Own serial selected matrix checks; receipts require successful stream exit."""
+    from copy import deepcopy
+
+    deadline = _matrix_file_deadline_v2(
+        expected_file_bytes, expected_file_sha256, maximum_file_bytes, maximum_bytes, maximum_chunk_bytes, maximum_seconds,
+    )
+    profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
+    inventory, manifest = deepcopy(inventory), deepcopy(manifest)
+    blocks = np.array(pq2_blocks, copy=True)
+    blocks.setflags(write=False)
+    path = Path(reader.data.filename).absolute()
+    live, failed, active = True, False, False
+    verified = set()
+    try:
+        with _verified_matrix_file_v2(path, expected_file_bytes, expected_file_sha256, maximum_file_bytes, deadline) as (descriptor, check_identity):
+            @contextmanager
+            def borrowed_file(selected_path):
+                check_identity()
+                if Path(selected_path).absolute() != path:
+                    raise ValueError("v2 GGUF matrix stream reader path changed")
+                yield descriptor, check_identity
+                check_identity()
+
+            def verify(*, source_name: str, source_values: np.ndarray, expected_source_sha256: str):
+                nonlocal failed, active
+                if not live or failed:
+                    raise ValueError("v2 GGUF matrix stream is closed or failed")
+                if active:
+                    failed = True
+                    raise ValueError("v2 GGUF matrix stream already has an active verifier")
+                active = True
+                try:
+                    check_identity()
+                    if source_name in verified:
+                        raise ValueError("v2 GGUF matrix stream source was already verified")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ValueError("v2 GGUF matrix verification deadline exceeded")
+                    receipt = _verify_profile_gguf_matrix_v2(
+                        profile, inventory, manifest, blocks, reader=reader, source_name=source_name,
+                        source_values=source_values, expected_source_sha256=expected_source_sha256,
+                        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+                        maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+                        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=remaining,
+                        file_scope=borrowed_file, shared_deadline=deadline,
+                    )
+                    check_identity()
+                    if failed:
+                        raise ValueError("v2 GGUF matrix stream has a failed verifier")
+                    verified.add(source_name)
+                    return receipt
+                except BaseException:
+                    failed = True
+                    raise
+                finally:
+                    active = False
+
+            yield verify
+            if failed or active or not verified:
+                raise ValueError("v2 GGUF matrix stream has failed, unfinished or no verifiers")
+    finally:
+        live = False
+
+
+def verify_profile_gguf_matrix_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
+    expected_file_sha256: str, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Verify one borrowed BF16 matrix range without copying the whole operand."""
+    return _verify_profile_gguf_matrix_v2(
+        profile, inventory, manifest, pq2_blocks, reader=reader, source_name=source_name,
+        source_values=source_values, expected_source_sha256=expected_source_sha256,
+        expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
+        maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=maximum_seconds,
+    )
+
+
+def _verify_profile_gguf_matrix_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_name: str,
+    source_values: np.ndarray, expected_source_sha256: str, expected_file_bytes: int,
+    expected_file_sha256: str, maximum_file_bytes: int, maximum_bytes: int, maximum_chunk_bytes: int,
+    maximum_seconds: float, file_scope=None, shared_deadline=None,
+):
+    from embedded_jev.model_profile import SHA256
+
+    deadline = _matrix_file_deadline_v2(
+        expected_file_bytes, expected_file_sha256, maximum_file_bytes, maximum_bytes, maximum_chunk_bytes, maximum_seconds,
+    )
+    if shared_deadline is not None:
+        deadline = shared_deadline
     plan = profile_model_conversion_plan(profile, inventory, manifest, pq2_blocks)
     entry = next((item for item in plan["tensors"] if item["source_name"] == source_name), None)
     if (
@@ -2390,18 +2521,9 @@ def verify_profile_gguf_matrix_v2(
     if not 24 <= field_offset < field_offset + len(information) <= reader.data_offset:
         raise ValueError("v2 GGUF matrix tensor table range mismatch")
     path = Path(reader.data.filename)
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    try:
-        def identity(value):
-            return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
-
-        file_stat = os.fstat(descriptor)
-        if file_stat.st_size != expected_file_bytes:
-            raise ValueError("v2 GGUF matrix file identity mismatch")
-        before = identity(file_stat)
-        record = bounded_gguf_descriptor_record_v2(descriptor, maximum_bytes=maximum_file_bytes, deadline=deadline)
-        if record["bytes"] != expected_file_bytes or record["sha256"] != expected_file_sha256:
-            raise ValueError("v2 GGUF matrix file identity mismatch")
+    scope = (_verified_matrix_file_v2(path, expected_file_bytes, expected_file_sha256, maximum_file_bytes, deadline)
+             if file_scope is None else file_scope(path))
+    with scope as (descriptor, check_identity):
         check_deadline()
         if os.pread(descriptor, 24, 0) != struct.pack("<4sIQQ", b"GGUF", 3, len(reader.tensors), len(reader.fields) - 3):
             raise ValueError("v2 GGUF matrix header differs from reader")
@@ -2429,15 +2551,8 @@ def verify_profile_gguf_matrix_v2(
             consumed += len(expected)
         if consumed != size or source_digest() != expected_source_sha256:
             raise ValueError("v2 GGUF source matrix changed during verification")
-        after_record = bounded_gguf_descriptor_record_v2(descriptor, maximum_bytes=maximum_file_bytes, deadline=deadline)
-        if (
-            after_record != record or identity(os.fstat(descriptor)) != before
-            or identity(os.stat(path, follow_symlinks=False)) != before
-        ):
-            raise ValueError("v2 GGUF matrix file changed during verification")
+        check_identity()
         check_deadline()
-    finally:
-        os.close(descriptor)
     return MappingProxyType({
         "profile_id": profile.profile_id, "profile_sha256": profile.sha256, "source_name": source_name,
         "tensor_name": entry["name"], "source_sha256": expected_source_sha256,
@@ -2445,7 +2560,8 @@ def verify_profile_gguf_matrix_v2(
         "operand_byte_verification": "exact_bf16_bytes_match_chunked_transform",
         "source_file_verification": "not_checked", "gguf_tensor_table_verification": "not_checked",
         "gguf_reader_verification": "selected_header_record_and_mapped_range_match",
-        "converted_file_verification": "caller_sha256_and_reader_range_match",
+        "converted_file_verification": ("caller_sha256_and_reader_range_match" if file_scope is None else
+                                        "retained_file_entry_and_exit_checks_required"),
         "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
         "converted_tensor_offset": offset, "gguf_policy_version": 2,
         "gguf_file_cap_bytes": 24 * 1024**3, "operand_cap_bytes": 2 * 1024**3,
