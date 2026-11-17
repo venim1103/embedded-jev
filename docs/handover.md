@@ -6,6 +6,143 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Generated S2 Attempt And Supervised Build Repair (2026-11-17)
+
+**Actual changed-loader build supervision passed; generated typed-runner
+acceptance is blocked by fixture eligibility, and the source checkpoint is
+blocked by a new shared-host resource failure in the default gate.**
+The user's autonomous continuation was treated as approval for the preceding
+360-second generated-only proposal, not for new model work or old failed checks.
+Prism remains clean at `842b1880415d6f508f03b789e5ce70194def7bfd`; the existing
+Release/Ninja tree and cached dense environment were reused. Scoped inspection
+of the user's unchanged editor settings confirmed the existing two-job setting.
+
+The first build was correctly stopped by the observer, but for a false-positive
+source refusal: Ninja's `/bin/sh -c 'compiler ... input.cpp'` argument was treated
+as one filename ending in `.cpp`. CMake Tools reported a killed compile (0.110 s);
+the observer reported `ready`, positive `observed`, then `failed` at 7.255 s with
+`unexpected dependency compilation`, tracked cleanup true, RSS/HWM 37,085,184 B,
+host reserve minimum 12,291,981,312 B and zero owned/host swap. CMake diagnostics
+were empty. No compiler/Ninja child remained. This was not a memory/swap failure
+and was not retried unchanged.
+
+`build_guard._source_arguments` now lexes supported flat shell wrappers, including
+CMake's exact leading/trailing `: &&` no-ops, before applying the same source
+allowlist. It rejects nonflat operators, expansions, malformed shell invocation
+and nested commands rather than executing or trusting a shell string. Direct
+compiler processes remain checked. Initial watcher checks: **36 passed in
+6.50 s**, then the no-op wrapper slice **7 passed in 1.20 s**. Initial source
+checks were **47 passed, 1622 deselected in 2.25 s**; Ruff/whitespace clean.
+
+After that substantive repair, readiness was independently confirmed before a
+second CMake Tools build of only `prism_bitnet_loader_control`. It compiled the
+changed translation unit and linked, result 0, **16.247 s**. The observer separately
+reported `ready`, positive `observed`, then successful `finished` at **27.628 s**:
+five observed processes, peak group RSS/HWM **515,776,512 B**, minimum available
+**12,317,990,912 B**, owned and host swap zero, no live tracked processes.
+`build_success_verified=false` remains correct: success comes from CMake Tools,
+not the watcher. No dependency, pinned source or library was rebuilt. This is
+positive supervision for this new build, not a retroactive repair of the old
+getter build's missing samples. The two old resource-failed compatibility
+controls remain open and were not retried.
+
+The focused-tested watcher repair remains **uncommitted** because the required
+root gate failed as recorded below. The unaccepted runner and fixture edits were
+shelved separately, not committed as a working feature.
+Recovery patch:
+`/home/vscode/.copilot/session-state/f0b7bb5a-ff6a-44c5-aeaf-6454b1304938/files/s2-typed-runner-wip.patch`.
+Reverse-application was checked before shelving, and forward `git apply --check`
+passed afterwards. The patch excludes the watcher repair and user settings.
+The cached loader executable currently comes from that compiled WIP source,
+**not** the committed native source; do not treat it as a matched release or
+execute its new request commands without the revised scope. No cached library
+or source checkout was reverted or replaced. Native source and existing fixture
+helpers were restored exactly to the prior tracked versions; the new helper
+module is retained in the patch only. The user was unavailable for the revised
+scope approval, so no additional native attempt was made.
+
+The attempted runner shares `test_prefill_control`, adds silent v5 preflight,
+dynamic request mappings/JSON scores, native token-prefix agreement, reset/
+kernel checks and generated-only v2 identities while preserving old commands.
+It compiled, but **has not passed generated integration and is not an accepted
+feature**. Its attempted fixture reuses the old four-layer 32/256 arithmetic
+generator, the strict v5 writer/verifier and the new request preparer.
+
+Failure history, without changing production guards:
+
+- First generated test: **failed in 1.39 s**; the worker's diagnostic dict was
+  truncated by pytest. A diagnostic-only assertion improvement exposed the
+  same refusal in **1.36 s**: cached ML Python has no pytest. No dependency was
+  installed or downloaded.
+- Refactored shared fixture helpers into a pytest-free helper module and moved
+  profile/header preparation to the supervised parent. The next attempt
+  **failed in 5.53 s** at fresh metadata preparation, before any native request
+  launch: `profile projection name or geometry mismatch`.
+- A bounded source-only reproduction identified the exact cause: the existing
+  inventory marks `[32,256]` layer-3 FFN-down ineligible with
+  `input_width_not_divisible_by_rotation_1024`. The proposed 256-wide fixture
+  cannot truthfully pass the unchanged v5/profile projection gate. No inventory
+  bit was forged, no guard/tolerance was relaxed and no model experiment ran.
+  Temporary directories/workers were cleaned on all three failures.
+
+The final root gate, with optional execution flags absent, was
+`PYTHONDONTWRITEBYTECODE=1 timeout 90s python -m pytest -q -p no:cacheprovider && ruff check --no-cache embedded_jev tests && git diff --check`.
+It ended **2 failed, 1953 passed, 231 skipped in 64.89 s**. The unchanged
+dependency-refusal watcher lifecycle and early-exit child-reaping control both
+hit `tokenizer diagnostic RSS or swap budget exceeded`; the latter therefore
+correctly failed its expected-deadline assertion. All eight added shell-parser
+cases passed. No assertion, deadline or resource check was relaxed, and this
+resource-failed gate was **not rerun**.
+
+Post-failure read-only diagnosis found host swap used **843,776 B**, versus zero
+before the slice, and `/proc/vmstat` reported 232 swap-out pages. Available
+memory was still 10,867,433,472 B. This confirms shared-host swap growth; the
+specific process responsible and counters at the exact refusal are not known.
+No owned compiler/watcher/synthetic child remained, generated scratch was
+absent, and separate Ruff/whitespace checks passed. The root command's chained
+Ruff/whitespace steps did not run after pytest failed; the separate checks are
+their evidence. No host configuration, swap state or other user's process
+was modified.
+
+Conservative measured build/watcher, focused pytest, failed fixture and final
+gate times sum to **134.36 s**, excluding bounded read-only setup/documentation.
+Unused time does not authorize either the new fixture geometry or an unchanged
+resource-failure retry. The 360-second native slice is closed at these blockers.
+Only this handover is checkpointed in Git; the watcher source/tests and its
+development-guide paragraph remain working-tree changes. Their additional
+recovery copy is
+`/home/vscode/.copilot/session-state/f0b7bb5a-ff6a-44c5-aeaf-6454b1304938/files/s2-watcher-repair-pending.patch`
+(reverse-application check passed; it is already applied in the worktree).
+Last accepted source checkpoint is still `b9650ae`. Before a future source
+checkpoint, require a separately scoped run with demonstrated resource headroom,
+preserve this failed gate and old resource failures, and obtain a passing
+required root gate rather than manufacturing one through retries.
+
+### Revised Generated Scope Needed
+
+The preceding native proposal's 256-wide geometry/1 MiB file limit is
+insufficient. Close that execution slice without borrowing unused time.
+Before another build or generated integration run, separately approve a new
+**260-second ceiling**: 80 s for supervised changed-loader build and conservative
+watcher/build receipt accounting, 60 s guarded fixture/native checks, 90 s root
+source gate and 30 s setup/cleanup. Each observer still has <=60 s including
+cleanup; native/fixture children <=15 s, stage <=60 s. Keep <=2 build jobs,
+one CPU runtime thread/sequence, <=1 GiB observed RSS/HWM, >=2 GiB available
+reserve, zero owned swap and no host-swap growth.
+
+Smallest contract-preserving repair: generated FFN width **1024** instead of
+256, still four layers/hidden 32/vocabulary 64, selecting the existing layer-3
+FFN-down role. Keep F32 fixture matrices and the independent NumPy arithmetic;
+do not introduce a BF16 precision change or relax tolerances. Increase only the
+generated complete/fault GGUF cap to **2 MiB** (the F32 tensor table no longer
+fits 1 MiB). Keep source/request/metadata files <=64 KiB, logical scratch <=8 MiB
+and aggregate output <=64 KiB. Preserve independent FP16 row/group scales,
+zero generation, exact prompt/label mappings and fresh/reused-context checks.
+Old 256-wide CLI controls/caps must remain unchanged. No retained model
+candidate, real conversion, download, refit, quality or device work is included.
+The numerical/eligibility guard, not a desire for a green test, requires this
+different fixture. No new native execution follows from this proposal alone.
+
 ## Typed Prefill Request Prerequisite (2026-11-17)
 
 **Python source prerequisite implemented and default-tested; S2 native integration
