@@ -107,11 +107,71 @@ Ruff/whitespace; Python file and generated-worker syntax checks also passed.
 The extra default skip is the new parameterized owner case, executed separately
 above. No pushes, branches, subagents or user-setting changes.
 
-Next: prepare a separately scoped real-profile S2/S3 provenance, memory and
-same-operation numerical acceptance plan. The test hooks must not accept real
-files by weakening their synthetic ID/geometry/byte gates. Source identity,
-per-model runtime approval and learned numerical evidence remain separate from
-these generated arithmetic and ownership controls.
+Source checkpoint: **`b997701`**. Only the user's untracked `.vscode/` remains;
+its settings SHA-256 is unchanged.
+
+### Real-Profile Preconditions Prepared After The Source Checkpoint
+
+Read-only inspection confirms the four cached MiMo source shards are present
+at their documented sizes; this was not another full-source hash verification.
+No complete GGUF was found in the inspected model/profile or native report
+roots, consistent with the earlier explicit cleanup. The frozen manifest/codes/
+scales hashes were actually rechecked:
+
+- Manifest: `b04ab8d93cdf768b5dc069b0294abffda3390bd6ff783433928dfeb64e6f11fe`.
+- Codes: `34ddd9e802c9024a3d62688a90a3929d189a66502df41c48b06a6a53fe32670d`.
+- Scales: `25f919c92d05a09220970519ce06dbe991efbc3f9ba16d49240da54c01517913`.
+
+The clean Prism pin and cached Python/package versions still match the transfer
+record. A current host sample showed available RAM **12,166,606,848 B** and used
+swap **4,415,488 B**, not a new job acceptance measurement. Available disk was
+about **362 GiB**. Historical dense loading alone reached **17,667,176 KiB**
+process RSS; this host sample does not provide that plus the mandatory reserve.
+Do not try the previously swap-refused conversion again on this evidence.
+
+The next source-only/native scope should be a separately versioned real-profile
+controller beside, not a widening of, the generated hooks. Its contract must:
+
+1. Require an explicit verified profile/source/artifact binding and distinct
+   per-model execution authorization. Neither v5 metadata nor file verification
+   supplies the latter; another profile must not enter MiMo's v1 execution path.
+2. Connect bounded header preflight to the anchored model descriptor and exact
+   typed prompt/token/option checks before backend initialization. A prefix hash
+   must never substitute for complete payload or source-conversion verification.
+3. Retain the verified-owner lifetime, six-file runtime pins and private score
+   publication after exit. Define bounded streaming source/converted-tensor
+   verification: current optional tensor/source-table gates require a model
+   <=16 MiB, so merely raising the owner's default file limit is insufficient.
+4. Preserve every generated and legacy entry point. The current common caller
+   itself also limits layers to four, widths to 1024, vocabulary to 64 and GGUF
+   to 16 MiB; the new typed hook is stricter still. These are deliberate refusal
+   boundaries, not switches to remove before sending it a learned model.
+5. First validate the new controller on generated fixtures, including rejected
+   authorization/profile/provenance before initialization, 2/16-option exact
+   mappings, BF16 operands, dispatch/reset and entry/exit score withholding.
+   Any changed loader/scorer builds must remain serial under fresh 60-second
+   observers, <=2 jobs, <=1 GiB RSS/HWM, >=2 GiB reserve and no swap growth.
+   Generated execution retains the 60-second/1 GiB, 64 KiB output and 8 MiB
+   scratch limits. Run the default gate before a source checkpoint commit.
+
+That future controller is **not implemented or approved for real execution by
+this plan**. Before any learned run, separately scope the selected profile, one
+temporary artifact and conversion recipe, immutable source/frozen/runtime pins,
+per-stage time/RAM/swap/disk limits and sufficient fresh host headroom. Account
+for both output and spill (a <=19 GiB artifact could require another <=19 GiB
+spill allowance); retain only <=1 MiB small reports after verified cleanup.
+No downloads, retained candidate, refitting, compensation or quality run.
+
+S3's numerical criterion must precede that run: compare the same prompt/tokens
+and identical intermediate operands, disclose BF16 input and F16 cache/attention
+rounding and F32 accumulation/state, and distinguish same-input arithmetic from
+propagated and reset/reuse differences. Reproduce the first divergence before
+attribution; neither selected-option agreement nor a guessed tolerance closes
+the historical dense/mixed logit gaps. The frozen native-input projection replay
+already passed bit-for-bit historically and must not be refitted to hide a
+pre-projection difference. Real-profile S2/S3 execution remains blocked on the
+new controller, explicit experiment scope/authorization, an approved carrier and
+adequate resources. No old failed or closed execution budget was renewed.
 
 ## S2 Bounded Native Header Preflight Checkpoint (2026-11-17)
 
