@@ -3493,6 +3493,37 @@ def verify_profile_gguf_source_matrices_v2(
     maximum_seconds: float = 30,
 ):
     """Return selected matrix provenance only after all serial source/converted owners exit."""
+    return _verify_profile_gguf_source_set_v2(
+        profile, inventory, manifest, pq2_blocks, reader=reader, source_paths=source_paths,
+        expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_source_file_bytes=maximum_source_file_bytes,
+        maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=maximum_seconds, complete_table=False,
+    )
+
+
+def verify_profile_gguf_source_tensors_v2(
+    profile, inventory: dict, manifest: dict, pq2_blocks, *, reader, source_paths: dict,
+    expected_source_sha256: dict, expected_file_bytes: int, expected_file_sha256: str,
+    maximum_source_file_bytes: int = 16 * 1024**2, maximum_file_bytes: int = 16 * 1024**2,
+    maximum_bytes: int = 16 * 1024**2, maximum_chunk_bytes: int = 64 * 1024,
+    maximum_seconds: float = 30,
+):
+    """Return complete source/table receipts only after all serial owners exit."""
+    return _verify_profile_gguf_source_set_v2(
+        profile, inventory, manifest, pq2_blocks, reader=reader, source_paths=source_paths,
+        expected_source_sha256=expected_source_sha256, expected_file_bytes=expected_file_bytes,
+        expected_file_sha256=expected_file_sha256, maximum_source_file_bytes=maximum_source_file_bytes,
+        maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
+        maximum_chunk_bytes=maximum_chunk_bytes, maximum_seconds=maximum_seconds, complete_table=True,
+    )
+
+
+def _verify_profile_gguf_source_set_v2(
+    profile, inventory, manifest, pq2_blocks, *, reader, source_paths, expected_source_sha256,
+    expected_file_bytes, expected_file_sha256, maximum_source_file_bytes, maximum_file_bytes,
+    maximum_bytes, maximum_chunk_bytes, maximum_seconds, complete_table,
+):
     from copy import deepcopy
 
     from embedded_jev.model_profile import SHA256
@@ -3512,16 +3543,27 @@ def verify_profile_gguf_source_matrices_v2(
     entries = {item["source_name"]: item for item in plan["tensors"]}
     shards = {item["name"]: item["shard"] for item in inventory["tensors"]}
     pins = expected_source_sha256.copy()
+    if complete_table and (
+        set(pins) != set(entries) or pins.get(manifest["tensor"]) != manifest["source_tensor_sha256"]
+    ):
+        raise ValueError("v2 complete source tensor set or frozen source pin mismatch")
     groups = {}
     for name in pins:
         entry = entries.get(name)
-        if entry is None or entry["type"] != "BF16" or entry["source_dtype"] != "BF16" or len(entry["source_shape"]) != 2:
+        if entry is None or not complete_table and (
+            entry["type"] != "BF16" or entry["source_dtype"] != "BF16" or len(entry["source_shape"]) != 2
+        ):
             raise ValueError("v2 selected sources require unfrozen declared BF16 matrices")
         shard = shards[name]
-        rows, columns = entry["source_shape"]
+        width = {"BF16": 2, "F32": 4}.get(entry["source_dtype"])
+        if width is None:
+            raise ValueError("v2 source tensor requires declared BF16 or F32 storage")
+        source_bytes = int(np.prod(entry["source_shape"])) * width
         if (
-            rows * columns * 2 > min(maximum_bytes, profile.files[shard].bytes, expected_file_bytes)
-            or columns * 2 > maximum_chunk_bytes or profile.files[shard].bytes > maximum_source_file_bytes
+            source_bytes > min(maximum_bytes, profile.files[shard].bytes)
+            or entry["type"] == "BF16" and (source_bytes > expected_file_bytes or entry["source_shape"][1] * 2 > maximum_chunk_bytes)
+            or entry["type"] == "F32" and source_bytes > 1024**2
+            or profile.files[shard].bytes > maximum_source_file_bytes
         ):
             raise ValueError("v2 selected source matrix exceeds file, operand or row budget")
         groups.setdefault(shard, []).append(name)
@@ -3552,7 +3594,8 @@ def verify_profile_gguf_source_matrices_v2(
                 raise ValueError("v2 selected source file changed after shard closure")
             remaining()
 
-    with verified_profile_gguf_matrix_stream_v2(
+    converted_scope = verified_profile_gguf_tensor_stream_v2 if complete_table else verified_profile_gguf_matrix_stream_v2
+    with converted_scope(
         profile, inventory, manifest, blocks, reader=reader,
         expected_file_bytes=expected_file_bytes, expected_file_sha256=expected_file_sha256,
         maximum_file_bytes=maximum_file_bytes, maximum_bytes=maximum_bytes,
@@ -3560,16 +3603,24 @@ def verify_profile_gguf_source_matrices_v2(
     ) as verify:
         for shard in sorted(groups):
             pin = profile.files[shard]
-            with mapped_profile_safetensors_bf16_shard_v2(
-                profile, inventory, manifest, blocks, source_path=paths[shard], source_shard=shard,
-                expected_file_bytes=pin.bytes, expected_file_sha256=pin.sha256,
-                maximum_file_bytes=maximum_source_file_bytes, maximum_seconds=remaining(),
-            ) as (matrix, shard_receipt):
+            if complete_table:
+                source_scope = mapped_profile_safetensors_conversion_shard_v2(
+                    profile, inventory, manifest, blocks, source_path=paths[shard], source_shard=shard,
+                    expected_file_bytes=pin.bytes, expected_file_sha256=pin.sha256,
+                    maximum_file_bytes=maximum_source_file_bytes, maximum_seconds=remaining(), include_frozen_source=True)
+            else:
+                source_scope = mapped_profile_safetensors_bf16_shard_v2(
+                    profile, inventory, manifest, blocks, source_path=paths[shard], source_shard=shard,
+                    expected_file_bytes=pin.bytes, expected_file_sha256=pin.sha256,
+                    maximum_file_bytes=maximum_source_file_bytes, maximum_seconds=remaining())
+            with source_scope as (matrix, shard_receipt):
                 source_identities[shard] = shard_receipt["source_file_identity"]
                 for name in sorted(groups[shard]):
                     remaining()
                     with matrix(name, pins[name], maximum_bytes=maximum_bytes) as (values, source_receipt):
-                        converted = verify(source_name=name, source_values=values, expected_source_sha256=pins[name])
+                        frozen = entries[name]["type"] == "PQ2_0"
+                        converted = verify(source_name=name, source_values=blocks if frozen else values,
+                                           expected_source_sha256=manifest["payload_sha256"] if frozen else pins[name])
                     receipts.append(MappingProxyType({"source": source_receipt, "converted": converted}))
             shard_receipts.append(shard_receipt)
         check_sources()
@@ -3580,11 +3631,15 @@ def verify_profile_gguf_source_matrices_v2(
     return MappingProxyType({
         "profile_id": profile.profile_id, "profile_sha256": profile.sha256,
         "converted_file_sha256": expected_file_sha256, "converted_file_bytes": expected_file_bytes,
-        "matrix_count": len(receipts), "tensors": tuple(receipts), "source_shards": tuple(shard_receipts),
-        "source_conversion_verification": "selected_bf16_ranges_match_profile_pinned_source_shards",
+        "tensor_count" if complete_table else "matrix_count": len(receipts),
+        "tensors": tuple(receipts), "source_shards": tuple(shard_receipts),
+        "source_conversion_verification": ("all_declared_ranges_match_profile_pinned_source_shards_and_saved_frozen_payload"
+                                           if complete_table else "selected_bf16_ranges_match_profile_pinned_source_shards"),
         "source_files_rechecked_after_conversion": True, "source_mappings_closed_after_conversion": True,
         "cross_file_atomic_snapshot": "not_guaranteed", "pin_issuer_verification": "not_checked",
-        "model_metadata_verification": "not_checked", "gguf_tensor_table_verification": "not_checked",
+        "model_metadata_verification": "not_checked",
+        "gguf_tensor_table_verification": "all_declared_tensor_records_and_ranges_verified" if complete_table else "not_checked",
+        **({"source_to_frozen_quantization_verification": "not_checked"} if complete_table else {}),
         "runtime_approval": "not_granted_by_source_conversion_verification",
     })
 

@@ -6,6 +6,86 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Complete Source-Bound Tensor Checkpoint (2026-11-17)
+
+**Complete declared text tensor verification now composes serial profile-pinned
+source ownership with the shared converted-file lifetime.** Continued from
+**`b45fab8`** (complete converted stream) and **`017f0e4`** (selected BF16 source
+sets). No old native policy, command, budget or generated execution guard changed.
+
+`verify_profile_gguf_source_tensors_v2` requires the full source digest set,
+including the manifest-bound dense frozen-source digest, and exact required
+shard paths. It reuses typed source owners with explicit frozen provenance,
+maps one operand at a time, groups work by shard and uses one aggregate deadline.
+The converted frozen child receives the unchanged saved payload separately
+from the dense source mapping. Each source/GGUF is fully hashed twice on a
+successful workflow. Receipts are returned only after all source/converted
+owners and final stat/deadline checks; the BF16-only public API is preserved.
+
+### Actual Evidence
+
+- Extended the existing one/two-shard lifecycle test across selected matrices
+  and complete typed sets, adding unknown/missing operand-set admission.
+  Combined stream/source subset: **57 passed in 1.45 s**, clean scoped Ruff/
+  whitespace. Full frozen-source pin/set refusals occur before ownership.
+  Caller snapshots, serial mappings, child/shard/GGUF exits, late source/
+  converted identity changes and aggregate deadlines remain covered.
+- Expanded the two existing generated full-table file controls without new
+  parameters or larger budgets: **2 passed in 7.26 s**. Each authenticates all
+  **53** source/converted tensors for BF16 or F32 auxiliaries, proves exactly
+  two whole-source hashes and two whole-GGUF hashes, and matches every converted
+  digest with the independently completed borrowed-source stream. Corrupting
+  a source after successful child comparisons withholds the combined receipt;
+  original source bytes are restored before subsequent legacy controls.
+- Same external 30-second/1 GiB/2 GiB-reserve/8 KiB-output/no-swap-growth
+  guard: group RSS/HWM **363,642,880 B**, two processes, available minimum
+  **11,263,479,808 B**, zero owned swap and stable **4,411,392 B** host used
+  swap. Generated source/output remain <=16 MiB each; all temporary files
+  were removed. No failed test occurred in this slice; the preceding output/
+  packet-fixture failures remain recorded below rather than erased.
+- Required root gate: **2054 passed, 241 skipped in 37.73 s**, clean Ruff
+  and whitespace. Pylance confirmed both composing-helper callers compatible;
+  codec diagnostics remained only the base environment's documented optional
+  missing-import warnings, not type errors.
+
+These are complete declared text-table/file-lifetime controls, not new model
+quality evidence or native execution. Dense-source/frozen-payload relation is
+still **not refitted or numerically certified**. Closed-lifetime receipts are
+not runtime authorization or an atomic snapshot. The 1 MiB header boundary,
+complete model/tokenizer metadata and separately versioned real-profile native
+admission/controller remain open, along with approved carrier/resources and S3.
+No learned-model weights/cache content, native build, model run, download,
+conversion experiment, refit, new retained candidate, push, branch or subagent.
+Historical resource failures and missing actual-build samples remain open.
+
+### Next Bounded Native Scope (Not Launched)
+
+Keep the generated runner and all old native policies unchanged. A real-profile
+path needs its own versioned admission/controller before backend initialization:
+retain the pinned converted descriptor through execution, bind complete source/
+tensor evidence to that file/profile, verify model/tokenizer/context/template
+metadata and exact typed token mappings, then retain fail-closed private result
+publication and dispatch/reset checks. A closed file receipt is not a substitute
+for that live owner. Resolve the 1 MiB header boundary with explicit source-backed
+header sizing and a bounded header control; do not silently widen existing APIs.
+
+Before any changed native target is built, list named editor CMake targets and
+use a fresh flushed-ready external observer, independent CMake success and
+positive observed/finished samples. Keep the existing serial <=2-job, 60-second,
+1 GiB build-observer, 2 GiB available-reserve and no-swap-growth limits; no
+unchanged target needs rebuilding. Historical missing samples remain open.
+
+Real-profile execution is separately blocked, not authorized by these fixtures.
+A final read-only prerequisite check found no regular `.gguf` files within
+the inspected model-cache depth 4/native-cache depth 2. Shared-host available
+memory was **11,257,244 KiB**; the historical dense-load RSS alone was
+**17,667,176 KiB**, requiring at least **19,764,328 KiB** available with the
+mandatory reserve, before additional controller/group overhead. This is a
+lower-bound prerequisite, not a sufficient new job budget or device guarantee.
+An approved complete carrier with explicit pins, adequate resources and a
+fresh bounded execution scope are required; do not launch another conversion,
+model diagnostic or retry a closed resource failure to fill this gap.
+
 ## S2 Complete Converted-Tensor Stream Checkpoint (2026-11-17)
 
 **A shared converted-file lifetime now covers the complete declared tensor

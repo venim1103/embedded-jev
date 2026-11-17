@@ -1925,6 +1925,34 @@ unchecked. F32 auxiliaries, the frozen range and source-to-frozen quantization
 equivalence are not covered. The generated control above checks actual
 profile-pinned source headers/bytes, without reading any learned-model cache.
 
+`verify_profile_gguf_source_tensors_v2(...)` composes that serial source-owner
+pattern with the complete converted-tensor stream. Its explicit digest map
+must contain **every declared text source**, including the dense frozen source
+whose digest must equal manifest `source_tensor_sha256`; shard paths must be
+exactly the required profile shards. Missing/extra sources, a wrong frozen pin,
+unsupported source storage and source/file/row budgets refuse before ownership.
+
+Each shard uses the typed conversion-source owner with frozen provenance
+explicitly enabled, and maps one BF16/F32 operand at a time. The frozen dense
+mapping is authenticated separately from passing the saved packed payload to
+the converted checker. Successful verification hashes each source shard and
+the GGUF twice total, not twice per tensor, and returns only after all child/
+shard/converted owners and final identity checks complete. It returns
+`tensor_count` and
+`gguf_tensor_table_verification=all_declared_tensor_records_and_ranges_verified`,
+while explicitly leaving
+source-to-frozen quantization equivalence unchecked.
+
+The same file/operand/chunk/header defaults and explicit caps apply. Auxiliary
+source mappings additionally retain their 1 MiB cap; converted auxiliary-copy
+caps remain as described above. Source file pins come from the supplied
+profile. The result is a closed-lifetime receipt, not a live runtime owner,
+source-issuer proof or atomic cross-file snapshot; metadata/tokenizer semantics
+and native/runtime approval remain unchecked. The two
+`complete-stream-BF16`/`complete-stream-F32` generated controls also exercise
+this composition and source-exit publication refusal under the same external
+guard.
+
 `verify_profile_gguf_source_metadata_v2(...)` verifies the emitted
 policy/context/template subset against freshly prepared pinned immutable
 metadata/tokenizer bytes and an explicit `source` or `gguf_embedded` template

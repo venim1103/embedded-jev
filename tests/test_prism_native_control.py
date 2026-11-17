@@ -1778,6 +1778,55 @@ with tempfile.TemporaryDirectory(dir=sys.argv[2]) as directory:
             assert all(item["converted_file_verification"] == "retained_file_entry_and_exit_checks_required" for item in results)
             projection = next(item for item in results if item["source_name"] == manifest["tensor"])
             assert projection["converted_sha256"] == projection["projection_payload_sha256"] == manifest["payload_sha256"]
+            from contextlib import contextmanager
+            source_hashes = []
+            original_source_record = streamed_text.bounded_source_descriptor_record_v2
+            original_source_owner = codec.mapped_profile_safetensors_conversion_shard_v2
+            def observed_source_record(*received, **keywords):
+                source_hashes.append(received[0])
+                return original_source_record(*received, **keywords)
+            with source_path.open("rb") as source:
+                source.seek(-1, os.SEEK_END)
+                saved_source_byte = source.read(1)
+            streamed_text.bounded_source_descriptor_record_v2 = observed_source_record
+            try:
+                hashes.clear()
+                combined = codec.verify_profile_gguf_source_tensors_v2(
+                    profile, inventory, manifest, blocks, **options, source_paths=source_paths,
+                    expected_source_sha256=source_digests)
+                assert combined["tensor_count"] == expected_count and len(combined["source_shards"]) == 1
+                assert len(hashes) == len(source_hashes) == 2
+                assert hashes[0] == hashes[1] and source_hashes[0] == source_hashes[1]
+                assert combined["gguf_tensor_table_verification"] == "all_declared_tensor_records_and_ranges_verified"
+                assert combined["source_to_frozen_quantization_verification"] == "not_checked"
+                converted_digests = {item["source_name"]: item["converted_sha256"] for item in results}
+                for item in combined["tensors"]:
+                    name = item["source"]["source_name"]
+                    assert item["source"]["source_sha256"] == source_digests[name]
+                    assert item["converted"]["converted_sha256"] == converted_digests[name]
+                @contextmanager
+                def changed_before_source_exit(*received, **keywords):
+                    with original_source_owner(*received, **keywords) as borrowed:
+                        yield borrowed
+                        with source_path.open("r+b", buffering=0) as changed:
+                            changed.seek(-1, os.SEEK_END)
+                            changed.write(bytes([saved_source_byte[0] ^ 1]))
+                codec.mapped_profile_safetensors_conversion_shard_v2 = changed_before_source_exit
+                published = None
+                try:
+                    published = codec.verify_profile_gguf_source_tensors_v2(
+                        profile, inventory, manifest, blocks, **options, source_paths=source_paths,
+                        expected_source_sha256=source_digests)
+                    raise AssertionError("complete source receipts escaped source exit failure")
+                except ValueError as error:
+                    assert "mapped source" in str(error) and "changed" in str(error), str(error)
+                assert published is None
+            finally:
+                streamed_text.bounded_source_descriptor_record_v2 = original_source_record
+                codec.mapped_profile_safetensors_conversion_shard_v2 = original_source_owner
+                with source_path.open("r+b", buffering=0) as changed:
+                    changed.seek(-1, os.SEEK_END)
+                    changed.write(saved_source_byte)
             frozen_tensor = next(item for item in reader.tensors if item.name == manifest["gguf_tensor"])
             for defect in ("incomplete", "fresh-auxiliary", "frozen-input", "frozen-file", "restored"):
                 published, saved_byte = None, None
