@@ -8,6 +8,8 @@
 #include "llama-vocab.h"
 #include "nlohmann/json.hpp"
 #include <openssl/evp.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <set>
 #endif
 #ifdef JEV_TEST_FULL_RUNTIME
@@ -16,6 +18,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
+#include <charconv>
 #include <cfenv>
 #include <chrono>
 #include <cmath>
@@ -1397,6 +1401,54 @@ static std::vector<char> selected_metadata_file(const char* path, std::size_t li
     return bytes;
 }
 
+static std::vector<char> selected_metadata_prefix(const char* path, std::size_t size, uint64_t& file_bytes) {
+    if (size < 24 || size > 16 * 1024 * 1024) {
+        throw std::runtime_error("selected metadata prefix exceeds bound");
+    }
+    const int descriptor = ::open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+    if (descriptor < 0) {
+        throw std::runtime_error("selected metadata prefix open failed");
+    }
+    std::unique_ptr<FILE, decltype(&std::fclose)> file(::fdopen(descriptor, "rb"), std::fclose);
+    if (!file) {
+        ::close(descriptor);
+        throw std::runtime_error("selected metadata prefix owner failed");
+    }
+    struct stat before{}, after{}, linked{};
+    if (::fstat(descriptor, &before) != 0 || !S_ISREG(before.st_mode) ||
+            before.st_size < static_cast<int64_t>(size) || uint64_t(before.st_size) > uint64_t{19} * 1024 * 1024 * 1024) {
+        throw std::runtime_error("selected metadata prefix carrier exceeds bound");
+    }
+    std::vector<char> bytes(size);
+    for (std::size_t first = 0; first < size;) {
+        const auto count = ::pread(descriptor, bytes.data() + first, std::min<std::size_t>(65536, size - first), first);
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        if (count <= 0) {
+            throw std::runtime_error("selected metadata prefix read failed");
+        }
+        first += count;
+    }
+    const auto unchanged = [&before](const struct stat& current) {
+        return current.st_dev == before.st_dev && current.st_ino == before.st_ino && current.st_size == before.st_size &&
+            current.st_mtim.tv_sec == before.st_mtim.tv_sec && current.st_mtim.tv_nsec == before.st_mtim.tv_nsec &&
+            current.st_ctim.tv_sec == before.st_ctim.tv_sec && current.st_ctim.tv_nsec == before.st_ctim.tv_nsec;
+    };
+    if (::fstat(descriptor, &after) != 0 || ::lstat(path, &linked) != 0 || !S_ISREG(linked.st_mode) ||
+            !unchanged(after) || !unchanged(linked)) {
+        throw std::runtime_error("selected metadata prefix file changed");
+    }
+    uint64_t tensors = 0, fields = 0;
+    std::memcpy(&tensors, bytes.data() + 8, sizeof(tensors));
+    std::memcpy(&fields, bytes.data() + 16, sizeof(fields));
+    if (std::memcmp(bytes.data(), "GGUF\3\0\0\0", 8) != 0 || tensors > 427 || fields > 64) {
+        throw std::runtime_error("selected metadata prefix counts or encoding refused");
+    }
+    file_bytes = before.st_size;
+    return bytes;
+}
+
 static std::string selected_sha256(const char* data, std::size_t size) {
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digest_size = 0;
@@ -1903,7 +1955,8 @@ static nlohmann::json selected_json_file(const char* path, std::size_t limit) {
 }
 
 static int test_selected_metadata(
-    const char* path, const char* expected_path, int policy_version = 1, nlohmann::json* declarations = nullptr) {
+    const char* path, const char* expected_path, int policy_version = 1, nlohmann::json* declarations = nullptr,
+    std::size_t prefix_bytes = 0) {
     using nlohmann::json;
     const bool joint = policy_version == 2;
     const bool atomic = policy_version == 5;
@@ -2005,10 +2058,16 @@ static int test_selected_metadata(
         if (joint && names != std::set<std::string>{"tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges"}) {
             return 30;
         }
-        const auto bytes = selected_metadata_file(path, large ? 16 * 1024 * 1024 + 1 : 1024 * 1024);
+        if (prefix_bytes && !atomic) {
+            return 30;
+        }
+        uint64_t carrier_bytes = 0;
+        const auto bytes = prefix_bytes ? selected_metadata_prefix(path, prefix_bytes, carrier_bytes) :
+            selected_metadata_file(path, large ? 16 * 1024 * 1024 + 1 : 1024 * 1024);
         std::unique_ptr<gguf_context, decltype(&gguf_free)> context(
             gguf_init_from_buffer(bytes.data(), bytes.size(), { true, nullptr }), gguf_free);
-        if (!context || gguf_get_n_kv(context.get()) > 64 || gguf_get_n_tensors(context.get()) > 427) {
+        if (!context || gguf_get_n_kv(context.get()) > 64 || gguf_get_n_tensors(context.get()) > 427 ||
+                (prefix_bytes && gguf_get_data_offset(context.get()) != prefix_bytes)) {
             return 31;
         }
         for (const auto& record : expected) {
@@ -2054,7 +2113,13 @@ static int test_selected_metadata(
             *declarations = expected;
             return 0;
         }
-        if (atomic) {
+        if (prefix_bytes) {
+            std::puts(json{{"selected_records", 38}, {"policy_version", 5}, {"header_bytes_read", bytes.size()},
+                {"header_sha256", selected_sha256(bytes.data(), bytes.size())}, {"carrier_bytes", carrier_bytes},
+                {"full_file_sha256_verified", false}, {"tensor_data_read", false}, {"tensor_data_allocated", false},
+                {"model_loaded", false}, {"backend_initialized", false},
+                {"runtime_approval", "not_granted_by_metadata_prefix"}}.dump().c_str());
+        } else if (atomic) {
             std::puts("{\"selected_records\":38,\"policy_version\":5,\"tensor_data_allocated\":false,\"model_loaded\":false}");
         } else if (selected) {
             std::puts("{\"selected_records\":30,\"policy_version\":3,\"tensor_data_allocated\":false,\"model_loaded\":false}");
@@ -2234,6 +2299,18 @@ int main(int argc, char** argv) {
     }
     if (argc > 1 && std::strcmp(argv[1], "--selected-metadata-control-v5") == 0) {
         return argc == 4 ? test_selected_metadata(argv[2], argv[3], 5) : 30;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "--selected-metadata-prefix-control-v5") == 0) {
+        if (argc != 5) {
+            return 30;
+        }
+        std::size_t size = 0;
+        const auto* end = argv[4] + std::strlen(argv[4]);
+        const auto parsed = std::from_chars(argv[4], end, size);
+        if (parsed.ec != std::errc{} || parsed.ptr != end || size < 24 || size > 16 * 1024 * 1024) {
+            return 30;
+        }
+        return test_selected_metadata(argv[2], argv[3], 5, nullptr, size);
     }
 #endif
 #ifdef JEV_TEST_FULL_RUNTIME

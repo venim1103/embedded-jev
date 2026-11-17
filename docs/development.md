@@ -4162,9 +4162,9 @@ its preparation worker, freshly writes/verifies v5 metadata, and compares dense
 and BitNet results with independent NumPy arithmetic at unchanged tolerances.
 The pytest-free generator also reports `header_bytes` from the fresh reader's
 aligned data offset and `header_sha256` over exactly that prefix. The integration
-checks the bounded prefix independently against the generated file. This is
-fixture evidence for a later header-only native preflight, not full-file
-authentication, an implemented large-file getter or real-profile approval.
+checks the bounded prefix independently against the generated file. The
+separate header-only preflight below consumes that evidence; neither provides
+full-file authentication or real-profile approval.
 Its shared 60-second stage bounds each child including cleanup to <=15 seconds
 and remaining stage time, group RSS/HWM <=1 GiB, host reserve >=2 GiB, zero owned
 swap/no host-swap growth, scratch <=8 MiB and all child output <=64 KiB.
@@ -4173,6 +4173,43 @@ on exit. See the [checkpoint](handover.md#s2-generated-typed-native-runner-check
 for actual results and resource/output-blocked broader legacy checks. Source
 identity, caller authentication, real-profile runtime/numerical acceptance,
 quality, whole-model ternary execution and target-device evidence remain separate.
+
+### Bounded Native V5 Header Preflight
+
+The Release loader also provides a metadata-only control:
+
+```text
+--selected-metadata-prefix-control-v5 GGUF METADATA_JSON HEADER_BYTES
+```
+
+It reuses the same strict 38 v5 declarations and typed getters, before backend
+discovery. `HEADER_BYTES` is an explicit decimal integer in `[24, 16777216]`
+and must equal the parser's aligned tensor-data offset. On Linux, the input
+must be a regular, non-symlink file, at least that long and at most 19 GiB.
+Bounded `pread` calls read exactly the declared prefix; incorrect declarations
+can consume up to that bound before rejection. Descriptor/path size, inode and
+timestamps must agree around the read. Magic/version/count checks precede GGUF
+parser allocation; limits remain 64 metadata keys and 427 tensor records.
+
+Success reports `header_bytes_read`, `header_sha256`, `carrier_bytes`, the
+38-record match and explicit false flags for full-file SHA verification,
+tensor-data read/allocation, model load and backend initialization.
+The accepted prefix contains no tensor payload. This is a snapshot/metadata
+check, not payload authentication, source attestation, native tokenizer semantic
+acceptance or permission to initialize a real profile's runtime. Caller-owned
+file/source/runtime verification and exit checks remain separate.
+
+The existing whole-file getters, Python v5 verifier and generated typed scoring
+commands retain their old byte limits and outputs. In particular, this control
+does not enlarge the typed runner's 2 MiB limit or add a shared-library typed
+entry point. The optional selector
+`tests/test_prism_native_control.py::test_pinned_prism_v5_header_preflight_on_sparse_carrier`
+uses the same cached environment variables as the generated typed selector
+above. It uses only generated headers and sparse 20 MiB carriers, with <=60
+seconds shared stage time, <=15 seconds per child, 1 GiB group RSS/HWM, 2 GiB
+host reserve, no owned swap/host-swap growth, <=64 KiB aggregate output,
+<=64 MiB logical and <=8 MiB physical scratch. Inputs/descriptors and cleanup
+are checked. These synthetic carriers do not establish real-model compatibility.
 
 ### Bounded Synthetic Native Prefill
 

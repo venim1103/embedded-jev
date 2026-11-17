@@ -280,6 +280,138 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models():
         "observed_host_swap_bytes": max(sample["observed_host_swap_bytes"] for sample in samples)}, sort_keys=True))
 
 
+def test_pinned_prism_v5_header_preflight_on_sparse_carrier():
+    import hashlib
+    import struct
+    import time
+    from copy import deepcopy
+    from tempfile import TemporaryDirectory
+
+    source_dir, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
+    build_dir = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+    if not build_dir:
+        pytest.skip("requires the separately approved Release loader build")
+    assert subprocess.check_output(["git", "-C", str(source_dir), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    executable = Path(build_dir) / "bin/prism_bitnet_loader_control"
+    assert executable.is_file()
+    assert "CMAKE_BUILD_TYPE:STRING=Release" in (Path(build_dir) / "CMakeCache.txt").read_text()
+    started = time.monotonic()
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "TOKENIZERS_PARALLELISM": "false", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
+    execute = "import json, os, sys\nargs=json.loads(sys.stdin.buffer.read(65537))\nos.execv(args[0], args)"
+    samples, successes, refusals = [], 0, 0
+    output_bytes = logical_peak = physical_peak = 0
+    with TemporaryDirectory(prefix="jev-v5-prefix-") as directory:
+        root = Path(directory)
+        descriptors = len(os.listdir("/proc/self/fd"))
+        _write_typed_prefill_inputs(root)
+        model = root / "model.gguf"
+        preparation = _run_tokenizer_only_guard_v3(interpreter, _typed_prefill_fixture_worker_code(), json.dumps({
+            "model": str(model), "reference": str(root / "unused.gguf"), "backend": "dense-request"}).encode(),
+            env=env, maximum_seconds=min(15, 60 - (time.monotonic() - started)), maximum_rss_bytes=1024**3)
+        samples.append(preparation)
+        output_bytes += len(preparation["stdout"].encode()) + len(preparation["stderr"].encode())
+        assert preparation["returncode"] == 0, preparation["stderr"]
+        receipt = json.loads(preparation["stdout"])
+        header_bytes = receipt["header_bytes"]
+        assert receipt["fresh_selected_records"] == 38 and 24 <= header_bytes < 65536
+        prefix = model.read_bytes()[:header_bytes]
+        assert hashlib.sha256(prefix).hexdigest() == receipt["header_sha256"]
+        fixed = {entry: hashlib.sha256(entry.read_bytes()).hexdigest() for entry in root.rglob("*") if entry.is_file()}
+        for entry in fixed:
+            assert entry.stat().st_size <= (2 * 1024**2 if entry.suffix == ".gguf" else 65536)
+            entry.chmod(0o400)
+        metadata = root / "metadata.json"
+        carrier = root / "carrier.gguf"
+        fault = root / "fault.gguf"
+        faulty_metadata = root / "fault.json"
+
+        def run(path=model, size=header_bytes, *, metadata_path=metadata, status=0, arguments=None):
+            nonlocal output_bytes, logical_peak, physical_peak, successes, refusals
+            entries = [entry.stat() for entry in root.rglob("*") if entry.is_file()]
+            logical_peak = max(logical_peak, sum(entry.st_size for entry in entries))
+            physical_peak = max(physical_peak, sum(entry.st_blocks * 512 for entry in entries))
+            assert logical_peak <= 64 * 1024**2 and physical_peak <= 8 * 1024**2
+            assert time.monotonic() - started < 60
+            call = arguments if arguments is not None else ["--selected-metadata-prefix-control-v5", path, metadata_path, str(size)]
+            sample = _run_tokenizer_only_guard_v3(interpreter, execute,
+                json.dumps([str(executable), *map(str, call)]).encode(), env=env,
+                maximum_seconds=min(15, 60 - (time.monotonic() - started)), maximum_rss_bytes=1024**3)
+            samples.append(sample)
+            output_bytes += len(sample["stdout"].encode()) + len(sample["stderr"].encode())
+            assert output_bytes <= 65536
+            assert sample["returncode"] == status, sample["stderr"]
+            if status:
+                refusals += 1
+                assert sample["stdout"] == ""
+                return None
+            successes += 1
+            report = json.loads(sample["stdout"])
+            assert report["selected_records"] == 38 and report["policy_version"] == 5
+            assert report["header_bytes_read"] == header_bytes and report["header_sha256"] == receipt["header_sha256"]
+            assert report["carrier_bytes"] == path.stat().st_size
+            assert report["runtime_approval"] == "not_granted_by_metadata_prefix"
+            for name in ("full_file_sha256_verified", "tensor_data_read", "tensor_data_allocated", "model_loaded", "backend_initialized"):
+                assert report[name] is False
+            return report
+
+        run()
+        with carrier.open("wb") as stream:
+            stream.write(prefix)
+            stream.truncate(20 * 1024**2)
+        run(carrier)
+        with carrier.open("r+b") as stream:
+            stream.seek(header_bytes)
+            stream.write(b"not authenticated tensor data")
+        run(carrier)
+        run(carrier, arguments=["--selected-metadata-control-v5", carrier, metadata], status=30)
+        for size in (header_bytes - 1, header_bytes + 1):
+            run(carrier, size, status=31)
+        for size in ("", "0", "23", "-1", "+24", "24 ", "1.5", str(16 * 1024**2 + 1), "9" * 32):
+            run(carrier, size, status=30)
+        for arguments in (["--selected-metadata-prefix-control-v5"],
+                ["--selected-metadata-prefix-control-v5", carrier, metadata, header_bytes, "extra"]):
+            run(arguments=arguments, status=30)
+        for offset, value, encoding in ((4, 2, "<I"), (8, 428, "<Q"), (16, 65, "<Q"), (16, 2**64 - 1, "<Q")):
+            changed = bytearray(prefix)
+            struct.pack_into(encoding, changed, offset, value)
+            fault.write_bytes(changed)
+            run(fault, status=30)
+        fault.write_bytes(prefix[:-1])
+        run(fault, status=30)
+        fault.unlink()
+        fault.symlink_to(carrier)
+        run(fault, status=30)
+        fault.unlink()
+        os.mkfifo(fault)
+        run(fault, status=30)
+        fault.unlink()
+        run(fault, status=30)
+        declarations = json.loads(metadata.read_bytes())
+        for kind in ("digest", "bool", "duplicate"):
+            changed = deepcopy(declarations)
+            if kind == "duplicate":
+                changed.append(changed[0])
+            else:
+                name = "jev.model.profile_sha256" if kind == "digest" else "tokenizer.ggml.add_bos_token"
+                next(record for record in changed if record["name"] == name)["values"] = ["0" * 64] if kind == "digest" else [True]
+            faulty_metadata.write_text(json.dumps(changed))
+            run(carrier, metadata_path=faulty_metadata, status=32 if kind == "digest" else 30)
+        for entry, digest in fixed.items():
+            assert hashlib.sha256(entry.read_bytes()).hexdigest() == digest
+        assert len(os.listdir("/proc/self/fd")) == descriptors
+        assert time.monotonic() - started < 60
+    assert not root.exists()
+    print(json.dumps({"successes": successes, "refusals": refusals, "output_bytes": output_bytes,
+        "logical_scratch_peak_bytes": logical_peak, "physical_scratch_peak_bytes": physical_peak,
+        "header_bytes": header_bytes, "seconds": time.monotonic() - started,
+        "observed_group_rss_bytes": max(sample["observed_group_rss_bytes"] for sample in samples),
+        "observed_host_available_minimum_bytes": min(sample["observed_host_available_minimum_bytes"] for sample in samples),
+        "host_swap_baseline_bytes": samples[0]["host_swap_baseline_bytes"],
+        "observed_host_swap_bytes": max(sample["observed_host_swap_bytes"] for sample in samples)}, sort_keys=True))
+
+
 @pytest.mark.parametrize("backend", ["dense", "bitnet", "bitnet-profile"])
 @pytest.mark.parametrize("recurrent", [False, True])
 @pytest.mark.parametrize("attention", [False, True])

@@ -6,6 +6,72 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Bounded Native Header Preflight Checkpoint (2026-11-17)
+
+**Native prefix prerequisite accepted on generated inputs; real-profile caller
+integration remains open.** Resumed from `629b3f5` after explicit autonomous
+continuation. Actual host conditions had materially changed: a fresh 20-second
+observation showed at least **11,604,455,424 B** available and stable swap
+**4,415,488 B** with unchanged swap-in/out counters, versus roughly 142 MiB
+used swap in the stopped scope below. This new finite scope retained every
+resource guard; it was not an unchanged retry under the old conditions or a
+renewal of a closed budget. No host configuration or other process was changed.
+
+Restored the reviewed pending native patch after a forward check. The new
+`--selected-metadata-prefix-control-v5` reuses the same 38-field getter
+contract, reads only the explicitly bounded prefix on success and compares its
+SHA/length with the independent fixture evidence. Its metadata-only result
+explicitly refuses full-file authentication and runtime approval. It does not
+alter the old getters, Python verifier, scoring limits or shared scorer ABI.
+See the [operating contract](development.md#bounded-native-v5-header-preflight).
+
+### Matched Build And Generated Evidence
+
+Reused the clean pinned Prism source, cached Python distributions, Release/Ninja
+cache, cached libraries and unchanged two-job editor setting. The observer
+emitted `ready` before CMake Tools, positive `observed`, then `finished` after
+**29.880 s**: five processes, zero live at finish, peak group RSS/HWM
+**517,185,536 B**, available minimum **11,172,696,064 B**, zero owned swap and
+stable host swap **4,415,488 B**. CMake independently succeeded in **16.806 s**,
+compiling only the changed loader translation unit and linking its executable.
+The observer's `build_success_verified=false` correctly leaves that result to
+CMake. This receipt does not retroactively repair any older missing samples.
+
+The new prefix selector and existing generated typed integration passed
+together: **2 passed in 14.59 s**.
+
+- Prefix: **3 positives/25 fail-closed refusals**, actual header **6016 B**,
+  internal stage **5.126 s**. A sparse **20 MiB** carrier and deliberate payload
+  garbage retain the same metadata result, demonstrating that payload content
+  is not authenticated. The old whole-file getter still refuses that carrier.
+  Off-by-one/invalid lengths, arity, version/count bounds, truncated headers,
+  symlink/FIFO/missing paths and digest/BOOL/duplicate declarations refuse with
+  no stdout. Peak group RSS **268,943,360 B**, available minimum
+  **11,528,130,560 B**, output **1629 B**, logical scratch **43,671,054 B**,
+  physical scratch **1,777,664 B**.
+- Existing dense/BitNet typed integration: **23 positives/31 refusals**, unchanged
+  numerical tolerances, mappings, dispatch and context controls; internal stage
+  **8.534 s**, RSS **269,541,376 B**, available minimum **11,506,135,040 B**,
+  output **35,912 B**, scratch **3,411,746 B**.
+- Both stages observed zero owned swap and stable per-job host swap
+  **4,415,488 B**. Read-only input hashes/descriptors preserved, temporary
+  generated files removed. No real-model files, downloads, conversion or quality
+  experiment, no dependency install, branch, push or subagent.
+
+The default root gate passed **1956 passed, 233 skipped in 46.65 s**, plus clean
+Ruff/whitespace. The extra default skip is the separately executed prefix
+selector, not an unexecuted native acceptance claim. The former
+`s2-native-prefix-preflight-pending.patch` is now an integrated historical
+recovery copy; do not reapply it. Earlier build/resource failures below remain
+historical failures.
+
+Next: connect bounded typed requests to an honestly BF16, verified-owner fixture
+and arrange fresh preflight before backend-initializing owner creation. Keep
+descriptor/file, source and loaded-runtime identity separate, pin a matched
+scorer and buffer scores through successful owner exit. The prefix control
+alone does not close real-profile S2/S3, representative quality, whole-model
+ternary execution or target-device evidence.
+
 ## S2 Header Oracle Prerequisite And Resource Refusal (2026-11-17)
 
 **Tested fixture prerequisite only; native prefix preflight remains shelved
