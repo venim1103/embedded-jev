@@ -37,7 +37,7 @@ is not yet a fully ternary model, calibrated service or deployment claim.
 | Step | Concrete Deliverable | Exit Evidence and Scope Boundary |
 | --- | --- | --- |
 | S1. Atomic selected metadata | Implemented v5 Python writer and retained-file verifier composing the existing selected fields with explicit bootstrap declarations | Generated v5 proof and default gate pass: joint 37-key preflight, fresh bounded 38-field proof including architecture, strict BOOL and unchanged API defaults. Old v4/bootstrap cached compatibility controls remain resource-blocked, not accepted. Does not establish native tags, source defaults or model execution. |
-| S2. Native contract and runner | Generated-only prefill entry points now consume the same v5 metadata/request contract; real-profile caller integration remains | Supervised changed-loader build; 23 positive/31 fail-closed generated calls, independent scores and exact 2-16 option/token mappings, counted BitNet dispatch, zero generation, reset/reuse and cleanup. Three reduced legacy full controls also pass. Historical getter-build samples and resource-blocked broader compatibility controls remain open. Never send real profiles through generated-only policies or infer learned tokenizer/runtime acceptance from toy fixtures. |
+| S2. Native contract and runner | Generated CLI and BF16 verified-owner test entry points consume the same v5 metadata/request contract; real-profile caller integration remains | Supervised matched loader/scorer builds; CLI 23 positive/31 fail-closed calls and verified owner 12/20, independent scores and exact 2-16 mappings, counted BitNet dispatch, zero generation, reset/reuse, preflight before backend initialization, six runtime-file pins and score withholding through owner exit. Bounded header-only preflight passes 3/25 on sparse generated carriers. Three reduced legacy full controls also pass historically. Older missing getter-build samples and resource-blocked broader controls remain open. No real-profile execution or learned numerical acceptance follows from toy fixtures. |
 | S3. One-profile numerical acceptance | Resolve the existing native/reference first divergence and validate dense plus frozen-projection scoring on identical inputs | Operation/state/precision evidence, preserved candidate identity, acceptance criteria written before the run, fresh/reused-context checks and measured resources. New model conversion or learned diagnostics require separate approval; no tolerance relaxation or refitting to hide discrepancies. |
 | S4. Decision-quality baseline | Freeze a representative task fixture and evaluate dense and one-projection paths | Licensed split/provenance, declared quality target, held-out accuracy and perturbation/error analysis. Conditional scores remain uncalibrated until a separately fitted and tested decision calibration passes. Dataset acquisition and held-out scoring require approval. |
 | S5. Broader ternary model | Quantize and export selected blocks, then eligible whole-model projections, with resumable artifacts | Preserve independent FP16 row/group scales, isolate weight/A8 loss, verify runtime parity and actual dispatch, and pass the quality target. New fitting, retained candidates, conversion and larger experiments require approval. Stop rollout if quality fails. |
@@ -66,6 +66,11 @@ connects fresh 38-field preflight to dynamic typed prefill and preserves legacy
 commands. Its fixed synthetic profile is not a real-profile runtime grant;
 recognition of the distinct native Qwen35 pre-tokenizer is not learned
 prompt/token semantic acceptance.
+The [verified-owner checkpoint](handover.md#s2-generated-typed-verified-owner-checkpoint-2026-11-17)
+additionally connects honest BF16 fixtures and native typed requests through the
+existing descriptor/runtime-verified policy lifetime, with no scores released
+after an exit refusal. Its test-only C hooks retain the fixed synthetic gate;
+they are not the real-profile production caller.
 
 Keep S1 limited to this composition; its successful proof is not permission to
 keep expanding metadata indefinitely or claim a functioning native system.

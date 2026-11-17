@@ -656,6 +656,7 @@ struct prefill_option {
 
 struct prefill_request {
     std::string id;
+    std::string prompt;
     std::string profile_id;
     std::string profile_sha256;
     std::string source_revision;
@@ -2136,13 +2137,13 @@ static int test_selected_metadata(
 }
 
 #ifdef JEV_TEST_FULL_RUNTIME
-static int test_prefill_request(
-    const char* path, const char* metadata_path, const char* request_path, const char* mode, const char* reference = nullptr) {
+static int prepare_prefill_request(
+    const char* path, const char* metadata_path, const char* request_path, prefill_request& request,
+    const jev_bitnet_model_spec_v2* specification = nullptr) {
     using nlohmann::json;
     try {
-        if (std::strcmp(mode, "full") != 0 && std::strcmp(mode, "reset") != 0 &&
-                !(reference && (std::strcmp(mode, "kernel-error") == 0 || std::strcmp(mode, "kernel-recovery") == 0))) {
-            return 32;
+        if (!path || !metadata_path || !request_path) {
+            throw std::runtime_error("missing prefill input");
         }
         const auto model_bytes = selected_metadata_file(path, 2 * 1024 * 1024 + 1);
         if (std::filesystem::file_size(metadata_path) > 65536) {
@@ -2182,6 +2183,43 @@ static int test_prefill_request(
                 field("qwen35.rope.freq_base").get<float>() != 10000.0f) {
             return 34;
         }
+        if (specification) {
+            const auto& spec = *specification;
+            if (spec.abi_version != 2 || !spec.profile_id || !spec.profile_sha256 ||
+                    !spec.source_revision || !spec.source_tensor_sha256 || spec.layers != 4 ||
+                    spec.hidden != 32 || spec.intermediate != 1024 || spec.vocabulary != 64 ||
+                    !spec.tensors || spec.tensor_count != 53 || !spec.metadata || spec.metadata_count != 14 ||
+                    spec.projection.abi_version != 2 || !spec.projection.tensor_name ||
+                    std::strcmp(spec.projection.tensor_name, "blk.3.ffn_down.weight") != 0 ||
+                    spec.projection.rows != 32 || spec.projection.columns != 1024 ||
+                    !spec.projection.reference_pq2 || spec.projection.reference_bytes != 32 * 8 * 34 ||
+                    field("jev.model.profile_id") != spec.profile_id || field("jev.model.profile_sha256") != spec.profile_sha256 ||
+                    field("jev.model.source_revision") != spec.source_revision ||
+                    field("jev.bitnet.source_tensor_sha256") != spec.source_tensor_sha256) {
+                return 34;
+            }
+            std::set<std::string> names;
+            for (std::size_t index = 0; index < spec.metadata_count; ++index) {
+                const auto& expected = spec.metadata[index];
+                if (!expected.name || !expected.values || !names.insert(expected.name).second) {
+                    return 34;
+                }
+                const auto found = std::find_if(records.begin(), records.end(),
+                    [&](const json& record) { return record["name"] == expected.name; });
+                if (found == records.end() || (*found)["values"].size() != expected.count ||
+                        (expected.kind == 1 && (expected.count != 1 || (*found)["kind"] != "u32" ||
+                            (*found)["values"][0].get<uint32_t>() != *static_cast<const uint32_t*>(expected.values))) ||
+                        (expected.kind == 2 && (expected.count != 1 || (*found)["kind"] != "f32" ||
+                            (*found)["values"][0].get<float>() != *static_cast<const float*>(expected.values))) ||
+                        (expected.kind == 3 && (expected.count != 4 || (*found)["kind"] != "i32_array" ||
+                            (*found)["values"].get<std::vector<int32_t>>() !=
+                                std::vector<int32_t>(static_cast<const int32_t*>(expected.values),
+                                    static_cast<const int32_t*>(expected.values) + 4))) ||
+                        expected.kind < 1 || expected.kind > 3) {
+                    return 34;
+                }
+            }
+        }
         for (const auto& record : records) {
             if ((record["name"] == "qwen35.rope.dimension_sections" && record["values"] != json::array({2, 1, 1, 0})) ||
                     ((record["name"] == "tokenizer.ggml.tokens" || record["name"] == "tokenizer.ggml.token_type") &&
@@ -2219,8 +2257,8 @@ static int test_prefill_request(
         if (packet["prompt_sha256"] != selected_sha256(prompt.data(), prompt.size())) {
             return 34;
         }
-        prefill_request request;
         request.id = packet["id"];
+        request.prompt = prompt;
         request.profile_id = packet["profile_id"];
         request.profile_sha256 = packet["profile_sha256"];
         request.source_revision = field("jev.model.source_revision");
@@ -2243,17 +2281,59 @@ static int test_prefill_request(
             }
             request.options.push_back({id, option["label"], label_token});
         }
-        llama_log_set([](ggml_log_level level, const char* message, void*) {
-            if (level >= GGML_LOG_LEVEL_WARN) {
-                std::fputs(message, stderr);
-            }
-        }, nullptr);
-        return test_prefill_control(path, reference != nullptr, mode, prompt.c_str(), nullptr, nullptr, reference,
-            nullptr, nullptr, nullptr, &request);
+        return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "prefill request refused: %s\n", error.what());
         return 34;
     }
+}
+
+static int test_prefill_request(
+    const char* path, const char* metadata_path, const char* request_path, const char* mode, const char* reference = nullptr,
+    const jev_bitnet_model_spec_v2* specification = nullptr, void* policy = nullptr,
+    const llama_model_tensor_buft_override* overrides = nullptr) {
+    if (!mode || (std::strcmp(mode, "full") != 0 && std::strcmp(mode, "reset") != 0 &&
+            !((reference || specification) &&
+                (std::strcmp(mode, "kernel-error") == 0 || std::strcmp(mode, "kernel-recovery") == 0)))) {
+        return 32;
+    }
+    prefill_request request;
+    const int status = prepare_prefill_request(path, metadata_path, request_path, request, specification);
+    if (status != 0) {
+        return status;
+    }
+    llama_log_set([](ggml_log_level level, const char* message, void*) {
+        if (level >= GGML_LOG_LEVEL_WARN) {
+            std::fputs(message, stderr);
+        }
+    }, nullptr);
+    try {
+        return test_prefill_control(path, reference || specification, mode, request.prompt.c_str(), nullptr, nullptr, reference,
+            specification, policy, overrides, &request);
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "prefill request refused: %s\n", error.what());
+        return 34;
+    }
+}
+
+extern "C" int prism_bitnet_test_prefill_request_preflight_v1(
+    const char* path, const jev_bitnet_model_spec_v2* specification, const char* metadata_path, const char* request_path) {
+    if (!specification) {
+        std::fputs("prefill preflight requires a model specification\n", stderr);
+        return 34;
+    }
+    prefill_request request;
+    return prepare_prefill_request(path, metadata_path, request_path, request, specification);
+}
+
+extern "C" int prism_bitnet_test_prefill_request_policy_v1(
+    const char* path, const jev_bitnet_model_spec_v2* specification, void* policy,
+    const llama_model_tensor_buft_override* overrides, const char* metadata_path, const char* request_path, const char* mode) {
+    if (!specification || !policy || !overrides) {
+        std::fputs("typed prefill requires a live model policy\n", stderr);
+        return 34;
+    }
+    return test_prefill_request(path, metadata_path, request_path, mode, nullptr, specification, policy, overrides);
 }
 #endif
 #endif

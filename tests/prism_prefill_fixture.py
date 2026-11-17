@@ -10,7 +10,8 @@ import json
 import sys
 import gguf
 import numpy as np
-typed = sys.argv[2] in ("dense-request", "bitnet-request")
+owned = sys.argv[2] == "bitnet-owned-request"
+typed = sys.argv[2] in ("dense-request", "bitnet-request", "bitnet-owned-request")
 intermediate = 1024 if typed else 256
 groups = intermediate // 128
 writer = gguf.GGUFWriter(sys.argv[1], "qwen35")
@@ -52,14 +53,36 @@ else:
     writer.add_bos_token_id(0)
     writer.add_eos_token_id(1)
     writer.add_add_bos_token(False)
+if owned:
+    from embedded_jev.prism_codec import profile_model_specification
+    expected_types = {item["name"]: item["type"] for item in profile_model_specification(*typed_fixture[:4])["tensors"]}
+def rounded_bf16(values):
+    encoded = gguf.quants.quantize(np.ascontiguousarray(values), gguf.GGMLQuantizationType.BF16)
+    return gguf.quants.dequantize(encoded, gguf.GGMLQuantizationType.BF16)
+def add_tensor(name, values, **kwargs):
+    if owned:
+        kind = expected_types[name]
+        if kind == "BF16":
+            assert not kwargs
+            values = gguf.quants.quantize(values, gguf.GGMLQuantizationType.BF16)
+            kwargs["raw_dtype"] = gguf.GGMLQuantizationType.BF16
+        elif kind == "PQ2_0":
+            assert kwargs == {"raw_dtype": gguf.GGMLQuantizationType.PQ2_0}
+        else:
+            assert kind == "F32" and values.dtype == np.float32 and not kwargs
+    writer.add_tensor(name, values, **kwargs)
+def dense_projection(weights, values):
+    return weights @ (rounded_bf16(values) if owned else values)
 generator = np.random.default_rng(1407)
 embedding = generator.normal(0, 0.2, (64, 32)).astype(np.float32)
 head = generator.normal(0, 0.1, (64, 32)).astype(np.float32)
+if owned:
+    embedding, head = rounded_bf16(embedding), rounded_bf16(head)
 if sys.argv[2] == "dense_nan":
     head[11, 0] = np.nan
-writer.add_tensor("token_embd.weight", embedding)
-writer.add_tensor("output.weight", head)
-writer.add_tensor("output_norm.weight", np.ones(32, dtype=np.float32))
+add_tensor("token_embd.weight", embedding)
+add_tensor("output.weight", head)
+add_tensor("output_norm.weight", np.ones(32, dtype=np.float32))
 codes = ((np.arange(32 * intermediate).reshape(32, intermediate) * 7) % 3 - 1).astype(np.int8)
 scales = ((np.arange(32 * groups).reshape(32, groups) % 7 + 1) / 256).astype(np.float16)
 gate = np.zeros((intermediate, 32), dtype=np.float32)
@@ -80,8 +103,8 @@ attention_value[np.arange(16), np.arange(16) + 3] = 0.375
 attention_out = np.eye(32, dtype=np.float32) * np.float32(0.125)
 for layer in range(4):
     prefix = "blk." + str(layer) + "."
-    writer.add_tensor(prefix + "attn_norm.weight", np.ones(32, dtype=np.float32))
-    writer.add_tensor(prefix + "post_attention_norm.weight", np.ones(32, dtype=np.float32))
+    add_tensor(prefix + "attn_norm.weight", np.ones(32, dtype=np.float32))
+    add_tensor(prefix + "post_attention_norm.weight", np.ones(32, dtype=np.float32))
     if layer % 2:
         for name, shape in {"attn_q.weight": (64, 32), "attn_k.weight": (16, 32),
                             "attn_v.weight": (16, 32), "attn_output.weight": (32, 32)}.items():
@@ -89,9 +112,9 @@ for layer in range(4):
             if layer == 1 and sys.argv[4] == "nonzero":
                 values = {"attn_q.weight": attention_query, "attn_k.weight": attention_key,
                           "attn_v.weight": attention_value, "attn_output.weight": attention_out}[name]
-            writer.add_tensor(prefix + name, values)
-        writer.add_tensor(prefix + "attn_q_norm.weight", np.ones(8, dtype=np.float32))
-        writer.add_tensor(prefix + "attn_k_norm.weight", np.ones(8, dtype=np.float32))
+            add_tensor(prefix + name, values)
+        add_tensor(prefix + "attn_q_norm.weight", np.ones(8, dtype=np.float32))
+        add_tensor(prefix + "attn_k_norm.weight", np.ones(8, dtype=np.float32))
     else:
         for name, shape in {
             "attn_qkv.weight": (64, 32), "attn_gate.weight": (32, 32), "ssm_conv1d.weight": (64, 3),
@@ -101,14 +124,14 @@ for layer in range(4):
             if layer == 0 and sys.argv[3] == "nonzero":
                 values = {"attn_qkv.weight": recurrent_qkv, "attn_gate.weight": recurrent_gate,
                           "ssm_conv1d.weight": convolution, "ssm_out.weight": recurrent_out}.get(name, values)
-            writer.add_tensor(prefix + name, values)
-        writer.add_tensor(prefix + "ssm_norm.weight", np.ones(8, dtype=np.float32))
-        writer.add_tensor(prefix + "ssm_dt.bias", np.zeros(4, dtype=np.float32))
-        writer.add_tensor(prefix + "ssm_a", -np.ones(4, dtype=np.float32))
-    writer.add_tensor(prefix + "ffn_gate.weight", gate if layer == 3 else np.zeros_like(gate))
-    writer.add_tensor(prefix + "ffn_up.weight", up if layer == 3 else np.zeros_like(up))
+            add_tensor(prefix + name, values)
+        add_tensor(prefix + "ssm_norm.weight", np.ones(8, dtype=np.float32))
+        add_tensor(prefix + "ssm_dt.bias", np.zeros(4, dtype=np.float32))
+        add_tensor(prefix + "ssm_a", -np.ones(4, dtype=np.float32))
+    add_tensor(prefix + "ffn_gate.weight", gate if layer == 3 else np.zeros_like(gate))
+    add_tensor(prefix + "ffn_up.weight", up if layer == 3 else np.zeros_like(up))
     if layer != 3:
-        writer.add_tensor(prefix + "ffn_down.weight", np.zeros((32, intermediate), dtype=np.float32))
+        add_tensor(prefix + "ffn_down.weight", np.zeros((32, intermediate), dtype=np.float32))
     elif sys.argv[2].startswith("bitnet"):
         fields = (codes.reshape(32, groups, 32, 4) + 1).astype(np.uint8)
         if sys.argv[2].endswith("_invalid_code"):
@@ -121,7 +144,7 @@ for layer in range(4):
             scales[0, 0] = np.float16(0.25)
         payload = np.bitwise_or.reduce(fields << (2 * np.arange(4, dtype=np.uint8)), axis=-1)
         encoded = np.concatenate((scales.view(np.uint8).reshape(32, groups, 2), payload), axis=-1)
-        writer.add_tensor(prefix + "ffn_down.weight", encoded.reshape(32, groups * 34),
+        add_tensor(prefix + "ffn_down.weight", encoded.reshape(32, groups * 34),
                           raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
         if sys.argv[2] in ("bitnet-profile", "bitnet-request"):
             reference = gguf.GGUFWriter(sys.argv[5], "qwen35")
@@ -133,12 +156,12 @@ for layer in range(4):
             reference.write_tensors_to_file()
             reference.close()
     else:
-        writer.add_tensor(prefix + "ffn_down.weight", codes.astype(np.float32) * np.repeat(scales, 128, axis=1))
+        add_tensor(prefix + "ffn_down.weight", codes.astype(np.float32) * np.repeat(scales, 128, axis=1))
 writer.write_header_to_file()
 writer.write_kv_data_to_file()
 writer.write_tensors_to_file()
 writer.close()
-if sys.argv[2] not in ("dense", "bitnet", "bitnet-profile", "dense-request", "bitnet-request"):
+if sys.argv[2] not in ("dense", "bitnet", "bitnet-profile", "dense-request", "bitnet-request", "bitnet-owned-request"):
     sys.exit(0)
 def reference_logits(token_ids):
     sequence = embedding[token_ids].copy()
@@ -150,7 +173,7 @@ def reference_logits(token_ids):
             current = embedding[token]
             normalized = current / np.sqrt(np.mean(current * current) + np.float32(1e-5))
             history[:-1] = history[1:]
-            history[-1] = recurrent_qkv @ normalized
+            history[-1] = dense_projection(recurrent_qkv, normalized)
             convolved = np.sum(history * convolution.T, axis=0)
             convolved = convolved / (np.float32(1) + np.exp(-convolved))
             query = convolved[:16].reshape(2, 8)
@@ -166,21 +189,21 @@ def reference_logits(token_ids):
             state += delta[:, :, None] * key[:, None, :]
             output = np.einsum("hij,hj->hi", state, query)
             output /= np.sqrt(np.mean(output * output, axis=1, keepdims=True) + np.float32(1e-5))
-            gating = recurrent_gate @ normalized
+            gating = dense_projection(recurrent_gate, normalized)
             output = output.reshape(32) * (gating / (np.float32(1) + np.exp(-gating)))
-            hidden = current + recurrent_out @ output
+            hidden = current + dense_projection(recurrent_out, output)
             sequence[index] = hidden
         assert np.linalg.norm(hidden - embedding[token_ids[-1]]) > 0.01
     if sys.argv[4] == "nonzero":
         normalized = sequence / np.sqrt(np.mean(sequence * sequence, axis=1, keepdims=True) + np.float32(1e-5))
-        query = (normalized @ attention_query.T)[:, np.arange(4) * 16]
+        query = dense_projection(attention_query, normalized.T).T[:, np.arange(4) * 16]
         query /= np.sqrt(query * query / np.float32(8) + np.float32(1e-5))
-        key = (normalized @ attention_key.T)[:, np.arange(2) * 8]
+        key = dense_projection(attention_key, normalized.T).T[:, np.arange(2) * 8]
         key /= np.sqrt(key * key / np.float32(8) + np.float32(1e-5))
         positions = np.arange(len(token_ids), dtype=np.float32)
         key_cosine = (key * np.cos(positions[:, None])).astype(np.float16).astype(np.float32)
         key_sine = (key * np.sin(positions[:, None])).astype(np.float16).astype(np.float32)
-        value = (normalized @ attention_value.T).astype(np.float16).astype(np.float32).reshape(len(token_ids), 2, 8)
+        value = dense_projection(attention_value, normalized.T).T.astype(np.float16).astype(np.float32).reshape(len(token_ids), 2, 8)
         original = sequence.copy()
         for index in range(len(token_ids)):
             output = np.zeros((4, 8), dtype=np.float32)
@@ -188,16 +211,20 @@ def reference_logits(token_ids):
                 key_head = head_index // 2
                 cosine = query[index, head_index] * np.cos(positions[index])
                 sine = query[index, head_index] * np.sin(positions[index])
+                if owned:
+                    cosine, sine = np.float32(np.float16(cosine)), np.float32(np.float16(sine))
                 scores = (cosine * key_cosine[:index + 1, key_head] + sine * key_sine[:index + 1, key_head]) / np.sqrt(np.float32(8))
                 scores = np.exp(scores - np.max(scores))
                 scores /= np.sum(scores)
+                if owned:
+                    scores = scores.astype(np.float16).astype(np.float32)
                 output[head_index] = np.sum(value[:index + 1, key_head] * scores[:, None], axis=0)
-            sequence[index] += attention_out @ (output.reshape(32) * np.float32(0.5))
+            sequence[index] += dense_projection(attention_out, output.reshape(32) * np.float32(0.5))
         assert np.linalg.norm(sequence - original) > 0.01
         hidden = sequence[-1]
     normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
-    gated = gate @ normalized
-    activation = (gated / (np.float32(1) + np.exp(-gated))) * (up @ normalized)
+    gated = dense_projection(gate, normalized)
+    activation = (gated / (np.float32(1) + np.exp(-gated))) * dense_projection(up, normalized)
     if sys.argv[2].startswith("bitnet"):
         activation_groups = activation.reshape(groups, 128)
         activation_scales = np.max(np.abs(activation_groups), axis=1) / np.float32(127)
@@ -208,7 +235,7 @@ def reference_logits(token_ids):
     else:
         hidden += (codes.astype(np.float32) * np.repeat(scales, 128, axis=1)) @ activation
     hidden = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
-    return ((head if typed else head[[11, 17, 23]]) @ hidden).tolist()
+    return dense_projection(head if typed else head[[11, 17, 23]], hidden).tolist()
 if typed:
     from prism_prefill_fixture import _finish_typed_prefill_fixture
     _finish_typed_prefill_fixture(sys.argv[1], typed_fixture, reference_logits)

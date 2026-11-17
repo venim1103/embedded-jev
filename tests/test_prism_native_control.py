@@ -103,7 +103,154 @@ exec(_tiny_prefill_writer_code())
 '''
 
 
-def test_pinned_prism_typed_prefill_requests_on_generated_models():
+def _owned_typed_prefill_worker_code():
+    return r'''
+import ctypes, json, os, sys, time
+from pathlib import Path
+from tempfile import TemporaryFile
+payload = json.loads(sys.stdin.buffer.read(65537))
+args = payload["args"]
+if len(args) < 2 or args[1] != "--prefill-request-owned-control":
+    os.execv(args[0], args)
+if len(args) != 6:
+    sys.exit(34)
+_, _, model_path, metadata_path, request_path, mode = args
+models = Path.home() / ".cache/huggingface/embedded-jev/models"
+def deny(event, values):
+    if event == "open" and isinstance(values[0], (str, bytes, os.PathLike)):
+        assert not Path(os.fsdecode(values[0])).absolute().is_relative_to(models), "model-cache content prohibited"
+    if event.startswith(("socket.connect", "socket.getaddrinfo", "socket.bind")) or event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+        raise RuntimeError("network and child creation prohibited")
+sys.addaudithook(deny)
+import gguf
+import numpy as np
+from embedded_jev.model_profile import parse_model_profile
+from embedded_jev.prism_codec import (
+    NativeModelSpecification, _model_runtime_library_paths, native_model_specification,
+    profile_model_specification, verified_profile_model_policy, verify_model_runtime_files,
+)
+from embedded_jev.streamed_text import bounded_native_file_record
+started = time.monotonic()
+root = Path(model_path).parent
+fixture = json.loads((root / "fixture.json").read_bytes())
+profile = parse_model_profile(json.dumps(fixture["profile"]).encode())
+inventory, manifest = fixture["inventory"], fixture["manifest"]
+blocks = np.frombuffer(bytes.fromhex(fixture["payload_hex"]), dtype=np.uint8).reshape(32, 8, 34)
+specification = profile_model_specification(profile, inventory, manifest, blocks)
+expected_bytes, model_sha256 = payload["model_bytes"], payload["model_sha256"]
+assert 0 < expected_bytes <= 2 * 1024**2
+observed_model = bounded_native_file_record(Path(model_path), maximum_bytes=expected_bytes, deadline=started + 12)
+assert observed_model == {"path": str(Path(model_path).resolve()), "bytes": expected_bytes, "sha256": model_sha256}
+reader = gguf.GGUFReader(model_path, mode="r")
+try:
+    expected = {item["name"]: item for item in specification["tensors"]}
+    assert len(reader.tensors) == len(expected) == 53
+    for tensor in reader.tensors:
+        item = expected.pop(tensor.name)
+        assert tensor.tensor_type.name == item["type"]
+        shape = [int(value) for value in tensor.shape]
+        assert shape + [1] * (4 - len(shape)) == list(item["ne"])
+    assert not expected
+finally:
+    reader.data._mmap.close()
+directory = Path(args[0]).parent
+native = ctypes.CDLL(str(directory / "libprism_group_scale.so"))
+control = ctypes.CDLL(str(directory / "libprism_bitnet_prefill_test.so"))
+preflight = control.prism_bitnet_test_prefill_request_preflight_v1
+preflight.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), ctypes.c_char_p, ctypes.c_char_p]
+preflight.restype = ctypes.c_int
+function = control.prism_bitnet_test_prefill_request_policy_v1
+function.argtypes = [ctypes.c_char_p, ctypes.POINTER(NativeModelSpecification), ctypes.c_void_p, ctypes.c_void_p,
+                    ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
+function.restype = ctypes.c_int
+record = native_model_specification(specification, blocks)
+if mode == "spec-profile":
+    record.profile_sha256 = b"0" * 64
+elif mode == "spec-layout":
+    record.projection.columns = 512
+elif mode == "spec-metadata":
+    record.metadata[0].kind = 0
+registry = native.prism_bitnet_registered_tensor_registry_size
+registry.restype = ctypes.c_size_t
+before_preflight = registry()
+status = preflight(os.fsencode(model_path), ctypes.byref(record), os.fsencode(metadata_path), os.fsencode(request_path))
+assert registry() == before_preflight
+if status:
+    sys.exit(status)
+assert not mode.startswith("spec-"), "invalid specification passed preflight"
+runtime_files = payload["runtime_files"]
+assert len(runtime_files) == 6 and sum(item["bytes"] for item in runtime_files.values()) <= 64 * 1024**2
+assert len(_model_runtime_library_paths(native, control)) == 6
+verify_model_runtime_files(native, runtime_files, scorer=control)
+initialize = native.prism_bitnet_cpu_runtime_init_v1
+initialize.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
+initialize.restype = ctypes.c_int
+buffer_type = ctypes.c_void_p()
+assert initialize(b"842b1880415d6f508f03b789e5ce70194def7bfd", 1, ctypes.byref(buffer_type)) == 0
+assert buffer_type.value
+baseline = registry()
+libc = ctypes.CDLL(None)
+flush = libc.fflush
+flush.argtypes = [ctypes.c_void_p]
+flush.restype = ctypes.c_int
+owner_exit_refused = False
+with TemporaryFile() as output:
+    saved = os.dup(1)
+    assert flush(None) == 0
+    try:
+        os.dup2(output.fileno(), 1)
+        try:
+            with verified_profile_model_policy(
+                native, model_path, profile, inventory, manifest, blocks,
+                expected_bytes=expected_bytes, expected_sha256=model_sha256,
+                expected_runtime_files=runtime_files, runtime_scorer=control,
+            ) as owner:
+                status = function(os.fsencode(owner.model_path), ctypes.byref(owner.record), owner.handle, owner.overrides,
+                    os.fsencode(metadata_path), os.fsencode(request_path),
+                    ("full" if mode == "owner-exit-error" else mode).encode())
+                verification = dict(owner.verification)
+                if mode == "owner-exit-error":
+                    assert status == 0
+                    with open(model_path, "r+b", buffering=0) as changed:
+                        changed.seek(-1, os.SEEK_END)
+                        value = changed.read(1)
+                        changed.seek(-1, os.SEEK_END)
+                        changed.write(bytes([value[0] ^ 1]))
+        except ValueError as error:
+            if mode != "owner-exit-error" or str(error) != "verified model changed while policy was active":
+                raise
+            owner_exit_refused = True
+    finally:
+        assert flush(None) == 0
+        os.dup2(saved, 1)
+        os.close(saved)
+    assert registry() == baseline
+    output.seek(0)
+    raw = output.read(8193)
+    assert len(raw) <= 8192
+if owner_exit_refused:
+    assert raw and owner.handle.value is None and owner.overrides.value is None
+    print(json.dumps({"event": "verified_owner_exit_refused", "buffered_native_output_bytes": len(raw)}), file=sys.stderr)
+    sys.exit(36)
+if status:
+    assert not raw
+    sys.exit(status)
+report = json.loads(raw)
+assert report["model_sha256"] == verification["model_sha256"] == model_sha256
+assert verification["runtime_file_scope"] == "policy_cpu_base_scorer_llama_registry"
+assert verification["runtime_approval"] == "not_granted_by_file_verification"
+assert owner.handle.value is None and owner.overrides.value is None
+report["verified_owner"] = {
+    "model_sha256": model_sha256, "runtime_files": len(runtime_files), "native_preflight_before_owner": True,
+    "scores_released_after_exit": True, "runtime_approval": verification["runtime_approval"],
+    "buffered_native_output_bytes": len(raw),
+}
+print(json.dumps(report))
+'''
+
+
+@pytest.mark.parametrize("caller", ["cli", "verified-owner"])
+def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
     import hashlib
     import time
     from copy import deepcopy
@@ -120,18 +267,41 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models():
     assert executable.is_file()
     assert "CMAKE_BUILD_TYPE:STRING=Release" in (Path(build_dir) / "CMakeCache.txt").read_text()
     started = time.monotonic()
+    runtime_files = {}
+    if caller == "verified-owner":
+        from embedded_jev.streamed_text import bounded_native_file_record
+
+        cache = (Path(build_dir) / "CMakeCache.txt").read_text()
+        library_dir = Path(next(line.split("=", 1)[1] for line in cache.splitlines()
+            if line.startswith("PRISM_GGML_LIBRARY_DIR:PATH=")))
+        paths = {
+            "bridge": Path(build_dir) / "bin/libprism_group_scale.so",
+            "scorer": Path(build_dir) / "bin/libprism_bitnet_prefill_test.so",
+            "llama": Path(build_dir) / "bin/libllama.so",
+            "ggml_registry": Path(build_dir) / "bin/libggml.so",
+            "ggml_cpu": library_dir / "libggml-cpu.so",
+            "ggml_base": library_dir / "libggml-base.so",
+        }
+        consumed = 0
+        for name, path in paths.items():
+            observed = bounded_native_file_record(path.resolve(strict=True),
+                maximum_bytes=64 * 1024**2 - consumed, deadline=started + 12)
+            consumed += observed["bytes"]
+            runtime_files[name] = {key: observed[key] for key in ("bytes", "sha256")}
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
         "TOKENIZERS_PARALLELISM": "false", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": "",
         "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
     worker = _typed_prefill_fixture_worker_code()
-    execute = "import json, os, sys\nargs=json.loads(sys.stdin.buffer.read(65537))\nos.execv(args[0], args)"
+    execute = (_owned_typed_prefill_worker_code() if caller == "verified-owner" else
+        "import json, os, sys\nargs=json.loads(sys.stdin.buffer.read(65537))\nos.execv(args[0], args)")
     samples, successes, refusals = [], 0, 0
     output_bytes = scratch_peak = 0
     with TemporaryDirectory(prefix="jev-typed-prefill-") as directory:
         root = Path(directory)
         descriptors = len(os.listdir("/proc/self/fd"))
-        for backend in ("dense", "bitnet"):
+        for backend in (("dense", "bitnet") if caller == "cli" else ("bitnet-owned",)):
             stage = time.monotonic()
+            use_bitnet = backend != "dense"
             current = root / backend
             current.mkdir()
             _write_typed_prefill_inputs(current)
@@ -156,7 +326,8 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models():
                 entry.chmod(0o400)
             metadata = current / "metadata.json"
             oracle = json.loads((current / "oracle.json").read_bytes())
-            command = "--prefill-request-bitnet-control" if backend == "bitnet" else "--prefill-request-control"
+            command = ("--prefill-request-owned-control" if caller == "verified-owner" else
+                "--prefill-request-bitnet-control" if use_bitnet else "--prefill-request-control")
             leading = [command, model, reference] if backend == "bitnet" else [command, model]
 
             def run(packet_path, *, mode="full", expected_status=0, metadata_path=metadata, arguments=None):
@@ -165,19 +336,36 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models():
                 scratch_peak = max(scratch_peak, sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536)
                 assert scratch_peak < 8 * 1024**2
                 call = arguments if arguments is not None else [*leading, metadata_path, packet_path, mode]
+                native_arguments = [str(executable), *map(str, call)]
+                payload = ({"args": native_arguments, "model_bytes": receipt["model_bytes"],
+                    "model_sha256": fixed[model], "runtime_files": runtime_files} if caller == "verified-owner" else native_arguments)
                 result = _run_tokenizer_only_guard_v3(interpreter, execute,
-                    json.dumps([str(executable), *map(str, call)]).encode(), env=env,
+                    json.dumps(payload).encode(), env=env,
                     maximum_seconds=min(15, 60 - (time.monotonic() - started)), maximum_rss_bytes=1024**3)
                 samples.append(result)
                 output_bytes += len(result["stdout"].encode()) + len(result["stderr"].encode())
                 assert output_bytes <= 65536
-                assert result["returncode"] == expected_status, result
+                assert result["returncode"] == expected_status, (
+                    f"native status {result['returncode']}, expected {expected_status}; "
+                    f"stdout={result['stdout']!r}; stderr={result['stderr']!r}")
                 if expected_status:
                     refusals += 1
                     assert not result["stdout"], result
+                    if expected_status == 36:
+                        withheld = json.loads(result["stderr"].splitlines()[-1])
+                        assert withheld["event"] == "verified_owner_exit_refused"
+                        assert 0 < withheld["buffered_native_output_bytes"] <= 8192
+                        output_bytes += withheld["buffered_native_output_bytes"]
+                        assert output_bytes <= 65536
                     return None
                 successes += 1
-                return json.loads(result["stdout"])
+                report = json.loads(result["stdout"])
+                if caller == "verified-owner" and call[0] == command:
+                    buffered = report["verified_owner"]["buffered_native_output_bytes"]
+                    assert 0 < buffered <= 8192
+                    output_bytes += buffered
+                    assert output_bytes <= 65536
+                return report
 
             fresh = {}
             for name in ("2", "3", "16", "reordered"):
@@ -206,10 +394,15 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models():
                     np.testing.assert_allclose(report["allowed_label_probability_mass"],
                         vocabulary_scores[[option["token_id"] for option in options]].sum(), rtol=2e-5, atol=2e-5)
                     np.testing.assert_allclose(report["max_option_probability"], max(scores), rtol=2e-5, atol=2e-5)
-                    assert report["prefill_calls"] == calls and report["bitnet_dispatch_calls"] == (calls if backend == "bitnet" else 0)
-                    assert report["weight_repacks"] == (backend == "bitnet")
-                    assert report["bitnet_last_input_tokens"] == (len(packet["input_token_ids"]) if backend == "bitnet" else 0)
+                    assert report["prefill_calls"] == calls and report["bitnet_dispatch_calls"] == (calls if use_bitnet else 0)
+                    assert report["weight_repacks"] == use_bitnet
+                    assert report["bitnet_last_input_tokens"] == (len(packet["input_token_ids"]) if use_bitnet else 0)
                     assert report["memory_position_min"] == report["memory_position_max"] == len(packet["input_token_ids"]) - 1
+                    if caller == "verified-owner":
+                        evidence = report["verified_owner"]
+                        assert evidence["model_sha256"] == fixed[model] and evidence["runtime_files"] == 6
+                        assert evidence["native_preflight_before_owner"] is evidence["scores_released_after_exit"] is True
+                        assert evidence["runtime_approval"] == "not_granted_by_file_verification"
                 assert reports[0]["options"] == reports[1]["options"]
             original = json.loads((current / "request-3.json").read_bytes())
             fault = current / "fault.json"
@@ -261,18 +454,26 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models():
                 legacy = run(current / "request-3.json", arguments=[old_command, model, fault])
                 assert legacy["selected_records"] == len(records) and legacy["model_loaded"] is False
                 fault.unlink()
-            if backend == "bitnet":
+            if use_bitnet:
                 run(current / "request-3.json", mode="kernel-error", expected_status=29)
                 recovered = run(current / "request-3.json", mode="kernel-recovery")
                 assert recovered["rejected_prefill_calls"] == recovered["kernel_error_status"] == 1
                 assert recovered["options"] == fresh["3"]["options"]
                 assert recovered["bitnet_dispatch_calls"] == recovered["weight_repacks"] == 1
+            if caller == "verified-owner":
+                for mode in ("spec-profile", "spec-layout", "spec-metadata"):
+                    run(current / "request-3.json", mode=mode, expected_status=34)
+                changed_model = current / "changed.gguf"
+                changed_model.write_bytes(model.read_bytes())
+                run(current / "request-3.json", arguments=[command, changed_model, metadata,
+                    current / "request-3.json", "owner-exit-error"], expected_status=36)
+                changed_model.unlink()
             for entry, digest in fixed.items():
                 assert hashlib.sha256(entry.read_bytes()).hexdigest() == digest
         assert len(os.listdir("/proc/self/fd")) == descriptors
         assert time.monotonic() - started < 60
     assert not root.exists()
-    print(json.dumps({"successes": successes, "refusals": refusals, "output_bytes": output_bytes,
+    print(json.dumps({"caller": caller, "successes": successes, "refusals": refusals, "output_bytes": output_bytes,
         "scratch_peak_bytes": scratch_peak, "seconds": time.monotonic() - started,
         "observed_group_rss_bytes": max(sample["observed_group_rss_bytes"] for sample in samples),
         "observed_host_available_minimum_bytes": min(sample["observed_host_available_minimum_bytes"] for sample in samples),

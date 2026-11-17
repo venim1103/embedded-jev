@@ -4174,6 +4174,57 @@ for actual results and resource/output-blocked broader legacy checks. Source
 identity, caller authentication, real-profile runtime/numerical acceptance,
 quality, whole-model ternary execution and target-device evidence remain separate.
 
+### Generated Typed Verified-Owner Caller
+
+The shared test scorer additionally exports two raw C hooks:
+
+```text
+prism_bitnet_test_prefill_request_preflight_v1(model_path, specification, metadata_path, request_path)
+prism_bitnet_test_prefill_request_policy_v1(model_path, specification, policy, overrides, metadata_path, request_path, mode)
+```
+
+They use the existing v2 model specification/policy types. Silent preflight
+shares the CLI request parser and 38-field getter checks, binds profile/source
+identity, geometry, projection and metadata values to the supplied record, and
+does not create a policy or initialize the backend. The scorer rechecks those
+inputs before calling the same prefill/score implementation with the live
+owner's record, policy and overrides. Existing commands and C ABIs remain.
+Both hooks retain the generated `synthetic-typed-prefill-v1` identity, four/
+32/1024/64 geometry, 2 MiB GGUF and bounded request/metadata limits; this is not
+an arbitrary-profile execution API.
+
+The raw hooks do not authenticate a caller or enforce its call order. The
+generated verified-owner driver implements the required sequence:
+
+1. Match the model to the parent's explicit byte/SHA pin and its 53 tensor
+   shapes/types to the profile-derived policy.
+2. Run native preflight and require an unchanged backend-registration count.
+3. Verify six actual defining runtime files against parent-supplied pins, then
+   initialize the runtime and establish its persistent-registration baseline.
+4. Enter `verified_profile_model_policy`, score using its descriptor path and
+   live handles, and privately buffer all score stdout.
+5. Release scores only after successful owner exit and file/runtime rechecks;
+   verify invalidated handles and restored policy-registration count.
+
+The scorer now compiles with the same JSON include path and OpenSSL Crypto
+link as the loader, using the existing project dependency. Six-file verification
+still covers bridge, CPU, base, scorer, llama and registry files, not loaded pages
+or all transitive/system libraries, including Crypto. It is not source attestation
+or runtime approval.
+
+The fixture's separate `bitnet-owned-request` variant writes the profile's actual
+BF16 matrices, F32 vectors/convolution and unchanged PQ2 projection. Its NumPy
+oracle applies the pinned BF16 operand encoder to weights and dense inputs and
+the declared attention FP16 intermediates; old F32/256-wide variants remain.
+The same generated selector above now runs `[cli]` and `[verified-owner]`
+separately, each under its existing 60-second/1 GiB/2 GiB-reserve/no-swap-growth
+stage guards. The owner case adds caller-record faults and a model mutation after
+successful native scoring: exit refusal must expose no score stdout. Private
+native buffers are capped at 8192 bytes and counted, including withheld bytes,
+within the unchanged 64 KiB aggregate output budget; scratch remains <=8 MiB.
+This proves generated arithmetic/lifetime integration, not source conversion,
+real-profile S2/S3, representative quality or calibrated confidence.
+
 ### Bounded Native V5 Header Preflight
 
 The Release loader also provides a metadata-only control:

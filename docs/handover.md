@@ -6,6 +6,113 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Generated Typed Verified-Owner Checkpoint (2026-11-17)
+
+**Generated BF16 typed caller integration accepted; real-profile execution and
+S3 remain open.** Continued autonomously after the bounded prefix checkpoint
+`e0047fa`, without model experiments, downloads or broadening runtime approval.
+The generated CLI remains unchanged. New shared test hooks reuse its request
+preparation and score path with an existing v2 owned policy, rather than a second
+scorer or an F32 policy disguised as BF16.
+
+### Change And Contract
+
+Added silent `prism_bitnet_test_prefill_request_preflight_v1` and
+`prism_bitnet_test_prefill_request_policy_v1`. They bind the supplied model
+record's profile/source identities, dimensions, frozen projection and metadata
+to the same 38-field/typed request checks. The old CLI and C ABIs, synthetic
+profile ID, four/32/1024/64 geometry, 2 MiB model cap, token/option bounds and
+numerical tolerances remain. The test scorer now has the loader's JSON include
+path and existing OpenSSL Crypto link; no new dependency was installed.
+The [development contract](development.md#generated-typed-verified-owner-caller)
+documents the raw hooks and their caller obligations.
+
+The new fixture writes actual profile-policy BF16 matrices, F32 vectors/
+convolution and the original projection codes with eight independent FP16
+input-group scales per row. Its independent NumPy oracle rounds BF16 dense
+operands and declared attention FP16 intermediates, following the existing P4
+precision controls. No learned weights, fitting, conversion or candidate change.
+Existing generated F32 and 256-wide branches remain separate.
+
+The generated caller matches its parent's model byte/SHA pin and 53 tensor
+shapes/types, runs native preflight before runtime initialization, and requires
+no preflight registration side effect. It verifies all six defining runtime
+files against parent pins before initialization and again through
+`verified_profile_model_policy`. It calls the scorer on the owner's descriptor
+path, buffers score stdout privately, and publishes only after successful owner
+exit, handle invalidation and registry cleanup. These file pins are not source
+attestation, loaded-page/transitive-library attestation or runtime approval.
+The raw C hooks do not enforce this sequence on arbitrary clients; no production
+caller or another profile's execution is claimed.
+
+### Matched Supervised Builds
+
+Reused the pinned clean sources, environments, Release cache and unchanged
+two-job setting. Built serially, each under its own unchanged 60-second observer,
+1 GiB RSS/HWM, 2 GiB reserve and no-owned-swap/no-host-swap-growth guards:
+
+- Shared scorer: CMake **19.454 s** including regeneration with unchanged cache
+  content, observer **29.386 s**; five processes/zero live, peak RSS/HWM
+  **526,430,208 B**, available minimum **11,131,351,040 B**.
+- Loader: CMake **15.168 s**, observer **23.225 s**; five processes/zero live,
+  peak RSS/HWM **525,885,440 B**, available minimum **11,840,946,176 B**.
+
+Both observers emitted `ready` before launch, positive `observed` and successful
+`finished`, with zero owned swap and stable host swap **4,415,488 B**. Independent
+CMake success supplies the build result; observer receipts remain observations.
+Only the selected translation unit was compiled for each target; pinned
+dependencies were not rebuilt. These are new matched builds, not retrospective
+repairs of any older missing samples or failed resource checks.
+
+### Failed Diagnostic, Repair And Accepted Evidence
+
+The first owner test failed (**1 failed in 5.72 s**), with the worker traceback
+hidden by pytest's abbreviated result dictionary. A diagnostic-only rerun with
+explicit stderr surfaced the assertion (**1 failed in 8.07 s**): the registry
+baseline had been taken before the process-persistent default runtime type was
+registered. Source inspection and the existing P4 driver establish that this
+registration is not a leaked policy. Kept the cleanup assertion unchanged:
+preflight now proves the registry unchanged, then explicit runtime initialization
+establishes the correct persistent baseline before owner creation.
+
+After that substantive harness repair, the owner case passed **1 test in
+17.86 s**. Further review tightened the caller pins to come from the parent and
+counted every private native-output byte, including intentionally withheld
+scores. No unchanged native rebuild or numerical tolerance change followed.
+The final changed owner case passed **1 test in 16.18 s**, internal **14.864 s**:
+
+- **12 positives**: nine scored full/reset/recovery reports plus three legacy
+  getter responses; **20 refusals** covering packet/metadata faults, injected
+  kernel failure, three mismatched caller records and active-file exit refusal.
+- 2/3/16-option and reordered mappings, native token agreement, independent
+  logits/probabilities at unchanged `rtol=atol=2e-5`, zero answer generation,
+  fresh/reset agreement and actual BitNet dispatch/repack/input rows.
+- A disposable model copy is changed after successful native scoring. Owner
+  exit refuses, frees handles and withholds the already-buffered score JSON.
+- Group RSS **268,935,168 B**, available minimum **12,143,919,104 B**, all public
+  and private output **41,776 B**, scratch peak **1,688,887 B**.
+
+After the matched loader build, unchanged CLI and prefix contracts passed
+together: **2 passed in 12.89 s**. CLI retained **23 positives/31 refusals**,
+internal **8.105 s**, RSS **269,590,528 B**, available minimum
+**11,971,665,920 B**, output **35,913 B**, scratch **3,411,752 B**. Prefix retained
+**3/25**, header **6016 B**, internal **3.833 s**, RSS **268,959,744 B**,
+available minimum **11,965,935,616 B**, output **1629 B**, logical/physical
+scratch **43,671,056/1,777,664 B**. All stages had zero owned swap and stable
+host swap **4,415,488 B**. Read-only hashes/descriptors preserved, temporary
+models/logs removed, no active helper left running.
+
+The default root gate passed **1956 passed, 234 skipped in 58.45 s**, plus clean
+Ruff/whitespace; Python file and generated-worker syntax checks also passed.
+The extra default skip is the new parameterized owner case, executed separately
+above. No pushes, branches, subagents or user-setting changes.
+
+Next: prepare a separately scoped real-profile S2/S3 provenance, memory and
+same-operation numerical acceptance plan. The test hooks must not accept real
+files by weakening their synthetic ID/geometry/byte gates. Source identity,
+per-model runtime approval and learned numerical evidence remain separate from
+these generated arithmetic and ownership controls.
+
 ## S2 Bounded Native Header Preflight Checkpoint (2026-11-17)
 
 **Native prefix prerequisite accepted on generated inputs; real-profile caller
