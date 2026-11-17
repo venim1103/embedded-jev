@@ -3484,6 +3484,14 @@ waiting/reaping its build; the observer reports tracked-process stopping only.
 Failure before identification cannot establish that an external job was stopped;
 cancel that job through its launcher and do not accept the watcher result.
 
+Ninja's flat `sh -c` compiler/linker wrappers are lexed before source-path
+comparison, including the exact leading/trailing `: &&` no-ops used by CMake.
+They are never executed by the observer. Compound shell commands, expansions,
+redirections and unsupported shell invocation shapes are refused. Both the
+wrapper's actual source operands and observed compiler children remain subject
+to the original source allowlist; declaring the whole shell string as a source
+is neither necessary nor permitted.
+
 Receipts are resource observations, not peak-memory guarantees, source/caller
 authentication, build success or runtime evidence. Use an exclusive authorized
 build and independently verify pins, worktree, Release configuration and cached

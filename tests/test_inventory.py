@@ -590,7 +590,7 @@ def _model_policy_fixture():
     return profile, report, manifest, blocks
 
 
-def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32, metadata_output=None, tokenizer_bytes=None, headers_output=None, record_output=None):
+def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, value_heads=4, vector_dtype="BF16", conv_dtype="BF16", kernel_size=4, pin_zero_source=False, source_shards=1, vocab_size=32, metadata_output=None, tokenizer_bytes=None, headers_output=None, record_output=None, tiny_request=False):
     from embedded_jev.prism_codec import PRISM_SOURCE_REVISION
 
     metadata, _, record = _packaging_fixture(text_only=True)
@@ -605,6 +605,14 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     hidden = geometry["hidden_size"]
     geometry["rope_parameters"]["mrope_section"] = [3, 3, 2] if target == "o" else [2, 1, 1]
     record["packaging"]["text_tensor_count"] = 28 if hybrid else 25
+    if tiny_request:
+        geometry.update(hidden_size=32, intermediate_size=1024, num_hidden_layers=4, head_dim=8,
+            layer_types=["linear_attention", "full_attention"] * 2, linear_key_head_dim=8, linear_value_head_dim=8,
+            linear_conv_kernel_dim=3, partial_rotary_factor=1.0, rms_norm_eps=1e-5)
+        geometry["rope_parameters"].update(partial_rotary_factor=1.0, rope_theta=10000)
+        record["profile_id"] = "synthetic-typed-prefill-v1"
+        record["packaging"]["text_tensor_count"] = 53
+        hidden = 32
     record["tokenization"]["label_token_ids"] = dict(zip("ABCDEFGHIJKLMNOP", [11, 17, 23, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19], strict=True))
     config = json.loads(metadata["config.json"])
     config.update(geometry)
@@ -656,7 +664,8 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     profile = parse_model_profile(json.dumps(record).encode())
     report = build_inventory(metadata, headers, profile=profile)
     attention_target = target in ("q", "k", "v", "o")
-    tensor = f"model.layers.1.self_attn.{target}_proj.weight" if attention_target else f"model.layers.0.mlp.{target}_proj.weight"
+    layer = 3 if tiny_request else 0
+    tensor = f"model.layers.1.self_attn.{target}_proj.weight" if attention_target else f"model.layers.{layer}.mlp.{target}_proj.weight"
     rows, columns = shapes[tensor]
     codes = ((np.arange(rows * columns).reshape(rows, columns // 128, 128) * 7) % 3 - 1).astype(np.int8)
     if target in ("q", "k", "v"):
@@ -670,7 +679,7 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     manifest = {
         "schema_version": 2, "format": "jev-profile-projection-v2", "profile_id": profile.profile_id,
         "profile_sha256": profile.sha256, "tensor": tensor,
-        "gguf_tensor": "blk.1.attn_output.weight" if target == "o" else f"blk.1.attn_{target}.weight" if attention_target else f"blk.0.ffn_{target}.weight",
+        "gguf_tensor": "blk.1.attn_output.weight" if target == "o" else f"blk.1.attn_{target}.weight" if attention_target else f"blk.{layer}.ffn_{target}.weight",
         "shape": [rows, columns], "group_size": 128, "transform": "identity", "source_tensor_sha256": "f" * 64,
         "payload_bytes": blocks.nbytes, "payload_sha256": hashlib.sha256(memoryview(blocks)).hexdigest(),
     }
@@ -679,6 +688,17 @@ def _prefill_model_policy_fixture(target="down", *, hybrid=True, state_size=32, 
     if headers_output is not None:
         headers_output.update(headers)
     return profile, report, manifest, blocks
+
+
+def test_typed_prefill_fixture_passes_unmodified_projection_policy():
+    from embedded_jev.prism_codec import profile_model_specification
+
+    profile, report, manifest, blocks = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64)
+    specification = profile_model_specification(profile, report, manifest, blocks)
+    projection = specification["projection"]
+    assert projection["tensor_name"] == "blk.3.ffn_down.weight"
+    assert projection["columns"] == profile.geometry["intermediate_size"] == 1024
+    assert projection["reference_bytes"] == blocks.nbytes == 32 * 8 * 34
 
 
 @pytest.mark.parametrize("source_shards", [1, 2])

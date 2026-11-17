@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import select
+import shlex
 import signal
 import sys
 import time
@@ -165,6 +166,28 @@ def _host_memory():
     return values["MemAvailable"], values["SwapTotal"] - values["SwapFree"]
 
 
+def _source_arguments(process):
+    arguments = process.arguments
+    if arguments and Path(arguments[0]).name in ("sh", "dash", "bash"):
+        if len(arguments) != 3 or arguments[1] != "-c":
+            raise ValueError("unsupported build shell invocation")
+        lexer = shlex.shlex(arguments[2], posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        arguments = tuple(lexer)
+        if arguments[:2] == (":", "&&"):
+            arguments = arguments[2:]
+        if arguments[-2:] == ("&&", ":"):
+            arguments = arguments[:-2]
+        if not arguments or any(
+            (argument and all(character in ";&|<>()" for character in argument))
+            or "$" in argument or "`" in argument or "\n" in argument
+            for argument in arguments
+        ):
+            raise ValueError("unsupported build shell command")
+    return arguments[1:]
+
+
 def _terminate_build(identities, deadline):
     while time.monotonic() < deadline:
         members = _build_members(_process_snapshot(), identities, None, None, discover_roots=False)
@@ -222,7 +245,7 @@ def watch_build(directory, target, sources, *, maximum_seconds=60, emit):
             for sample in members:
                 if not sample.arguments_complete:
                     raise ValueError("build command line exceeds bounds")
-                for argument in sample.arguments[1:]:
+                for argument in _source_arguments(sample):
                     if not argument.startswith("-") and Path(argument).suffix in (".c", ".cc", ".cpp", ".cxx"):
                         if (sample.directory / argument).resolve() not in sources:
                             raise ValueError("unexpected dependency compilation")

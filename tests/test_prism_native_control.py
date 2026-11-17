@@ -5617,6 +5617,33 @@ def test_external_build_watcher_matches_only_bounded_target(tmp_path, defect):
         assert _matches_build(process, tmp_path, "loader") is (defect is None)
 
 
+@pytest.mark.parametrize("command", [
+    'clang++-18 -I"/cached/include path" -c "/workspace/loader.cpp"',
+    'clang++-18 -c "/workspace/dependency.cpp"',
+    ': && clang++-18 -c "/workspace/loader.cpp" && :',
+])
+def test_external_build_watcher_inspects_flat_ninja_shell_sources(tmp_path, command):
+    from embedded_jev.build_guard import ProcessSample, _source_arguments
+
+    sample = ProcessSample(71, 50, 100, ("/bin/sh", "-c", command), tmp_path, 1024, 2048, 0)
+    sources = [argument for argument in _source_arguments(sample) if Path(argument).suffix == ".cpp"]
+    assert sources == ["/workspace/loader.cpp" if "loader" in command else "/workspace/dependency.cpp"]
+
+
+
+@pytest.mark.parametrize("command", [
+    "clang++ loader.cpp && clang++ dependency.cpp", "clang++ loader.cpp; true",
+    "clang++ $SOURCE", "clang++ loader.cpp | cat", "clang++ loader.cpp <<< source",
+])
+def test_external_build_watcher_refuses_nonflat_shell_commands(tmp_path, command):
+    from embedded_jev.build_guard import ProcessSample, _source_arguments
+
+    sample = ProcessSample(71, 50, 100, ("/bin/sh", "-c", command), tmp_path, 1024, 2048, 0)
+    with pytest.raises(ValueError, match="unsupported build shell"):
+        _source_arguments(sample)
+
+
+
 def test_external_build_watcher_never_targets_recycled_pid(tmp_path, monkeypatch):
     import time
     from embedded_jev import build_guard

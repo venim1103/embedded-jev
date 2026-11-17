@@ -6,6 +6,88 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## Eligible S2 Fixture And Watcher Prerequisites (2026-11-17)
+
+**Source prerequisites passed; S2 native runner remains unaccepted.**
+The user's next autonomous go-ahead was interpreted as approval for the
+preceding 260-second generated-only proposal, not for models or renewed old
+resource failures. Started at `29482be` on `main`; preserved the user's
+untracked `.vscode/` settings. Prism was clean at
+`842b1880415d6f508f03b789e5ce70194def7bfd`; reused the existing Release/Ninja
+cache, two-job setting and GGML libraries. Cached distribution versions remain
+Transformers 5.12.1, tokenizers 0.22.2 and NumPy 2.2.6. No installations/downloads.
+
+The source regression first reproduced the genuine 256-wide eligibility refusal:
+**1 failed in 1.88 s**, at unchanged `profile_projection_specification`.
+The generated profile fixture now uses four layers, hidden 32, FFN 1024 and
+the layer-3 down projection. Its new default control passes the complete
+`profile_model_specification`, including the existing eligibility/payload gates:
+**1 passed in 1.41 s**. No inventory bit or production numerical guard changed.
+Existing fixture defaults remain unchanged. The pending flat-shell build
+watcher repair and its eight added cases are also included in this source
+checkpoint; see the preceding attempt's historical evidence below.
+
+Fresh resource preflight sampled ten seconds without host swap growth or
+swap-out activity: minimum available **10,467,766,272 B**, host swap baseline
+**1,482,752 B**. This is a new observation, not a repair of the prior failed gate.
+The host is shared; no settings or other user's processes were changed.
+
+Restored and adapted the saved runner to the approved 1024-wide/2 MiB fixture.
+The supervised changed-loader build then **failed compilation in 21.569 s**:
+the model ABI's `intermediate` field is `uint32_t`, not `size_t`; the new
+initializer narrowed a nonconstant value. CMake diagnostics independently
+confirmed that error. Corrected the producer to a bounded `uint32_t` dimension,
+removing the unnecessary casts, but **did not claim compilation success**.
+
+The observer independently recorded `ready` before CMake Tools, positive
+`observed`, then `finished` after **32.610 s**: four observed processes, zero
+live at finish, RSS/HWM **463,499,264 B**, host available minimum
+**7,103,696,896 B**, zero owned swap, host swap baseline/maximum **1,683,456 B**.
+Its `build_success_verified=false` is essential: successful resource observation
+does not turn a compiler failure into an accepted build.
+
+Conservative watcher plus compiler receipts used **54.18 of the allocated
+80 build seconds**. Another supervised build could not realistically fit the
+remaining 25.82 s. The user was unavailable to approve a <=30-second phase
+reallocation within the same total, so it was not assumed. No further build or
+generated native request was launched. The earlier getter-build supervision
+gap and two old optional resource-failed compatibility controls remain open.
+
+The corrected but unaccepted runner, shared pytest-free generator and generated
+integration test are preserved separately in
+`/home/vscode/.copilot/session-state/f0b7bb5a-ff6a-44c5-aeaf-6454b1304938/files/s2-typed-runner-1024-wip.patch`.
+Reverse-application was checked before shelving and forward `git apply --check`
+passed afterwards. This new patch expects the accepted eligible fixture/watcher
+prerequisites and excludes them; do not substitute the older 256-wide patch.
+Native source and its old generator are restored to the tracked versions.
+The cached executable still belongs to the **older unaccepted WIP**, not the
+restored source or the corrected 1024-wide runner. Do not execute it as matched
+evidence. No generated model or candidate was retained; temporary index removed.
+
+After substantive fixture repair and isolation of these source prerequisites,
+the new root gate, with optional native flags absent, passed:
+**1956 passed, 231 skipped in 60.13 s**, plus clean Ruff and `git diff --check`.
+The earlier two-failure resource gate remains recorded below, not rewritten.
+This was one new gate, not a repeated unchanged resource-failure retry.
+Root/optional success must remain separate: no S2 generated runtime acceptance
+or real-model numerical/quality evidence follows from this checkpoint.
+Post-gate host swap remained 1,683,456 B; no owned build/watcher child remained.
+
+### Next Generated Runner Scope
+
+The 260-second slice is closed; unused time is not a renewed build allocation.
+Before reapplying the new recovery patch and executing native checks, separately
+approve a fresh **280-second ceiling**: 100 s supervised changed-loader build
+and conservative build/watcher receipt accounting, 60 s guarded fixture/native
+controls, 90 s new root source gate, 30 s setup/cleanup. Each observer remains
+<=60 s including cleanup; children <=15 s, generated stage <=60 s. Keep <=2 build
+jobs, one runtime thread/sequence, <=1 GiB observed RSS/HWM, >=2 GiB available
+reserve, zero owned swap/no host-swap growth, F32 GGUF <=2 MiB, source/request/
+metadata <=64 KiB, scratch <=8 MiB and aggregate output <=64 KiB.
+Recheck applicability, current resource headroom, pins and build identity first.
+No numerical tolerance/eligibility relaxation, real-model work, downloads,
+new retained candidate, refit, quality experiment or device execution is included.
+
 ## Generated S2 Attempt And Supervised Build Repair (2026-11-17)
 
 **Actual changed-loader build supervision passed; generated typed-runner
