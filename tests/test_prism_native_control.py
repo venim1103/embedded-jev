@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from prism_prefill_fixture import _tiny_prefill_writer_code, typed_prefill_tokenizer_bytes
+
 
 PRISM_REVISION = "842b1880415d6f508f03b789e5ce70194def7bfd"
 BITNET_REVISION = "0b341e582afbf9e1011f24744b554c96a3477eb5"
@@ -53,6 +55,214 @@ def _profile_parity_fixture(profile, inventory, manifest, blocks):
     return fixture
 
 
+def test_pinned_prism_typed_prefill_requests_on_generated_models():
+    import hashlib
+    import time
+    from copy import deepcopy
+    from tempfile import TemporaryDirectory
+
+    import numpy as np
+    from test_inventory import _prefill_model_policy_fixture
+    from embedded_jev.inventory import build_inventory
+    from embedded_jev.model_profile import parse_model_profile
+
+    source_dir, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
+    build_dir = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+    if not build_dir:
+        pytest.skip("requires the separately approved Release loader build")
+    assert subprocess.check_output(["git", "-C", str(source_dir), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    executable = Path(build_dir) / "bin/prism_bitnet_loader_control"
+    assert executable.is_file()
+    assert "CMAKE_BUILD_TYPE:STRING=Release" in (Path(build_dir) / "CMakeCache.txt").read_text()
+    started = time.monotonic()
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "TOKENIZERS_PARALLELISM": "false", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
+    worker = r'''
+import json, os, sys
+from pathlib import Path
+arguments = json.loads(sys.stdin.buffer.read(65537))
+models = Path.home() / ".cache/huggingface/embedded-jev/models"
+def deny(event, args):
+    if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
+        assert not Path(os.fsdecode(args[0])).absolute().is_relative_to(models), "model-cache content prohibited"
+    if event.startswith(("socket.connect", "socket.getaddrinfo", "socket.bind")) or event in ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec"):
+        raise RuntimeError("network and child creation prohibited")
+sys.addaudithook(deny)
+from prism_prefill_fixture import _tiny_prefill_writer_code
+sys.argv = ["fixture", arguments["model"], arguments["backend"], "nonzero", "nonzero", arguments["reference"]]
+exec(_tiny_prefill_writer_code())
+'''
+    execute = "import json, os, sys\nargs=json.loads(sys.stdin.buffer.read(65537))\nos.execv(args[0], args)"
+    samples, successes, refusals = [], 0, 0
+    output_bytes = scratch_peak = 0
+    with TemporaryDirectory(prefix="jev-typed-prefill-") as directory:
+        root = Path(directory)
+        descriptors = len(os.listdir("/proc/self/fd"))
+        for backend in ("dense", "bitnet"):
+            stage = time.monotonic()
+            current = root / backend
+            current.mkdir()
+            tokenizer_bytes = typed_prefill_tokenizer_bytes()
+            metadata_files, headers, record = {}, {}, {}
+            _, _, manifest, blocks = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64,
+                metadata_output=metadata_files, headers_output=headers, record_output=record, tokenizer_bytes=tokenizer_bytes)
+            metadata_files[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}"
+            metadata_files["tokenizer_config.json"] = b'{"tokenizer_class":"Qwen2Tokenizer","clean_up_tokenization_spaces":false,"unk_token":"<pad>","eos_token":"<pad>","pad_token":"<pad>"}'
+            record["tokenization"].update(label_token_ids={label: index for index, label in enumerate("ABCDEFGHIJKLMNOP")},
+                special_token_ids={"<pad>": 58, "<|control|>": 59}, non_thinking_suffix="Answer:")
+            record["files"].update({name: {"bytes": len(value), "sha256": hashlib.sha256(value).hexdigest()} for name, value in metadata_files.items()})
+            profile = parse_model_profile(json.dumps(record).encode())
+            inventory = build_inventory(metadata_files, headers, profile=profile)
+            manifest["profile_sha256"] = profile.sha256
+            fixture = _profile_parity_fixture(profile, inventory, manifest, blocks)
+            assert len(fixture) <= 65536
+            (current / "fixture.json").write_text(fixture)
+            inputs = current / "inputs"
+            inputs.mkdir()
+            for name, value in {**metadata_files, "tokenizer.json": tokenizer_bytes}.items():
+                assert len(value) <= 65536
+                (inputs / name).write_bytes(value)
+                (inputs / name).chmod(0o400)
+            model, reference = current / "model.gguf", current / "reference.gguf"
+            sample = _run_tokenizer_only_guard_v3(interpreter, worker, json.dumps({
+                "model": str(model), "reference": str(reference), "backend": backend + "-request"}).encode(),
+                env=env, maximum_seconds=min(15, 60 - (time.monotonic() - started)), maximum_rss_bytes=1024**3)
+            samples.append(sample)
+            output_bytes += len(sample["stdout"].encode()) + len(sample["stderr"].encode())
+            assert output_bytes <= 65536
+            assert sample["returncode"] == 0, sample["stderr"]
+            assert json.loads(sample["stdout"])["fresh_selected_records"] == 38
+            fixed = {entry: hashlib.sha256(entry.read_bytes()).hexdigest() for entry in current.rglob("*") if entry.is_file()}
+            for entry in fixed:
+                assert entry.stat().st_size <= (2 * 1024**2 if entry.suffix == ".gguf" else 65536)
+                entry.chmod(0o400)
+            metadata = current / "metadata.json"
+            oracle = json.loads((current / "oracle.json").read_bytes())
+            command = "--prefill-request-bitnet-control" if backend == "bitnet" else "--prefill-request-control"
+            leading = [command, model, reference] if backend == "bitnet" else [command, model]
+
+            def run(packet_path, *, mode="full", expected_status=0, metadata_path=metadata, arguments=None):
+                nonlocal output_bytes, successes, refusals, scratch_peak
+                assert time.monotonic() - stage < 60 and time.monotonic() - started < 60
+                scratch_peak = max(scratch_peak, sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file()) + 65536)
+                assert scratch_peak < 8 * 1024**2
+                call = arguments if arguments is not None else [*leading, metadata_path, packet_path, mode]
+                result = _run_tokenizer_only_guard_v3(interpreter, execute,
+                    json.dumps([str(executable), *map(str, call)]).encode(), env=env,
+                    maximum_seconds=min(15, 60 - (time.monotonic() - started)), maximum_rss_bytes=1024**3)
+                samples.append(result)
+                output_bytes += len(result["stdout"].encode()) + len(result["stderr"].encode())
+                assert output_bytes <= 65536
+                assert result["returncode"] == expected_status, result
+                if expected_status:
+                    refusals += 1
+                    assert not result["stdout"], result
+                    return None
+                successes += 1
+                return json.loads(result["stdout"])
+
+            fresh = {}
+            for name in ("2", "3", "16", "reordered"):
+                packet_path = current / f"request-{name}.json"
+                packet = json.loads(packet_path.read_bytes())
+                reports = [run(packet_path, mode=mode) for mode in ("full", "reset")]
+                fresh[name] = reports[0]
+                for report, calls in zip(reports, (1, 2), strict=True):
+                    options = report["options"]
+                    assert [{key: option[key] for key in ("id", "label", "token_id")} for option in options] == packet["options"]
+                    assert report["input_tokens"] == packet["input_token_ids"] and report["generated_answer_tokens"] == 0
+                    assert report["profile_sha256"] == packet["profile_sha256"] and report["model_sha256"] == fixed[model]
+                    assert report["prompt_sha256"] == packet["prompt_sha256"] and report["runtime_revision"] == PRISM_REVISION
+                    assert report["selected_metadata_records"] == 38 and report["selected_metadata_version"] == 5
+                    logits = np.asarray(oracle[name])[[option["token_id"] for option in options]]
+                    np.testing.assert_allclose([option["logit"] for option in options], logits, rtol=2e-5, atol=2e-5)
+                    scores = np.exp(logits - logits.max())
+                    scores /= scores.sum()
+                    np.testing.assert_allclose([option["conditional_probability"] for option in options], scores, rtol=2e-5, atol=2e-5)
+                    assert report["chosen_option_id"] == options[int(scores.argmax())]["id"]
+                    assert report["calibration_status"] == "not_calibrated"
+                    assert report["runtime_elapsed_seconds"] > 0
+                    vocabulary_scores = np.exp(np.asarray(oracle[name]) - max(oracle[name]))
+                    vocabulary_scores /= vocabulary_scores.sum()
+                    assert report["vocabulary_argmax"] == int(np.argmax(oracle[name]))
+                    np.testing.assert_allclose(report["allowed_label_probability_mass"],
+                        vocabulary_scores[[option["token_id"] for option in options]].sum(), rtol=2e-5, atol=2e-5)
+                    np.testing.assert_allclose(report["max_option_probability"], max(scores), rtol=2e-5, atol=2e-5)
+                    assert report["prefill_calls"] == calls and report["bitnet_dispatch_calls"] == (calls if backend == "bitnet" else 0)
+                    assert report["weight_repacks"] == (backend == "bitnet")
+                    assert report["bitnet_last_input_tokens"] == (len(packet["input_token_ids"]) if backend == "bitnet" else 0)
+                    assert report["memory_position_min"] == report["memory_position_max"] == len(packet["input_token_ids"]) - 1
+                assert reports[0]["options"] == reports[1]["options"]
+            original = json.loads((current / "request-3.json").read_bytes())
+            fault = current / "fault.json"
+            for defect in ("extra", "profile", "prompt", "tokens", "token-bool", "one", "many", "duplicate-id", "duplicate-token", "label", "label-token", "context-merge"):
+                packet = deepcopy(original)
+                if defect == "extra":
+                    packet["generated_answer_tokens"] = 0
+                elif defect == "profile":
+                    packet["profile_sha256"] = "0" * 64
+                elif defect == "prompt":
+                    packet["prompt"] += "a"
+                elif defect == "tokens":
+                    packet["input_token_ids"][-1] = (packet["input_token_ids"][-1] + 1) % 64
+                elif defect == "token-bool":
+                    packet["input_token_ids"][0] = True
+                elif defect in ("one", "many"):
+                    packet["options"] = packet["options"][:1] if defect == "one" else packet["options"] * 6
+                elif defect == "duplicate-id":
+                    packet["options"][1]["id"] = packet["options"][0]["id"]
+                elif defect == "duplicate-token":
+                    packet["options"][1]["token_id"] = packet["options"][0]["token_id"]
+                elif defect == "label":
+                    packet["options"][0]["label"] = "B"
+                elif defect == "context-merge":
+                    packet.update(prompt="ab", prompt_sha256=hashlib.sha256(b"ab").hexdigest(), input_token_ids=[57])
+                else:
+                    packet["options"][0]["token_id"] = 63
+                fault.write_text(json.dumps(packet))
+                run(fault, expected_status=34)
+                fault.unlink()
+            declarations = json.loads(metadata.read_bytes())
+            declarations[-1]["values"] = [True]
+            fault.write_text(json.dumps(declarations))
+            run(current / "request-3.json", metadata_path=fault, expected_status=30)
+            fault.unlink()
+            run(current / "request-3.json", arguments=[command], expected_status=34)
+            fault.write_text(json.dumps(original)[:-1] + ',"format":"jev-prefill-request-v1"}')
+            run(fault, expected_status=34)
+            fault.unlink()
+            old_records = json.loads(metadata.read_bytes())
+            for old_command, records in (
+                ("--selected-metadata-control-v5", old_records),
+                ("--selected-metadata-control-v3", [record for record in old_records if not record["name"].startswith("tokenizer.ggml.")
+                    or record["name"] in ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges")]),
+                ("--selected-metadata-control-v2", [record for record in old_records if record["name"] in
+                    ("tokenizer.ggml.tokens", "tokenizer.ggml.token_type", "tokenizer.ggml.merges")]),
+            ):
+                fault.write_text(json.dumps(records))
+                legacy = run(current / "request-3.json", arguments=[old_command, model, fault])
+                assert legacy["selected_records"] == len(records) and legacy["model_loaded"] is False
+                fault.unlink()
+            if backend == "bitnet":
+                run(current / "request-3.json", mode="kernel-error", expected_status=29)
+                recovered = run(current / "request-3.json", mode="kernel-recovery")
+                assert recovered["rejected_prefill_calls"] == recovered["kernel_error_status"] == 1
+                assert recovered["options"] == fresh["3"]["options"]
+                assert recovered["bitnet_dispatch_calls"] == recovered["weight_repacks"] == 1
+            for entry, digest in fixed.items():
+                assert hashlib.sha256(entry.read_bytes()).hexdigest() == digest
+        assert len(os.listdir("/proc/self/fd")) == descriptors
+        assert time.monotonic() - started < 60
+    assert not root.exists()
+    print(json.dumps({"successes": successes, "refusals": refusals, "output_bytes": output_bytes,
+        "scratch_peak_bytes": scratch_peak, "seconds": time.monotonic() - started,
+        "observed_group_rss_bytes": max(sample["observed_group_rss_bytes"] for sample in samples),
+        "observed_host_available_minimum_bytes": min(sample["observed_host_available_minimum_bytes"] for sample in samples),
+        "host_swap_baseline_bytes": samples[0]["host_swap_baseline_bytes"],
+        "observed_host_swap_bytes": max(sample["observed_host_swap_bytes"] for sample in samples)}, sort_keys=True))
+
+
 @pytest.mark.parametrize("backend", ["dense", "bitnet", "bitnet-profile"])
 @pytest.mark.parametrize("recurrent", [False, True])
 @pytest.mark.parametrize("attention", [False, True])
@@ -69,211 +279,7 @@ def test_pinned_prism_tiny_qwen35_native_prefill_scores_without_generation(tmp_p
     reference_file = tmp_path / "tiny-projection-reference.gguf"
     bitnet = backend.startswith("bitnet")
     profile_policy = backend == "bitnet-profile"
-    writer_code = """
-import json
-import sys
-import gguf
-import numpy as np
-writer = gguf.GGUFWriter(sys.argv[1], "qwen35")
-if sys.argv[2].startswith("bitnet-profile"):
-    for key, value in {
-        "jev.model.profile_id": "synthetic-qwen35-prefill-v2",
-        "jev.model.profile_sha256": "a" * 64,
-        "jev.model.source_revision": "1" * 40,
-        "jev.model.converter_revision": "842b1880415d6f508f03b789e5ce70194def7bfd",
-        "jev.bitnet.source_tensor_sha256": "f" * 64,
-        "jev.bitnet.model": "profile-qwen35-single-projection-v2",
-        "jev.bitnet.execution": "group128-a8-fp32-nearest-even-identity-v1",
-    }.items():
-        writer.add_string(key, "other-profile" if key == "jev.model.profile_id" and sys.argv[2].endswith("_wrong_profile") else value)
-for key, value in {
-    "context_length": 256, "embedding_length": 32, "block_count": 4,
-    "feed_forward_length": 256, "attention.head_count": 4, "attention.head_count_kv": 2,
-    "attention.key_length": 8, "attention.value_length": 8, "rope.dimension_count": 8,
-    "ssm.conv_kernel": 3, "ssm.inner_size": 32, "ssm.state_size": 8,
-    "ssm.time_step_rank": 4, "ssm.group_count": 2, "full_attention_interval": 2,
-}.items():
-    writer.add_uint32("qwen35." + key, value)
-writer.add_float32("qwen35.attention.layer_norm_rms_epsilon", 1e-5)
-writer.add_float32("qwen35.rope.freq_base", 10000)
-writer.add_array("qwen35.rope.dimension_sections", [2, 1, 1, 0])
-writer.add_tokenizer_model("gpt2")
-writer.add_tokenizer_pre("qwen2")
-vocabulary = ["token_" + str(index) for index in range(64)]
-vocabulary[2:5] = ["a", "b", "ab"]
-vocabulary[11], vocabulary[17], vocabulary[23] = "A", "B", "C"
-if sys.argv[2] == "dense_context_merge":
-    vocabulary[24] = "aA"
-writer.add_token_list(vocabulary)
-writer.add_token_merges(["a b", "a A"] if sys.argv[2] == "dense_context_merge" else ["a b"])
-writer.add_bos_token_id(0)
-writer.add_eos_token_id(1)
-writer.add_add_bos_token(False)
-generator = np.random.default_rng(1407)
-embedding = generator.normal(0, 0.2, (64, 32)).astype(np.float32)
-head = generator.normal(0, 0.1, (64, 32)).astype(np.float32)
-if sys.argv[2] == "dense_nan":
-    head[11, 0] = np.nan
-writer.add_tensor("token_embd.weight", embedding)
-writer.add_tensor("output.weight", head)
-writer.add_tensor("output_norm.weight", np.ones(32, dtype=np.float32))
-codes = ((np.arange(32 * 256).reshape(32, 256) * 7) % 3 - 1).astype(np.int8)
-scales = ((np.arange(64).reshape(32, 2) % 7 + 1) / 256).astype(np.float16)
-gate = np.zeros((256, 32), dtype=np.float32)
-gate[:, 0] = 0.25
-up = np.zeros((256, 32), dtype=np.float32)
-up[np.arange(256), (np.arange(256) * 7) % 32] = np.repeat([0.125, 0.375], 128)
-recurrent_qkv = np.zeros((64, 32), dtype=np.float32)
-recurrent_qkv[np.arange(64), np.arange(64) % 32] = 0.25
-recurrent_gate = np.eye(32, dtype=np.float32) * np.float32(0.5)
-recurrent_out = np.eye(32, dtype=np.float32) * np.float32(0.125)
-convolution = np.tile(np.array([0.125, 0.25, 1], dtype=np.float32), (64, 1))
-attention_query = np.zeros((64, 32), dtype=np.float32)
-attention_query[np.arange(4) * 16, np.arange(4)] = 0.25
-attention_key = np.zeros((16, 32), dtype=np.float32)
-attention_key[np.arange(2) * 8, np.arange(2) + 4] = 0.25
-attention_value = np.zeros((16, 32), dtype=np.float32)
-attention_value[np.arange(16), np.arange(16) + 3] = 0.375
-attention_out = np.eye(32, dtype=np.float32) * np.float32(0.125)
-for layer in range(4):
-    prefix = "blk." + str(layer) + "."
-    writer.add_tensor(prefix + "attn_norm.weight", np.ones(32, dtype=np.float32))
-    writer.add_tensor(prefix + "post_attention_norm.weight", np.ones(32, dtype=np.float32))
-    if layer % 2:
-        for name, shape in {"attn_q.weight": (64, 32), "attn_k.weight": (16, 32),
-                            "attn_v.weight": (16, 32), "attn_output.weight": (32, 32)}.items():
-            values = np.zeros(shape, dtype=np.float32)
-            if layer == 1 and sys.argv[4] == "nonzero":
-                values = {"attn_q.weight": attention_query, "attn_k.weight": attention_key,
-                          "attn_v.weight": attention_value, "attn_output.weight": attention_out}[name]
-            writer.add_tensor(prefix + name, values)
-        writer.add_tensor(prefix + "attn_q_norm.weight", np.ones(8, dtype=np.float32))
-        writer.add_tensor(prefix + "attn_k_norm.weight", np.ones(8, dtype=np.float32))
-    else:
-        for name, shape in {
-            "attn_qkv.weight": (64, 32), "attn_gate.weight": (32, 32), "ssm_conv1d.weight": (64, 3),
-            "ssm_beta.weight": (4, 32), "ssm_alpha.weight": (4, 32), "ssm_out.weight": (32, 32),
-        }.items():
-            values = np.zeros(shape, dtype=np.float32)
-            if layer == 0 and sys.argv[3] == "nonzero":
-                values = {"attn_qkv.weight": recurrent_qkv, "attn_gate.weight": recurrent_gate,
-                          "ssm_conv1d.weight": convolution, "ssm_out.weight": recurrent_out}.get(name, values)
-            writer.add_tensor(prefix + name, values)
-        writer.add_tensor(prefix + "ssm_norm.weight", np.ones(8, dtype=np.float32))
-        writer.add_tensor(prefix + "ssm_dt.bias", np.zeros(4, dtype=np.float32))
-        writer.add_tensor(prefix + "ssm_a", -np.ones(4, dtype=np.float32))
-    writer.add_tensor(prefix + "ffn_gate.weight", gate if layer == 3 else np.zeros_like(gate))
-    writer.add_tensor(prefix + "ffn_up.weight", up if layer == 3 else np.zeros_like(up))
-    if layer != 3:
-        writer.add_tensor(prefix + "ffn_down.weight", np.zeros((32, 256), dtype=np.float32))
-    elif sys.argv[2].startswith("bitnet"):
-        fields = (codes.reshape(32, 2, 32, 4) + 1).astype(np.uint8)
-        if sys.argv[2].endswith("_invalid_code"):
-            fields[0, 0, 0, 0] = 3
-        elif sys.argv[2].endswith("_negative_scale"):
-            scales[0, 0] = -1
-        elif sys.argv[2].endswith("_nonfinite_scale"):
-            scales[0, 0] = np.nan
-        elif sys.argv[2].endswith("_changed_scale"):
-            scales[0, 0] = np.float16(0.25)
-        payload = np.bitwise_or.reduce(fields << (2 * np.arange(4, dtype=np.uint8)), axis=-1)
-        encoded = np.concatenate((scales.view(np.uint8).reshape(32, 2, 2), payload), axis=-1)
-        writer.add_tensor(prefix + "ffn_down.weight", encoded.reshape(32, 68),
-                          raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
-        if sys.argv[2] == "bitnet-profile":
-            reference = gguf.GGUFWriter(sys.argv[5], "qwen35")
-            reference.add_string("jev.bitnet.execution", "group128-a8-fp32-nearest-even-identity-v1")
-            reference.add_tensor(prefix + "ffn_down.weight", encoded.reshape(32, 68),
-                                 raw_dtype=gguf.GGMLQuantizationType.PQ2_0)
-            reference.write_header_to_file()
-            reference.write_kv_data_to_file()
-            reference.write_tensors_to_file()
-            reference.close()
-    else:
-        writer.add_tensor(prefix + "ffn_down.weight", codes.astype(np.float32) * np.repeat(scales, 128, axis=1))
-writer.write_header_to_file()
-writer.write_kv_data_to_file()
-writer.write_tensors_to_file()
-writer.close()
-if sys.argv[2] not in ("dense", "bitnet", "bitnet-profile"):
-    sys.exit(0)
-def reference_logits(token_ids):
-    sequence = embedding[token_ids].copy()
-    hidden = sequence[-1].copy()
-    if sys.argv[3] == "nonzero":
-        history = np.zeros((3, 64), dtype=np.float32)
-        state = np.zeros((4, 8, 8), dtype=np.float32)
-        for index, token in enumerate(token_ids):
-            current = embedding[token]
-            normalized = current / np.sqrt(np.mean(current * current) + np.float32(1e-5))
-            history[:-1] = history[1:]
-            history[-1] = recurrent_qkv @ normalized
-            convolved = np.sum(history * convolution.T, axis=0)
-            convolved = convolved / (np.float32(1) + np.exp(-convolved))
-            query = convolved[:16].reshape(2, 8)
-            key = convolved[16:32].reshape(2, 8)
-            query /= np.maximum(np.sqrt(np.sum(query * query, axis=1, keepdims=True)), np.float32(1e-5))
-            key /= np.maximum(np.sqrt(np.sum(key * key, axis=1, keepdims=True)), np.float32(1e-5))
-            query = np.tile(query, (2, 1)) / np.sqrt(np.float32(8))
-            key = np.tile(key, (2, 1))
-            value = convolved[32:].reshape(4, 8)
-            state *= np.float32(0.5)
-            predicted = np.einsum("hij,hj->hi", state, key)
-            delta = (value - predicted) * np.float32(0.5)
-            state += delta[:, :, None] * key[:, None, :]
-            output = np.einsum("hij,hj->hi", state, query)
-            output /= np.sqrt(np.mean(output * output, axis=1, keepdims=True) + np.float32(1e-5))
-            gating = recurrent_gate @ normalized
-            output = output.reshape(32) * (gating / (np.float32(1) + np.exp(-gating)))
-            hidden = current + recurrent_out @ output
-            sequence[index] = hidden
-        assert np.linalg.norm(hidden - embedding[token_ids[-1]]) > 0.01
-    if sys.argv[4] == "nonzero":
-        normalized = sequence / np.sqrt(np.mean(sequence * sequence, axis=1, keepdims=True) + np.float32(1e-5))
-        query = (normalized @ attention_query.T)[:, np.arange(4) * 16]
-        query /= np.sqrt(query * query / np.float32(8) + np.float32(1e-5))
-        key = (normalized @ attention_key.T)[:, np.arange(2) * 8]
-        key /= np.sqrt(key * key / np.float32(8) + np.float32(1e-5))
-        positions = np.arange(len(token_ids), dtype=np.float32)
-        key_cosine = (key * np.cos(positions[:, None])).astype(np.float16).astype(np.float32)
-        key_sine = (key * np.sin(positions[:, None])).astype(np.float16).astype(np.float32)
-        value = (normalized @ attention_value.T).astype(np.float16).astype(np.float32).reshape(len(token_ids), 2, 8)
-        original = sequence.copy()
-        for index in range(len(token_ids)):
-            output = np.zeros((4, 8), dtype=np.float32)
-            for head_index in range(4):
-                key_head = head_index // 2
-                cosine = query[index, head_index] * np.cos(positions[index])
-                sine = query[index, head_index] * np.sin(positions[index])
-                scores = (cosine * key_cosine[:index + 1, key_head] + sine * key_sine[:index + 1, key_head]) / np.sqrt(np.float32(8))
-                scores = np.exp(scores - np.max(scores))
-                scores /= np.sum(scores)
-                output[head_index] = np.sum(value[:index + 1, key_head] * scores[:, None], axis=0)
-            sequence[index] += attention_out @ (output.reshape(32) * np.float32(0.5))
-        assert np.linalg.norm(sequence - original) > 0.01
-        hidden = sequence[-1]
-    normalized = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
-    gated = gate @ normalized
-    activation = (gated / (np.float32(1) + np.exp(-gated))) * (up @ normalized)
-    if sys.argv[2].startswith("bitnet"):
-        groups = activation.reshape(2, 128)
-        activation_scales = np.max(np.abs(groups), axis=1) / np.float32(127)
-        activation_scales[activation_scales == 0] = 1
-        quantized = np.clip(np.rint(groups / activation_scales[:, None]), -127, 127).astype(np.int32)
-        partials = np.sum(codes.reshape(32, 2, 128).astype(np.int32) * quantized[None], axis=-1)
-        hidden += np.sum(partials.astype(np.float32) * scales.astype(np.float32) * activation_scales, axis=1)
-    else:
-        hidden += (codes.astype(np.float32) * np.repeat(scales, 128, axis=1)) @ activation
-    hidden = hidden / np.sqrt(np.mean(hidden * hidden) + np.float32(1e-5))
-    return (head[[11, 17, 23]] @ hidden).tolist()
-print(json.dumps({"logits": reference_logits([3, 5, 7]),
-                  "peer_logits": reference_logits([4, 9, 19, 3, 5, 7]),
-                  "text_logits": reference_logits([4, 2]),
-                  "continuation_logits": reference_logits([3, 5, 7] * 26 + [3, 5]),
-                  "uncleared_reset_logits": reference_logits([4, 9, 19] * 26 + [4, 9, 3, 5, 7]),
-                  "interleaved_peer_logits": reference_logits([4, 9, 19] * 26 + [4, 9, 7, 3, 5]),
-                  "maximum_logits": reference_logits([2] * 128)}))
-"""
+    writer_code = _tiny_prefill_writer_code()
     try:
         writer = subprocess.run([converter, "-c", writer_code, str(model_file), backend,
                                  "nonzero" if recurrent else "zero", "nonzero" if attention else "zero", str(reference_file)], capture_output=True, text=True,
@@ -5630,7 +5636,6 @@ def test_external_build_watcher_inspects_flat_ninja_shell_sources(tmp_path, comm
     assert sources == ["/workspace/loader.cpp" if "loader" in command else "/workspace/dependency.cpp"]
 
 
-
 @pytest.mark.parametrize("command", [
     "clang++ loader.cpp && clang++ dependency.cpp", "clang++ loader.cpp; true",
     "clang++ $SOURCE", "clang++ loader.cpp | cat", "clang++ loader.cpp <<< source",
@@ -5641,7 +5646,6 @@ def test_external_build_watcher_refuses_nonflat_shell_commands(tmp_path, command
     sample = ProcessSample(71, 50, 100, ("/bin/sh", "-c", command), tmp_path, 1024, 2048, 0)
     with pytest.raises(ValueError, match="unsupported build shell"):
         _source_arguments(sample)
-
 
 
 def test_external_build_watcher_never_targets_recycled_pid(tmp_path, monkeypatch):

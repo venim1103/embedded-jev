@@ -3423,8 +3423,9 @@ source/role/policy refusals and newly hashed field/BOOL corruption with unchange
 resource/cleanup guards. The [checkpoint](handover.md#atomic-selected-metadata-checkpoint-2026-11-05)
 records its passing evidence and the **resource-blocked old v4/bootstrap cached
 compatibility controls**. Do not retry resource failures unchanged or treat the
-default gate's optional skips as compatibility/native acceptance. S2's native
-runner needs a separate bounded scope; no new learned execution follows.
+default gate's optional skips as compatibility/native acceptance. The
+[generated typed runner](#generated-typed-native-prefill) consumes the same
+contract; no new learned execution follows.
 
 The test-only native `--selected-metadata-control-v5 GGUF JSON` consumes exactly
 the 38 `{name, kind, values}` declarations from a fresh v5 verifier receipt.
@@ -4101,13 +4102,72 @@ prompt; it does not merely rotate a previously scored vector.
 This helper expects an independently prepared reference tokenizer. Checking
 its selected behavior/template does not authenticate tokenizer files or prove
 native equivalence. The packet is a declaration, not a saved source-verification
-receipt, runtime approval or native entry point. The S2 native consumer still
-needs fresh v5 38-field verification before backend discovery, native/reference
-token agreement, fail-closed score reporting, counted BitNet dispatch,
-fresh/reused-context agreement and cleanup. Existing native commands/ABIs are
-unchanged; no request-packet native command exists yet. The
+receipt, runtime approval or native entry point. The generated-only consumer
+below performs the native preflight and scoring; this does not authorize a
+real profile. Existing native commands/ABIs remain unchanged. The
 [request prerequisite checkpoint](handover.md#typed-prefill-request-prerequisite-2026-11-17)
-records evidence and the separately proposed native scope.
+records the earlier Python-only evidence.
+
+### Generated Typed Native Prefill
+
+The Release loader control adds two **test-only, generated-profile** commands:
+
+```text
+--prefill-request-control GGUF METADATA_JSON REQUEST_JSON [full|reset]
+--prefill-request-bitnet-control GGUF REFERENCE_GGUF METADATA_JSON REQUEST_JSON [full|reset]
+```
+
+They share `test_prefill_control`, not a second scoring implementation. Input
+is the prepared request packet above plus the exact 38 declarations exported by
+a fresh `verify_profile_gguf_selected_fast_metadata_v5` call. Silent v5 typed
+getter verification precedes backend discovery. The native packet parser rejects
+unknown/duplicate fields, invalid IDs/tokens, profile or prompt-digest mismatch,
+and anything outside 2-16 distinct A-P mappings. Native prompt tokens must equal
+the reference packet; standalone labels must match their non-special IDs and
+extend the exact prompt by one token. Contract/kernel failures emit no score JSON.
+
+Execution is deliberately restricted to `synthetic-typed-prefill-v1`: four
+layers, hidden 32, FFN 1024, vocabulary 64 and the pinned `gpt2`/`qwen35` metadata
+pair. GGUF <=2 MiB, metadata/request JSON <=64 KiB, prompt <=4096 UTF-8 bytes and
+1-128 input tokens. This is not arbitrary-profile or MiMo execution approval.
+The BitNet variant gates one layer-3 FFN-down projection through the v2 owned
+policy with exact reference bytes and eight independent FP16 input-group scales
+per output row. Other matrices remain F32. Existing 256-wide legacy controls,
+their 1 MiB bounds and output schemas are unchanged.
+
+Success is one `jev-prefill-result-v1` JSON object with semantic IDs, labels,
+token IDs, logits, option-conditional probabilities, chosen option, vocabulary
+argmax/allowed-label mass, model/profile/prompt hashes, pinned runtime revision,
+elapsed runtime, positions and dispatch/repack/input-row counters.
+`generated_answer_tokens=0`; `calibration_status=not_calibrated`.
+The runtime timer covers the shared model-load/prefill path, not upstream packet
+preparation/preflight or a target-device latency measurement. All vocabulary
+logits must be finite and kernel status/counters must agree before any scores.
+`reset` warms and clears one context before the same request; the BitNet-only
+`kernel-error`/`kernel-recovery` diagnostic modes withhold scores on an injected
+rounding failure and require clean recovery.
+
+Run only the generated integration selector with the already-pinned caches:
+
+```bash
+PRISM_SOURCE_DIR="$HOME/.cache/huggingface/embedded-jev/native/prism-source" \
+PRISM_CONVERTER_PYTHON="$HOME/.cache/huggingface/embedded-jev/dense-venv/bin/python" \
+MIMO_PRISM_RUNTIME_BUILD="$HOME/.cache/huggingface/embedded-jev/native/jev-prism-runtime-v1-build" \
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -s -p no:cacheprovider \
+  tests/test_prism_native_control.py::test_pinned_prism_typed_prefill_requests_on_generated_models
+```
+
+The fixture uses no model weights, denies network/model-cache/child access in
+its preparation worker, freshly writes/verifies v5 metadata, and compares dense
+and BitNet results with independent NumPy arithmetic at unchanged tolerances.
+Its shared 60-second stage bounds each child including cleanup to <=15 seconds
+and remaining stage time, group RSS/HWM <=1 GiB, host reserve >=2 GiB, zero owned
+swap/no host-swap growth, scratch <=8 MiB and all child output <=64 KiB.
+Inputs are read-only and rehashed after execution; scratch/descriptors are checked
+on exit. See the [checkpoint](handover.md#s2-generated-typed-native-runner-checkpoint-2026-11-17)
+for actual results and resource/output-blocked broader legacy checks. Source
+identity, caller authentication, real-profile runtime/numerical acceptance,
+quality, whole-model ternary execution and target-device evidence remain separate.
 
 ### Bounded Synthetic Native Prefill
 

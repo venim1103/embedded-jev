@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cfenv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -643,6 +644,24 @@ static int test_loader_override(const char* path) {
 }
 
 #ifdef JEV_TEST_FULL_RUNTIME
+struct prefill_option {
+    std::string id;
+    std::string label;
+    llama_token token;
+};
+
+struct prefill_request {
+    std::string id;
+    std::string profile_id;
+    std::string profile_sha256;
+    std::string source_revision;
+    std::string source_tensor_sha256;
+    std::string model_sha256;
+    std::string prompt_sha256;
+    std::vector<llama_token> tokens;
+    std::vector<prefill_option> options;
+};
+
 struct prefill_trace {
     struct record {
         std::string name;
@@ -730,10 +749,11 @@ struct prefill_trace {
 
 static int create_synthetic_prefill_policy_v2(
     const char* path, const char* reference_path, void** policy,
-    const llama_model_tensor_buft_override** overrides) {
+    const llama_model_tensor_buft_override** overrides, const prefill_request* request = nullptr) {
+    const uint32_t intermediate = request ? 1024 : 256;
     std::error_code error;
     const auto model_bytes = std::filesystem::file_size(path, error);
-    if (error || model_bytes > 1024 * 1024) {
+    if (error || model_bytes > (request ? 2 : 1) * 1024 * 1024) {
         return 27;
     }
     const auto reference_bytes = std::filesystem::file_size(reference_path, error);
@@ -748,7 +768,7 @@ static int create_synthetic_prefill_policy_v2(
         gguf_get_tensor_type(reference.get(), 0) != GGML_TYPE_PQ2_0) {
         return 27;
     }
-    const int64_t expected_shape[] = { 256, 32, 1, 1 };
+    const int64_t expected_shape[] = { intermediate, 32, 1, 1 };
     if (!std::equal(expected_shape, expected_shape + 4, gguf_get_tensor_ne(reference.get(), 0))) {
         return 27;
     }
@@ -759,7 +779,7 @@ static int create_synthetic_prefill_policy_v2(
     }
     const auto data_offset = gguf_get_data_offset(reference.get());
     const auto tensor_offset = gguf_get_tensor_offset(reference.get(), 0);
-    constexpr std::size_t payload_bytes = 32 * 2 * 34;
+    const std::size_t payload_bytes = 32 * (intermediate / 128) * 34;
     if (data_offset > reference_bytes || tensor_offset > reference_bytes - data_offset ||
         payload_bytes > reference_bytes - data_offset - tensor_offset ||
         gguf_get_tensor_size(reference.get(), 0) != payload_bytes) {
@@ -786,9 +806,9 @@ static int create_synthetic_prefill_policy_v2(
         const std::string prefix = "blk." + std::to_string(layer) + ".";
         add_tensor(prefix + "attn_norm.weight", 32, 1);
         add_tensor(prefix + "post_attention_norm.weight", 32, 1);
-        add_tensor(prefix + "ffn_gate.weight", 32, 256);
-        add_tensor(prefix + "ffn_up.weight", 32, 256);
-        add_tensor(prefix + "ffn_down.weight", 256, 32, layer == 3 ? GGML_TYPE_PQ2_0 : GGML_TYPE_F32);
+        add_tensor(prefix + "ffn_gate.weight", 32, intermediate);
+        add_tensor(prefix + "ffn_up.weight", 32, intermediate);
+        add_tensor(prefix + "ffn_down.weight", intermediate, 32, layer == 3 ? GGML_TYPE_PQ2_0 : GGML_TYPE_F32);
         if (layer % 2) {
             add_tensor(prefix + "attn_q.weight", 32, 64);
             add_tensor(prefix + "attn_k.weight", 32, 16);
@@ -827,10 +847,12 @@ static int create_synthetic_prefill_policy_v2(
     metadata.push_back({ "qwen35.rope.freq_base", 2, 1, &theta });
     metadata.push_back({ "qwen35.rope.dimension_sections", 3, 4, sections });
     const jev_bitnet_model_spec_v2 specification {
-        2, "synthetic-qwen35-prefill-v2", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "1111111111111111111111111111111111111111", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        4, 32, 256, 64, tensors.data(), tensors.size(), metadata.data(), metadata.size(),
-        { 2, "blk.3.ffn_down.weight", 32, 256, blocks.data(), blocks.size() }
+        2, request ? request->profile_id.c_str() : "synthetic-qwen35-prefill-v2",
+        request ? request->profile_sha256.c_str() : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        request ? request->source_revision.c_str() : "1111111111111111111111111111111111111111",
+        request ? request->source_tensor_sha256.c_str() : "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        4, 32, intermediate, 64, tensors.data(), tensors.size(), metadata.data(), metadata.size(),
+        { 2, "blk.3.ffn_down.weight", 32, intermediate, blocks.data(), blocks.size() }
     };
     return prism_bitnet_cpu_model_override_from_gguf_v2(path, &specification, JEV_PRISM_SOURCE_REVISION, 2,
         policy, overrides) == 0 ? 0 : 27;
@@ -840,7 +862,8 @@ static int test_prefill_control(
     const char* path, bool use_bitnet = false, const char* mode = "full", const char* prompt = nullptr,
     const char* projection_path = nullptr, const char* trace_path = nullptr, const char* profile_reference = nullptr,
     const jev_bitnet_model_spec_v2* caller_spec = nullptr, void* caller_policy = nullptr,
-    const llama_model_tensor_buft_override* caller_overrides = nullptr) {
+    const llama_model_tensor_buft_override* caller_overrides = nullptr, const prefill_request* request = nullptr) {
+    const auto started = std::chrono::steady_clock::now();
     if (caller_spec) {
         std::error_code error;
         const auto file_bytes = std::filesystem::file_size(path, error);
@@ -874,7 +897,8 @@ static int test_prefill_control(
         return 32;
     }
     if (prompt && (std::strlen(prompt) == 0 || std::strlen(prompt) > 4096 ||
-            (std::strcmp(mode, "full") != 0 && !(projection_path && (kernel_error || kernel_recovery))))) {
+            (std::strcmp(mode, "full") != 0 && !(projection_path && (kernel_error || kernel_recovery)) &&
+                !(request && (reset || kernel_error || kernel_recovery))))) {
         return 34;
     }
     prefill_trace trace;
@@ -909,7 +933,7 @@ static int test_prefill_control(
             params.tensor_buft_overrides = caller_overrides;
         } else if (profile_reference) {
             void* owned = nullptr;
-            if (create_synthetic_prefill_policy_v2(path, profile_reference, &owned, &params.tensor_buft_overrides) != 0) {
+            if (create_synthetic_prefill_policy_v2(path, profile_reference, &owned, &params.tensor_buft_overrides, request) != 0) {
                 return 27;
             }
             policy.reset(owned);
@@ -967,8 +991,8 @@ static int test_prefill_control(
         return active_policy ? prism_bitnet_cpu_tensor_last_input_tokens_v2(active_policy, weight, &last_input_tokens)
             : prism_bitnet_cpu_tensor_last_input_tokens_v1(weight, &last_input_tokens);
     };
-        if (use_bitnet && (!weight || model->hparams.n_layer() != (caller_spec ? caller_spec->layers : projection_path ? 32 : 4) ||
-            weight->ne[0] != (caller_spec ? caller_spec->projection.columns : projection_path ? 12288 : 256) ||
+    if (use_bitnet && (!weight || model->hparams.n_layer() != (caller_spec ? caller_spec->layers : projection_path ? 32 : 4) ||
+            weight->ne[0] != (caller_spec ? caller_spec->projection.columns : projection_path ? 12288 : request ? 1024 : 256) ||
             weight->ne[1] != (caller_spec ? caller_spec->projection.rows : projection_path ? 4096 : 32) ||
             weight_status() != 0 ||
             dispatch_calls != 0 || weight_repacks != 1 ||
@@ -977,7 +1001,8 @@ static int test_prefill_control(
     }
     const auto* vocab = llama_model_get_vocab(model.get());
     const int32_t vocab_size = llama_vocab_n_tokens(vocab);
-    if (vocab_size < 24 || (caller_spec && vocab_size != static_cast<int32_t>(caller_spec->vocabulary))) {
+    if (vocab_size < 24 || (request && vocab_size != 64) ||
+            (caller_spec && vocab_size != static_cast<int32_t>(caller_spec->vocabulary))) {
         return 27;
     }
     std::vector<llama_token> tokens = { 3, 5, 7 };
@@ -990,7 +1015,9 @@ static int test_prefill_control(
     if (maximum_batch) {
         tokens.assign(128, 2);
     }
-    std::vector<llama_token> option_tokens = { 11, 17, 23 };
+    std::vector<prefill_option> options = request ? request->options : std::vector<prefill_option>{
+        { "inspect", "A", 11 }, { "edit", "B", 17 }, { "ask", "C", 23 },
+    };
     if (prompt) {
         const int32_t count = -llama_tokenize(vocab, prompt, std::strlen(prompt), nullptr, 0, false, true);
         if (count <= 0 || count > 128) {
@@ -1000,25 +1027,28 @@ static int test_prefill_control(
         if (llama_tokenize(vocab, prompt, std::strlen(prompt), tokens.data(), count, false, true) != count) {
             return 34;
         }
-        std::size_t index = 0;
-        for (const char* label : { "A", "B", "C" }) {
-            if (llama_tokenize(vocab, label, 1, &option_tokens[index], 1, false, true) != 1 ||
-                    option_tokens[index] < 0 || option_tokens[index] >= vocab_size) {
+        if (request && tokens != request->tokens) {
+            return 34;
+        }
+        std::vector<llama_token> seen;
+        for (auto& option : options) {
+            llama_token token = -1;
+            if (llama_tokenize(vocab, option.label.c_str(), option.label.size(), &token, 1, false, true) != 1 ||
+                    token < 0 || token >= vocab_size ||
+                    std::find(seen.begin(), seen.end(), token) != seen.end() ||
+                    (request && (token != option.token || (llama_vocab_get_attr(vocab, token) & LLAMA_TOKEN_ATTR_CONTROL)))) {
                 return 34;
             }
-            const std::string extended = std::string(prompt) + label;
+            seen.push_back(token);
+            option.token = token;
+            const std::string extended = std::string(prompt) + option.label;
             std::vector<llama_token> extended_tokens(count + 1);
             if (llama_tokenize(vocab, extended.data(), extended.size(), extended_tokens.data(),
                     extended_tokens.size(), false, true) != count + 1 ||
                     !std::equal(tokens.begin(), tokens.end(), extended_tokens.begin()) ||
-                    extended_tokens.back() != option_tokens[index]) {
+                    extended_tokens.back() != option.token) {
                 return 34;
             }
-            ++index;
-        }
-        if (option_tokens[0] == option_tokens[1] || option_tokens[0] == option_tokens[2] ||
-                option_tokens[1] == option_tokens[2]) {
-            return 34;
         }
     }
     auto context_params = llama_context_default_params();
@@ -1189,20 +1219,12 @@ static int test_prefill_control(
     }
     if (use_bitnet && (weight_status() != 0 ||
             dispatch_calls != prefill_calls || weight_repacks != 1 ||
-            input_status() != 0)) {
+            input_status() != 0 || (request && last_input_tokens != tokens.size()))) {
         return 30;
     }
     if (trace_path && !trace.finish(model->hparams.n_layer())) {
         return 35;
     }
-    struct control_option {
-        const char* id;
-        const char* label;
-        llama_token token;
-    };
-    std::vector<control_option> options = {
-        { "inspect", "A", option_tokens[0] }, { "edit", "B", option_tokens[1] }, { "ask", "C", option_tokens[2] },
-    };
     if (reordered) {
         std::rotate(options.begin(), options.begin() + 2, options.end());
     }
@@ -1217,6 +1239,45 @@ static int test_prefill_control(
         scores.push_back(std::exp(value - maximum));
         denominator += scores.back();
     }
+#ifdef JEV_TEST_REAL_LOADER
+    if (request) {
+        using nlohmann::json;
+        const auto best = static_cast<std::size_t>(std::max_element(selected.begin(), selected.end()) - selected.begin());
+        const auto vocabulary_best = static_cast<std::size_t>(std::max_element(logits, logits + vocab_size) - logits);
+        const double vocabulary_maximum = logits[vocabulary_best];
+        double vocabulary_denominator = 0;
+        double label_mass = 0;
+        for (int32_t index = 0; index < vocab_size; ++index) {
+            vocabulary_denominator += std::exp(static_cast<double>(logits[index]) - vocabulary_maximum);
+        }
+        json mapped = json::array();
+        for (std::size_t index = 0; index < options.size(); ++index) {
+            label_mass += std::exp(selected[index] - vocabulary_maximum);
+            mapped.push_back({{"id", options[index].id}, {"label", options[index].label},
+                {"token_id", options[index].token}, {"logit", selected[index]},
+                {"conditional_probability", scores[index] / denominator}});
+        }
+        const json report{
+            {"format", "jev-prefill-result-v1"}, {"id", request->id}, {"profile_id", request->profile_id},
+            {"profile_sha256", request->profile_sha256}, {"model_sha256", request->model_sha256},
+            {"prompt_sha256", request->prompt_sha256},
+            {"runtime_revision", JEV_PRISM_SOURCE_REVISION}, {"selected_metadata_version", 5},
+            {"selected_metadata_records", 38}, {"model_policy_abi", active_policy ? 2 : 0},
+            {"input_tokens", tokens}, {"prefilled_tokens", tokens.size()}, {"generated_answer_tokens", 0},
+            {"options", mapped}, {"chosen_option_id", options[best].id},
+            {"max_option_probability", scores[best] / denominator}, {"calibration_status", "not_calibrated"},
+            {"allowed_label_probability_mass", label_mass / vocabulary_denominator}, {"vocabulary_argmax", vocabulary_best},
+            {"runtime_elapsed_seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count()},
+            {"backend", use_bitnet ? "bitnet" : "dense"}, {"mode", mode}, {"prefill_calls", prefill_calls},
+            {"bitnet_dispatch_calls", dispatch_calls}, {"weight_repacks", weight_repacks},
+            {"bitnet_last_input_tokens", last_input_tokens}, {"rejected_prefill_calls", rejected_prefill_calls},
+            {"kernel_error_status", kernel_error_status}, {"memory_position_min", position_min},
+            {"memory_position_max", position_max},
+        };
+        std::puts(report.dump().c_str());
+        return 0;
+    }
+#endif
     std::printf("{%s\"prefilled_tokens\":%zu,\"generated_answer_tokens\":0,\"input_tokens\":[",
         active_policy ? "\"model_policy_abi\":2," : "", tokens.size());
     for (std::size_t index = 0; index < tokens.size(); ++index) {
@@ -1224,7 +1285,7 @@ static int test_prefill_control(
     }
     std::fputs("],\"option_ids\":[", stdout);
     for (std::size_t index = 0; index < options.size(); ++index) {
-        std::printf("%s\"%s\"", index ? "," : "", options[index].id);
+        std::printf("%s\"%s\"", index ? "," : "", options[index].id.c_str());
     }
     std::fputs("],\"option_token_ids\":[", stdout);
     for (std::size_t index = 0; index < options.size(); ++index) {
@@ -1232,7 +1293,7 @@ static int test_prefill_control(
     }
     std::fputs("],\"option_labels\":[", stdout);
     for (std::size_t index = 0; index < options.size(); ++index) {
-        std::printf("%s\"%s\"", index ? "," : "", options[index].label);
+        std::printf("%s\"%s\"", index ? "," : "", options[index].label.c_str());
     }
     std::fputs("],\"logits\":[", stdout);
     for (std::size_t index = 0; index < selected.size(); ++index) {
@@ -1823,7 +1884,26 @@ static int test_synthetic_vocab(
     }
 }
 
-static int test_selected_metadata(const char* path, const char* expected_path, int policy_version = 1) {
+static nlohmann::json selected_json_file(const char* path, std::size_t limit) {
+    using nlohmann::json;
+    const auto bytes = selected_metadata_file(path, limit);
+    std::vector<std::set<std::string>> object_keys(9);
+    return json::parse(bytes.begin(), bytes.end(), [&object_keys](int depth, json::parse_event_t event, json& value) {
+        if (depth > 8) {
+            throw std::runtime_error("selected JSON nesting exceeds bound");
+        }
+        if (event == json::parse_event_t::object_start) {
+            object_keys.at(depth).clear();
+        } else if (event == json::parse_event_t::key &&
+                (depth <= 0 || !object_keys.at(depth - 1).insert(value.get<std::string>()).second)) {
+            throw std::runtime_error("selected JSON duplicate member");
+        }
+        return true;
+    });
+}
+
+static int test_selected_metadata(
+    const char* path, const char* expected_path, int policy_version = 1, nlohmann::json* declarations = nullptr) {
     using nlohmann::json;
     const bool joint = policy_version == 2;
     const bool atomic = policy_version == 5;
@@ -1852,21 +1932,7 @@ static int test_selected_metadata(const char* path, const char* expected_path, i
         });
     }
     try {
-        const auto expected_bytes = selected_metadata_file(expected_path, large ? 32 * 1024 * 1024 + 1 : 256 * 1024);
-        std::vector<std::set<std::string>> object_keys(9);
-        const auto expected = json::parse(expected_bytes.begin(), expected_bytes.end(),
-            [&object_keys](int depth, json::parse_event_t event, json& value) {
-                if (depth > 8) {
-                    throw std::runtime_error("selected metadata JSON nesting exceeds bound");
-                }
-                if (event == json::parse_event_t::object_start) {
-                    object_keys.at(depth).clear();
-                } else if (event == json::parse_event_t::key &&
-                        (depth <= 0 || !object_keys.at(depth - 1).insert(value.get<std::string>()).second)) {
-                    throw std::runtime_error("selected metadata JSON duplicate member");
-                }
-                return true;
-            });
+        const auto expected = selected_json_file(expected_path, large ? 32 * 1024 * 1024 + 1 : 256 * 1024);
         if (!expected.is_array() || expected.size() != (selected ? selected_fields.size() : joint ? 3 : 29)) {
             return 30;
         }
@@ -1984,6 +2050,10 @@ static int test_selected_metadata(const char* path, const char* expected_path, i
                 }
             }
         }
+        if (declarations) {
+            *declarations = expected;
+            return 0;
+        }
         if (atomic) {
             std::puts("{\"selected_records\":38,\"policy_version\":5,\"tensor_data_allocated\":false,\"model_loaded\":false}");
         } else if (selected) {
@@ -1999,10 +2069,140 @@ static int test_selected_metadata(const char* path, const char* expected_path, i
         return 30;
     }
 }
+
+#ifdef JEV_TEST_FULL_RUNTIME
+static int test_prefill_request(
+    const char* path, const char* metadata_path, const char* request_path, const char* mode, const char* reference = nullptr) {
+    using nlohmann::json;
+    try {
+        if (std::strcmp(mode, "full") != 0 && std::strcmp(mode, "reset") != 0 &&
+                !(reference && (std::strcmp(mode, "kernel-error") == 0 || std::strcmp(mode, "kernel-recovery") == 0))) {
+            return 32;
+        }
+        const auto model_bytes = selected_metadata_file(path, 2 * 1024 * 1024 + 1);
+        if (std::filesystem::file_size(metadata_path) > 65536) {
+            return 30;
+        }
+        json records;
+        const int status = test_selected_metadata(path, metadata_path, 5, &records);
+        if (status != 0) {
+            return status;
+        }
+        const auto field = [&](const char* name) -> const json& {
+            for (const auto& record : records) {
+                if (record["name"] == name) {
+                    return record["values"][0];
+                }
+            }
+            throw std::runtime_error("missing prefill field");
+        };
+        const std::pair<const char*, uint32_t> geometry[] = {
+            {"qwen35.block_count", 4}, {"qwen35.embedding_length", 32}, {"qwen35.feed_forward_length", 1024},
+            {"qwen35.context_length", 256}, {"qwen35.attention.head_count", 4}, {"qwen35.attention.head_count_kv", 2},
+            {"qwen35.attention.key_length", 8}, {"qwen35.attention.value_length", 8}, {"qwen35.rope.dimension_count", 8},
+            {"qwen35.ssm.conv_kernel", 3}, {"qwen35.ssm.inner_size", 32}, {"qwen35.ssm.state_size", 8},
+            {"qwen35.ssm.time_step_rank", 4}, {"qwen35.ssm.group_count", 2}, {"qwen35.full_attention_interval", 2},
+        };
+        for (const auto& entry : geometry) {
+            if (field(entry.first) != entry.second) {
+                return 34;
+            }
+        }
+        if (field("general.architecture") != "qwen35" ||
+                field("jev.model.profile_id") != "synthetic-typed-prefill-v1" ||
+                field("jev.model.converter_revision") != JEV_PRISM_SOURCE_REVISION ||
+                field("jev.bitnet.model") != "profile-qwen35-single-projection-v2" ||
+                field("jev.bitnet.execution") != "group128-a8-fp32-nearest-even-identity-v1" ||
+                field("qwen35.attention.layer_norm_rms_epsilon").get<float>() != 1e-5f ||
+                field("qwen35.rope.freq_base").get<float>() != 10000.0f) {
+            return 34;
+        }
+        for (const auto& record : records) {
+            if ((record["name"] == "qwen35.rope.dimension_sections" && record["values"] != json::array({2, 1, 1, 0})) ||
+                    ((record["name"] == "tokenizer.ggml.tokens" || record["name"] == "tokenizer.ggml.token_type") &&
+                        record["values"].size() != 64)) {
+                return 34;
+            }
+        }
+        const auto packet = selected_json_file(request_path, 65537);
+        const auto exact = [](const json& value, std::initializer_list<const char*> names) {
+            return value.is_object() && value.size() == names.size() &&
+                std::all_of(names.begin(), names.end(), [&](const char* name) { return value.contains(name); });
+        };
+        const auto text = [](const json& value, std::size_t maximum) {
+            if (!value.is_string()) {
+                return false;
+            }
+            const auto& string = value.get_ref<const std::string&>();
+            return !string.empty() && string.size() <= maximum && string.find('\0') == std::string::npos &&
+                string.find_first_not_of(" \t\r\n\v\f") != std::string::npos;
+        };
+        const auto token = [](const json& value) {
+            return value.is_number_integer() && (value.is_number_unsigned() ? value.get<uint64_t>() < 64 :
+                value.get<int64_t>() >= 0 && value.get<int64_t>() < 64);
+        };
+        if (!exact(packet, {"format", "id", "profile_id", "profile_sha256", "prompt", "prompt_sha256", "input_token_ids", "options"}) ||
+                packet["format"] != "jev-prefill-request-v1" || !text(packet["id"], 128) ||
+                packet["profile_id"] != field("jev.model.profile_id") || packet["profile_sha256"] != field("jev.model.profile_sha256") ||
+                !text(packet["prompt"], 4096) || !packet["input_token_ids"].is_array() ||
+                packet["input_token_ids"].empty() || packet["input_token_ids"].size() > 128 ||
+                !std::all_of(packet["input_token_ids"].begin(), packet["input_token_ids"].end(), token) ||
+                !packet["options"].is_array() || packet["options"].size() < 2 || packet["options"].size() > 16) {
+            return 34;
+        }
+        const std::string prompt = packet["prompt"];
+        if (packet["prompt_sha256"] != selected_sha256(prompt.data(), prompt.size())) {
+            return 34;
+        }
+        prefill_request request;
+        request.id = packet["id"];
+        request.profile_id = packet["profile_id"];
+        request.profile_sha256 = packet["profile_sha256"];
+        request.source_revision = field("jev.model.source_revision");
+        request.source_tensor_sha256 = field("jev.bitnet.source_tensor_sha256");
+        request.model_sha256 = selected_sha256(model_bytes.data(), model_bytes.size());
+        request.prompt_sha256 = packet["prompt_sha256"];
+        request.tokens = packet["input_token_ids"].get<std::vector<llama_token>>();
+        std::set<std::string> ids;
+        std::set<llama_token> label_tokens;
+        for (const auto& option : packet["options"]) {
+            if (!exact(option, {"id", "label", "token_id"}) || !text(option["id"], 128) ||
+                    !token(option["token_id"]) || option["label"] != std::string(1, 'A' + request.options.size())) {
+                return 34;
+            }
+            const std::string id = option["id"];
+            const llama_token label_token = option["token_id"];
+            if (id.find_first_of("\r\n") != std::string::npos || !ids.insert(id).second ||
+                    !label_tokens.insert(label_token).second) {
+                return 34;
+            }
+            request.options.push_back({id, option["label"], label_token});
+        }
+        llama_log_set([](ggml_log_level level, const char* message, void*) {
+            if (level >= GGML_LOG_LEVEL_WARN) {
+                std::fputs(message, stderr);
+            }
+        }, nullptr);
+        return test_prefill_control(path, reference != nullptr, mode, prompt.c_str(), nullptr, nullptr, reference,
+            nullptr, nullptr, nullptr, &request);
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "prefill request refused: %s\n", error.what());
+        return 34;
+    }
+}
+#endif
 #endif
 
 int main(int argc, char** argv) {
 #ifdef JEV_TEST_REAL_LOADER
+#ifdef JEV_TEST_FULL_RUNTIME
+    if (argc > 1 && std::strcmp(argv[1], "--prefill-request-control") == 0) {
+        return argc == 5 || argc == 6 ? test_prefill_request(argv[2], argv[3], argv[4], argc == 6 ? argv[5] : "full") : 34;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "--prefill-request-bitnet-control") == 0) {
+        return argc == 6 || argc == 7 ? test_prefill_request(argv[2], argv[4], argv[5], argc == 7 ? argv[6] : "full", argv[3]) : 34;
+    }
+#endif
     if (argc > 1 && (std::strcmp(argv[1], "--synthetic-vocab-control-v5") == 0 ||
             std::strcmp(argv[1], "--synthetic-vocab-control-v6") == 0 || std::strcmp(argv[1], "--synthetic-vocab-control-v7") == 0)) {
         const int version = std::strcmp(argv[1], "--synthetic-vocab-control-v7") == 0 ? 7 : std::strcmp(argv[1], "--synthetic-vocab-control-v6") == 0 ? 6 : 5;

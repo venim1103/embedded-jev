@@ -6,6 +6,119 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Generated Typed Native Runner Checkpoint (2026-11-17)
+
+**Generated-only S2 integration implemented and native-tested; real-profile
+execution, S3 numerical acceptance and quality remain separate.**
+Resumed at `66ac4d3` on `main` after the user explicitly authorized everything
+needed for the current work. Routine generated build/test repairs and phase
+reallocation do not need another permission question; resource guards, closed
+historical budgets and separate model/experiment boundaries still apply.
+The preceding time-allocation interruption was not a tool limitation.
+
+Restored the corrected 1024-wide recovery patch without replaying older patches.
+Prism remained clean at `842b1880415d6f508f03b789e5ce70194def7bfd`; reused the
+existing Release/Ninja build, cached libraries and unchanged two-job editor
+setting. No downloads, installs, branches, pushes or model repository code.
+
+### Matched Supervised Build
+
+CMake Tools compiled only the changed loader translation unit and linked its
+executable successfully in **12.868 s**. The observer separately provided
+`ready` before launch, positive `observed`, then `finished` after **24.083 s**:
+five observed processes, zero live at finish, peak group RSS/HWM **515,313,664 B**,
+host available minimum **10,038,411,264 B**, zero owned swap, host swap
+baseline/maximum **1,683,456 B**. Its `build_success_verified=false` is correct;
+independent CMake success supplies the build result. The prior narrowing error
+is fixed through the actual ABI's `uint32_t` dimension, not an unsafe cast.
+This executable now matches the integrated native source, unlike the old
+shelved-WIP cache. The older getter build's missing historical samples remain
+unrepaired; this is evidence for the new, substantively changed build only.
+
+### Native Contract And Evidence
+
+The new generated-only `--prefill-request-control` and
+`--prefill-request-bitnet-control` share `test_prefill_control`. They consume
+the Python request packet, silently preflight the same 38 v5 declarations before
+backend discovery, verify prompt/reference IDs and one-token native extensions,
+and report JSON-safe semantic mappings, conditional scores, provenance hashes,
+runtime revision/timing, positions and counted dispatch/repack/input rows.
+All vocabulary logits and kernel status must be valid before any score output.
+Only `synthetic-typed-prefill-v1` with four/32/1024/64 geometry is accepted.
+Old commands, ABIs, 256-wide caps and output shapes are preserved.
+
+The optional generated integration first passed **1 test in 9.55 s**.
+Review then tightened its harness, not numerical tolerances: each child now
+shares the remaining 60-second stage deadline, preparation-worker output counts
+toward the aggregate cap, and actual generated JSON/GGUF sizes are checked.
+The final focused run passed **1 test in 8.29 s**, internal stage **6.830 s**:
+
+- **23 positive calls**: 17 scored reports and six unchanged v2/v3/v5 getter
+  responses; **31 fail-closed refusals**, with no score stdout on rejection.
+- Dense/BitNet 2-, 3-, 16-option and reordered requests; escaped/non-ASCII
+  semantic IDs; fresh versus warmed/cleared context agreement; zero answer
+  generation; exact mappings; independent NumPy logits/probabilities at unchanged
+  `rtol=atol=2e-5`; vocabulary mass/argmax and selected option agreement.
+- Typed/profile/digest/token/arity/duplicate/BOOL/merge faults and injected
+  kernel failure/recovery. BitNet dispatch counts, one repack and input rows
+  agree, with independent eight-group FP16 scales per output row.
+- Peak observed group RSS **269,799,424 B**, available minimum
+  **10,249,965,568 B**, zero owned swap; host swap baseline/maximum
+  **33,636,352 B**. Output **35,698 B**, logical scratch peak **3,411,746 B**;
+  read-only input hashes/descriptors preserved, temporary scratch removed.
+
+The shared generator is now a pytest-free helper for the cached ML worker.
+It preserves the old 256-wide branch and seed; the new profile's 1024-wide
+F32 matrices meet the unchanged projection eligibility gate. Most matrices
+remain dense: this is one actual BitNet FFN-down dispatch, not whole-model
+ternary execution or a real checkpoint conversion.
+
+### Additional Check Limits And Handoff
+
+A broader three-backend/nonzero legacy regression selection was attempted under
+a 15-second/1 GiB group guard, which refused RSS/swap. Post-failure host swap
+was **33,955,840 B**, up from the preceding 1,683,456 B; the guard did not return
+counters isolating owned RSS versus host growth at refusal. No pass was accepted
+and that selection was not retried unchanged. After a five-second stable-host
+observation, a reduced nine-command compatibility probe generated its first
+old fixture but the first native call exceeded the existing **8192-byte child
+output cap** through legacy logging. No output limit was raised or logs silently
+discarded; no legacy numerical pass is claimed from it. Both disposable
+directories and guarded children were cleaned. These limits and the older two
+resource-failed optional compatibility controls remain open.
+
+Corrected the diagnostic's output routing without changing the native commands
+or either output guard: a small controller retained **all** raw stdout/stderr
+in disposable bounded files, enforcing a separate streaming raw-byte cap within
+the 64 KiB aggregate allowance; the existing 8192-byte guarded pipe carried only
+its receipt. Exit status, complete logs and independent numerical outputs were
+checked before cleanup. No informational messages were silently dropped.
+This materially different diagnostic passed the nonzero `full` control for
+all three unchanged commands: dense, v1 BitNet and v2 profile BitNet.
+The three native outputs totalled **51,076 B**; group RSS peaked at
+**42,090,496 B**, host available minimum **10,509,066,240 B**, scratch peak
+**502,017 B**, with zero owned swap and stable per-job host-swap baselines.
+Old A/B/C IDs, option-conditional scores at the same `2e-5` tolerances, zero
+generation and actual dispatch/repack/input rows agreed. This is a reduced
+legacy compatibility acceptance, not a pass of the resource-blocked extended
+mode suite or the two historical compatibility controls.
+
+The first integrated default gate passed **1956 passed, 232 skipped in
+69.21 s**, Ruff/whitespace clean, before the harness tightening above.
+After tightening, the final required gate passed **1956 passed, 232 skipped
+in 37.80 s**, Ruff and whitespace clean. The native integration selector was
+run separately as recorded above; its default skip is not its execution proof.
+The unchanged successful native build was not repeated for test-only edits.
+No native runner work is left shelved for this checkpoint; the old recovery
+patches are historical copies, not instructions to reapply to the integrated tree.
+
+Next: retain the generated-only acceptance boundary. Broader legacy mode
+coverage can reuse the bounded-log diagnostic design rather than increasing
+the old pipe cap. Define S3's real-profile provenance/runtime contract,
+independent numerical oracles and explicit model-experiment scope before any
+model execution. Conditional probabilities are not calibrated confidence; no
+deployment, representative quality or target-device performance is established.
+
 ## Eligible S2 Fixture And Watcher Prerequisites (2026-11-17)
 
 **Source prerequisites passed; S2 native runner remains unaccepted.**
