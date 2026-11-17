@@ -4160,6 +4160,11 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -s -p no:cacheprovider \
 The fixture uses no model weights, denies network/model-cache/child access in
 its preparation worker, freshly writes/verifies v5 metadata, and compares dense
 and BitNet results with independent NumPy arithmetic at unchanged tolerances.
+The pytest-free generator also reports `header_bytes` from the fresh reader's
+aligned data offset and `header_sha256` over exactly that prefix. The integration
+checks the bounded prefix independently against the generated file. This is
+fixture evidence for a later header-only native preflight, not full-file
+authentication, an implemented large-file getter or real-profile approval.
 Its shared 60-second stage bounds each child including cleanup to <=15 seconds
 and remaining stage time, group RSS/HWM <=1 GiB, host reserve >=2 GiB, zero owned
 swap/no host-swap growth, scratch <=8 MiB and all child output <=64 KiB.

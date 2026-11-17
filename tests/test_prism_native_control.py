@@ -55,30 +55,38 @@ def _profile_parity_fixture(profile, inventory, manifest, blocks):
     return fixture
 
 
-def test_pinned_prism_typed_prefill_requests_on_generated_models():
+def _write_typed_prefill_inputs(root):
     import hashlib
-    import time
-    from copy import deepcopy
-    from tempfile import TemporaryDirectory
 
-    import numpy as np
     from test_inventory import _prefill_model_policy_fixture
     from embedded_jev.inventory import build_inventory
     from embedded_jev.model_profile import parse_model_profile
 
-    source_dir, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
-    build_dir = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
-    if not build_dir:
-        pytest.skip("requires the separately approved Release loader build")
-    assert subprocess.check_output(["git", "-C", str(source_dir), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
-    executable = Path(build_dir) / "bin/prism_bitnet_loader_control"
-    assert executable.is_file()
-    assert "CMAKE_BUILD_TYPE:STRING=Release" in (Path(build_dir) / "CMakeCache.txt").read_text()
-    started = time.monotonic()
-    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-        "TOKENIZERS_PARALLELISM": "false", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": "",
-        "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
-    worker = r'''
+    tokenizer_bytes = typed_prefill_tokenizer_bytes()
+    metadata_files, headers, record = {}, {}, {}
+    _, _, manifest, blocks = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64,
+        metadata_output=metadata_files, headers_output=headers, record_output=record, tokenizer_bytes=tokenizer_bytes)
+    metadata_files[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}"
+    metadata_files["tokenizer_config.json"] = b'{"tokenizer_class":"Qwen2Tokenizer","clean_up_tokenization_spaces":false,"unk_token":"<pad>","eos_token":"<pad>","pad_token":"<pad>"}'
+    record["tokenization"].update(label_token_ids={label: index for index, label in enumerate("ABCDEFGHIJKLMNOP")},
+        special_token_ids={"<pad>": 58, "<|control|>": 59}, non_thinking_suffix="Answer:")
+    record["files"].update({name: {"bytes": len(value), "sha256": hashlib.sha256(value).hexdigest()} for name, value in metadata_files.items()})
+    profile = parse_model_profile(json.dumps(record).encode())
+    inventory = build_inventory(metadata_files, headers, profile=profile)
+    manifest["profile_sha256"] = profile.sha256
+    fixture = _profile_parity_fixture(profile, inventory, manifest, blocks)
+    assert len(fixture) <= 65536
+    (root / "fixture.json").write_text(fixture)
+    inputs = root / "inputs"
+    inputs.mkdir()
+    for name, value in {**metadata_files, "tokenizer.json": tokenizer_bytes}.items():
+        assert len(value) <= 65536
+        (inputs / name).write_bytes(value)
+        (inputs / name).chmod(0o400)
+
+
+def _typed_prefill_fixture_worker_code():
+    return r'''
 import json, os, sys
 from pathlib import Path
 arguments = json.loads(sys.stdin.buffer.read(65537))
@@ -93,6 +101,29 @@ from prism_prefill_fixture import _tiny_prefill_writer_code
 sys.argv = ["fixture", arguments["model"], arguments["backend"], "nonzero", "nonzero", arguments["reference"]]
 exec(_tiny_prefill_writer_code())
 '''
+
+
+def test_pinned_prism_typed_prefill_requests_on_generated_models():
+    import hashlib
+    import time
+    from copy import deepcopy
+    from tempfile import TemporaryDirectory
+
+    import numpy as np
+
+    source_dir, interpreter = _tokenizer_rows_diagnostic_environment("synthetic")
+    build_dir = os.environ.get("MIMO_PRISM_RUNTIME_BUILD")
+    if not build_dir:
+        pytest.skip("requires the separately approved Release loader build")
+    assert subprocess.check_output(["git", "-C", str(source_dir), "rev-parse", "HEAD"], text=True).strip() == PRISM_REVISION
+    executable = Path(build_dir) / "bin/prism_bitnet_loader_control"
+    assert executable.is_file()
+    assert "CMAKE_BUILD_TYPE:STRING=Release" in (Path(build_dir) / "CMakeCache.txt").read_text()
+    started = time.monotonic()
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "TOKENIZERS_PARALLELISM": "false", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
+    worker = _typed_prefill_fixture_worker_code()
     execute = "import json, os, sys\nargs=json.loads(sys.stdin.buffer.read(65537))\nos.execv(args[0], args)"
     samples, successes, refusals = [], 0, 0
     output_bytes = scratch_peak = 0
@@ -103,27 +134,7 @@ exec(_tiny_prefill_writer_code())
             stage = time.monotonic()
             current = root / backend
             current.mkdir()
-            tokenizer_bytes = typed_prefill_tokenizer_bytes()
-            metadata_files, headers, record = {}, {}, {}
-            _, _, manifest, blocks = _prefill_model_policy_fixture(tiny_request=True, vocab_size=64,
-                metadata_output=metadata_files, headers_output=headers, record_output=record, tokenizer_bytes=tokenizer_bytes)
-            metadata_files[record["tokenization"]["template_file"]] = b"{{ messages[0]['content'] }}"
-            metadata_files["tokenizer_config.json"] = b'{"tokenizer_class":"Qwen2Tokenizer","clean_up_tokenization_spaces":false,"unk_token":"<pad>","eos_token":"<pad>","pad_token":"<pad>"}'
-            record["tokenization"].update(label_token_ids={label: index for index, label in enumerate("ABCDEFGHIJKLMNOP")},
-                special_token_ids={"<pad>": 58, "<|control|>": 59}, non_thinking_suffix="Answer:")
-            record["files"].update({name: {"bytes": len(value), "sha256": hashlib.sha256(value).hexdigest()} for name, value in metadata_files.items()})
-            profile = parse_model_profile(json.dumps(record).encode())
-            inventory = build_inventory(metadata_files, headers, profile=profile)
-            manifest["profile_sha256"] = profile.sha256
-            fixture = _profile_parity_fixture(profile, inventory, manifest, blocks)
-            assert len(fixture) <= 65536
-            (current / "fixture.json").write_text(fixture)
-            inputs = current / "inputs"
-            inputs.mkdir()
-            for name, value in {**metadata_files, "tokenizer.json": tokenizer_bytes}.items():
-                assert len(value) <= 65536
-                (inputs / name).write_bytes(value)
-                (inputs / name).chmod(0o400)
+            _write_typed_prefill_inputs(current)
             model, reference = current / "model.gguf", current / "reference.gguf"
             sample = _run_tokenizer_only_guard_v3(interpreter, worker, json.dumps({
                 "model": str(model), "reference": str(reference), "backend": backend + "-request"}).encode(),
@@ -132,7 +143,13 @@ exec(_tiny_prefill_writer_code())
             output_bytes += len(sample["stdout"].encode()) + len(sample["stderr"].encode())
             assert output_bytes <= 65536
             assert sample["returncode"] == 0, sample["stderr"]
-            assert json.loads(sample["stdout"])["fresh_selected_records"] == 38
+            receipt = json.loads(sample["stdout"])
+            assert receipt["fresh_selected_records"] == 38 and receipt["model_bytes"] == model.stat().st_size
+            assert type(receipt["header_bytes"]) is int and 24 <= receipt["header_bytes"] < 65536 < receipt["model_bytes"]
+            with model.open("rb") as stream:
+                prefix = stream.read(receipt["header_bytes"])
+            assert len(prefix) == receipt["header_bytes"]
+            assert hashlib.sha256(prefix).hexdigest() == receipt["header_sha256"]
             fixed = {entry: hashlib.sha256(entry.read_bytes()).hexdigest() for entry in current.rglob("*") if entry.is_file()}
             for entry in fixed:
                 assert entry.stat().st_size <= (2 * 1024**2 if entry.suffix == ".gguf" else 65536)

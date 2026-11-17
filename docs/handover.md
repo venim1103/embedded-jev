@@ -6,6 +6,115 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Header Oracle Prerequisite And Resource Refusal (2026-11-17)
+
+**Tested fixture prerequisite only; native prefix preflight remains shelved
+and unaccepted.** Continued from `3015ab6` on `main`, latest accepted native
+source `b0227ae`. The user authorized necessary autonomous work, including
+routine build/test phase allocation, not relaxation of resource guards or
+implicit model experiments. The actual worktree was clean except the user's
+untracked `.vscode/`; its settings hash remained unchanged. Reused the clean
+Prism checkout at `842b1880415d6f508f03b789e5ce70194def7bfd`, Release/Ninja
+cache, two-job setting and existing libraries. Cached Python pins remained
+Transformers 5.12.1, tokenizers 0.22.2 and NumPy 2.2.6. No real-model inputs,
+downloads, installs, conversions, subagents, branches or pushes.
+
+### Concrete Integration Constraints
+
+The direct verified-owner/scorer trace identified three constraints, not new
+model compatibility:
+
+- The native v5 getter currently reads the complete GGUF under its existing
+  16 MiB limit. The fresh Python v5 verifier also retains its complete-file
+  bound. A real-size carrier needs bounded header proof, not an enlarged old
+  request limit or a claim that the current generated path accepts it.
+- The v2 complete-model factory initializes the CPU backend before returning its
+  owned policy. Typed preflight attached only after owner creation would be too
+  late to satisfy the pre-backend contract. The shared scorer also lacks the
+  loader executable's JSON/OpenSSL build path; it has not been rebuilt or
+  extended for typed requests.
+- The verified profile owner expects BF16 matrices. The current typed CLI
+  fixture honestly uses F32 and a matching synthetic policy. Do not feed it to
+  that owner with forged tensor types, widen the bounded legacy C ABI, or infer
+  another profile's execution approval.
+
+Prepared a separate v5 prefix-control implementation reusing the same 38-field
+getter contract, not adding metadata fields or altering existing commands.
+The unaccepted design reads an explicit <=16 MiB aligned prefix through bounded
+`pread` calls, rejects nonregular/symlink inputs, checks descriptor/path stat
+identity around the read and validates counts before parser allocation.
+Its report distinguishes prefix hashing from full-file authentication and
+grants no runtime approval. The pending synthetic control uses sparse 20 MiB
+carriers with unchanged old-command refusal, malformed bounds/counts/fields,
+FIFO/symlink refusal and no-score checks. Neither the command nor those new
+native cases were executed successfully; they are not current capabilities.
+
+### Failed Build And Preserved Work
+
+Prepared finite scopes before launch: changed loader only, unchanged 60-second
+observer/1 GiB RSS-HWM/2 GiB reserve/no-owned-swap/no-host-swap-growth guards;
+generated checks <=60 seconds, children <=15 seconds, aggregate output <=64 KiB,
+logical sparse scratch <=64 MiB and physical scratch <=8 MiB. A six-second
+preflight showed stable swap and swap-out counters. The host is shared.
+
+The observer emitted `ready` before CMake Tools and positive `observed`, then
+**refused the build after 6.652 s**: host swap rose from **147,529,728 B** to
+**147,566,592 B**. Four observed processes had peak group RSS/HWM
+**137,605,120 B**, zero owned swap and minimum available **8,272,556,032 B**.
+Thus host swap growth, not owned RSS or swap, caused this refusal; its external
+source is not established. `tracked_processes_stopped=true`. CMake separately
+reported the compile **Killed** at **1.685 s** and Ninja failure; CMake diagnostics
+reported no source diagnostic. This is not a successful or completed compile.
+The five-second post-failure observation was diagnostic, not retry permission.
+
+Did not retry the failed build unchanged, alter host settings, relax the guard
+or execute the pending new native command against an unmatched binary. Saved
+only the uncompiled native change and its new sparse-carrier optional test in:
+
+```text
+/home/vscode/.copilot/session-state/f0b7bb5a-ff6a-44c5-aeaf-6454b1304938/files/s2-native-prefix-preflight-pending.patch
+```
+
+Reverse application was checked before shelving; forward `git apply --check`
+passed afterwards. The native worktree is restored to the accepted source and
+the cached executable remains the prior `b0227ae` build, not a prefix-control
+build. This patch is a pending recovery artifact, unlike the three obsolete
+already-integrated S2 recovery patches. No generated model or raw report remains.
+Historical missing getter-build samples and all earlier resource failures stay
+open; the stopped observation does not repair or supersede them.
+
+### Independently Accepted Fixture Evidence
+
+Kept the small source prerequisite separate: extracted the existing bounded
+input preparation and pytest-free worker for reuse without changing their
+network/model-cache/child refusals. The generator now exports the fresh
+reader's aligned header byte count and SHA-256. The generated integration
+independently checks that count is an actual integer in `[24, 65536)`, below
+the model size, and hashes exactly those bytes. It retains the full-file
+read-only hashes, 38-field proof and independent numerical oracle.
+
+Against the unchanged accepted loader, the changed generated integration passed
+**1 test in 11.09 s**, internal stage **10.136 s**: **23 positives and 31
+fail-closed refusals**, peak group RSS **269,574,144 B**, available minimum
+**8,550,944,768 B**, zero owned swap and stable per-job host swap
+**148,819,968 B**. All child output **35,910 B**, scratch peak **3,411,746 B**;
+read-only inputs and descriptors preserved, temporary scratch removed.
+This tests the changed fixture/header evidence and existing typed runner, not
+the shelved prefix implementation.
+
+The required root gate then passed **1956 passed, 232 skipped in 53.98 s**,
+Ruff and whitespace clean. Optional native execution is evidenced by the
+separate focused run above, not the default skips. Only fixture/test/reference
+documentation changes belong to this source checkpoint.
+
+Next: retain the generated-only acceptance and pending-build refusal. A later
+native scope must diagnose and satisfy the shared-host resource boundary rather
+than retry this build unchanged. Before integrating a caller, arrange fresh
+preflight before backend-initializing owner creation, use an honest BF16 fixture,
+pin a matched scorer/runtime and withhold scores through successful owner exit.
+The pending prefix control alone does not close these boundaries, real-profile
+S2/S3, representative quality, whole-model ternary execution or device evidence.
+
 ## S2 Generated Typed Native Runner Checkpoint (2026-11-17)
 
 **Generated-only S2 integration implemented and native-tested; real-profile

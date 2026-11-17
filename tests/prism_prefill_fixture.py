@@ -296,6 +296,8 @@ def _finish_typed_prefill_fixture(path, fixture, reference_logits):
     assert len(contents) <= 2 * 1024**2
     reader = gguf.GGUFReader(path, mode="r")
     try:
+        header_bytes = int(reader.data_offset)
+        header_sha256 = hashlib.sha256(contents[:header_bytes]).hexdigest()
         verified = verify_profile_gguf_selected_fast_metadata_v5(profile, inventory, manifest, blocks, reader=reader,
             expected_file_bytes=len(contents), expected_file_sha256=hashlib.sha256(contents).hexdigest(),
             maximum_file_bytes=2 * 1024**2, **arguments)
@@ -307,4 +309,5 @@ def _finish_typed_prefill_fixture(path, fixture, reference_logits):
             "legacy": reference_logits([3, 5, 7])}), encoding="utf-8")
     finally:
         reader.data._mmap.close()
-    print(json.dumps({"fresh_selected_records": 38, "requests": len(packets), "model_bytes": len(contents)}))
+    print(json.dumps({"fresh_selected_records": 38, "requests": len(packets), "model_bytes": len(contents),
+        "header_bytes": header_bytes, "header_sha256": header_sha256}))
