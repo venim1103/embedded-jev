@@ -5436,7 +5436,7 @@ def test_profile_model_policy_refuses_unpinned_runtime():
         profile_model_specification(profile, report, manifest, blocks)
 
 
-@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins", "table-reader", "table-sources", "table-pins", "table-boolean", "table-budget", "table-file", "metadata-reader", "metadata-bool", "source-reader", "source-paths", "source-frozen", "source-budget", "source-extra", "source-clock", "exit-source", "exit-boolean", "exit-null"])
+@pytest.mark.parametrize("defect", ["digest", "size", "budget", "boolean", "deadline", "scorer-pins", "preflight-type", "table-reader", "table-sources", "table-pins", "table-boolean", "table-budget", "table-file", "metadata-reader", "metadata-bool", "source-reader", "source-paths", "source-frozen", "source-budget", "source-extra", "source-clock", "exit-source", "exit-boolean", "exit-null"])
 def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_path, defect, monkeypatch):
     from embedded_jev import prism_codec
 
@@ -5454,6 +5454,8 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
         arguments["expected_bytes"] = True
     elif defect == "scorer-pins":
         arguments["runtime_scorer"] = object()
+    elif defect == "preflight-type":
+        arguments["request_preflight"] = False
     elif defect.startswith("exit-"):
         arguments["verify_source_files_on_exit"] = True if defect == "exit-source" else 1 if defect == "exit-boolean" else None
     elif defect.startswith("metadata-"):
@@ -5500,6 +5502,80 @@ def test_verified_model_policy_refuses_file_identity_before_native_dispatch(tmp_
     with pytest.raises(ValueError):
         with prism_codec.verified_profile_model_policy(NeverCalled(), path, profile, report, manifest, blocks, **arguments):
             pytest.fail("unverified model policy was yielded")
+
+
+@pytest.mark.parametrize("defect", [None, "replace", "refusal", "boolean", "no-status", "exception", "change", "deadline", "runtime", "digest", "entry-deadline"])
+def test_verified_model_policy_preflights_anchored_file_before_native_dispatch(tmp_path, monkeypatch, defect):
+    import ctypes
+    import os
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from embedded_jev import prism_codec
+
+    profile, report, manifest, blocks = _model_policy_fixture()
+    path = tmp_path / "model.gguf"
+    payload = b"synthetic anchored preflight fixture"
+    path.write_bytes(payload)
+    events, descriptors = [], []
+    handles = ctypes.c_void_p(123), ctypes.c_void_p(456)
+    monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 0)
+
+    def preflight(descriptor):
+        events.append("preflight")
+        descriptors.append(descriptor)
+        assert descriptor.startswith("/proc/self/fd/")
+        assert Path(descriptor).read_bytes() == payload
+        assert os.stat(descriptor).st_ino == path.stat().st_ino
+        if defect == "exception":
+            raise RuntimeError("request validation failed")
+        if defect == "change":
+            path.write_bytes(payload + b"changed")
+        elif defect == "replace":
+            path.rename(tmp_path / "original.gguf")
+            path.write_bytes(b"replacement must not be loaded")
+        elif defect == "deadline":
+            monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 31)
+        return {"refusal": 34, "boolean": False, "no-status": None}.get(defect, 0)
+
+    def factory(native, descriptor, *arguments):
+        assert events[-1] == "preflight"
+        assert descriptor == descriptors[0] and Path(descriptor).read_bytes() == payload
+        events.append("create")
+        return *handles, prism_codec.profile_model_specification(*arguments)
+
+    def free(handle):
+        assert Path(descriptors[0]).is_file() and handle.value == 123
+        events.append("free")
+
+    arguments = {}
+    if defect in ("runtime", "entry-deadline"):
+        def verify_runtime(*arguments, **keywords):
+            if events:
+                raise ValueError("runtime changed during request preflight")
+            if defect == "entry-deadline":
+                monkeypatch.setattr(prism_codec.time, "monotonic", lambda: 31)
+            return {}
+
+        monkeypatch.setattr(prism_codec, "verify_model_runtime_files", verify_runtime)
+        arguments["expected_runtime_files"] = {}
+    monkeypatch.setattr(prism_codec, "create_profile_model_policy", factory)
+    native = SimpleNamespace(prism_bitnet_cpu_model_policy_free_v2=free)
+    succeeds = defect is None
+    failure = RuntimeError if defect == "exception" else ValueError
+    with nullcontext() if succeeds else pytest.raises(failure):
+        with prism_codec.verified_profile_model_policy(
+            native, path, profile, report, manifest, blocks,
+            expected_bytes=len(payload), expected_sha256="0" * 64 if defect == "digest" else hashlib.sha256(payload).hexdigest(),
+            request_preflight=preflight, **arguments,
+        ) as owner:
+            assert succeeds and owner.model_path == descriptors[0]
+            assert owner.verification["runtime_approval"] == "not_granted_by_file_verification"
+    assert events == (["preflight", "create", "free"] if succeeds else
+        [] if defect in ("digest", "entry-deadline") else ["preflight"])
+    assert all(not Path(descriptor).exists() for descriptor in descriptors)
+    if succeeds:
+        assert handles[0].value is handles[1].value is None
 
 
 @pytest.mark.parametrize("defect", ["caller", "change", "replace", "factory-change", "record", "runtime-change", "runtime-deadline", "runtime-pins", "table-failure", "table-change", "table-deadline", "table-snapshot", "metadata-failure", "metadata-change", "metadata-deadline", "metadata-snapshot", "source-failure", "source-change", "source-deadline", "source-snapshot"])

@@ -103,8 +103,8 @@ exec(_tiny_prefill_writer_code())
 '''
 
 
-def _owned_typed_prefill_worker_code():
-    return r'''
+def _owned_typed_prefill_worker_code(*, anchored_preflight=False):
+    return f"anchored_preflight = {anchored_preflight!r}\n" + r'''
 import ctypes, json, os, sys, time
 from pathlib import Path
 from tempfile import TemporaryFile
@@ -173,11 +173,22 @@ elif mode == "spec-metadata":
 registry = native.prism_bitnet_registered_tensor_registry_size
 registry.restype = ctypes.c_size_t
 before_preflight = registry()
-status = preflight(os.fsencode(model_path), ctypes.byref(record), os.fsencode(metadata_path), os.fsencode(request_path))
-assert registry() == before_preflight
-if status:
-    sys.exit(status)
-assert not mode.startswith("spec-"), "invalid specification passed preflight"
+preflight_status, preflight_path, preflight_calls = None, None, 0
+def check_request(path):
+    global preflight_status, preflight_path, preflight_calls
+    preflight_path = path
+    preflight_calls += 1
+    if anchored_preflight:
+        assert path.startswith("/proc/self/fd/")
+    preflight_status = preflight(os.fsencode(path), ctypes.byref(record), os.fsencode(metadata_path), os.fsencode(request_path))
+    assert registry() == before_preflight
+    return preflight_status
+status = 0
+if not anchored_preflight:
+    status = check_request(model_path)
+    if status:
+        sys.exit(status)
+    assert not mode.startswith("spec-"), "invalid specification passed preflight"
 runtime_files = payload["runtime_files"]
 assert len(runtime_files) == 6 and sum(item["bytes"] for item in runtime_files.values()) <= 64 * 1024**2
 assert len(_model_runtime_library_paths(native, control)) == 6
@@ -186,9 +197,12 @@ initialize = native.prism_bitnet_cpu_runtime_init_v1
 initialize.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
 initialize.restype = ctypes.c_int
 buffer_type = ctypes.c_void_p()
-assert initialize(b"842b1880415d6f508f03b789e5ce70194def7bfd", 1, ctypes.byref(buffer_type)) == 0
-assert buffer_type.value
-baseline = registry()
+if anchored_preflight:
+    baseline = before_preflight + 1
+else:
+    assert initialize(b"842b1880415d6f508f03b789e5ce70194def7bfd", 1, ctypes.byref(buffer_type)) == 0
+    assert buffer_type.value
+    baseline = registry()
 libc = ctypes.CDLL(None)
 flush = libc.fflush
 flush.argtypes = [ctypes.c_void_p]
@@ -204,7 +218,12 @@ with TemporaryFile() as output:
                 native, model_path, profile, inventory, manifest, blocks,
                 expected_bytes=expected_bytes, expected_sha256=model_sha256,
                 expected_runtime_files=runtime_files, runtime_scorer=control,
+                request_preflight=check_request if anchored_preflight else None,
             ) as owner:
+                assert not mode.startswith("spec-"), "invalid specification passed preflight"
+                if anchored_preflight:
+                    assert owner.model_path == preflight_path and preflight_calls == 1
+                    assert registry() == baseline + 1
                 status = function(os.fsencode(owner.model_path), ctypes.byref(owner.record), owner.handle, owner.overrides,
                     os.fsencode(metadata_path), os.fsencode(request_path),
                     ("full" if mode == "owner-exit-error" else mode).encode())
@@ -217,14 +236,18 @@ with TemporaryFile() as output:
                         changed.seek(-1, os.SEEK_END)
                         changed.write(bytes([value[0] ^ 1]))
         except ValueError as error:
-            if mode != "owner-exit-error" or str(error) != "verified model changed while policy was active":
+            if anchored_preflight and preflight_status:
+                assert str(error) == f"verified model request preflight failed: {preflight_status!r}"
+                status = preflight_status
+            elif mode == "owner-exit-error" and str(error) == "verified model changed while policy was active":
+                owner_exit_refused = True
+            else:
                 raise
-            owner_exit_refused = True
     finally:
         assert flush(None) == 0
         os.dup2(saved, 1)
         os.close(saved)
-    assert registry() == baseline
+    assert registry() == (before_preflight if anchored_preflight and preflight_status else baseline)
     output.seek(0)
     raw = output.read(8193)
     assert len(raw) <= 8192
@@ -242,6 +265,7 @@ assert verification["runtime_approval"] == "not_granted_by_file_verification"
 assert owner.handle.value is None and owner.overrides.value is None
 report["verified_owner"] = {
     "model_sha256": model_sha256, "runtime_files": len(runtime_files), "native_preflight_before_owner": True,
+    "native_preflight_anchored": anchored_preflight,
     "scores_released_after_exit": True, "runtime_approval": verification["runtime_approval"],
     "buffered_native_output_bytes": len(raw),
 }
@@ -249,7 +273,7 @@ print(json.dumps(report))
 '''
 
 
-@pytest.mark.parametrize("caller", ["cli", "verified-owner"])
+@pytest.mark.parametrize("caller", ["cli", "verified-owner", "anchored-owner"])
 def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
     import hashlib
     import time
@@ -267,8 +291,9 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
     assert executable.is_file()
     assert "CMAKE_BUILD_TYPE:STRING=Release" in (Path(build_dir) / "CMakeCache.txt").read_text()
     started = time.monotonic()
+    uses_owner = caller != "cli"
     runtime_files = {}
-    if caller == "verified-owner":
+    if uses_owner:
         from embedded_jev.streamed_text import bounded_native_file_record
 
         cache = (Path(build_dir) / "CMakeCache.txt").read_text()
@@ -292,7 +317,7 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
         "TOKENIZERS_PARALLELISM": "false", "USE_TORCH": "0", "USE_TF": "0", "USE_FLAX": "0", "CUDA_VISIBLE_DEVICES": "",
         "PYTHONPATH": os.pathsep.join((str(Path(__file__).parent), str(Path(__file__).resolve().parents[1]), str(source_dir / "gguf-py")))}
     worker = _typed_prefill_fixture_worker_code()
-    execute = (_owned_typed_prefill_worker_code() if caller == "verified-owner" else
+    execute = (_owned_typed_prefill_worker_code(anchored_preflight=caller == "anchored-owner") if uses_owner else
         "import json, os, sys\nargs=json.loads(sys.stdin.buffer.read(65537))\nos.execv(args[0], args)")
     samples, successes, refusals = [], 0, 0
     output_bytes = scratch_peak = 0
@@ -326,7 +351,7 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
                 entry.chmod(0o400)
             metadata = current / "metadata.json"
             oracle = json.loads((current / "oracle.json").read_bytes())
-            command = ("--prefill-request-owned-control" if caller == "verified-owner" else
+            command = ("--prefill-request-owned-control" if uses_owner else
                 "--prefill-request-bitnet-control" if use_bitnet else "--prefill-request-control")
             leading = [command, model, reference] if backend == "bitnet" else [command, model]
 
@@ -338,7 +363,7 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
                 call = arguments if arguments is not None else [*leading, metadata_path, packet_path, mode]
                 native_arguments = [str(executable), *map(str, call)]
                 payload = ({"args": native_arguments, "model_bytes": receipt["model_bytes"],
-                    "model_sha256": fixed[model], "runtime_files": runtime_files} if caller == "verified-owner" else native_arguments)
+                    "model_sha256": fixed[model], "runtime_files": runtime_files} if uses_owner else native_arguments)
                 result = _run_tokenizer_only_guard_v3(interpreter, execute,
                     json.dumps(payload).encode(), env=env,
                     maximum_seconds=min(15, 60 - (time.monotonic() - started)), maximum_rss_bytes=1024**3)
@@ -360,7 +385,7 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
                     return None
                 successes += 1
                 report = json.loads(result["stdout"])
-                if caller == "verified-owner" and call[0] == command:
+                if uses_owner and call[0] == command:
                     buffered = report["verified_owner"]["buffered_native_output_bytes"]
                     assert 0 < buffered <= 8192
                     output_bytes += buffered
@@ -398,10 +423,11 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
                     assert report["weight_repacks"] == use_bitnet
                     assert report["bitnet_last_input_tokens"] == (len(packet["input_token_ids"]) if use_bitnet else 0)
                     assert report["memory_position_min"] == report["memory_position_max"] == len(packet["input_token_ids"]) - 1
-                    if caller == "verified-owner":
+                    if uses_owner:
                         evidence = report["verified_owner"]
                         assert evidence["model_sha256"] == fixed[model] and evidence["runtime_files"] == 6
                         assert evidence["native_preflight_before_owner"] is evidence["scores_released_after_exit"] is True
+                        assert evidence["native_preflight_anchored"] is (caller == "anchored-owner")
                         assert evidence["runtime_approval"] == "not_granted_by_file_verification"
                 assert reports[0]["options"] == reports[1]["options"]
             original = json.loads((current / "request-3.json").read_bytes())
@@ -460,7 +486,7 @@ def test_pinned_prism_typed_prefill_requests_on_generated_models(caller):
                 assert recovered["rejected_prefill_calls"] == recovered["kernel_error_status"] == 1
                 assert recovered["options"] == fresh["3"]["options"]
                 assert recovered["bitnet_dispatch_calls"] == recovered["weight_repacks"] == 1
-            if caller == "verified-owner":
+            if uses_owner:
                 for mode in ("spec-profile", "spec-layout", "spec-metadata"):
                     run(current / "request-3.json", mode=mode, expected_status=34)
                 changed_model = current / "changed.gguf"

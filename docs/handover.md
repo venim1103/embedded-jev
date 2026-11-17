@@ -6,6 +6,76 @@ This document is intended to let a new developer or coding-agent session continu
 after reopening the repository inside the devcontainer, without access to the
 original conversation. Read this first, then follow the links for detail.
 
+## S2 Anchored Request Preflight Checkpoint (2026-11-17)
+
+**The verified owner can now run a request check on its hash-verified descriptor
+before creating any native policy.** Continued from `997fed8` with a small
+source-only prerequisite, not a widened real-profile controller or model run.
+Git/pinned source/cache versions and unchanged user settings were rechecked.
+
+`verified_profile_model_policy(..., request_preflight=callback)` is opt-in and
+backward compatible. Its trusted callback receives the retained descriptor path
+after file SHA and optional runtime-file verification; only bare integer zero
+succeeds. It refuses nonzero/BOOL/missing status, propagates exceptions, then
+rechecks runtime files, the existing shared deadline and file identity before
+the factory. Hash failure or an already-expired budget never invokes it. The
+[operating contract](development.md#generated-typed-verified-owner-caller)
+states that callbacks must not initialize backends or emit scores; this is not
+a cryptographic authorization, hostile-code sandbox or hard callback timeout.
+
+### Failure, Repair And Default Evidence
+
+The first focused run was **1 failed, 85 passed in 3.91 s**: a new test incorrectly
+expected rename/replacement during preflight to succeed. A separate disposable
+file probe demonstrated that rename changes the retained inode's `st_ctime_ns`.
+Kept the full dev/inode/size/mtime/ctime guard unchanged and corrected that test
+to require refusal before dispatch. The repaired owner subset passed **86 tests
+in 3.33 s**; Ruff, whitespace and both generated-worker syntax checks passed.
+Two subsequent focused cases cover bad digest and budget expiration before
+callback invocation; these ran in the final default gate.
+
+Required root gate: **1968 passed, 235 skipped in 62.13 s**, clean Ruff and
+`git diff --check`. Pylance found all five resolved call sites compatible with
+the extended keyword-only signature; generated-string callers were separately
+compiled and exercised. The extra optional skip is the new native parameter,
+actually executed below. No tolerances, deadlines or resource caps changed.
+
+### Generated Native Integration
+
+Reused the already matched compiled hooks/libraries from `b997701`; no native
+source changed, no successful target was rebuilt. Fresh shared-host observations
+before the run showed stable swap and swap-in/out counters. Ran these selectors
+together with the documented pinned source, cached interpreter and runtime-build
+environment:
+
+```text
+tests/test_prism_native_control.py::test_pinned_prism_typed_prefill_requests_on_generated_models[anchored-owner]
+tests/test_prism_native_control.py::test_pinned_prism_typed_prefill_requests_on_generated_models[verified-owner]
+```
+
+Result: **2 passed in 35.31 s**, each retaining the 60-second/1 GiB/2 GiB-reserve/
+zero-owned-swap/no-host-swap-growth, <=64 KiB all-output and <=8 MiB scratch
+guards. Each had **12 positives/20 refusals**, unchanged `rtol=atol=2e-5`
+BF16 references, 2/3/16-option/reordered token mappings, actual BitNet dispatch,
+zero answer generation, full/reset/recovery and post-score exit withholding.
+
+| Caller | Internal Time | Group RSS | Available Minimum | All Output | Scratch Peak |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anchored owner | 17.340 s | 283,865,088 B | 11,415,769,088 B | 42,091 B | 1,688,887 B |
+| Original owner | 16.677 s | 283,676,672 B | 11,253,415,936 B | 42,100 B | 1,688,887 B |
+
+Both observed stable host swap **4,415,488 B** and no owned swap. Native preflight
+ran once on the same descriptor used for scoring, before the first backend/policy
+registration. Explicit +2 live/+1 persistent registration checks distinguish the
+default runtime type from a policy leak; original baseline assertions remain.
+Temporary fixtures/descriptors were removed, input hashes preserved.
+
+This closes the descriptor/preflight ordering prerequisite on generated inputs,
+not the separately versioned real-profile controller, streaming full-source/
+converted-tensor verification, execution approval or S3 numerical acceptance.
+The earlier missing build samples/resource failures remain open. No model/cache
+weight read, conversion, download, refit, push, branch or subagent.
+
 ## S2 Generated Typed Verified-Owner Checkpoint (2026-11-17)
 
 **Generated BF16 typed caller integration accepted; real-profile execution and

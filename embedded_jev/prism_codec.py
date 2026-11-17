@@ -6,6 +6,7 @@ import os
 import stat
 import struct
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -4217,6 +4218,7 @@ def verified_profile_model_policy(
     source_paths: dict | None = None, frozen_source_values: np.ndarray | None = None,
     maximum_source_file_bytes: int = 16 * 1024**2,
     verify_source_files_on_exit: bool = False,
+    request_preflight: Callable[[str], int] | None = None,
 ):
     """Own a policy with explicit bounded evidence gates; destroy all native users before exit."""
     specification = profile_model_specification(profile, inventory, manifest, pq2_blocks)
@@ -4232,6 +4234,8 @@ def verified_profile_model_policy(
         raise ValueError("verified model policy requires Linux descriptor paths")
     if runtime_scorer is not None and expected_runtime_files is None:
         raise ValueError("scorer runtime verification requires runtime file pins")
+    if request_preflight is not None and not callable(request_preflight):
+        raise ValueError("request preflight must be callable")
     requested_table = any(value is not None for value in (tensor_reader, source_values, expected_source_sha256))
     if type(verify_policy_metadata) is not bool or (verify_policy_metadata and not requested_table):
         raise ValueError("policy metadata verification requires a tensor-table reader and inputs")
@@ -4289,6 +4293,18 @@ def verified_profile_model_policy(
             raise ValueError("verified model file identity mismatch")
         descriptor_path = f"/proc/self/fd/{model.fileno()}"
         runtime_files = None if expected_runtime_files is None else verify_model_runtime_files(native, expected_runtime_files, scorer=runtime_scorer)
+        if request_preflight is not None:
+            if time.monotonic() - started > maximum_seconds:
+                raise ValueError("verified model request preflight deadline exceeded")
+            status = request_preflight(descriptor_path)
+            if type(status) is not int or status != 0:
+                raise ValueError(f"verified model request preflight failed: {status!r}")
+            if expected_runtime_files is not None:
+                verify_model_runtime_files(native, expected_runtime_files, scorer=runtime_scorer)
+            if time.monotonic() - started > maximum_seconds:
+                raise ValueError("verified model request preflight deadline exceeded")
+            if identity(os.fstat(model.fileno())) != identity(before):
+                raise ValueError("verified model changed during request preflight")
         free = native.prism_bitnet_cpu_model_policy_free_v2
         free.argtypes = [ctypes.c_void_p]
         free.restype = None

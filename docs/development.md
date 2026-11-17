@@ -4206,6 +4206,25 @@ generated verified-owner driver implements the required sequence:
 5. Release scores only after successful owner exit and file/runtime rechecks;
    verify invalidated handles and restored policy-registration count.
 
+For an anchored request check, `verified_profile_model_policy` also accepts
+`request_preflight: Callable[[str], int] | None`. After hashing the opened model
+and checking any supplied runtime pins, it calls the trusted callback once with
+the retained `/proc/self/fd/N` path, before native policy creation. Only a bare
+integer zero succeeds; nonzero, BOOL, missing status and exceptions refuse.
+The owner's existing deadline includes this work. It rechecks runtime pins,
+deadline and descriptor identity after the callback, before the factory.
+`None` preserves the old path. The callback must not initialize a backend or
+emit scores; this is a cooperative, caller-supplied check, not an authorization
+receipt, hard timeout or proof of arbitrary callback behavior.
+
+The `[anchored-owner]` generated control binds the existing silent native hook
+through this callback. It checks the same descriptor is used for scoring and
+requires no registry change during preflight. Unlike `[verified-owner]`, it
+does not explicitly initialize runtime before owner entry: it checks exactly
+one persistent default buffer type plus one live policy registration, then only
+the default after cleanup (and no new registrations on preflight refusal).
+These are separate controls; the original post-initialization baseline remains.
+
 The scorer now compiles with the same JSON include path and OpenSSL Crypto
 link as the loader, using the existing project dependency. Six-file verification
 still covers bridge, CPU, base, scorer, llama and registry files, not loaded pages
@@ -4216,7 +4235,7 @@ The fixture's separate `bitnet-owned-request` variant writes the profile's actua
 BF16 matrices, F32 vectors/convolution and unchanged PQ2 projection. Its NumPy
 oracle applies the pinned BF16 operand encoder to weights and dense inputs and
 the declared attention FP16 intermediates; old F32/256-wide variants remain.
-The same generated selector above now runs `[cli]` and `[verified-owner]`
+The same generated selector above runs `[cli]`, `[verified-owner]` and `[anchored-owner]`
 separately, each under its existing 60-second/1 GiB/2 GiB-reserve/no-swap-growth
 stage guards. The owner case adds caller-record faults and a model mutation after
 successful native scoring: exit refusal must expose no score stdout. Private
